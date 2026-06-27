@@ -32,7 +32,26 @@ const webEnvSchema = z.object({
 	R2_ACCESS_KEY_ID: z.string().default(""),
 	R2_SECRET_ACCESS_KEY: z.string().default(""),
 	R2_BUCKET_NAME: z.string().default("opencut-transcription"),
+	// Public read base for R2 objects (custom domain or r2.dev), e.g.
+	// https://media.yourapp.com — used to serve rehosted Studio media with
+	// permanent URLs. Leave blank to fall back to time-limited presigned URLs.
+	R2_PUBLIC_BASE_URL: z.string().default(""),
 	MODAL_TRANSCRIPTION_URL: z.url().optional(),
+
+	// ── Studio: direct-to-source video generation ─────────────────────────
+	// BytePlus ModelArk — direct Seedance 2.0, no reseller markup. Only backend.
+	BYTEPLUS_API_KEY: z.string().default(""),
+	// API base URL. Defaults to the BytePlus (international) endpoint; set to
+	// https://ark.cn-beijing.volces.com/api/v3 for Volcengine China accounts.
+	BYTEPLUS_BASE_URL: z.string().default(""),
+	// Endpoint IDs are user-specific in ModelArk; leave blank to use the
+	// default Seedance 2.0 model (doubao-seedance-2-0-260128).
+	BYTEPLUS_SEEDANCE_ENDPOINT_ID: z.string().default(""),
+
+	// OpenAI — for GPT Image reference frame generation
+	OPENAI_API_KEY: z.string().default(""),
+	// Model name — defaults to gpt-image-2 (current GPT Image model id)
+	OPENAI_IMAGE_MODEL: z.string().default("gpt-image-2"),
 });
 
 export type WebEnv = z.infer<typeof webEnvSchema>;

@@ -28,6 +28,10 @@ export function Header() {
 			label: "Roadmap",
 			href: "/roadmap",
 		},
+		{
+			label: "Studio",
+			href: "/studio",
+		},
 	];
 
 	return (

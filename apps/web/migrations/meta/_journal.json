@@ -8,6 +8,27 @@
 			"when": 1750753385927,
 			"tag": "0000_brainy_saracen",
 			"breakpoints": true
+		},
+		{
+			"idx": 1,
+			"version": "7",
+			"when": 1751000000000,
+			"tag": "0001_studio_tables",
+			"breakpoints": true
+		},
+		{
+			"idx": 2,
+			"version": "7",
+			"when": 1751100000000,
+			"tag": "0002_board_image_items",
+			"breakpoints": true
+		},
+		{
+			"idx": 3,
+			"version": "7",
+			"when": 1751200000000,
+			"tag": "0003_studio_orientation",
+			"breakpoints": true
 		}
 	]
 }

@@ -86,6 +86,36 @@ export function getMediaUrl(hash: string): string {
 }
 
 /**
+ * Whether R2 credentials are present. Callers should treat cloud storage as
+ * optional and degrade gracefully when this is false.
+ */
+export function isCloudStorageConfigured(): boolean {
+	return Boolean(
+		webEnv.CLOUDFLARE_ACCOUNT_ID &&
+			webEnv.R2_ACCESS_KEY_ID &&
+			webEnv.R2_SECRET_ACCESS_KEY,
+	);
+}
+
+/**
+ * Produce a time-limited, publicly fetchable GET URL for a stored object.
+ * Used when no public bucket domain is configured. SigV4 caps expiry at 7 days.
+ */
+export async function presignGetUrl(
+	hash: string,
+	expiresInSeconds: number,
+): Promise<string> {
+	const client = getR2Client();
+	const url = new URL(getR2Url(`media/${hash}`));
+	url.searchParams.set("X-Amz-Expires", String(expiresInSeconds));
+	const signed = await client.sign(url.toString(), {
+		method: "GET",
+		aws: { signQuery: true },
+	});
+	return signed.url;
+}
+
+/**
  * Delete a media object from R2.
  */
 export async function deleteMedia(hash: string): Promise<void> {
