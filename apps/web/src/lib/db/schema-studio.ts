@@ -26,6 +26,12 @@ export const generationSets = pgTable(
 		duration: integer("duration").notNull().default(5),
 		provider: text("provider").notNull().default("byteplus"),
 		mode: text("mode").notNull().default("text-to-video"),
+		// Reusable character identity this set was generated against. Nullable —
+		// only set when a persona is active. SET NULL so deleting a persona keeps
+		// the historical takes intact.
+		personaId: text("persona_id").references(() => personas.id, {
+			onDelete: "set null",
+		}),
 		createdAt: timestamp("created_at")
 			.$defaultFn(() => new Date())
 			.notNull(),
@@ -33,7 +39,10 @@ export const generationSets = pgTable(
 			.$defaultFn(() => new Date())
 			.notNull(),
 	},
-	(t) => [index("generation_sets_user_id_idx").on(t.userId)],
+	(t) => [
+		index("generation_sets_user_id_idx").on(t.userId),
+		index("generation_sets_persona_id_idx").on(t.personaId),
+	],
 );
 
 // ─── Takes ────────────────────────────────────────────────────────────────
@@ -109,4 +118,39 @@ export const imageStills = pgTable(
 			.notNull(),
 	},
 	(t) => [index("image_stills_user_id_idx").on(t.userId)],
+);
+
+// ─── Personas ───────────────────────────────────────────────────────────────
+// Reusable character identity (reference-conditioned, no training). The anchor
+// image + locked descriptor are threaded through every shot so the same
+// character recurs across generations. anchorImageUrl / refImageUrls are plain
+// URLs, so a *generated* anchor (character sheet → crop) and an *uploaded* photo
+// (Soul ID-style, fast-follow) are stored identically — no schema change needed
+// when photo upload lands.
+
+export const personas = pgTable(
+	"personas",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+		name: text("name").notNull(),
+		// Locked identity sentence woven into every prompt for textual consistency,
+		// e.g. "a woman in her 30s, short silver hair, scar on left cheek".
+		descriptor: text("descriptor").notNull(),
+		// Canonical portrait — the primary reference passed to gpt-image-2's
+		// /images/edits endpoint when rendering each per-shot still.
+		anchorImageUrl: text("anchor_image_url").notNull(),
+		// Extra angles (3/4, profile, back) as a JSON string-array of URLs. Passed
+		// as additional image[] references when present.
+		refImageUrls: text("ref_image_urls"),
+		// Optional locked seed for extra cross-shot stability.
+		seed: integer("seed"),
+		createdAt: timestamp("created_at")
+			.$defaultFn(() => new Date())
+			.notNull(),
+		updatedAt: timestamp("updated_at")
+			.$defaultFn(() => new Date())
+			.notNull(),
+	},
+	(t) => [index("personas_user_id_idx").on(t.userId)],
 );

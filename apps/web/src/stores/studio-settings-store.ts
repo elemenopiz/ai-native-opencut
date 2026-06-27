@@ -20,6 +20,10 @@ interface StudioSettingsState {
 	duration: number;
 	cameraPreset: string | null;
 	seedLocked: boolean;
+	// Persona consistency: "high" renders a per-shot reference still via
+	// gpt-image-2 edits (best identity match, +1 image call); "fast" uses the
+	// persona's anchor image directly as the reference (cheaper, quicker).
+	consistencyMode: "high" | "fast";
 	// GPT Image
 	imageSize: ImageSize;
 	imageQuality: ImageQuality;
@@ -36,6 +40,7 @@ export const useStudioSettingsStore = create<StudioSettingsState>()(
 			duration: 5,
 			cameraPreset: null,
 			seedLocked: false,
+			consistencyMode: "high",
 			imageSize: "1024x1536",
 			imageQuality: "high",
 			set: (patch) => set(patch),

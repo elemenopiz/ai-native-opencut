@@ -12,7 +12,7 @@ import { AudioCombinedView } from "./views/audio-combined";
 import { ElementsCombinedView } from "./views/elements-combined";
 import { VisualsCombinedView } from "./views/visuals-combined";
 import { BrandKitView } from "./views/brand-kit";
-import { VideoGenerationPanel } from "./views/video-generation";
+import { GenerateView } from "./views/generate";
 import { VisualSearchView } from "./views/visual-search";
 
 export function AssetsPanel() {
@@ -20,8 +20,8 @@ export function AssetsPanel() {
 
 	const viewMap: Record<Tab, React.ReactNode> = {
 		media: <MediaView />,
+		generate: <GenerateView />,
 		ai: <AIStudioView />,
-		videogen: <VideoGenerationPanel />,
 		text: <TextView />,
 		captions: <Captions />,
 		audio: <AudioCombinedView />,

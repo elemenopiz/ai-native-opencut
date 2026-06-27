@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import {
 	generateVideo,
@@ -6,11 +7,21 @@ import {
 	type VideoOrientation,
 	type VideoMode,
 } from "@/lib/studio/provider-adapter";
+import { renderPersonaStill } from "@/lib/studio/persona-still";
+import { composePersonaVideoPrompt } from "@/lib/studio/personas";
+import type { ImageSize } from "@/lib/studio/image-generator";
 import { db } from "@/lib/db";
-import { generationSets, takes } from "@/lib/db/schema-studio";
+import { generationSets, personas, takes } from "@/lib/db/schema-studio";
 
 /** Max value BytePlus accepts for a seed (signed 32-bit). */
 const MAX_SEED = 2_147_483_647;
+
+/** Reference-still aspect to match the video orientation (High consistency). */
+const STILL_SIZE_BY_ORIENTATION: Record<VideoOrientation, ImageSize> = {
+	portrait: "1024x1536",
+	landscape: "1536x1024",
+	square: "1024x1024",
+};
 
 export async function POST(req: Request) {
 	try {
@@ -22,6 +33,8 @@ export async function POST(req: Request) {
 			orientation?: VideoOrientation;
 			duration?: number;
 			mode?: VideoMode;
+			personaId?: string;
+			consistencyMode?: "high" | "fast";
 			userId?: string;
 		};
 
@@ -33,6 +46,8 @@ export async function POST(req: Request) {
 			orientation = "landscape",
 			duration = 5,
 			mode = "text-to-video",
+			personaId,
+			consistencyMode = "high",
 			userId,
 		} = body;
 
@@ -40,36 +55,78 @@ export async function POST(req: Request) {
 			return NextResponse.json({ error: "prompt is required" }, { status: 400 });
 		}
 
-		// Always pin a concrete seed. If the caller didn't lock one, we pick a
-		// random seed ourselves rather than letting the provider choose silently —
-		// otherwise "generate 4 drafts, promote the winner at 1080p" can't
-		// reproduce the shot, because the provider doesn't reliably echo back the
-		// seed it used for a random generation.
-		const effectiveSeed = seed ?? Math.floor(Math.random() * MAX_SEED);
+		// Persona orchestration (reference-conditioned consistency). When a persona
+		// is active we weave its locked descriptor into the prompt, force
+		// image-to-video, and supply the reference frame: High renders a fresh
+		// per-shot still of the same character via gpt-image-2 edits; Fast uses the
+		// persona's anchor image directly. All stored on the set so promote-to-1080p
+		// reproduces the exact same shot.
+		let finalPrompt = prompt;
+		let finalReferenceImageUrl = referenceImageUrl;
+		let finalMode: VideoMode = mode;
+		let personaSeed: number | undefined;
+
+		if (personaId) {
+			const persona = await db.query.personas.findFirst({
+				where: eq(personas.id, personaId),
+			});
+			if (!persona) {
+				return NextResponse.json({ error: "Persona not found" }, { status: 404 });
+			}
+
+			finalPrompt = composePersonaVideoPrompt(prompt, persona.descriptor);
+			finalMode = "image-to-video";
+			personaSeed = persona.seed ?? undefined;
+
+			if (consistencyMode === "fast") {
+				finalReferenceImageUrl = persona.anchorImageUrl;
+			} else {
+				const refImageUrls = persona.refImageUrls
+					? (JSON.parse(persona.refImageUrls) as string[])
+					: undefined;
+				const still = await renderPersonaStill({
+					anchorImageUrl: persona.anchorImageUrl,
+					refImageUrls,
+					scenePrompt: prompt,
+					descriptor: persona.descriptor,
+					size: STILL_SIZE_BY_ORIENTATION[orientation],
+				});
+				finalReferenceImageUrl = still.imageUrl;
+			}
+		}
+
+		// Always pin a concrete seed. If the caller didn't lock one, fall back to
+		// the persona's locked seed, else pick a random seed ourselves rather than
+		// letting the provider choose silently — otherwise "generate 4 drafts,
+		// promote the winner at 1080p" can't reproduce the shot, because the
+		// provider doesn't reliably echo back the seed it used.
+		const effectiveSeed =
+			seed ?? personaSeed ?? Math.floor(Math.random() * MAX_SEED);
 
 		// Persist the generation set
 		const setId = nanoid();
 		await db.insert(generationSets).values({
 			id: setId,
 			userId: userId ?? null,
-			prompt,
-			referenceImageUrl,
+			prompt: finalPrompt,
+			referenceImageUrl: finalReferenceImageUrl,
 			baseSeed: effectiveSeed,
 			resolution,
 			orientation,
 			duration,
-			mode,
+			mode: finalMode,
+			personaId: personaId ?? null,
 		});
 
 		// Submit to provider
 		const result = await generateVideo({
-			prompt,
-			referenceImageUrl,
+			prompt: finalPrompt,
+			referenceImageUrl: finalReferenceImageUrl,
 			seed: effectiveSeed,
 			resolution,
 			orientation,
 			duration,
-			mode,
+			mode: finalMode,
 		});
 
 		// Persist the take

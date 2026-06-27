@@ -5,7 +5,12 @@ import type {
 	TimelineTrack,
 	TimelineElement,
 	ClipboardItem,
+	CreateVideoElement,
+	GenerationSpec,
+	Take,
 } from "@/types/timeline";
+import { buildVideoElement } from "@/lib/timeline/element-utils";
+import { TIMELINE_CONSTANTS } from "@/constants/timeline-constants";
 import type {
 	AnimationInterpolation,
 	AnimationPropertyPath,
@@ -271,6 +276,180 @@ export class TimelineManager {
 		} else {
 			command.execute();
 		}
+	}
+
+	// ── AI-native generative slots & takes ────────────────────────────────────
+	// A generative slot is a video/image clip that carries a `generation` recipe
+	// and a list of `takes` (generated alternates). Selecting a take is
+	// non-destructive — it swaps `activeTakeId` and mirrors that take's media
+	// onto the clip's `mediaId`, so a filled slot behaves like any other clip.
+	// Everything here routes through the command stack, so it's all undoable.
+
+	/** Insert an empty generative slot — a clip with a prompt/spec but no media
+	 *  yet. It occupies real time so the reel can be storyboarded first. Returns
+	 *  the new element id. */
+	addGenerativeSlot({
+		spec,
+		duration,
+		startTime,
+		trackId,
+	}: {
+		spec?: GenerationSpec;
+		duration?: number;
+		startTime?: number;
+		trackId?: string;
+	}): string {
+		const slotDuration =
+			duration ?? spec?.duration ?? TIMELINE_CONSTANTS.DEFAULT_ELEMENT_DURATION;
+		const element: CreateVideoElement = {
+			...buildVideoElement({
+				mediaId: "",
+				name: spec?.prompt?.trim().slice(0, 40) || "Generative slot",
+				duration: slotDuration,
+				startTime: startTime ?? 0,
+			}),
+			generation: spec,
+			takes: [],
+		};
+		const command = new InsertElementCommand({
+			element,
+			placement: trackId
+				? { mode: "explicit", trackId }
+				: { mode: "auto", trackType: "video" },
+		});
+		this.editor.command.execute({ command });
+		return command.getElementId();
+	}
+
+	/** Replace a slot's generation recipe. */
+	setSlotSpec({
+		elementId,
+		spec,
+	}: {
+		elementId: string;
+		spec: GenerationSpec;
+	}): void {
+		const found = this.findElementById({ elementId });
+		if (!found) return;
+		this.updateElements({
+			updates: [
+				{ trackId: found.trackId, elementId, updates: { generation: spec } },
+			],
+		});
+	}
+
+	/** Append a take to a clip (when a job is enqueued, then again as it lands). */
+	addTakeToElement({
+		elementId,
+		take,
+	}: {
+		elementId: string;
+		take: Take;
+	}): void {
+		const found = this.findElementById({ elementId });
+		if (!found) return;
+		const takes = [...this.getElementTakes(found.element), take];
+		this.updateElements({
+			updates: [{ trackId: found.trackId, elementId, updates: { takes } }],
+		});
+	}
+
+	/** Patch a single take in place (status, mediaId, thumbnail, error, …). */
+	updateTake({
+		elementId,
+		takeId,
+		patch,
+	}: {
+		elementId: string;
+		takeId: string;
+		patch: Partial<Take>;
+	}): void {
+		const found = this.findElementById({ elementId });
+		if (!found) return;
+		const takes = this.getElementTakes(found.element).map((take) =>
+			take.id === takeId ? { ...take, ...patch } : take,
+		);
+		this.updateElements({
+			updates: [{ trackId: found.trackId, elementId, updates: { takes } }],
+		});
+	}
+
+	/** Choose the active take — non-destructive; mirrors its media onto the clip. */
+	selectTake({
+		elementId,
+		takeId,
+	}: {
+		elementId: string;
+		takeId: string;
+	}): void {
+		const found = this.findElementById({ elementId });
+		if (!found) return;
+		const take = this.getElementTakes(found.element).find(
+			(t) => t.id === takeId,
+		);
+		if (!take) return;
+		this.updateElements({
+			updates: [
+				{
+					trackId: found.trackId,
+					elementId,
+					updates: {
+						activeTakeId: takeId,
+						...(take.mediaId ? { mediaId: take.mediaId } : {}),
+					},
+				},
+			],
+		});
+	}
+
+	/** Remove a take. If it was the active one, clears the active selection. */
+	removeTake({
+		elementId,
+		takeId,
+	}: {
+		elementId: string;
+		takeId: string;
+	}): void {
+		const found = this.findElementById({ elementId });
+		if (!found) return;
+		const takes = this.getElementTakes(found.element).filter(
+			(t) => t.id !== takeId,
+		);
+		const wasActive = this.getActiveTakeId(found.element) === takeId;
+		this.updateElements({
+			updates: [
+				{
+					trackId: found.trackId,
+					elementId,
+					updates: {
+						takes,
+						...(wasActive ? { activeTakeId: undefined } : {}),
+					},
+				},
+			],
+		});
+	}
+
+	private findElementById({
+		elementId,
+	}: {
+		elementId: string;
+	}): { trackId: string; element: TimelineElement } | null {
+		for (const track of this.getTracks()) {
+			const element = track.elements.find((e) => e.id === elementId);
+			if (element) return { trackId: track.id, element };
+		}
+		return null;
+	}
+
+	private getElementTakes(element: TimelineElement): Take[] {
+		return "takes" in element && Array.isArray(element.takes)
+			? element.takes
+			: [];
+	}
+
+	private getActiveTakeId(element: TimelineElement): string | undefined {
+		return "activeTakeId" in element ? element.activeTakeId : undefined;
 	}
 
 	addClipEffect({

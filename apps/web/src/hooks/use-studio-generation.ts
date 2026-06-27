@@ -30,6 +30,8 @@ export interface UseStudioGenerationReturn {
 		orientation: VideoOrientation;
 		duration: number;
 		mode: VideoMode;
+		personaId?: string;
+		consistencyMode?: "high" | "fast";
 	}) => Promise<void>;
 	promoteTo1080p: (takeId: string) => Promise<void>;
 	starTake: (takeId: string, starred: boolean) => Promise<void>;
@@ -111,6 +113,8 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 			orientation: VideoOrientation;
 			duration: number;
 			mode: VideoMode;
+			personaId?: string;
+			consistencyMode?: "high" | "fast";
 		}) => {
 			setStatus("submitting");
 			setError(null);

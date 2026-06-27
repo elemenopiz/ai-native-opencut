@@ -3,6 +3,10 @@
 import { useEditor } from "@/hooks/use-editor";
 import { useAssetsPanelStore } from "@/stores/assets-panel-store";
 import AudioWaveform from "./audio-waveform";
+import {
+	GenerativeSlotContent,
+	SlotTakesBadge,
+} from "./generative-slot-content";
 import { useTimelineElementResize } from "@/hooks/timeline/element/use-element-resize";
 import {
 	useKeyframeDrag,
@@ -860,11 +864,20 @@ const ELEMENT_CONTENT_RENDERERS: Record<
 		const mediaAsset = mediaAssets.find(
 			(asset) => asset.id === videoElement.mediaId,
 		);
-		return renderTiledMedia({
-			element: videoElement,
-			imageUrl: mediaAsset?.thumbnailUrl,
-			track,
-		});
+		// A generative slot with no resolved media yet → empty/generating visual.
+		if (videoElement.generation && !mediaAsset) {
+			return <GenerativeSlotContent element={videoElement} />;
+		}
+		return (
+			<>
+				{renderTiledMedia({
+					element: videoElement,
+					imageUrl: mediaAsset?.thumbnailUrl,
+					track,
+				})}
+				<SlotTakesBadge element={videoElement} />
+			</>
+		);
 	},
 	image: ({ element, track, mediaAssets }) => {
 		const imageElement = element as Extract<
@@ -874,11 +887,19 @@ const ELEMENT_CONTENT_RENDERERS: Record<
 		const mediaAsset = mediaAssets.find(
 			(asset) => asset.id === imageElement.mediaId,
 		);
-		return renderTiledMedia({
-			element: imageElement,
-			imageUrl: mediaAsset?.url,
-			track,
-		});
+		if (imageElement.generation && !mediaAsset) {
+			return <GenerativeSlotContent element={imageElement} />;
+		}
+		return (
+			<>
+				{renderTiledMedia({
+					element: imageElement,
+					imageUrl: mediaAsset?.url,
+					track,
+				})}
+				<SlotTakesBadge element={imageElement} />
+			</>
+		);
 	},
 };
 

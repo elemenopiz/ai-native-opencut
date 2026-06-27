@@ -132,7 +132,61 @@ interface BaseTimelineElement {
 	animations?: ElementAnimations;
 }
 
-export interface VideoElement extends BaseTimelineElement {
+// ── AI-native generative clips ────────────────────────────────────────────────
+// A "generative slot" is a normal Video/Image element that additionally carries a
+// `generation` recipe and a list of `takes` (generated alternates). The active
+// take's media is mirrored onto the element's `mediaId`, so once a take is chosen
+// the clip behaves exactly like any other element — no special-casing downstream.
+
+export type VideoResolution = "480p" | "720p" | "1080p";
+export type VideoOrientation = "portrait" | "landscape" | "square";
+export type VideoMode = "text-to-video" | "image-to-video";
+
+/** The recipe that produces a take — the consolidated studio + videogen params. */
+export interface GenerationSpec {
+	prompt: string;
+	provider?: string;
+	model?: string;
+	mode: VideoMode;
+	referenceImageUrl?: string;
+	personaId?: string;
+	consistencyMode?: "high" | "fast";
+	cameraPreset?: string;
+	seed?: number;
+	seedLocked?: boolean;
+	resolution: VideoResolution;
+	orientation: VideoOrientation;
+	duration: number;
+}
+
+export type TakeStatus = "queued" | "generating" | "ready" | "failed";
+
+/** One generated variant of a clip. Alternates are never destroyed on selection. */
+export interface Take {
+	id: string;
+	status: TakeStatus;
+	/** Bound once the generated result is imported as a project MediaAsset. */
+	mediaId?: string;
+	thumbnailUrl?: string;
+	seed?: number;
+	/** Exact recipe that produced this take. */
+	spec: GenerationSpec;
+	/** Provider job id, for polling while the take is generating. */
+	jobId?: string;
+	createdAt: number;
+	error?: string;
+}
+
+/** Mixed into Video/Image elements to make them AI-native generative slots. */
+export interface GenerativeFields {
+	/** Present ⇒ this clip is a generative slot. */
+	generation?: GenerationSpec;
+	/** Generated variants; the active one's media is mirrored to `mediaId`. */
+	takes?: Take[];
+	activeTakeId?: string;
+}
+
+export interface VideoElement extends BaseTimelineElement, GenerativeFields {
 	type: "video";
 	mediaId: string;
 	muted?: boolean;
@@ -147,7 +201,7 @@ export interface VideoElement extends BaseTimelineElement {
 	mask?: MaskShape;
 }
 
-export interface ImageElement extends BaseTimelineElement {
+export interface ImageElement extends BaseTimelineElement, GenerativeFields {
 	type: "image";
 	mediaId: string;
 	hidden?: boolean;
