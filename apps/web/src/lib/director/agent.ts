@@ -28,7 +28,7 @@
  *    falls back to it automatically when the relay reports no ANTHROPIC_API_KEY
  *    (or when the caller passes `brain: "local"`).
  *
- * Both brains drive the SAME verb registry ({@link DIRECTOR_TOOLS}) and the
+ * Both brains drive the SAME verb registry ({@link TOOLS}) and the
  * SAME `DirectorApi`, expand SHORT ids at the same choke point
  * ({@link expandIdArgs}), and feed the Sprint-0 mutation-`delta` back as the
  * observation, so behavior differs only in transport quality.
@@ -41,11 +41,8 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 import type { DirectorApi } from "./director-api";
-import type { ConsistencyCharacter } from "./consistency-prompt";
 import { PLAYBOOKS } from "@/lib/studio/playbooks";
 import { createShortIdMap, type ShortIdMap } from "./short-id";
-import { getAllTransitions } from "@/lib/transitions";
-import { getAllEffects } from "@/lib/effects";
 import {
 	needsApproval,
 	formatCostRange,
@@ -53,6 +50,13 @@ import {
 	type CostRange,
 } from "@/lib/studio/cost";
 import { useStudioSettingsStore } from "@/stores/studio-settings-store";
+import {
+	toolCatalog,
+	str,
+	numOr,
+	type JSONSchema,
+	type ToolHandler,
+} from "./tool-catalog";
 
 /** Single-shot, non-streaming chat call: (message, system) → assistant text. Local (Ollama) transport. */
 export type AgentChatFn = (message: string, system: string) => Promise<string>;
@@ -111,621 +115,66 @@ const MAX_MODEL_CALLS = 30;
 /** The browser-side endpoint of the stateless server relay. */
 const AGENT_RELAY_URL = "/api/llm/agent";
 
-// ── arg coercion helpers ─────────────────────────────────────────────────────
+// ── tool registry + docs (built from the shared catalog) ─────────────────────
+//
+// The executor registry and the agent-facing docs string are BOTH derived from
+// `toolCatalog()` — the SAME catalog the future MCP server consumes — so there
+// is a single source of truth for verbs, arg shapes, arg-coercion, and the
+// SECONDS convention. (The arg-coercion helpers that used to live here now live
+// in `tool-catalog.ts`, alongside the handlers that use them.)
 
-const numOr = (v: unknown, fallback: number): number => {
-	const n = Number(v);
-	return Number.isFinite(n) && n > 0 ? n : fallback;
-};
+/** The verb registry the agent may call — every catalog handler, keyed by name. */
+const TOOLS: Record<string, ToolHandler> = Object.fromEntries(
+	toolCatalog().map((t) => [t.name, t.handler]),
+);
 
-/**
- * Optional numeric arg: `undefined` when unset/non-finite, otherwise the
- * number as-is — unlike `numOr`, 0 and negative values pass through untouched
- * (needed for time fields where 0 is a legitimate SECONDS value, e.g.
- * `trimStart: 0` or `startTime: 0`).
- */
-const numOrUndefined = (v: unknown): number | undefined => {
-	if (v == null) return undefined;
-	const n = Number(v);
-	return Number.isFinite(n) ? n : undefined;
-};
-
-/** Required numeric time arg (SECONDS) that may legitimately be 0; falls back to 0 if unparsable. */
-const numOrZeroTime = (v: unknown): number => {
-	const n = Number(v);
-	return Number.isFinite(n) ? n : 0;
-};
-
-const str = (v: unknown): string => (v == null ? "" : String(v));
-
-/** Optional string arg: `undefined` when unset (vs. `str`, which coerces to `""`). */
-const strOrUndefined = (v: unknown): string | undefined =>
-	v == null ? undefined : String(v);
-
-/** Validate a loose `textAlign` arg against the literal union the API accepts; drops anything else. */
-const textAlignOf = (v: unknown): "left" | "center" | "right" | undefined => {
-	const s = v == null ? undefined : String(v);
-	return s === "left" || s === "center" || s === "right" ? s : undefined;
-};
-
-/** Coerce a loose `shots` arg into the storyboard shape. */
-function asShots(
-	args: Record<string, unknown>,
-): { prompt: string; duration: number }[] {
-	const raw = Array.isArray(args.shots) ? args.shots : [];
-	return raw.map((s) => {
-		if (typeof s === "string") return { prompt: s, duration: 6 };
-		const obj = (s ?? {}) as Record<string, unknown>;
-		return { prompt: str(obj.prompt), duration: numOr(obj.duration, 6) };
-	});
-}
-
-/** Coerce a loose `extraCharacters` arg for setConsistencyContext. */
-function asExtraCharacters(
-	args: Record<string, unknown>,
-): ConsistencyCharacter[] {
-	const raw = Array.isArray(args.extraCharacters) ? args.extraCharacters : [];
-	return raw.map((c) => {
-		const obj = (c ?? {}) as Record<string, unknown>;
-		return { name: str(obj.name), descriptor: str(obj.descriptor) };
-	});
-}
-
-/**
- * Coerce a loose `params` arg for applyEffect: a bag of primitive (number/
- * string/boolean) overrides keyed by effect-specific param names. Non-object
- * input or non-primitive values are dropped rather than rejected — the agent
- * doesn't know each effect's exact param shape, so this is lenient by design.
- */
-function asEffectParams(
-	v: unknown,
-): Record<string, number | string | boolean> | undefined {
-	if (!v || typeof v !== "object" || Array.isArray(v)) return undefined;
-	const out: Record<string, number | string | boolean> = {};
-	for (const [key, val] of Object.entries(v as Record<string, unknown>)) {
-		if (
-			typeof val === "number" ||
-			typeof val === "string" ||
-			typeof val === "boolean"
-		) {
-			out[key] = val;
-		}
+/** Render one arg's type for the docs string (SECONDS fields show as `seconds`). */
+function argType(node: JSONSchema): string {
+	if (node.enum) return node.enum.map((e) => JSON.stringify(e)).join("|");
+	if (node["x-seconds"]) return "seconds";
+	if (node.oneOf) return node.oneOf.map(argType).join(" | ");
+	if (node.type === "array")
+		return `[${node.items ? argType(node.items) : "any"}, ...]`;
+	if (node.type === "object" && node.properties) {
+		return `{ ${Object.entries(node.properties)
+			.map(([k, v]) => `"${k}": ${argType(v)}`)
+			.join(", ")} }`;
 	}
-	return Object.keys(out).length ? out : undefined;
+	return node.type ?? "any";
 }
 
-// ── tool registry ────────────────────────────────────────────────────────────
-
-/**
- * JSON schema for a tool's input — strict-mode compatible
- * (`additionalProperties: false` + `required`). The index signature keeps it
- * structurally assignable to the SDK's `Tool["input_schema"]`.
- */
-interface ToolInputSchema {
-	type: "object";
-	properties: Record<string, Record<string, unknown>>;
-	required: string[];
-	additionalProperties: false;
-	[k: string]: unknown;
+/** Render a verb's args object for the docs string; optional keys get a `?`. */
+function renderArgs(schema: JSONSchema): string {
+	const props = schema.properties;
+	if (!props || Object.keys(props).length === 0) return "{}";
+	const required = new Set(schema.required ?? []);
+	const parts = Object.entries(props).map(
+		([k, v]) => `"${k}"${required.has(k) ? "" : "?"}: ${argType(v)}`,
+	);
+	return `{ ${parts.join(", ")} }`;
 }
 
-/**
- * One registered Director verb: the model-facing contract (description +
- * strict JSON schema) and the executor that drives `DirectorApi`.
- */
-interface DirectorToolDef {
-	description: string;
-	input_schema: ToolInputSchema;
-	run: (
-		d: DirectorApi,
-		a: Record<string, unknown>,
-	) => DirectorResultLike | Promise<DirectorResultLike>;
-}
-
-/** Schema shorthands, so registry entries stay one-screen readable. */
-const objectSchema = (
-	properties: Record<string, Record<string, unknown>>,
-	required: string[] = [],
-): ToolInputSchema => ({
-	type: "object",
-	properties,
-	required,
-	additionalProperties: false,
-});
-const stringProp = (description: string) => ({ type: "string", description });
-const numberProp = (description: string) => ({ type: "number", description });
-const secondsProp = (description: string) =>
-	numberProp(`${description} In SECONDS.`);
+/** Agent-facing tool docs, one line per verb, built from `toolCatalog()`. */
+const TOOL_DOCS = [
+	"Tools (call ONE per turn):",
+	...toolCatalog().map(
+		(t) => `- ${t.name} — ${t.description} args: ${renderArgs(t.inputSchema)}`,
+	),
+].join("\n");
 
 /**
- * The verb registry the agent is allowed to call — a focused subset of the
- * DirectorApi (the orchestration-relevant verbs, not the low-level edit ops).
- *
- * SINGLE SOURCE OF TRUTH for both brains: the frontier loop derives its native
- * Anthropic tool definitions from `description` + `input_schema` (with
- * `strict: true`), and the local text loop derives its prose tool catalog from
- * the same fields. `run` is the shared name→executor mapping.
- *
- * ── REGISTRATION SEAM (for the addClip / verb fan-out follow-ups) ────────────
- * To add a new verb (e.g. `addClip`, `applyTransition`, `applyEffect`):
- *   1. Add the verb to `director-api.ts` (returning a `DirectorResult` with a
- *      mutation `delta`, like `reserveSlot` does).
- *   2. Add ONE entry to this record: `description` + strict `input_schema`
- *      (time fields in SECONDS via `secondsProp`) + a `run` executor that
- *      coerces args with the helpers above. Mirror the `reserveSlot` entry.
- * Nothing else: schemas, docs, and both agent loops pick the verb up from here.
- * Short slot/take ids in args are expanded automatically (see
- * {@link expandIdArgs}); id-shaped fields that are NOT slot/take ids (track
- * ids, text element ids, media ids) must stay FULL ids — say so in the field
- * description.
- */
-const DIRECTOR_TOOLS: Record<string, DirectorToolDef> = {
-	getReel: {
-		description:
-			"Inspect the current reel: every slot in timeline order with its short id, status, take count, and prompt. Call this to refresh your view of the reel mid-task.",
-		input_schema: objectSchema({}),
-		run: (d) => ({
-			ok: true,
-			message: "Current reel returned.",
-			data: d.getReel(),
-		}),
-	},
-	getSlot: {
-		description:
-			"Inspect one slot in detail: prompt, status, timing, all takes, and the active take.",
-		input_schema: objectSchema(
-			{ slotId: stringProp("Short slot id from the reel listing.") },
-			["slotId"],
-		),
-		run: (d, a) => d.getSlot(str(a.slotId)),
-	},
-	getProjectInfo: {
-		description:
-			"Inspect project settings (fps, canvas size/orientation), the persona roster, and a media-library summary. The same context is already in your system prompt — call this only to re-check it mid-task after it may have changed.",
-		input_schema: objectSchema({}),
-		run: (d) => d.getProjectInfo(),
-	},
-	reserveSlot: {
-		description:
-			"Append ONE empty generative slot to the reel, optionally with a prompt. Use storyboard to add several shots at once.",
-		input_schema: objectSchema({
-			prompt: stringProp("Generation prompt for the slot (optional)."),
-			duration: secondsProp("Slot duration (default 6)."),
-		}),
-		run: (d, a) =>
-			d.reserveSlot({ prompt: str(a.prompt), duration: numOr(a.duration, 6) }),
-	},
-	storyboard: {
-		description:
-			"Append SEVERAL generative slots from a shot list, back-to-back after existing content. One undoable operation.",
-		input_schema: objectSchema(
-			{
-				shots: {
-					type: "array",
-					description: "Ordered shot list; each shot becomes one slot.",
-					items: {
-						type: "object",
-						properties: {
-							prompt: stringProp("Generation prompt for this shot."),
-							duration: secondsProp("Shot duration (default 6)."),
-						},
-						required: ["prompt"],
-						additionalProperties: false,
-					},
-				},
-			},
-			["shots"],
-		),
-		run: (d, a) => d.storyboard({ shots: asShots(a) }),
-	},
-	setPrompt: {
-		description: "Change a slot's generation prompt.",
-		input_schema: objectSchema(
-			{
-				slotId: stringProp("Short slot id."),
-				prompt: stringProp("The new prompt."),
-			},
-			["slotId", "prompt"],
-		),
-		run: (d, a) =>
-			d.setPrompt({ slotId: str(a.slotId), prompt: str(a.prompt) }),
-	},
-	generate: {
-		description:
-			"Render takes for slots (runs the actual video generation). Omit slotIds to generate EVERY slot in the reel. May pause for the user's approval before spending if the estimated cost is high.",
-		input_schema: objectSchema({
-			slotIds: {
-				type: "array",
-				items: { type: "string" },
-				description:
-					"Short slot ids to generate. Omit entirely to target ALL slots.",
-			},
-			alternatives: numberProp("Takes to produce per slot, 1-4 (default 1)."),
-		}),
-		run: (d, a) =>
-			d.generate({
-				slotIds: Array.isArray(a.slotIds) ? a.slotIds.map(str) : "all",
-				alternatives: numOr(a.alternatives, 1),
-			}),
-	},
-	reroll: {
-		description:
-			"Add fresh alternate take(s) to one slot, keeping existing takes. May pause for the user's approval before spending if the estimated cost is high.",
-		input_schema: objectSchema(
-			{
-				slotId: stringProp("Short slot id."),
-				alternatives: numberProp("How many fresh takes, 1-4 (default 1)."),
-			},
-			["slotId"],
-		),
-		run: (d, a) =>
-			d.reroll({
-				slotId: str(a.slotId),
-				alternatives: numOr(a.alternatives, 1),
-			}),
-	},
-	remix: {
-		description:
-			'Edit a slot\'s current take with a short delta prompt (e.g. "add a sunset"), keeping its seed/identity anchored.',
-		input_schema: objectSchema(
-			{
-				slotId: stringProp("Short slot id."),
-				remixPrompt: stringProp("Short delta describing the edit to apply."),
-			},
-			["slotId", "remixPrompt"],
-		),
-		run: (d, a) =>
-			d.remix({ slotId: str(a.slotId), remixPrompt: str(a.remixPrompt) }),
-	},
-	setConsistencyContext: {
-		description:
-			"Pin reel-level STYLE/SETTING text so every shot's prompt stays visually consistent; characters are pulled from active personas automatically.",
-		input_schema: objectSchema({
-			style: stringProp("Visual style description shared by every shot."),
-			setting: stringProp("Setting/location description shared by every shot."),
-			extraCharacters: {
-				type: "array",
-				description: "Additional recurring characters beyond active personas.",
-				items: {
-					type: "object",
-					properties: {
-						name: stringProp("Character name."),
-						descriptor: stringProp(
-							"Stable visual descriptor for the character.",
-						),
-					},
-					required: ["name", "descriptor"],
-					additionalProperties: false,
-				},
-			},
-		}),
-		run: (d, a) =>
-			d.setConsistencyContext({
-				style: a.style != null ? str(a.style) : undefined,
-				setting: a.setting != null ? str(a.setting) : undefined,
-				extraCharacters: asExtraCharacters(a),
-			}),
-	},
-	getConsistencyContext: {
-		description:
-			"Inspect the current reel-level style/character/setting block.",
-		input_schema: objectSchema({}),
-		run: (d) => d.getConsistencyContext(),
-	},
-	chooseTake: {
-		description:
-			"Pick the active take for a slot. Provide EITHER index (0-based, creation order) OR takeId (short take id) — exactly one.",
-		input_schema: objectSchema(
-			{
-				slotId: stringProp("Short slot id."),
-				index: { type: "integer", description: "0-based take index." },
-				takeId: stringProp("Short take id (alternative to index)."),
-			},
-			["slotId"],
-		),
-		run: (d, a) =>
-			a.index != null
-				? d.chooseTake({ slotId: str(a.slotId), index: Number(a.index) })
-				: d.chooseTake({ slotId: str(a.slotId), takeId: str(a.takeId) }),
-	},
-	remove: {
-		description: "Delete a slot from the reel.",
-		input_schema: objectSchema({ slotId: stringProp("Short slot id.") }, [
-			"slotId",
-		]),
-		run: (d, a) => d.remove({ slotId: str(a.slotId) }),
-	},
-	reorder: {
-		description:
-			"Set slot order; slots are repacked back-to-back in the given order. Unmentioned slots keep their relative order at the end.",
-		input_schema: objectSchema(
-			{
-				slotIds: {
-					type: "array",
-					items: { type: "string" },
-					description: "Short slot ids in the desired order.",
-				},
-			},
-			["slotIds"],
-		),
-		run: (d, a) =>
-			d.reorder({
-				slotIds: Array.isArray(a.slotIds) ? a.slotIds.map(str) : [],
-			}),
-	},
-	trim: {
-		description:
-			"Adjust a slot's in/out points and timing. All time fields are SECONDS; all but slotId are optional.",
-		input_schema: objectSchema(
-			{
-				slotId: stringProp("Short slot id."),
-				trimStart: secondsProp("Amount trimmed off the head."),
-				trimEnd: secondsProp("Amount trimmed off the tail."),
-				startTime: secondsProp("New timeline start."),
-				duration: secondsProp("New visible duration."),
-			},
-			["slotId"],
-		),
-		run: (d, a) =>
-			d.trim({
-				slotId: str(a.slotId),
-				trimStart: numOrUndefined(a.trimStart),
-				trimEnd: numOrUndefined(a.trimEnd),
-				startTime: numOrUndefined(a.startTime),
-				duration: numOrUndefined(a.duration),
-			}),
-	},
-	move: {
-		description: "Reposition a slot on the timeline.",
-		input_schema: objectSchema(
-			{
-				slotId: stringProp("Short slot id."),
-				newStartTime: secondsProp("New timeline start."),
-				targetTrackId: stringProp(
-					"FULL TRACK id (not a slot id — never a short reel id). Omit to stay on the slot's current track.",
-				),
-			},
-			["slotId", "newStartTime"],
-		),
-		run: (d, a) =>
-			d.move({
-				slotId: str(a.slotId),
-				newStartTime: numOrZeroTime(a.newStartTime),
-				targetTrackId: strOrUndefined(a.targetTrackId),
-			}),
-	},
-	split: {
-		description: "Cut a slot into two at a point in time.",
-		input_schema: objectSchema(
-			{
-				slotId: stringProp("Short slot id."),
-				atTime: secondsProp("Timeline position of the cut."),
-			},
-			["slotId", "atTime"],
-		),
-		run: (d, a) =>
-			d.split({ slotId: str(a.slotId), atTime: numOrZeroTime(a.atTime) }),
-	},
-	applyTransition: {
-		description:
-			"Apply a transition (dissolve, wipe, slide, zoom, etc.) to a slot's outgoing edge. This is a differentiator competing reel tools don't have — reach for it to polish cuts between shots once they're generated.",
-		input_schema: objectSchema(
-			{
-				slotId: stringProp("Short slot id."),
-				transitionType: {
-					type: "string",
-					enum: getAllTransitions().map((t) => t.type),
-					description: "Transition type to apply to the slot's outgoing edge.",
-				},
-				duration: secondsProp(
-					"Transition duration. Omit to use the transition's own default.",
-				),
-			},
-			["slotId", "transitionType"],
-		),
-		run: (d, a) =>
-			d.applyTransition({
-				slotId: str(a.slotId),
-				transitionType: str(a.transitionType),
-				duration: numOrUndefined(a.duration),
-			}),
-	},
-	applyEffect: {
-		description:
-			"Apply a visual effect (blur, color grade, film grain, glitch, chroma key, etc.) to a slot. This is a differentiator competing reel tools don't have — reach for it to polish shots once they're generated.",
-		input_schema: objectSchema(
-			{
-				slotId: stringProp("Short slot id."),
-				effectType: {
-					type: "string",
-					enum: getAllEffects().map((e) => e.type),
-					description: "Effect type to apply to the slot.",
-				},
-				params: {
-					type: "object",
-					description:
-						"Optional effect parameter overrides (keys vary by effectType, e.g. blur: {radius}, color-adjust: {brightness, contrast, saturation}). Omit to use defaults.",
-				},
-			},
-			["slotId", "effectType"],
-		),
-		run: (d, a) =>
-			d.applyEffect({
-				slotId: str(a.slotId),
-				effectType: str(a.effectType),
-				params: asEffectParams(a.params),
-			}),
-	},
-	searchMedia: {
-		description:
-			"Semantic search over indexed footage (CLIP embeddings). Returns FULL mediaIds (media-library asset ids) — these are NOT reel slot ids. Follow up with addClip to place a hit on the timeline.",
-		input_schema: objectSchema(
-			{
-				query: stringProp(
-					"Natural-language description of the footage wanted.",
-				),
-				limit: numberProp("Max results (default 5)."),
-			},
-			["query"],
-		),
-		run: (d, a) =>
-			d.searchMedia({ query: str(a.query), limit: numOrUndefined(a.limit) }),
-	},
-	addClip: {
-		description:
-			"Place EXISTING footage found via searchMedia onto the timeline as a real clip — not a generative slot. Pass the FULL mediaId from a searchMedia hit.",
-		input_schema: objectSchema(
-			{
-				mediaId: stringProp(
-					"FULL media-library asset id from a searchMedia hit — NOT a short reel id.",
-				),
-				startTime: secondsProp(
-					"Timeline start for the clip. Defaults to the end of the current timeline.",
-				),
-				duration: secondsProp(
-					"Clip duration. Defaults to the asset's own duration (video) or a standard image duration.",
-				),
-				trackId: stringProp(
-					"FULL track id (not a slot id); omit to auto-place on a suitable track.",
-				),
-			},
-			["mediaId"],
-		),
-		run: (d, a) =>
-			d.addClip({
-				mediaId: str(a.mediaId),
-				startTime: numOrUndefined(a.startTime),
-				duration: numOrUndefined(a.duration),
-				trackId: strOrUndefined(a.trackId),
-			}),
-	},
-	addText: {
-		description:
-			"Add a text overlay. Returns a FULL elementId — text overlays are NOT reel slots, so this id never appears in the REEL listing and is never shortened; pass it back verbatim to updateText.",
-		input_schema: objectSchema(
-			{
-				content: stringProp("The text to display."),
-				startTime: secondsProp("Timeline start of the overlay."),
-				duration: secondsProp("How long the overlay stays on screen."),
-				trackId: stringProp(
-					"FULL track id; omit to auto-place on a text track.",
-				),
-				fontSize: numberProp("Font size in pixels."),
-				fontFamily: stringProp("Font family name."),
-				color: stringProp("CSS color for the text."),
-				textAlign: {
-					type: "string",
-					enum: ["left", "center", "right"],
-					description: "Horizontal alignment.",
-				},
-			},
-			["content", "startTime"],
-		),
-		run: (d, a) =>
-			d.addText({
-				content: str(a.content),
-				startTime: numOrZeroTime(a.startTime),
-				duration: numOrUndefined(a.duration),
-				trackId: strOrUndefined(a.trackId),
-				fontSize: numOrUndefined(a.fontSize),
-				fontFamily: strOrUndefined(a.fontFamily),
-				color: strOrUndefined(a.color),
-				textAlign: textAlignOf(a.textAlign),
-			}),
-	},
-	updateText: {
-		description:
-			"Edit an existing text overlay by its FULL elementId (from addText's result — never a short slot id). All fields but elementId are optional.",
-		input_schema: objectSchema(
-			{
-				elementId: stringProp("FULL text-element id returned by addText."),
-				content: stringProp("New text content."),
-				startTime: secondsProp("New timeline start."),
-				duration: secondsProp("New on-screen duration."),
-				fontSize: numberProp("New font size in pixels."),
-				fontFamily: stringProp("New font family."),
-				color: stringProp("New CSS color."),
-				textAlign: {
-					type: "string",
-					enum: ["left", "center", "right"],
-					description: "New horizontal alignment.",
-				},
-			},
-			["elementId"],
-		),
-		run: (d, a) =>
-			d.updateText({
-				elementId: str(a.elementId),
-				content: strOrUndefined(a.content),
-				startTime: numOrUndefined(a.startTime),
-				duration: numOrUndefined(a.duration),
-				fontSize: numOrUndefined(a.fontSize),
-				fontFamily: strOrUndefined(a.fontFamily),
-				color: strOrUndefined(a.color),
-				textAlign: textAlignOf(a.textAlign),
-			}),
-	},
-	undo: {
-		description: "Undo the last reel action.",
-		input_schema: objectSchema({}),
-		run: (d) => d.undo(),
-	},
-	redo: {
-		description: "Redo the last undone reel action.",
-		input_schema: objectSchema({}),
-		run: (d) => d.redo(),
-	},
-};
-
-/**
- * Native Anthropic tool definitions derived from the registry.
- *
- * NOTE: `strict: true` is intentionally NOT set. Anthropic strict mode requires
- * every object schema to be fully closed — all properties listed in `required`
- * (optionals expressed as nullable), and every nested object closed too. Several
- * verbs here carry optional fields (`duration?`, `alternatives?`, `trimStart?`, …)
- * and `applyEffect.params` is an open bag (its keys vary by effect type), so the
- * schemas are not strict-compliant as written and strict use would 400. Standard
- * (non-strict) tool use is robust here because every `run` executor already
- * coerces its inputs (`str`/`numOr`/`asEffectParams`/`expandIdArgs`). Re-enable
- * `strict` only after making the schemas fully compliant and verifying against a
- * live model call.
+ * Native Anthropic tool definitions derived from the shared `toolCatalog()`.
+ * `strict` is intentionally NOT set: several verbs carry optional fields and
+ * open-ended param bags that would 400 under Anthropic strict mode, and every
+ * catalog handler already coerces its inputs.
  */
 function anthropicToolDefs(): Anthropic.Tool[] {
-	return Object.entries(DIRECTOR_TOOLS).map(([name, def]) => ({
-		name,
-		description: def.description,
-		input_schema: def.input_schema,
+	return toolCatalog().map((t) => ({
+		name: t.name,
+		description: t.description,
+		input_schema: t.inputSchema as Anthropic.Tool["input_schema"],
 	}));
 }
-
-/** Render one schema as a compact `{ "key"?: type, ... }` doc line for the local text loop. */
-function schemaArgsDoc(schema: ToolInputSchema): string {
-	const entries = Object.entries(schema.properties).map(([key, prop]) => {
-		const p = prop as {
-			type?: string;
-			enum?: unknown[];
-			items?: { type?: string };
-		};
-		let type: string = p.enum
-			? p.enum.map((v) => JSON.stringify(v)).join("|")
-			: (p.type ?? "any");
-		if (type === "array") type = `[${p.items?.type ?? "any"}, ...]`;
-		const optional = schema.required.includes(key) ? "" : "?";
-		return `"${key}"${optional}: ${type}`;
-	});
-	return entries.length ? `{ ${entries.join(", ")} }` : "{}";
-}
-
-/** Prose tool catalog for the LOCAL text loop, derived from the same registry. `?` marks optional args. */
-const TOOL_DOCS = `Tools (call ONE per turn; args marked ? are optional):\n${Object.entries(
-	DIRECTOR_TOOLS,
-)
-	.map(
-		([name, def]) =>
-			`- ${name} — ${def.description} args: ${schemaArgsDoc(def.input_schema)}`,
-	)
-	.join("\n")}`;
 
 /** Concise pointer to the UGC prompt playbooks — titles/descriptions only, not the full content. */
 const PLAYBOOK_POINTER = Object.values(PLAYBOOKS)
@@ -854,9 +303,9 @@ async function executeTool(
 	action: string,
 	rawArgs: Record<string, unknown>,
 ): Promise<{ step: AgentToolStep; observation: string }> {
-	const tool = DIRECTOR_TOOLS[action];
+	const tool = TOOLS[action];
 	if (!tool) {
-		const message = `Unknown action "${action}". Valid tools: ${Object.keys(DIRECTOR_TOOLS).join(", ")}.`;
+		const message = `Unknown action "${action}". Valid tools: ${Object.keys(TOOLS).join(", ")}.`;
 		return {
 			step: { action, args: rawArgs, ok: false, message },
 			observation: message,
@@ -868,7 +317,7 @@ async function executeTool(
 	let result: DirectorResultLike;
 	try {
 		const args = expandIdArgs(rawArgs, reelShortIdMap(director));
-		result = await tool.run(director, args);
+		result = await tool(director, args);
 	} catch (err) {
 		result = {
 			ok: false,
@@ -1368,7 +817,7 @@ export async function runDirectorAgentLocal(opts: {
 		);
 		// Unknown actions aren't real steps — feed the correction back without
 		// recording/streaming a step (mirrors the original loop's behavior).
-		if (!DIRECTOR_TOOLS[parsed.action]) {
+		if (!TOOLS[parsed.action]) {
 			scratchpad +=
 				`ASSISTANT: ${JSON.stringify({ action: parsed.action, args: parsed.args })}\n` +
 				`OBSERVATION: ${observation}\n`;

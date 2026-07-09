@@ -18,17 +18,32 @@ import { ExportButton } from "./export-button";
 import { ThemeToggle } from "../theme-toggle";
 import { toast } from "sonner";
 import { useEditor } from "@/hooks/use-editor";
-import { Album02Icon, CommandIcon, GridViewIcon, Logout05Icon, Search01Icon, SparklesIcon } from "@hugeicons/core-free-icons";
+import {
+	Album02Icon,
+	CommandIcon,
+	GridViewIcon,
+	Logout05Icon,
+	Search01Icon,
+	SparklesIcon,
+} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ShortcutsDialog } from "./dialogs/shortcuts-dialog";
 import { ByornLogo } from "@/components/footer";
+import { McpConnectDialog } from "./dialogs/mcp-connect-dialog";
+import { Plug } from "lucide-react";
 import { cn } from "@/utils/ui";
-import { AIStatusIndicator, type AIStatusInfo } from "@/components/editor/ai/ai-status-indicator";
+import {
+	AIStatusIndicator,
+	type AIStatusInfo,
+} from "@/components/editor/ai/ai-status-indicator";
 import { ViralityScoreModal } from "@/components/editor/virality-score-modal";
 import { useAIStatus } from "@/hooks/use-ai-status";
 import { useAIStore } from "@/stores/ai-store";
 import { aiClient } from "@/lib/ai-client";
-import { MemoryStatusBar, type MemoryStatusInfo } from "@/components/editor/ai/memory-status-bar";
+import {
+	MemoryStatusBar,
+	type MemoryStatusInfo,
+} from "@/components/editor/ai/memory-status-bar";
 import { SaveStatus } from "@/components/editor/save-status";
 import { VersionControlBar } from "@/components/editor/version-control-bar";
 import { VersionControlDrawer } from "@/components/editor/version-control-drawer";
@@ -46,7 +61,8 @@ import { SaveArrangementDialog } from "@/components/arrangements/save-arrangemen
 
 export function EditorHeader() {
 	const toggleBoard = useBoardStore((s) => s.toggle);
-	const { isConnected, backendStatus, error, errorType, refresh } = useAIStatus();
+	const { isConnected, backendStatus, error, errorType, refresh } =
+		useAIStatus();
 	const toggleSetupGuide = useAIStore((s) => s.toggleSetupGuide);
 	const [vcDrawerOpen, setVcDrawerOpen] = useState(false);
 	const [viralityOpen, setViralityOpen] = useState(false);
@@ -124,7 +140,10 @@ export function EditorHeader() {
 				<ExportButton />
 				<ThemeToggle />
 			</nav>
-			<VersionControlDrawer open={vcDrawerOpen} onOpenChange={setVcDrawerOpen} />
+			<VersionControlDrawer
+				open={vcDrawerOpen}
+				onOpenChange={setVcDrawerOpen}
+			/>
 			<ViralityScoreModal open={viralityOpen} onOpenChange={setViralityOpen} />
 		</header>
 	);
@@ -132,7 +151,13 @@ export function EditorHeader() {
 
 function ProjectDropdown() {
 	const [openDialog, setOpenDialog] = useState<
-		"delete" | "rename" | "shortcuts" | "features" | "arrangement" | null
+		| "delete"
+		| "rename"
+		| "shortcuts"
+		| "features"
+		| "arrangement"
+		| "mcp"
+		| null
 	>(null);
 	const [isExiting, setIsExiting] = useState(false);
 	const router = useRouter();
@@ -198,7 +223,10 @@ function ProjectDropdown() {
 		<>
 			<DropdownMenu>
 				<DropdownMenuTrigger asChild>
-					<Button variant="ghost" className="p-0 rounded-sm size-10 [&_svg]:!size-auto">
+					<Button
+						variant="ghost"
+						className="p-0 rounded-sm size-10 [&_svg]:!size-auto"
+					>
 						<ByornLogo size={36} />
 					</Button>
 				</DropdownMenuTrigger>
@@ -258,7 +286,13 @@ function ProjectDropdown() {
 
 					<DropdownMenuSeparator />
 
-					</DropdownMenuContent>
+					<DropdownMenuItem
+						onClick={() => setOpenDialog("mcp")}
+						icon={<Plug className="size-4" />}
+					>
+						Connect an AI agent (MCP)
+					</DropdownMenuItem>
+				</DropdownMenuContent>
 			</DropdownMenu>
 			<RenameProjectDialog
 				isOpen={openDialog === "rename"}
@@ -284,6 +318,10 @@ function ProjectDropdown() {
 				isOpen={openDialog === "arrangement"}
 				onOpenChange={(isOpen) => setOpenDialog(isOpen ? "arrangement" : null)}
 			/>
+			<McpConnectDialog
+				isOpen={openDialog === "mcp"}
+				onOpenChange={(isOpen) => setOpenDialog(isOpen ? "mcp" : null)}
+			/>
 		</>
 	);
 }
@@ -298,17 +336,62 @@ function FeaturesDialog({
 	const { setActiveTab } = useAssetsPanelStore();
 
 	const features = [
-		{ name: "Director", desc: "AI orchestrator — storyboard the reel, brainstorm, scripts, templates", tab: "director" as const, shortcut: "Ctrl+K" },
-		{ name: "Version History", desc: "Git-like commits, branches, merging, and diff for video — always in the header bar", shortcut: "Ctrl+Shift+S" },
-		{ name: "Media", desc: "Import and manage video, audio, and image files", tab: "media" as const },
-		{ name: "Text", desc: "Add and style text overlays on your video", tab: "text" as const },
-		{ name: "Captions & Transcript", desc: "Auto-generate subtitles from speech", tab: "captions" as const },
-		{ name: "Audio", desc: "Sound effects, AI voiceover, and podcast clip extraction", tab: "audio" as const },
-		{ name: "Elements", desc: "Stickers, emojis, and overlay transitions", tab: "elements" as const },
-		{ name: "Visuals", desc: "Effects, color filters, and manual adjustments", tab: "visuals" as const },
-		{ name: "Brand Kit", desc: "Brand colors, fonts, logos, and quick overlays", tab: "brandkit" as const },
-		{ name: "Fact Check", desc: "AI-powered claim verification (in Settings)", tab: "settings" as const },
-		{ name: "Command Palette", desc: "Search any feature, action, or shortcut instantly", shortcut: "Ctrl+Shift+P" },
+		{
+			name: "Director",
+			desc: "AI orchestrator — storyboard the reel, brainstorm, scripts, templates",
+			tab: "director" as const,
+			shortcut: "Ctrl+K",
+		},
+		{
+			name: "Version History",
+			desc: "Git-like commits, branches, merging, and diff for video — always in the header bar",
+			shortcut: "Ctrl+Shift+S",
+		},
+		{
+			name: "Media",
+			desc: "Import and manage video, audio, and image files",
+			tab: "media" as const,
+		},
+		{
+			name: "Text",
+			desc: "Add and style text overlays on your video",
+			tab: "text" as const,
+		},
+		{
+			name: "Captions & Transcript",
+			desc: "Auto-generate subtitles from speech",
+			tab: "captions" as const,
+		},
+		{
+			name: "Audio",
+			desc: "Sound effects, AI voiceover, and podcast clip extraction",
+			tab: "audio" as const,
+		},
+		{
+			name: "Elements",
+			desc: "Stickers, emojis, and overlay transitions",
+			tab: "elements" as const,
+		},
+		{
+			name: "Visuals",
+			desc: "Effects, color filters, and manual adjustments",
+			tab: "visuals" as const,
+		},
+		{
+			name: "Brand Kit",
+			desc: "Brand colors, fonts, logos, and quick overlays",
+			tab: "brandkit" as const,
+		},
+		{
+			name: "Fact Check",
+			desc: "AI-powered claim verification (in Settings)",
+			tab: "settings" as const,
+		},
+		{
+			name: "Command Palette",
+			desc: "Search any feature, action, or shortcut instantly",
+			shortcut: "Ctrl+Shift+P",
+		},
 	];
 
 	return (
