@@ -43,6 +43,7 @@ ai-generated/
 !apps/web/docs/poach/*.md
 !CLAUDE.md
 !.claude/skills/**/*.md
+!.claude/agents/**/*.md
 
 # graphify knowledge-graph build output (regenerate with /graphify .)
 graphify-out/

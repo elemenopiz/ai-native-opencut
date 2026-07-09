@@ -9,6 +9,17 @@
         "mcp"
       ],
       "env": {}
+    },
+    "postgres": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "postgres-mcp",
+        "--access-mode=restricted"
+      ],
+      "env": {
+        "DATABASE_URI": "${DATABASE_URL:-postgresql://opencut:opencut@localhost:5432/opencut}"
+      }
     }
   }
 }
