@@ -133,6 +133,14 @@ export type TextNodeParams = TextElement & {
 };
 
 export class TextNode extends BaseNode<TextNodeParams> {
+	/**
+	 * Draw a line of caption text with per-word "karaoke" state, adapted from
+	 * pycaps' three-state word model (.word / .word-being-narrated /
+	 * .word-already-narrated). Each word is one of:
+	 *   - not-yet-narrated → defaultColor
+	 *   - being-narrated (active) → activeColor, with optional pop scale + box
+	 *   - already-narrated (past) → highlightColor (progressive fill)
+	 */
 	private drawKaraokeText({
 		ctx,
 		line,
@@ -141,8 +149,11 @@ export class TextNode extends BaseNode<TextNodeParams> {
 		wordTimings,
 		defaultColor,
 		highlightColor,
+		activeColor,
+		activeBackground,
 		textAlign,
 		wordPopScale,
+		scaledFontSize,
 	}: {
 		ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 		line: string;
@@ -151,8 +162,11 @@ export class TextNode extends BaseNode<TextNodeParams> {
 		wordTimings: TextWordTiming[];
 		defaultColor: string;
 		highlightColor: string;
+		activeColor: string;
+		activeBackground?: string;
 		textAlign: CanvasTextAlign;
 		wordPopScale: number;
+		scaledFontSize: number;
 	}): void {
 		// Split the line into words preserving spacing
 		const words = line.split(/(\s+)/);
@@ -171,6 +185,7 @@ export class TextNode extends BaseNode<TextNodeParams> {
 		// Save alignment and switch to left for manual positioning
 		const savedAlign = ctx.textAlign;
 		const savedFont = ctx.font;
+		const savedFill = ctx.fillStyle;
 		ctx.textAlign = "left";
 
 		const hasPop = wordPopScale > 1.0;
@@ -185,14 +200,39 @@ export class TextNode extends BaseNode<TextNodeParams> {
 
 			// Match this token to the next word timing
 			const timing = wordTimings[wordIndex];
-			const isSpoken = timing && localTime >= timing.start;
-			const isActive = timing && localTime >= timing.start && localTime < timing.end;
+			const isActive =
+				timing && localTime >= timing.start && localTime < timing.end;
+			const isPast = timing && localTime >= timing.end;
+			const tokenColor = isActive
+				? activeColor
+				: isPast
+					? highlightColor
+					: defaultColor;
+			const tokenWidth = ctx.measureText(token).width;
 
-			ctx.fillStyle = isSpoken ? highlightColor : defaultColor;
+			// Highlight-box style: rounded background behind the active word only
+			if (isActive && activeBackground) {
+				const padX = scaledFontSize * 0.2;
+				const boxHeight = scaledFontSize * 1.15;
+				const boxRadius = scaledFontSize * 0.16;
+				ctx.save();
+				ctx.fillStyle = activeBackground;
+				ctx.beginPath();
+				ctx.roundRect(
+					cursorX - padX,
+					lineY - boxHeight / 2,
+					tokenWidth + padX * 2,
+					boxHeight,
+					boxRadius,
+				);
+				ctx.fill();
+				ctx.restore();
+			}
+
+			ctx.fillStyle = tokenColor;
 
 			if (hasPop && isActive) {
 				// Pop effect: scale up the currently-spoken word
-				const tokenWidth = ctx.measureText(token).width;
 				const cx = cursorX + tokenWidth / 2;
 				const cy = lineY;
 				ctx.save();
@@ -200,19 +240,18 @@ export class TextNode extends BaseNode<TextNodeParams> {
 				ctx.scale(wordPopScale, wordPopScale);
 				ctx.fillText(token, -tokenWidth / 2, 0);
 				ctx.restore();
-				cursorX += tokenWidth;
 			} else {
 				ctx.fillText(token, cursorX, lineY);
-				cursorX += ctx.measureText(token).width;
 			}
 
+			cursorX += tokenWidth;
 			wordIndex++;
 		}
 
 		// Restore alignment and font
 		ctx.textAlign = savedAlign;
 		ctx.font = savedFont;
-		ctx.fillStyle = defaultColor;
+		ctx.fillStyle = savedFill;
 	}
 
 	isInRange({ time }: { time: number }) {
@@ -367,6 +406,8 @@ export class TextNode extends BaseNode<TextNodeParams> {
 			}
 
 			const highlightColor = this.params.highlightColor ?? "#FACC15";
+			const activeColor = this.params.wordActiveColor ?? highlightColor;
+			const activeBackground = this.params.wordActiveBackground;
 
 			// Resolve word timings: prefer element data, fall back to transcript store
 			const resolvedWordTimings: TextWordTiming[] = (() => {
@@ -420,8 +461,11 @@ export class TextNode extends BaseNode<TextNodeParams> {
 						),
 						defaultColor: textColor,
 						highlightColor,
+						activeColor,
+						activeBackground,
 						textAlign: this.params.textAlign,
 						wordPopScale: this.params.wordPopScale ?? 1.0,
+						scaledFontSize,
 					});
 
 					karaokeWordOffset += lineWordCount;

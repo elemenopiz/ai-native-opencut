@@ -31,6 +31,13 @@ import { toast } from "sonner";
 import { aiClient } from "@/lib/ai-client";
 import type { TimelineElement } from "@/types/timeline";
 import { useBackgroundTasksStore } from "@/stores/background-tasks-store";
+import {
+	CAPTION_PRESETS,
+	getCaptionPreset,
+	buildCaptionElementStyle,
+	type CaptionPresetId,
+	type CaptionStylePreset,
+} from "@/lib/captions/caption-presets";
 
 interface SubtitleTrackInfo {
 	trackId: string;
@@ -46,6 +53,7 @@ export function Captions() {
 	const [error, setError] = useState<string | null>(null);
 	const [subtitleTracks, setSubtitleTracks] = useState<SubtitleTrackInfo[]>([]);
 	const [translateLanguage, setTranslateLanguage] = useState("es");
+	const [captionPreset, setCaptionPreset] = useState<CaptionPresetId>("karaoke-pop");
 	const [isTranslating, setIsTranslating] = useState(false);
 	const [translatingStep, setTranslatingStep] = useState("");
 	const containerRef = useRef<HTMLDivElement>(null);
@@ -404,7 +412,8 @@ export function Captions() {
 	const addSubtitleTrack = ({
 		subtitleSegments,
 		languageLabel,
-		yOffset = 0.38,
+		preset,
+		yOffset,
 	}: {
 		subtitleSegments: {
 			text: string;
@@ -413,6 +422,7 @@ export function Captions() {
 			words?: { word: string; start: number; end: number }[];
 		}[];
 		languageLabel: string;
+		preset: CaptionStylePreset;
 		yOffset?: number;
 	}) => {
 		const trackId = editor.timeline.addTrack({ type: "text", index: 0 });
@@ -421,7 +431,9 @@ export function Captions() {
 			name: `Subs: ${languageLabel}`,
 		});
 		const canvasSize = editor.project.getActive().settings.canvasSize;
-		const subtitleY = canvasSize.height * yOffset;
+		// Translations stack above the original track via an explicit yOffset;
+		// otherwise use the preset's vertical placement.
+		const subtitleY = canvasSize.height * (yOffset ?? preset.yPositionRatio);
 
 		for (let i = 0; i < subtitleSegments.length; i++) {
 			const seg = subtitleSegments[i];
@@ -437,26 +449,16 @@ export function Captions() {
 				placement: { mode: "explicit", trackId },
 				element: {
 					...DEFAULT_TEXT_ELEMENT,
+					...buildCaptionElementStyle({
+						preset,
+						elementKey: `${trackId}-${i}`,
+					}),
 					name: `${languageLabel} ${i + 1}`,
 					content: seg.text,
 					duration: seg.end - seg.start,
 					startTime: seg.start,
-					fontSize: 4,
-					fontWeight: "bold",
-					color: "#ffffff",
-					highlightColor: "#FACC15",
 					...(wordTimings && wordTimings.length > 0 ? { wordTimings } : {}),
-					textAlign: "center",
-					background: {
-						enabled: true,
-						color: "#000000",
-						cornerRadius: 4,
-						paddingX: 12,
-						paddingY: 6,
-						offsetX: 0,
-						offsetY: 0,
-					},
-					opacity: 0.95,
+					opacity: 1,
 					transform: {
 						scale: 1,
 						position: { x: 0, y: subtitleY },
@@ -473,6 +475,7 @@ export function Captions() {
 		const currentSegments = useTranscriptStore.getState().segments;
 		if (currentSegments.length === 0) return;
 
+		const preset = getCaptionPreset(captionPreset);
 		const trackId = addSubtitleTrack({
 			subtitleSegments: currentSegments.map((seg) => ({
 				text: seg.text,
@@ -481,10 +484,11 @@ export function Captions() {
 				words: seg.words,
 			})),
 			languageLabel: "Subtitle",
+			preset,
 		});
 
 		setSubtitleTracks((prev) => [...prev, { trackId, language: "original" }]);
-		toast.success("Subtitles added with word highlighting");
+		toast.success(`Subtitles added — ${preset.name} style`);
 	};
 
 	/** Check if we should use Sarvam for translation (Indian language pair).
@@ -598,10 +602,11 @@ export function Captions() {
 			}
 
 			// Place translated subtitles slightly above the original ones
-			const yOffset = activeSubtitleTracks.length > 0 ? 0.28 : 0.38;
+			const yOffset = activeSubtitleTracks.length > 0 ? 0.28 : undefined;
 			const trackId = addSubtitleTrack({
 				subtitleSegments: translatedSegments,
 				languageLabel: `${targetLang.name}`,
+				preset: getCaptionPreset(captionPreset),
 				yOffset,
 			});
 
@@ -810,6 +815,33 @@ export function Captions() {
 										{activeSubtitleTracks.length} active
 									</span>
 								)}
+							</div>
+
+							{/* ── Caption Style Preset ── */}
+							<div className="flex flex-col gap-1.5">
+								<Label className="text-[11px] text-muted-foreground">
+									Style
+								</Label>
+								<Select
+									value={captionPreset}
+									onValueChange={(value) =>
+										setCaptionPreset(value as CaptionPresetId)
+									}
+								>
+									<SelectTrigger>
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										{CAPTION_PRESETS.map((p) => (
+											<SelectItem key={p.id} value={p.id}>
+												{p.name}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+								<p className="text-[10px] text-muted-foreground">
+									{getCaptionPreset(captionPreset).description}
+								</p>
 							</div>
 
 							{activeSubtitleTracks.length > 0 ? (
