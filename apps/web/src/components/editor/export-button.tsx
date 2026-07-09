@@ -15,7 +15,9 @@ import { Progress } from "@/components/ui/progress";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/utils/ui";
 import { getExportMimeType, getExportFileExtension, downloadBuffer } from "@/lib/export";
-import { Check, Copy, Download, RotateCcw } from "lucide-react";
+import { exportCapcutDraft } from "@/lib/export/capcut-export";
+import { Check, Clapperboard, Copy, Download, RotateCcw } from "lucide-react";
+import { toast } from "sonner";
 import {
 	EXPORT_FORMAT_VALUES,
 	EXPORT_QUALITY_VALUES,
@@ -105,6 +107,7 @@ function ExportPopover({
 		DEFAULT_EXPORT_OPTIONS.includeAudio ?? true,
 	);
 	const [shouldIncludeWatermark, setShouldIncludeWatermark] = useState(true);
+	const [isExportingCapcutDraft, setIsExportingCapcutDraft] = useState(false);
 
 	const handlePresetSelect = (presetId: string) => {
 		const preset = EXPORT_PRESETS.find((p) => p.id === presetId);
@@ -149,6 +152,38 @@ function ExportPopover({
 
 	const handleCancel = () => {
 		editor.project.cancelExport();
+	};
+
+	const handleCapcutDraftExport = async () => {
+		if (!activeProject || isExportingCapcutDraft) return;
+
+		setIsExportingCapcutDraft(true);
+		try {
+			const { warnings } = await exportCapcutDraft({
+				projectName: activeProject.metadata.name,
+				fps: activeProject.settings.fps,
+				canvasSize: activeProject.settings.canvasSize,
+				tracks: editor.timeline.getTracks(),
+				mediaAssets: editor.media.getAssets(),
+			});
+
+			if (warnings.length > 0) {
+				toast.warning(
+					`CapCut draft exported with ${warnings.length} note${warnings.length === 1 ? "" : "s"}. See media_manifest.json in the zip for details.`,
+				);
+			} else {
+				toast.success(
+					"CapCut draft exported. Unzip it into your CapCut drafts folder (see README.txt inside).",
+				);
+			}
+			onOpenChange(false);
+		} catch (error) {
+			toast.error(
+				`CapCut draft export failed: ${error instanceof Error ? error.message : "unknown error"}`,
+			);
+		} finally {
+			setIsExportingCapcutDraft(false);
+		}
 	};
 
 	return (
@@ -309,11 +344,26 @@ function ExportPopover({
 									</Section>
 								</div>
 
-								<div className="p-3 pt-0">
+								<div className="flex flex-col gap-2 p-3 pt-0">
 									<Button onClick={handleExport} className="w-full gap-2">
 										<Download className="size-4" />
 										Export
 									</Button>
+									<Button
+										variant="outline"
+										className="w-full gap-2"
+										onClick={handleCapcutDraftExport}
+										disabled={isExportingCapcutDraft}
+									>
+										<Clapperboard className="size-4" />
+										{isExportingCapcutDraft
+											? "Preparing CapCut draft..."
+											: "Export as CapCut draft"}
+									</Button>
+									<p className="text-[10px] text-muted-foreground leading-relaxed">
+										CapCut draft keeps your clips editable in CapCut / JianYing.
+										Unsupported effects are skipped.
+									</p>
 								</div>
 							</>
 						)}
