@@ -1,6 +1,13 @@
 import type { EditorCore } from "@/core";
 import { generateTakeMedia } from "@/lib/studio/generate-take";
-import { getStoredConsistencyContext, withConsistencyContext } from "./consistency-prompt";
+import {
+	generateVoiceoverTakeMedia,
+	resolveVoiceLock,
+} from "@/lib/studio/generate-voiceover-take";
+import {
+	getStoredConsistencyContext,
+	withConsistencyContext,
+} from "./consistency-prompt";
 import type { GenerateExecutor } from "./types";
 
 /** Fallback frame rate when a project somehow has no fps set. */
@@ -38,6 +45,24 @@ export function createStudioExecutor(editor: EditorCore): GenerateExecutor {
 			} catch {
 				return { status: "failed", error: "No active project" };
 			}
+			// Voiceover specs route through the TTS engine, not the visual
+			// `/api/studio/generate` path. Resolve the beat's voice-lock (the
+			// audio analog of the consistency block) and hand off to the same
+			// pure media pipeline `runVoiceoverTake` uses — the Director's take
+			// bookkeeping (queued→generating→ready, select) is done by the caller.
+			if (spec.kind === "voiceover") {
+				const voiceLock = resolveVoiceLock(editor, spec);
+				const result = await generateVoiceoverTakeMedia({
+					editor,
+					projectId,
+					spec: { ...spec, voiceLock },
+				});
+				if (result.status === "failed") {
+					return { status: "failed", error: result.error };
+				}
+				return { status: "ready", mediaId: result.mediaId, seed: result.seed };
+			}
+
 			// Fold the reel-level STYLE/CHARACTERS/SETTING block into this shot's
 			// prompt, if one is set — each take is an independent provider call,
 			// so identity/style has to be restated per-shot (see consistency-prompt.ts).
@@ -45,7 +70,11 @@ export function createStudioExecutor(editor: EditorCore): GenerateExecutor {
 			const effectiveSpec = context
 				? { ...spec, prompt: withConsistencyContext(spec.prompt, context) }
 				: spec;
-			const result = await generateTakeMedia({ editor, projectId, spec: effectiveSpec });
+			const result = await generateTakeMedia({
+				editor,
+				projectId,
+				spec: effectiveSpec,
+			});
 			if (result.status === "failed") {
 				return { status: "failed", error: result.error };
 			}
