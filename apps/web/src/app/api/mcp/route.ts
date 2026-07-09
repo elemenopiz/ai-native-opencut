@@ -32,8 +32,6 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
-// ⚠️ Built in a parallel worktree — typechecks via `opus-shims.d.ts` until the
-// real module lands.
 import { verifyProjectToken } from "@/lib/mcp/auth";
 import { createByornMcpServer } from "@/lib/mcp/build-mcp-server";
 import { getMcpSessionStore } from "@/lib/mcp/mcp-session-store";

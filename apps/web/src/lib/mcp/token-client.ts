@@ -1,30 +1,15 @@
 /**
- * Typed client for the MCP token API.
+ * Typed client for the MCP token API (`app/api/mcp/tokens/route.ts`).
+ * Reconciled at integration against the shipped route:
  *
- * ASSUMPTION (backend not yet implemented in this worktree — Opus's slice):
- * these routes don't exist yet, so calls here will 404 at runtime until they
- * land. The shapes below are inferred from the Sprint 2 contract:
+ *   POST   /api/mcp/tokens             body: { projectId, label?, scopes? }
+ *                                       -> 201 { id, token: "<raw, once>", projectId, scopes, label, createdAt }
+ *   GET    /api/mcp/tokens?projectId=   -> McpTokenSummary[]  (bare array, no hash/raw)
+ *   DELETE /api/mcp/tokens?id=          -> { id, revoked: true }
  *
- *   POST   /api/mcp/tokens            body: { projectId, label?, scopes? }
- *                                      -> { token: "<raw, shown once>", id, ... }
- *   GET    /api/mcp/tokens?projectId=  -> { tokens: McpTokenSummary[] }  (no raw token)
- *   DELETE /api/mcp/tokens/:id         -> { ok: true }
- *
- * Unverified specifics (flagged, best-guess pending Opus's actual route):
- *  - GET is assumed to take `projectId` as a query param (not stated in the
- *    contract) since tokens are scoped per-project and there's no path segment
- *    for it.
- *  - The exact field names on McpTokenSummary (label, scopes, createdAt,
- *    lastUsedAt) are inferred from the POST body fields, not confirmed against
- *    a real response.
- *  - DELETE is called as `/api/mcp/tokens/:id` (REST path form) — the contract
- *    also allows `?id=`, but the path form is used here as primary.
- *  - Auth is assumed to ride on the existing better-auth session cookie via
- *    same-origin `fetch` (no explicit Authorization header needed for these
- *    management calls — only the MCP endpoint itself uses the bearer token).
- *
- * All failures surface as `McpTokenApiError` so a missing/unimplemented route
- * is a runtime error the UI can display, not a compile-time dependency.
+ * Auth rides the existing better-auth session cookie via same-origin `fetch`
+ * (the route calls `auth.api.getSession`); only the MCP endpoint itself uses the
+ * per-project bearer token. All failures surface as `McpTokenApiError`.
  */
 
 export interface McpTokenSummary {
@@ -106,7 +91,7 @@ export async function createMcpToken(
 }
 
 export async function revokeMcpToken(id: string): Promise<void> {
-	const res = await fetch(`/api/mcp/tokens/${encodeURIComponent(id)}`, {
+	const res = await fetch(`/api/mcp/tokens?id=${encodeURIComponent(id)}`, {
 		method: "DELETE",
 	});
 	await parseJsonOrThrow(res);

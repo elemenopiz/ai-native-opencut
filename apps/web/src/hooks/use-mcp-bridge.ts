@@ -26,8 +26,6 @@
 
 import { useEffect } from "react";
 import { useDirector } from "@/hooks/use-director";
-// ⚠️ Built in a parallel worktree — typechecks via `opus-shims.d.ts` until the
-// real module lands.
 import { toolCatalog } from "@/lib/director/tool-catalog";
 import {
 	BRIDGE_TOOL_CALL_EVENT,

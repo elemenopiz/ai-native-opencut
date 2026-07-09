@@ -28,8 +28,6 @@ import {
 	type CallToolResult,
 	type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-// ⚠️ Built in a parallel worktree — typechecks via `opus-shims.d.ts` until the
-// real modules land (see that file's header).
 import { toolCatalog, type ToolDescriptor } from "@/lib/director/tool-catalog";
 import { scopeForTool } from "@/lib/mcp/auth";
 import { BridgeError, getEditorBridge } from "./editor-bridge";
