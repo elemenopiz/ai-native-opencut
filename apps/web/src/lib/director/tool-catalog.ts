@@ -24,7 +24,7 @@
 
 import { getAllTransitions } from "@/lib/transitions";
 import { getAllEffects } from "@/lib/effects";
-import type { DirectorApi } from "./director-api";
+import type { DirectorApi, SpecOverride } from "./director-api";
 import type { DirectorResult } from "./types";
 import type { ConsistencyCharacter } from "./consistency-prompt";
 
@@ -68,15 +68,51 @@ export const textAlignOf = (
 	return s === "left" || s === "center" || s === "right" ? s : undefined;
 };
 
-/** Coerce a loose `shots` arg into the storyboard shape. */
+/**
+ * Coerce a loose per-shot generation override into a {@link SpecOverride} — the
+ * fields that turn a slot from plain text-to-video into a CONDITIONED shot:
+ * I2V/R2V `mode`, a first-frame/reference image (by URL or by uploaded-asset
+ * id via `referenceMediaId`), extra omni-reference images, and identity knobs.
+ * Unknown/ill-typed fields are dropped (lenient, mirroring `asEffectParams`);
+ * returns `undefined` when nothing usable is present so callers omit `spec`.
+ */
+export function asSpecOverride(v: unknown): SpecOverride | undefined {
+	if (!v || typeof v !== "object" || Array.isArray(v)) return undefined;
+	const o = v as Record<string, unknown>;
+	const out: SpecOverride = {};
+	if (o.mode === "image-to-video" || o.mode === "text-to-video")
+		out.mode = o.mode;
+	if (o.referenceImageUrl != null)
+		out.referenceImageUrl = String(o.referenceImageUrl);
+	if (o.referenceMediaId != null)
+		out.referenceMediaId = String(o.referenceMediaId);
+	if (Array.isArray(o.referenceImages))
+		out.referenceImages = o.referenceImages.map(String);
+	if (typeof o.generateAudio === "boolean") out.generateAudio = o.generateAudio;
+	if (o.seed != null && Number.isFinite(Number(o.seed)))
+		out.seed = Number(o.seed);
+	if (typeof o.seedLocked === "boolean") out.seedLocked = o.seedLocked;
+	if (o.cameraPreset != null) out.cameraPreset = String(o.cameraPreset);
+	if (o.consistencyMode === "high" || o.consistencyMode === "fast")
+		out.consistencyMode = o.consistencyMode;
+	if (o.personaId != null) out.personaId = String(o.personaId);
+	return Object.keys(out).length ? out : undefined;
+}
+
+/** Coerce a loose `shots` arg into the storyboard shape (with optional per-shot spec). */
 export function asShots(
 	args: Record<string, unknown>,
-): { prompt: string; duration: number }[] {
+): { prompt: string; duration: number; spec?: SpecOverride }[] {
 	const raw = Array.isArray(args.shots) ? args.shots : [];
 	return raw.map((s) => {
 		if (typeof s === "string") return { prompt: s, duration: 6 };
 		const obj = (s ?? {}) as Record<string, unknown>;
-		return { prompt: str(obj.prompt), duration: numOr(obj.duration, 6) };
+		const spec = asSpecOverride(obj.spec);
+		return {
+			prompt: str(obj.prompt),
+			duration: numOr(obj.duration, 6),
+			...(spec ? { spec } : {}),
+		};
 	});
 }
 
@@ -180,6 +216,69 @@ const slotIdProp: JSONSchema = {
 	description: "Short slot id from the REEL listing.",
 };
 
+/**
+ * Per-shot generation override — the fields that turn a plain text-to-video
+ * slot into a CONDITIONED shot. Attach to `storyboard` shots, `reserveSlot`, or
+ * `setPrompt`. Every field is optional; omit for a default text-to-video slot.
+ */
+const slotSpecSchema: JSONSchema = {
+	type: "object",
+	description:
+		"Optional per-shot generation override (I2V/R2V mode + reference images + identity).",
+	properties: {
+		mode: {
+			type: "string",
+			enum: ["text-to-video", "image-to-video"],
+			description:
+				"text-to-video (default) or image-to-video — I2V/R2V; requires a reference image (referenceMediaId or referenceImageUrl).",
+		},
+		referenceMediaId: {
+			type: "string",
+			description:
+				"Media-library asset id (e.g. an uploaded @Image1) to use as the first-frame/reference image; resolved to its URL. FULL media id, not a reel slot id. Prefer this over referenceImageUrl for uploaded/generated assets.",
+		},
+		referenceImageUrl: {
+			type: "string",
+			description:
+				"First-frame / reference image URL (I2V anchor). Use referenceMediaId instead when the image is a media-library asset.",
+		},
+		referenceImages: {
+			type: "array",
+			items: { type: "string" },
+			description:
+				"Extra omni-reference image URLs (subject/style/scene) for reference-to-video.",
+		},
+		generateAudio: {
+			type: "boolean",
+			description:
+				"Set false to render the shot SILENT (no model audio) — e.g. Seedance clips whose audio is a separate VO/music track. Omit for the provider default.",
+		},
+		personaId: {
+			type: "string",
+			description: "Bind this shot to a persona for identity consistency.",
+		},
+		seed: {
+			type: "number",
+			description: "Generation seed — reuse the same value to anchor identity.",
+		},
+		seedLocked: {
+			type: "boolean",
+			description: "Reproduce identity from `seed` (seed-lock).",
+		},
+		cameraPreset: {
+			type: "string",
+			description: "Camera-motion preset id woven into the prompt.",
+		},
+		consistencyMode: {
+			type: "string",
+			enum: ["high", "fast"],
+			description:
+				"Persona consistency tier: high = per-shot reference still (default), fast = anchor image directly.",
+		},
+	},
+	additionalProperties: false,
+};
+
 // ── the catalog ───────────────────────────────────────────────────────────────
 
 /**
@@ -250,6 +349,7 @@ export function toolCatalog(): ToolDescriptor[] {
 							properties: {
 								prompt: { type: "string" },
 								duration: secs("shot length in seconds (default 6)"),
+								spec: slotSpecSchema,
 							},
 							required: ["prompt"],
 						},
@@ -268,25 +368,36 @@ export function toolCatalog(): ToolDescriptor[] {
 				properties: {
 					prompt: { type: "string" },
 					duration: secs("slot length in seconds (default 6)"),
+					spec: slotSpecSchema,
 				},
 			},
 			handler: (d, a) =>
 				d.reserveSlot({
 					prompt: str(a.prompt),
 					duration: numOr(a.duration, 6),
+					spec: asSpecOverride(a.spec),
 				}),
 		},
 		{
 			name: "setPrompt",
-			description: "change a slot's prompt.",
+			description:
+				"change a slot's prompt (and optionally its per-shot generation spec).",
 			mutating: true,
 			inputSchema: {
 				type: "object",
-				properties: { slotId: slotIdProp, prompt: { type: "string" } },
+				properties: {
+					slotId: slotIdProp,
+					prompt: { type: "string" },
+					spec: slotSpecSchema,
+				},
 				required: ["slotId", "prompt"],
 			},
 			handler: (d, a) =>
-				d.setPrompt({ slotId: str(a.slotId), prompt: str(a.prompt) }),
+				d.setPrompt({
+					slotId: str(a.slotId),
+					prompt: str(a.prompt),
+					spec: asSpecOverride(a.spec),
+				}),
 		},
 		// ── generate ────────────────────────────────────────────────────────
 		{

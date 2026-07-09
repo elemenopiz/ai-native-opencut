@@ -41,6 +41,7 @@ export async function POST(req: Request) {
 			orientation?: VideoOrientation;
 			duration?: number;
 			mode?: VideoMode;
+			generateAudio?: boolean;
 			personaId?: string;
 			consistencyMode?: "high" | "fast";
 			userId?: string;
@@ -60,6 +61,7 @@ export async function POST(req: Request) {
 			orientation = "landscape",
 			duration = 5,
 			mode = "text-to-video",
+			generateAudio,
 			personaId,
 			consistencyMode = "high",
 			userId,
@@ -187,6 +189,7 @@ export async function POST(req: Request) {
 			referenceVideos,
 			lastFrameUrl,
 			seed: effectiveSeed,
+			generateAudio,
 			resolution,
 			orientation,
 			duration,

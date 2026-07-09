@@ -89,6 +89,10 @@ export interface BackendRequest {
 	referenceVideos?: string[];
 	lastFrameUrl?: string;
 	seed?: number;
+	/** When `false`, request a silent render (no model-generated audio).
+	 *  Video backends that support it map this to their provider flag (e.g.
+	 *  Seedance `generate_audio`); others ignore it. Omitted ⇒ provider default. */
+	generateAudio?: boolean;
 	resolution?: VideoResolution;
 	orientation?: VideoOrientation;
 	duration?: number;

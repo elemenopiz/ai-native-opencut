@@ -30,6 +30,9 @@ export interface GenerateVideoParams {
 	orientation: VideoOrientation;
 	duration: number;
 	mode?: VideoMode;
+	/** When `false`, render the clip silent (Seedance `generate_audio: false`).
+	 *  Omitted ⇒ the provider default. */
+	generateAudio?: boolean;
 }
 
 export interface GenerateVideoResult {
@@ -74,7 +77,9 @@ function byteplusBase(): string {
 	return webEnv.BYTEPLUS_BASE_URL || DEFAULT_BYTEPLUS_BASE;
 }
 
-async function byteplusSubmit(params: GenerateVideoParams): Promise<GenerateVideoResult> {
+async function byteplusSubmit(
+	params: GenerateVideoParams,
+): Promise<GenerateVideoResult> {
 	const key = webEnv.BYTEPLUS_API_KEY;
 	if (!key) throw new Error("BYTEPLUS_API_KEY is not configured");
 
@@ -144,6 +149,11 @@ async function byteplusSubmit(params: GenerateVideoParams): Promise<GenerateVide
 		duration: params.duration,
 		watermark: false,
 		...(params.seed != null ? { seed: params.seed } : {}),
+		// Silent-render toggle: only send when explicitly set, so an unset value
+		// preserves Seedance's own audio default.
+		...(params.generateAudio != null
+			? { generate_audio: params.generateAudio }
+			: {}),
 	};
 
 	const res = await fetch(`${byteplusBase()}/contents/generations/tasks`, {
@@ -161,7 +171,7 @@ async function byteplusSubmit(params: GenerateVideoParams): Promise<GenerateVide
 	}
 
 	// Task creation returns only the id — no status, seed, or url yet.
-	const data = await res.json() as { id: string };
+	const data = (await res.json()) as { id: string };
 
 	return { jobId: data.id, status: "pending" };
 }
@@ -170,16 +180,19 @@ async function byteplusPoll(jobId: string): Promise<PollVideoResult> {
 	const key = webEnv.BYTEPLUS_API_KEY;
 	if (!key) throw new Error("BYTEPLUS_API_KEY is not configured");
 
-	const res = await fetch(`${byteplusBase()}/contents/generations/tasks/${jobId}`, {
-		headers: { Authorization: `Bearer ${key}` },
-	});
+	const res = await fetch(
+		`${byteplusBase()}/contents/generations/tasks/${jobId}`,
+		{
+			headers: { Authorization: `Bearer ${key}` },
+		},
+	);
 
 	if (!res.ok) {
 		const text = await res.text();
 		throw new Error(`BytePlus poll failed ${res.status}: ${text}`);
 	}
 
-	const data = await res.json() as {
+	const data = (await res.json()) as {
 		id: string;
 		status: string;
 		content?: { video_url?: string };
@@ -196,13 +209,17 @@ async function byteplusPoll(jobId: string): Promise<PollVideoResult> {
 
 function mapByteplusStatus(s: string): PollVideoResult["status"] {
 	switch (s) {
-		case "succeeded": return "completed";
+		case "succeeded":
+			return "completed";
 		case "failed":
 		case "expired":
-		case "cancelled": return "failed";
-		case "running": return "processing";
+		case "cancelled":
+			return "failed";
+		case "running":
+			return "processing";
 		// "queued" and anything unknown
-		default: return "pending";
+		default:
+			return "pending";
 	}
 }
 

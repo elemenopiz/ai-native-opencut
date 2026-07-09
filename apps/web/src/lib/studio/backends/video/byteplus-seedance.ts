@@ -9,10 +9,7 @@
  */
 
 import { webEnv } from "@byorn/env/web";
-import {
-	generateVideo,
-	pollVideo,
-} from "@/lib/studio/provider-adapter";
+import { generateVideo, pollVideo } from "@/lib/studio/provider-adapter";
 import { estimateVideoCredits } from "@/lib/studio/backends/cost";
 import type {
 	BackendRequest,
@@ -67,6 +64,7 @@ export const byteplusSeedanceBackend: GenerationBackend = {
 				orientation: req.orientation ?? "landscape",
 				duration: req.duration ?? 5,
 				mode: req.mode ?? "text-to-video",
+				generateAudio: req.generateAudio,
 			});
 			return {
 				jobId: res.jobId,

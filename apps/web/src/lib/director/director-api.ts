@@ -143,6 +143,18 @@ function buildSpec(
 	};
 }
 
+/**
+ * A spec override as the agent supplies it: the canonical `GenerationSpec`
+ * fields PLUS a transient `referenceMediaId` — a media-library asset id the
+ * agent uses to point a shot's first frame / reference at an UPLOADED still
+ * (e.g. `@Image1`). `referenceMediaId` is resolved to `referenceImageUrl` by
+ * `createDirectorApi` (the only layer that can reach the media store) and never
+ * reaches `GenerationSpec`, which carries URLs only.
+ */
+export type SpecOverride = Partial<GenerationSpec> & {
+	referenceMediaId?: string;
+};
+
 /** Type guard: is this element a generative slot (carries a `generation` recipe)? */
 function isSlotElement(element: TimelineElement): element is SlotElement {
 	return (
@@ -627,6 +639,24 @@ export function createDirectorApi(
 	// ---- STORYBOARD -------------------------------------------------------
 
 	/**
+	 * Fold a transient `referenceMediaId` into a spec override by resolving it to
+	 * the uploaded asset's URL as `referenceImageUrl` — the agent references
+	 * stills (e.g. `@Image1`) by id, but generation needs a fetchable URL. An
+	 * explicit `referenceImageUrl` already on the override always wins; an id
+	 * that doesn't resolve (or an asset with no URL yet) is dropped, so the shot
+	 * still generates, just without the reference frame.
+	 */
+	function applyReferenceMediaId(
+		spec?: SpecOverride,
+	): Partial<GenerationSpec> | undefined {
+		if (!spec) return undefined;
+		const { referenceMediaId, ...rest } = spec;
+		if (!referenceMediaId || rest.referenceImageUrl) return rest;
+		const asset = editor.media.getAssetById(referenceMediaId);
+		return asset?.url ? { ...rest, referenceImageUrl: asset.url } : rest;
+	}
+
+	/**
 	 * Create a single empty generative slot. Delegates to the canonical
 	 * `addGenerativeSlot`. Returns the new slot id (== element id).
 	 */
@@ -635,7 +665,7 @@ export function createDirectorApi(
 		duration?: number;
 		startTime?: number;
 		trackId?: string;
-		spec?: Partial<GenerationSpec>;
+		spec?: SpecOverride;
 	}): DirectorResult<{ slotId: string }> {
 		const before = captureReel();
 		const duration =
@@ -645,7 +675,7 @@ export function createDirectorApi(
 		if (duration <= 0) return fail("Slot duration must be greater than 0.");
 
 		const prompt = input.prompt ?? input.spec?.prompt ?? "";
-		const spec = buildSpec(prompt, duration, input.spec);
+		const spec = buildSpec(prompt, duration, applyReferenceMediaId(input.spec));
 
 		const slotId = editor.timeline.addGenerativeSlot({
 			spec,
@@ -665,7 +695,7 @@ export function createDirectorApi(
 		shots: {
 			prompt: string;
 			duration: number;
-			spec?: Partial<GenerationSpec>;
+			spec?: SpecOverride;
 		}[];
 	}): DirectorResult<string[]> {
 		if (!input.shots || input.shots.length === 0) {
@@ -685,7 +715,11 @@ export function createDirectorApi(
 						`Shot "${shot.prompt}" has a non-positive duration (${shot.duration}).`,
 					);
 				}
-				const spec = buildSpec(shot.prompt, shot.duration, shot.spec);
+				const spec = buildSpec(
+					shot.prompt,
+					shot.duration,
+					applyReferenceMediaId(shot.spec),
+				);
 				const slotId = editor.timeline.addGenerativeSlot({
 					spec,
 					duration: shot.duration,
@@ -710,7 +744,7 @@ export function createDirectorApi(
 	function setPrompt(input: {
 		slotId: string;
 		prompt: string;
-		spec?: Partial<GenerationSpec>;
+		spec?: SpecOverride;
 	}): DirectorResult<SlotSnapshot> {
 		const before = captureReel();
 		const located = findSlot(input.slotId);
@@ -718,7 +752,7 @@ export function createDirectorApi(
 
 		const nextSpec: GenerationSpec = {
 			...located.element.generation,
-			...input.spec,
+			...applyReferenceMediaId(input.spec),
 			prompt: input.prompt,
 		};
 		editor.timeline.setSlotSpec({ elementId: input.slotId, spec: nextSpec });

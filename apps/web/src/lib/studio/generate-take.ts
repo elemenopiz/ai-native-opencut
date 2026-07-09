@@ -34,7 +34,10 @@ async function importVideoAsset(
 	const file = new File([blob], fileName, { type });
 	const [processed] = await processMediaAssets({ files: [file] });
 	if (!processed) throw new Error("processing produced no asset");
-	const mediaId = await editor.media.addMediaAsset({ projectId, asset: processed });
+	const mediaId = await editor.media.addMediaAsset({
+		projectId,
+		asset: processed,
+	});
 	return { mediaId, thumbnailUrl: processed.thumbnailUrl };
 }
 
@@ -84,6 +87,7 @@ export async function generateTakeMedia({
 				orientation: spec.orientation,
 				duration: spec.duration,
 				mode: spec.mode,
+				generateAudio: spec.generateAudio,
 				personaId: spec.personaId,
 				consistencyMode: spec.consistencyMode,
 			}),

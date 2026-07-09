@@ -164,6 +164,12 @@ export interface GenerationSpec {
 	/** Seedance omni-reference media (URLs) — extra subject/style/scene refs. */
 	referenceImages?: string[];
 	referenceVideos?: string[];
+	/**
+	 * When `false`, ask the video provider to render the clip SILENT (no
+	 * model-generated audio) — e.g. Seedance's `generate_audio: false`, so a
+	 * separate VO/music track owns the audio. Omitted ⇒ the provider default.
+	 */
+	generateAudio?: boolean;
 	personaId?: string;
 	/**
 	 * Persona consistency tier:
