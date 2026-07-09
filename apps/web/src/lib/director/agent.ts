@@ -651,16 +651,24 @@ const DIRECTOR_TOOLS: Record<string, DirectorToolDef> = {
 };
 
 /**
- * Native Anthropic tool definitions derived from the registry. `strict: true`
- * guarantees `tool_use.input` validates exactly against the schema (all
- * schemas carry `additionalProperties: false` + `required`).
+ * Native Anthropic tool definitions derived from the registry.
+ *
+ * NOTE: `strict: true` is intentionally NOT set. Anthropic strict mode requires
+ * every object schema to be fully closed — all properties listed in `required`
+ * (optionals expressed as nullable), and every nested object closed too. Several
+ * verbs here carry optional fields (`duration?`, `alternatives?`, `trimStart?`, …)
+ * and `applyEffect.params` is an open bag (its keys vary by effect type), so the
+ * schemas are not strict-compliant as written and strict use would 400. Standard
+ * (non-strict) tool use is robust here because every `run` executor already
+ * coerces its inputs (`str`/`numOr`/`asEffectParams`/`expandIdArgs`). Re-enable
+ * `strict` only after making the schemas fully compliant and verifying against a
+ * live model call.
  */
 function anthropicToolDefs(): Anthropic.Tool[] {
 	return Object.entries(DIRECTOR_TOOLS).map(([name, def]) => ({
 		name,
 		description: def.description,
 		input_schema: def.input_schema,
-		strict: true,
 	}));
 }
 
