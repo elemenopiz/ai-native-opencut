@@ -3,10 +3,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useEdgeAutoScroll } from "@/hooks/timeline/use-edge-auto-scroll";
 import { useEditor } from "../use-editor";
 import { useShiftKey } from "@/hooks/use-shift-key";
-import {
-	findSnapPoints,
-	snapToNearestPoint,
-} from "@/lib/timeline/snap-utils";
+import { findSnapPoints, snapToNearestPoint } from "@/lib/timeline/snap-utils";
+import { getSnapBeats } from "@/stores/beat-grid-store";
 import { TIMELINE_CONSTANTS } from "@/constants/timeline-constants";
 
 interface UseTimelinePlayheadProps {
@@ -86,13 +84,13 @@ export function useTimelinePlayhead({
 			const time = (() => {
 				if (!shouldSnap) return frameTime;
 				const tracks = editor.timeline.getTracks();
-				const bookmarks =
-					editor.scenes.getActiveSceneOrNull()?.bookmarks ?? [];
+				const bookmarks = editor.scenes.getActiveSceneOrNull()?.bookmarks ?? [];
 				const snapPoints = findSnapPoints({
 					tracks,
 					playheadTime: frameTime,
 					bookmarks,
 					enablePlayheadSnapping: false,
+					beats: getSnapBeats({ tracks }),
 				});
 				const snapResult = snapToNearestPoint({
 					targetTime: frameTime,
@@ -139,10 +137,10 @@ export function useTimelinePlayhead({
 			setIsDraggingRuler(true);
 			setHasDraggedRuler(false);
 
-		editor.playback.setScrubbing({ isScrubbing: true });
-		handleScrub({ event, snappingEnabled: false });
-	},
-	[handleScrub, playheadRef, editor.playback],
+			editor.playback.setScrubbing({ isScrubbing: true });
+			handleScrub({ event, snappingEnabled: false });
+		},
+		[handleScrub, playheadRef, editor.playback],
 	);
 
 	const handlePlayheadMouseDownEvent = useCallback(

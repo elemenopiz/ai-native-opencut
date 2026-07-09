@@ -10,6 +10,7 @@ import {
 	type SnapPoint,
 } from "@/lib/timeline/snap-utils";
 import { useTimelineStore } from "@/stores/timeline-store";
+import { getSnapBeats } from "@/stores/beat-grid-store";
 
 export interface ResizeState {
 	elementId: string;
@@ -110,6 +111,7 @@ export function useTimelineElementResize({
 					tracks,
 					playheadTime,
 					excludeElementId: element.id,
+					beats: getSnapBeats({ tracks }),
 				});
 				if (resizing.side === "left") {
 					const targetStartTime = resizing.initialStartTime + deltaTime;
@@ -139,14 +141,20 @@ export function useTimelineElementResize({
 			}
 			onSnapPointChange?.(resizeSnapPoint);
 
-			const otherElements = track.elements.filter(({ id }) => id !== element.id);
-			const initialEndTime = resizing.initialStartTime + resizing.initialDuration;
+			const otherElements = track.elements.filter(
+				({ id }) => id !== element.id,
+			);
+			const initialEndTime =
+				resizing.initialStartTime + resizing.initialDuration;
 
 			const rightNeighborBound =
 				resizing.side === "right"
 					? otherElements
 							.filter(({ startTime }) => startTime >= initialEndTime)
-							.reduce((min, { startTime }) => Math.min(min, startTime), Infinity)
+							.reduce(
+								(min, { startTime }) => Math.min(min, startTime),
+								Infinity,
+							)
 					: Infinity;
 
 			const leftNeighborBound =
@@ -268,7 +276,10 @@ export function useTimelineElementResize({
 						const baseDuration =
 							resizing.initialDuration + resizing.initialTrimEnd;
 						const newDuration = snapTimeToFrame({
-							time: Math.min(baseDuration + extensionNeeded, maxAllowedDuration),
+							time: Math.min(
+								baseDuration + extensionNeeded,
+								maxAllowedDuration,
+							),
 							fps: projectFps,
 						});
 
@@ -349,7 +360,12 @@ export function useTimelineElementResize({
 		const startTimeChanged = finalStartTime !== resizing.initialStartTime;
 		const durationChanged = finalDuration !== resizing.initialDuration;
 
-		if (trimStartChanged || trimEndChanged || startTimeChanged || durationChanged) {
+		if (
+			trimStartChanged ||
+			trimEndChanged ||
+			startTimeChanged ||
+			durationChanged
+		) {
 			editor.timeline.updateElementTrim({
 				elementId: element.id,
 				trimStart: finalTrimStart,

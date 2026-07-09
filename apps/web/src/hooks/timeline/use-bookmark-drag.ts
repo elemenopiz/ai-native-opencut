@@ -15,6 +15,7 @@ import {
 	snapToNearestPoint,
 	type SnapPoint,
 } from "@/lib/timeline/snap-utils";
+import { getSnapBeats } from "@/stores/beat-grid-store";
 import type { Bookmark } from "@/types/timeline";
 
 export interface BookmarkDragState {
@@ -102,6 +103,7 @@ export function useBookmarkDrag({
 				playheadTime,
 				bookmarks,
 				excludeBookmarkTime,
+				beats: getSnapBeats({ tracks }),
 			});
 			const result = snapToNearestPoint({
 				targetTime: rawTime,
@@ -113,7 +115,14 @@ export function useBookmarkDrag({
 				snapPoint: result.snapPoint,
 			};
 		},
-		[snappingEnabled, tracks, playheadTime, bookmarks, zoomLevel, isShiftHeldRef],
+		[
+			snappingEnabled,
+			tracks,
+			playheadTime,
+			bookmarks,
+			zoomLevel,
+			isShiftHeldRef,
+		],
 	);
 
 	useEffect(() => {

@@ -36,8 +36,11 @@ import {
 	Layers01Icon,
 	ArrowTurnBackwardIcon,
 	ArrowTurnForwardIcon,
+	MusicNote01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { useBeatGridStore } from "@/stores/beat-grid-store";
+import { AudioToolsMenu } from "./audio-tools-menu";
 
 export function TimelineToolbar({
 	zoomLevel,
@@ -85,7 +88,9 @@ export function TimelineToolbar({
 function ToolbarLeftSection() {
 	const editor = useEditor();
 	const currentTime = editor.playback.getCurrentTime();
-	const isCurrentlyBookmarked = editor.scenes.isBookmarked({ time: currentTime });
+	const isCurrentlyBookmarked = editor.scenes.isBookmarked({
+		time: currentTime,
+	});
 
 	const handleAction = ({
 		action,
@@ -158,8 +163,8 @@ function ToolbarLeftSection() {
 				<Tooltip>
 					<ToolbarButton
 						icon={<HugeiconsIcon icon={Bookmark02Icon} />}
-				isActive={isCurrentlyBookmarked}
-					tooltip={isCurrentlyBookmarked ? "Remove bookmark" : "Add bookmark"}
+						isActive={isCurrentlyBookmarked}
+						tooltip={isCurrentlyBookmarked ? "Remove bookmark" : "Add bookmark"}
 						onClick={({ event }) =>
 							handleAction({ action: "toggle-bookmark", event })
 						}
@@ -219,10 +224,26 @@ function ToolbarRightSection({
 	const rippleEditingEnabled = useTimelineStore((s) => s.rippleEditingEnabled);
 	const toggleSnapping = useTimelineStore((s) => s.toggleSnapping);
 	const toggleRippleEditing = useTimelineStore((s) => s.toggleRippleEditing);
+	const beatGrid = useBeatGridStore((s) => s.grid);
+	const beatSnappingEnabled = useBeatGridStore((s) => s.beatSnappingEnabled);
+	const toggleBeatSnapping = useBeatGridStore((s) => s.toggleBeatSnapping);
 
 	return (
 		<div className="flex items-center gap-1">
 			<TooltipProvider delayDuration={500}>
+				<AudioToolsMenu />
+
+				<ToolbarButton
+					icon={<HugeiconsIcon icon={MusicNote01Icon} />}
+					isActive={beatSnappingEnabled && beatGrid !== null}
+					tooltip={
+						beatGrid
+							? "Snap to beats"
+							: "Snap to beats (analyze a clip via Audio tools first)"
+					}
+					onClick={() => toggleBeatSnapping()}
+				/>
+
 				<ToolbarButton
 					icon={<HugeiconsIcon icon={MagnetIcon} />}
 					isActive={snappingEnabled}

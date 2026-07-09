@@ -18,10 +18,8 @@ import { snapTimeToFrame } from "@/lib/time";
 import { computeDropTarget } from "@/lib/timeline/drop-utils";
 import { getMouseTimeFromClientX } from "@/lib/timeline/drag-utils";
 import { generateUUID } from "@/utils/id";
-import {
-	snapElementEdge,
-	type SnapPoint,
-} from "@/lib/timeline/snap-utils";
+import { snapElementEdge, type SnapPoint } from "@/lib/timeline/snap-utils";
+import { getSnapBeats } from "@/stores/beat-grid-store";
 import type {
 	DropTarget,
 	ElementDragState,
@@ -228,6 +226,7 @@ export function useElementInteraction({
 
 			const elementDuration = movingElement.duration;
 			const playheadTime = editor.playback.getCurrentTime();
+			const beats = getSnapBeats({ tracks });
 
 			const startSnap = snapElementEdge({
 				targetTime: frameSnappedTime,
@@ -237,6 +236,7 @@ export function useElementInteraction({
 				zoomLevel,
 				excludeElementId: movingElement.id,
 				snapToStart: true,
+				beats,
 			});
 
 			const endSnap = snapElementEdge({
@@ -247,6 +247,7 @@ export function useElementInteraction({
 				zoomLevel,
 				excludeElementId: movingElement.id,
 				snapToStart: false,
+				beats,
 			});
 
 			const snapResult =
@@ -445,38 +446,41 @@ export function useElementInteraction({
 				return;
 			}
 
-		if (dropTarget.isNewTrack) {
-			const newTrackId = generateUUID();
+			if (dropTarget.isNewTrack) {
+				const newTrackId = generateUUID();
 
-			editor.timeline.moveElement({
-				sourceTrackId: dragState.trackId,
-				targetTrackId: newTrackId,
-				elementId: dragState.elementId,
-				newStartTime: snappedTime,
-				createTrack: { type: sourceTrack.type, index: dropTarget.trackIndex },
-				rippleEnabled: rippleEditingEnabled,
-			});
-			selectElement({ trackId: newTrackId, elementId: dragState.elementId });
-		} else {
-			const targetTrack = tracks[dropTarget.trackIndex];
-			if (targetTrack) {
-				const isNoOpDrop =
-					targetTrack.id === dragState.trackId &&
-					snappedTime === dragState.startElementTime;
-				if (!isNoOpDrop) {
-					editor.timeline.moveElement({
-						sourceTrackId: dragState.trackId,
-						targetTrackId: targetTrack.id,
-						elementId: dragState.elementId,
-						newStartTime: snappedTime,
-						rippleEnabled: rippleEditingEnabled,
-					});
-					if (targetTrack.id !== dragState.trackId) {
-						selectElement({ trackId: targetTrack.id, elementId: dragState.elementId });
+				editor.timeline.moveElement({
+					sourceTrackId: dragState.trackId,
+					targetTrackId: newTrackId,
+					elementId: dragState.elementId,
+					newStartTime: snappedTime,
+					createTrack: { type: sourceTrack.type, index: dropTarget.trackIndex },
+					rippleEnabled: rippleEditingEnabled,
+				});
+				selectElement({ trackId: newTrackId, elementId: dragState.elementId });
+			} else {
+				const targetTrack = tracks[dropTarget.trackIndex];
+				if (targetTrack) {
+					const isNoOpDrop =
+						targetTrack.id === dragState.trackId &&
+						snappedTime === dragState.startElementTime;
+					if (!isNoOpDrop) {
+						editor.timeline.moveElement({
+							sourceTrackId: dragState.trackId,
+							targetTrackId: targetTrack.id,
+							elementId: dragState.elementId,
+							newStartTime: snappedTime,
+							rippleEnabled: rippleEditingEnabled,
+						});
+						if (targetTrack.id !== dragState.trackId) {
+							selectElement({
+								trackId: targetTrack.id,
+								elementId: dragState.elementId,
+							});
+						}
 					}
 				}
 			}
-		}
 
 			endDrag();
 			onSnapPointChange?.(null);
@@ -525,10 +529,10 @@ export function useElementInteraction({
 			element: TimelineElement;
 			track: TimelineTrack;
 		}) => {
-		const isRightClick = event.button === MOUSE_BUTTON_RIGHT;
+			const isRightClick = event.button === MOUSE_BUTTON_RIGHT;
 
-		// right-click: don't stop propagation so ContextMenu can open
-		if (isRightClick) {
+			// right-click: don't stop propagation so ContextMenu can open
+			if (isRightClick) {
 				const alreadySelected = isElementSelected({
 					trackId: track.id,
 					elementId: element.id,
@@ -543,12 +547,12 @@ export function useElementInteraction({
 				return;
 			}
 
-		event.stopPropagation();
-		mouseDownLocationRef.current = { x: event.clientX, y: event.clientY };
+			event.stopPropagation();
+			mouseDownLocationRef.current = { x: event.clientX, y: event.clientY };
 
-		const isMultiSelect = event.metaKey || event.ctrlKey || event.shiftKey;
+			const isMultiSelect = event.metaKey || event.ctrlKey || event.shiftKey;
 
-		if (isMultiSelect) {
+			if (isMultiSelect) {
 				handleSelectionClick({
 					trackId: track.id,
 					elementId: element.id,
@@ -556,7 +560,7 @@ export function useElementInteraction({
 				});
 			}
 
-		const clickOffsetTime = getClickOffsetTime({
+			const clickOffsetTime = getClickOffsetTime({
 				clientX: event.clientX,
 				elementRect: event.currentTarget.getBoundingClientRect(),
 				zoomLevel,
@@ -584,9 +588,9 @@ export function useElementInteraction({
 			element: TimelineElement;
 			track: TimelineTrack;
 		}) => {
-		event.stopPropagation();
+			event.stopPropagation();
 
-		if (mouseDownLocationRef.current) {
+			if (mouseDownLocationRef.current) {
 				const deltaX = Math.abs(event.clientX - mouseDownLocationRef.current.x);
 				const deltaY = Math.abs(event.clientY - mouseDownLocationRef.current.y);
 				if (deltaX > DRAG_THRESHOLD_PX || deltaY > DRAG_THRESHOLD_PX) {
@@ -598,7 +602,7 @@ export function useElementInteraction({
 			// modifier keys already handled in mousedown
 			if (event.metaKey || event.ctrlKey || event.shiftKey) return;
 
-		const alreadySelected = isElementSelected({
+			const alreadySelected = isElementSelected({
 				trackId: track.id,
 				elementId: element.id,
 			});
