@@ -5,7 +5,13 @@ import { getElementKeyframes } from "@/lib/animation";
 
 export interface SnapPoint {
 	time: number;
-	type: "element-start" | "element-end" | "playhead" | "bookmark" | "keyframe";
+	type:
+		| "element-start"
+		| "element-end"
+		| "playhead"
+		| "bookmark"
+		| "keyframe"
+		| "beat";
 	elementId?: string;
 	trackId?: string;
 }
@@ -28,6 +34,7 @@ export function findSnapPoints({
 	enablePlayheadSnapping = true,
 	enableBookmarkSnapping = true,
 	enableKeyframeSnapping = true,
+	beats = [],
 }: {
 	tracks: Array<TimelineTrack>;
 	playheadTime: number;
@@ -38,6 +45,8 @@ export function findSnapPoints({
 	enablePlayheadSnapping?: boolean;
 	enableBookmarkSnapping?: boolean;
 	enableKeyframeSnapping?: boolean;
+	/** Beat-grid positions in timeline time (see `stores/beat-grid-store`). */
+	beats?: Array<number>;
 }): SnapPoint[] {
 	const snapPoints: SnapPoint[] = [];
 
@@ -93,6 +102,10 @@ export function findSnapPoints({
 		}
 	}
 
+	for (const beatTime of beats) {
+		snapPoints.push({ time: beatTime, type: "beat" });
+	}
+
 	return snapPoints;
 }
 
@@ -137,6 +150,7 @@ export function snapElementEdge({
 	excludeElementId,
 	snapToStart = true,
 	bookmarks = [],
+	beats = [],
 }: {
 	targetTime: number;
 	elementDuration: number;
@@ -146,12 +160,15 @@ export function snapElementEdge({
 	excludeElementId?: string;
 	snapToStart?: boolean;
 	bookmarks?: Array<Bookmark>;
+	/** Beat-grid positions in timeline time (see `stores/beat-grid-store`). */
+	beats?: Array<number>;
 }): SnapResult {
 	const snapPoints = findSnapPoints({
 		tracks,
 		playheadTime,
 		excludeElementId,
 		bookmarks,
+		beats,
 	});
 
 	const effectiveTargetTime = snapToStart

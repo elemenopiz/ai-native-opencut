@@ -1849,6 +1849,43 @@ class AIClient {
 	async clipServiceHealth(): Promise<ClipServiceHealthResult> {
 		return this.request<ClipServiceHealthResult>("/api/search/health");
 	}
+
+	/**
+	 * Beat/BPM analysis for the timeline beat-snap grid. Backed by
+	 * `services/ai-backend/app/routes/engagement.py` → POST /api/engagement/beats
+	 * (audio_intelligence: detect_beats + detect_bpm + energy_envelope).
+	 */
+	async analyzeBeats(file: File): Promise<AudioBeatAnalysis> {
+		const formData = new FormData();
+		formData.append("file", file);
+		return this.requestFormData<AudioBeatAnalysis>(
+			"/api/engagement/beats",
+			formData,
+			300_000,
+		);
+	}
+}
+
+// ── Beat analysis types (timeline beat-snap grid) ───────────────────
+
+export interface BeatPositionData {
+	/** SOURCE time (seconds into the analyzed media file). */
+	timestamp: number;
+	is_downbeat: boolean;
+	confidence: number;
+}
+
+export interface AudioBeatAnalysis {
+	bpm: { bpm: number; energy_class: string; confidence: number } | null;
+	beats: BeatPositionData[];
+	drops: { timestamp: number; intensity: number; duration: number }[];
+	energy_envelope: number[];
+	sync_points: {
+		timestamp: number;
+		event_type: string;
+		target_word: string | null;
+	}[];
+	audio_sync_score: number;
 }
 
 // ── YouTube / Engagement types ──────────────────────────────────────

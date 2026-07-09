@@ -5,6 +5,7 @@ import { useEditor } from "@/hooks/use-editor";
 import { getRulerConfig, shouldShowLabel } from "@/lib/timeline/ruler-utils";
 import { useScrollPosition } from "@/hooks/timeline/use-scroll-position";
 import { TimelineTick } from "./timeline-tick";
+import { BeatTicks } from "./beat-ticks";
 
 interface TimelineRulerProps {
 	zoomLevel: number;
@@ -120,6 +121,7 @@ export function TimelineRuler({
 				onMouseDown={handleRulerMouseDown}
 			>
 				{timelineTicks}
+				<BeatTicks zoomLevel={zoomLevel} />
 			</div>
 		</div>
 	);
