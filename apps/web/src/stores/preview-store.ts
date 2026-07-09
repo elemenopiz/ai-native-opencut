@@ -10,9 +10,24 @@ interface PreviewOverlaysState {
 	bookmarks: boolean;
 }
 
+export const PREVIEW_MIN_ZOOM = 0.25;
+export const PREVIEW_MAX_ZOOM = 8;
+
+export function clampPreviewZoom({ zoom }: { zoom: number }): number {
+	return Math.min(PREVIEW_MAX_ZOOM, Math.max(PREVIEW_MIN_ZOOM, zoom));
+}
+
 interface PreviewState {
 	layoutGuide: LayoutGuideSettings;
 	overlays: PreviewOverlaysState;
+	/** Zoom multiplier relative to the fit-to-panel size (1 = fit). */
+	zoom: number;
+	/** Pan offset of the canvas in screen pixels, relative to the centered position. */
+	pan: { x: number; y: number };
+	/** When true, click-dragging the preview pans instead of selecting elements. */
+	panMode: boolean;
+	/** Display pixels per canvas pixel at zoom 1 (set by the preview canvas). */
+	fitScale: number;
 	setLayoutGuide: (settings: Partial<LayoutGuideSettings>) => void;
 	toggleLayoutGuide: (platform: TPlatformLayout) => void;
 	setOverlayVisibility: ({
@@ -27,6 +42,18 @@ interface PreviewState {
 	}: {
 		overlay: keyof PreviewOverlaysState;
 	}) => void;
+	setZoom: ({ zoom }: { zoom: number }) => void;
+	setPan: ({ pan }: { pan: { x: number; y: number } }) => void;
+	setZoomAndPan: ({
+		zoom,
+		pan,
+	}: {
+		zoom: number;
+		pan: { x: number; y: number };
+	}) => void;
+	togglePanMode: () => void;
+	setFitScale: ({ fitScale }: { fitScale: number }) => void;
+	resetView: () => void;
 }
 
 const DEFAULT_PREVIEW_OVERLAYS: PreviewOverlaysState = {
@@ -38,6 +65,10 @@ export const usePreviewStore = create<PreviewState>()(
 		(set) => ({
 			layoutGuide: { platform: null },
 			overlays: DEFAULT_PREVIEW_OVERLAYS,
+			zoom: 1,
+			pan: { x: 0, y: 0 },
+			panMode: false,
+			fitScale: 0,
 			setLayoutGuide: (settings) => {
 				set((state) => ({
 					layoutGuide: {
@@ -68,6 +99,24 @@ export const usePreviewStore = create<PreviewState>()(
 						[overlay]: !state.overlays[overlay],
 					},
 				}));
+			},
+			setZoom: ({ zoom }) => {
+				set(() => ({ zoom: clampPreviewZoom({ zoom }) }));
+			},
+			setPan: ({ pan }) => {
+				set(() => ({ pan }));
+			},
+			setZoomAndPan: ({ zoom, pan }) => {
+				set(() => ({ zoom: clampPreviewZoom({ zoom }), pan }));
+			},
+			togglePanMode: () => {
+				set((state) => ({ panMode: !state.panMode }));
+			},
+			setFitScale: ({ fitScale }) => {
+				set(() => ({ fitScale }));
+			},
+			resetView: () => {
+				set(() => ({ zoom: 1, pan: { x: 0, y: 0 } }));
 			},
 		}),
 		{

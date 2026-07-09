@@ -7,12 +7,18 @@ import { EditableTimecode } from "@/components/editable-timecode";
 import { Button } from "@/components/ui/button";
 import {
 	FullScreenIcon,
+	HandGripIcon,
 	PauseIcon,
 	PlayIcon,
+	SearchAddIcon,
+	SearchMinusIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { OcSocialIcon } from "@byorn/ui/icons";
 import { Separator } from "@/components/ui/separator";
+import { usePreviewStore } from "@/stores/preview-store";
+
+const ZOOM_STEP = 1.25;
 
 export function PreviewToolbar({
 	isFullscreen,
@@ -57,6 +63,8 @@ export function PreviewToolbar({
 			</Button>
 
 			<div className="justify-self-end flex items-center gap-2.5">
+				<PreviewZoomControls />
+				<Separator orientation="vertical" className="h-4" />
 				<Button
 					variant="secondary"
 					size="sm"
@@ -75,6 +83,74 @@ export function PreviewToolbar({
 					<HugeiconsIcon icon={FullScreenIcon} />
 				</Button>
 			</div>
+		</div>
+	);
+}
+
+function PreviewZoomControls() {
+	const {
+		zoom,
+		panMode,
+		fitScale,
+		setZoom,
+		setZoomAndPan,
+		togglePanMode,
+		resetView,
+	} = usePreviewStore();
+	const zoomPercent = Math.round(zoom * (fitScale || 1) * 100);
+
+	return (
+		<div className="flex items-center gap-0.5">
+			<Button
+				variant={panMode ? "secondary" : "text"}
+				size="icon"
+				className="size-7"
+				onClick={togglePanMode}
+				title="Pan tool (drag to pan, middle-drag anytime)"
+			>
+				<HugeiconsIcon icon={HandGripIcon} className="size-4" />
+			</Button>
+			<Button
+				variant="text"
+				size="icon"
+				className="size-7"
+				onClick={() => setZoom({ zoom: zoom / ZOOM_STEP })}
+				title="Zoom out"
+			>
+				<HugeiconsIcon icon={SearchMinusIcon} className="size-4" />
+			</Button>
+			<Button
+				variant="text"
+				size="sm"
+				className="h-7 w-12 px-1 font-mono text-xs"
+				onClick={resetView}
+				title="Zoom to fit"
+			>
+				{zoomPercent}%
+			</Button>
+			<Button
+				variant="text"
+				size="icon"
+				className="size-7"
+				onClick={() => setZoom({ zoom: zoom * ZOOM_STEP })}
+				title="Zoom in"
+			>
+				<HugeiconsIcon icon={SearchAddIcon} className="size-4" />
+			</Button>
+			<Button
+				variant="text"
+				size="sm"
+				className="h-7 px-1 font-mono text-xs"
+				onClick={() =>
+					setZoomAndPan({
+						zoom: fitScale > 0 ? 1 / fitScale : 1,
+						pan: { x: 0, y: 0 },
+					})
+				}
+				title="Zoom to 100%"
+			>
+				1:1
+			</Button>
 		</div>
 	);
 }

@@ -1,5 +1,6 @@
 import { usePreviewInteraction } from "@/hooks/use-preview-interaction";
 import { TransformHandles } from "./transform-handles";
+import { MaskHandles } from "./mask-handles";
 import { SnapGuides } from "./snap-guides";
 import { TextEditOverlay } from "./text-edit-overlay";
 
@@ -42,7 +43,10 @@ export function PreviewInteractionOverlay({
 					onCancel={cancelTextEdit}
 				/>
 			) : (
-				<TransformHandles canvasRef={canvasRef} containerRef={containerRef} />
+				<>
+					<TransformHandles canvasRef={canvasRef} containerRef={containerRef} />
+					<MaskHandles canvasRef={canvasRef} containerRef={containerRef} />
+				</>
 			)}
 			<SnapGuides
 				lines={snapLines}

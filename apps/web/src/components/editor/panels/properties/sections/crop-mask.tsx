@@ -3,6 +3,12 @@ import { useEditor } from "@/hooks/use-editor";
 import type { VisualElement } from "@/types/timeline";
 import type { CropRect, MaskShape } from "@/types/rendering";
 import {
+	getDefaultMaskShape,
+	resolveMaskShape,
+	MAX_MASK_DIMENSION,
+	MIN_MASK_DIMENSION,
+} from "@/lib/effects/definitions/shape-mask";
+import {
 	Section,
 	SectionContent,
 	SectionField,
@@ -15,9 +21,10 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { CropIcon, Cancel01Icon } from "@hugeicons/core-free-icons";
 
 const MASK_SHAPES: { type: MaskShape["type"]; label: string }[] = [
-	{ type: "rectangle", label: "Rectangle" },
+	{ type: "rectangle", label: "Rect" },
 	{ type: "ellipse", label: "Ellipse" },
-	{ type: "polygon", label: "Polygon" },
+	{ type: "star", label: "Star" },
+	{ type: "cinematic-bars", label: "Bars" },
 ];
 
 export function CropMaskSection({
@@ -30,6 +37,7 @@ export function CropMaskSection({
 	const editor = useEditor();
 	const crop = element.crop ?? { top: 0, right: 0, bottom: 0, left: 0 };
 	const mask = element.mask;
+	const resolvedMask = mask ? resolveMaskShape({ mask }) : null;
 
 	const updateCrop = (updates: Partial<CropRect>) => {
 		editor.timeline.updateElements({
@@ -52,8 +60,33 @@ export function CropMaskSection({
 					trackId,
 					elementId: element.id,
 					updates: {
-						mask: mask ? { ...mask, ...updates } : { type: "rectangle", feather: 0, inverted: false, ...updates },
+						mask: mask
+							? { ...mask, ...updates }
+							: { ...getDefaultMaskShape({ type: "rectangle" }), ...updates },
 					},
+				},
+			],
+		});
+	};
+
+	const setMaskShape = (type: MaskShape["type"]) => {
+		// Bars use a different default geometry, so reset size when
+		// switching to or from them; otherwise keep the current geometry.
+		const shouldResetGeometry =
+			!mask || (mask.type === "cinematic-bars") !== (type === "cinematic-bars");
+		const nextMask: MaskShape = shouldResetGeometry
+			? {
+					...getDefaultMaskShape({ type }),
+					feather: mask?.feather ?? 0,
+					inverted: mask?.inverted ?? false,
+				}
+			: { ...mask, type };
+		editor.timeline.updateElements({
+			updates: [
+				{
+					trackId,
+					elementId: element.id,
+					updates: { mask: nextMask },
 				},
 			],
 		});
@@ -182,37 +215,106 @@ export function CropMaskSection({
 										variant={mask?.type === shape.type ? "secondary" : "ghost"}
 										size="sm"
 										className="flex-1 h-7 text-[10px]"
-										onClick={() => updateMask({ type: shape.type })}
+										onClick={() => setMaskShape(shape.type)}
 									>
 										{shape.label}
 									</Button>
 								))}
 							</div>
 						</SectionField>
-						{mask && (
+						{mask && resolvedMask && (
 							<>
-								<SectionField label="Feather">
-									<NumberField
-										value={(mask.feather * 100).toFixed(0)}
-										onChange={(e) => {
-											const n = parseFloat(e.target.value);
-											if (!isNaN(n)) updateMask({ feather: Math.max(0, Math.min(100, n)) / 100 });
-										}}
-										onBlur={() => {}}
-										min={0}
-										max={100}
-										step={1}
-									/>
-								</SectionField>
+								<div className="grid grid-cols-2 gap-2">
+									<SectionField label="X">
+										<NumberField
+											value={(resolvedMask.centerX * 100).toFixed(0)}
+											onChange={(e) => {
+												const n = parseFloat(e.target.value);
+												if (!isNaN(n)) updateMask({ centerX: Math.max(-100, Math.min(100, n)) / 100 });
+											}}
+											onBlur={() => {}}
+											min={-100}
+											max={100}
+											step={1}
+										/>
+									</SectionField>
+									<SectionField label="Y">
+										<NumberField
+											value={(resolvedMask.centerY * 100).toFixed(0)}
+											onChange={(e) => {
+												const n = parseFloat(e.target.value);
+												if (!isNaN(n)) updateMask({ centerY: Math.max(-100, Math.min(100, n)) / 100 });
+											}}
+											onBlur={() => {}}
+											min={-100}
+											max={100}
+											step={1}
+										/>
+									</SectionField>
+									{resolvedMask.type !== "cinematic-bars" && (
+										<SectionField label="Width">
+											<NumberField
+												value={(resolvedMask.width * 100).toFixed(0)}
+												onChange={(e) => {
+													const n = parseFloat(e.target.value);
+													if (!isNaN(n)) updateMask({ width: Math.max(MIN_MASK_DIMENSION * 100, Math.min(MAX_MASK_DIMENSION * 100, n)) / 100 });
+												}}
+												onBlur={() => {}}
+												min={MIN_MASK_DIMENSION * 100}
+												max={MAX_MASK_DIMENSION * 100}
+												step={1}
+											/>
+										</SectionField>
+									)}
+									<SectionField label="Height">
+										<NumberField
+											value={(resolvedMask.height * 100).toFixed(0)}
+											onChange={(e) => {
+												const n = parseFloat(e.target.value);
+												if (!isNaN(n)) updateMask({ height: Math.max(MIN_MASK_DIMENSION * 100, Math.min(MAX_MASK_DIMENSION * 100, n)) / 100 });
+											}}
+											onBlur={() => {}}
+											min={MIN_MASK_DIMENSION * 100}
+											max={MAX_MASK_DIMENSION * 100}
+											step={1}
+										/>
+									</SectionField>
+									<SectionField label="Rotation">
+										<NumberField
+											value={resolvedMask.rotation.toFixed(0)}
+											onChange={(e) => {
+												const n = parseFloat(e.target.value);
+												if (!isNaN(n)) updateMask({ rotation: Math.max(-180, Math.min(180, n)) });
+											}}
+											onBlur={() => {}}
+											min={-180}
+											max={180}
+											step={1}
+										/>
+									</SectionField>
+									<SectionField label="Feather">
+										<NumberField
+											value={(resolvedMask.feather * 100).toFixed(0)}
+											onChange={(e) => {
+												const n = parseFloat(e.target.value);
+												if (!isNaN(n)) updateMask({ feather: Math.max(0, Math.min(100, n)) / 100 });
+											}}
+											onBlur={() => {}}
+											min={0}
+											max={100}
+											step={1}
+										/>
+									</SectionField>
+								</div>
 								<SectionField label="Invert">
 									<Button
 										type="button"
-										variant={mask.inverted ? "secondary" : "ghost"}
+										variant={resolvedMask.inverted ? "secondary" : "ghost"}
 										size="sm"
 										className="h-7 text-[10px]"
-										onClick={() => updateMask({ inverted: !mask.inverted })}
+										onClick={() => updateMask({ inverted: !resolvedMask.inverted })}
 									>
-										{mask.inverted ? "Inverted" : "Normal"}
+										{resolvedMask.inverted ? "Inverted" : "Normal"}
 									</Button>
 								</SectionField>
 							</>

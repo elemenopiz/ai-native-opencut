@@ -2,7 +2,7 @@ import type { CanvasRenderer } from "../canvas-renderer";
 import { createOffscreenCanvas } from "../canvas-utils";
 import { BaseNode } from "./base-node";
 import type { Effect } from "@/types/effects";
-import type { BlendMode } from "@/types/rendering";
+import type { BlendMode, MaskShape } from "@/types/rendering";
 import type { Transform } from "@/types/timeline";
 import type { ElementAnimations } from "@/types/animation";
 import {
@@ -15,6 +15,7 @@ import { resolveEffectParamsAtTime } from "@/lib/animation/effect-param-channel"
 import { getNumberChannelForPath } from "@/lib/animation/number-channel";
 import { TIME_EPSILON_SECONDS } from "@/constants/animation-constants";
 import { getEffect } from "@/lib/effects";
+import { maskShapeToEffectParams } from "@/lib/effects/definitions/shape-mask";
 import { webglEffectRenderer } from "../webgl-effect-renderer";
 
 export interface VisualNodeParams {
@@ -29,6 +30,7 @@ export interface VisualNodeParams {
 	opacity: number;
 	blendMode?: BlendMode;
 	effects?: Effect[];
+	mask?: MaskShape;
 }
 
 export abstract class VisualNode<
@@ -150,8 +152,9 @@ export abstract class VisualNode<
 
 		const enabledEffects =
 			this.params.effects?.filter((effect) => effect.enabled) ?? [];
+		const mask = this.params.mask;
 
-		if (enabledEffects.length === 0) {
+		if (enabledEffects.length === 0 && !mask) {
 			renderer.context.drawImage(source, x, y, scaledWidth, scaledHeight);
 			renderer.context.restore();
 			return;
@@ -186,6 +189,25 @@ export abstract class VisualNode<
 				fragmentShader: pass.fragmentShader,
 				uniforms: pass.uniforms({
 					effectParams: resolvedParams,
+					width: scaledWidth,
+					height: scaledHeight,
+				}),
+			}));
+			currentResult = webglEffectRenderer.applyEffect({
+				source: currentResult,
+				width: Math.round(scaledWidth),
+				height: Math.round(scaledHeight),
+				passes,
+			});
+		}
+
+		if (mask) {
+			const definition = getEffect({ effectType: "shape-mask" });
+			const maskParams = maskShapeToEffectParams({ mask });
+			const passes = definition.renderer.passes.map((pass) => ({
+				fragmentShader: pass.fragmentShader,
+				uniforms: pass.uniforms({
+					effectParams: maskParams,
 					width: scaledWidth,
 					height: scaledHeight,
 				}),

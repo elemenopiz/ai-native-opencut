@@ -14,11 +14,25 @@ export interface CropRect {
 	left: number;
 }
 
+export type MaskShapeType =
+	| "rectangle"
+	| "ellipse"
+	| "star"
+	| "cinematic-bars";
+
 export interface MaskShape {
-	type: "rectangle" | "ellipse" | "polygon";
+	type: MaskShapeType;
+	/** Feather width as a fraction of the element's short side (0..1). */
 	feather: number;
 	inverted: boolean;
-	points?: { x: number; y: number }[];
+	/** Center offset from the element center, as a fraction of element width/height. */
+	centerX?: number;
+	centerY?: number;
+	/** Mask size as a fraction of element width/height. */
+	width?: number;
+	height?: number;
+	/** Rotation in degrees, relative to the element. */
+	rotation?: number;
 }
 
 export type BlendMode =
