@@ -540,6 +540,11 @@ export class TextNode extends BaseNode<TextNodeParams> {
 					width: renderer.width,
 					height: renderer.height,
 				}),
+				textures: pass.textures?.({
+					effectParams: resolvedParams,
+					width: renderer.width,
+					height: renderer.height,
+				}),
 			}));
 			currentSource = webglEffectRenderer.applyEffect({
 				source: currentSource,

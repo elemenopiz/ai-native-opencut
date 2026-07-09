@@ -52,6 +52,11 @@ export class CompositeEffectNode extends BaseNode<CompositeEffectNodeParams> {
 				width: renderer.width,
 				height: renderer.height,
 			}),
+			textures: pass.textures?.({
+				effectParams: this.params.effectParams,
+				width: renderer.width,
+				height: renderer.height,
+			}),
 		}));
 		const effectResult = webglEffectRenderer.applyEffect({
 			source: offscreen as CanvasImageSource,

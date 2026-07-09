@@ -192,6 +192,11 @@ export abstract class VisualNode<
 					width: scaledWidth,
 					height: scaledHeight,
 				}),
+				textures: pass.textures?.({
+					effectParams: resolvedParams,
+					width: scaledWidth,
+					height: scaledHeight,
+				}),
 			}));
 			currentResult = webglEffectRenderer.applyEffect({
 				source: currentResult,

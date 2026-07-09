@@ -44,6 +44,16 @@ export type EffectParamDefinition =
 	| SelectEffectParamDefinition
 	| ColorEffectParamDefinition;
 
+/** An extra sampler2D texture (e.g. a baked 3D LUT) an effect pass can bind. */
+export interface EffectTextureUniformData {
+	width: number;
+	height: number;
+	/** RGBA8 pixel data, row-major, top row first. */
+	data: Uint8Array;
+	/** Cache key so the renderer can reuse the uploaded GPU texture across frames instead of re-uploading every draw. Omit to skip caching. */
+	cacheKey?: string;
+}
+
 export interface WebGLEffectPass {
 	fragmentShader: string;
 	uniforms(params: {
@@ -51,6 +61,12 @@ export interface WebGLEffectPass {
 		width: number;
 		height: number;
 	}): Record<string, number | number[]>;
+	/** Optional extra sampler2D textures (bound after `u_texture`, at texture units 1+). */
+	textures?(params: {
+		effectParams: EffectParamValues;
+		width: number;
+		height: number;
+	}): Record<string, EffectTextureUniformData>;
 }
 
 export interface WebGLEffectRenderer {
