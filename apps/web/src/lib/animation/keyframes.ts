@@ -8,6 +8,7 @@ import type {
 	ColorAnimationChannel,
 	DiscreteAnimationChannel,
 	ElementAnimations,
+	KeyframeEasing,
 	NumberAnimationChannel,
 } from "@/types/animation";
 import { TIME_EPSILON_SECONDS } from "@/constants/animation-constants";
@@ -93,12 +94,14 @@ function buildKeyframe({
 	time,
 	value,
 	interpolation,
+	easing,
 }: {
 	channel: AnimationChannel;
 	id: string;
 	time: number;
 	value: AnimationValue;
 	interpolation: AnimationInterpolation;
+	easing?: KeyframeEasing;
 }): AnimationKeyframe {
 	if (channel.valueKind === "number") {
 		if (typeof value !== "number") {
@@ -110,6 +113,7 @@ function buildKeyframe({
 			time,
 			value,
 			interpolation: interpolation === "hold" ? "hold" : "linear",
+			...(easing ? { easing } : {}),
 		};
 	}
 
@@ -123,6 +127,7 @@ function buildKeyframe({
 			time,
 			value,
 			interpolation: interpolation === "hold" ? "hold" : "linear",
+			...(easing ? { easing } : {}),
 		};
 	}
 
@@ -171,12 +176,14 @@ export function upsertKeyframe({
 	time,
 	value,
 	interpolation,
+	easing,
 	keyframeId,
 }: {
 	channel: AnimationChannel | undefined;
 	time: number;
 	value: AnimationValue;
 	interpolation?: AnimationInterpolation;
+	easing?: KeyframeEasing;
 	keyframeId?: string;
 }): AnimationChannel | undefined {
 	if (!channel) {
@@ -200,6 +207,7 @@ export function upsertKeyframe({
 				time,
 				value,
 				interpolation: nextInterpolation,
+				easing: easing ?? nextKeyframes[keyframeByIdIndex].easing,
 			});
 			return toChannel({
 				keyframes: nextKeyframes,
@@ -218,6 +226,7 @@ export function upsertKeyframe({
 			time: nextKeyframes[keyframeAtTimeIndex].time,
 			value,
 			interpolation: nextInterpolation,
+			easing: easing ?? nextKeyframes[keyframeAtTimeIndex].easing,
 		});
 		return toChannel({
 			keyframes: nextKeyframes,
@@ -232,6 +241,7 @@ export function upsertKeyframe({
 			time,
 			value,
 			interpolation: nextInterpolation,
+			easing,
 		}),
 	);
 
@@ -522,6 +532,7 @@ export function upsertElementKeyframe({
 	time,
 	value,
 	interpolation,
+	easing,
 	keyframeId,
 }: {
 	animations: ElementAnimations | undefined;
@@ -529,6 +540,7 @@ export function upsertElementKeyframe({
 	time: number;
 	value: AnimationValue;
 	interpolation?: AnimationInterpolation;
+	easing?: KeyframeEasing;
 	keyframeId?: string;
 }): ElementAnimations | undefined {
 	const coercedValue = coerceAnimationValueForProperty({
@@ -553,6 +565,7 @@ export function upsertElementKeyframe({
 		time,
 		value: coercedValue,
 		interpolation: interpolation ?? defaultInterpolation,
+		easing,
 		keyframeId,
 	});
 
@@ -602,6 +615,52 @@ export function retimeElementKeyframe({
 		channel,
 		keyframeId,
 		time,
+	});
+	return setChannel({
+		animations,
+		propertyPath,
+		channel: updatedChannel,
+	});
+}
+
+/**
+ * Set (or clear, when `easing` is undefined) the easing on a single keyframe.
+ * The easing governs the segment starting at this keyframe. Discrete channels
+ * are hold-only and are left untouched.
+ */
+export function setElementKeyframeEasing({
+	animations,
+	propertyPath,
+	keyframeId,
+	easing,
+}: {
+	animations: ElementAnimations | undefined;
+	propertyPath: AnimationPropertyPath;
+	keyframeId: string;
+	easing: KeyframeEasing | undefined;
+}): ElementAnimations | undefined {
+	const channel = getChannel({ animations, propertyPath });
+	if (!channel || channel.valueKind === "discrete") {
+		return animations;
+	}
+
+	const keyframeIndex = channel.keyframes.findIndex(
+		(keyframe) => keyframe.id === keyframeId,
+	);
+	if (keyframeIndex < 0) {
+		return animations;
+	}
+
+	const nextKeyframes = [...channel.keyframes];
+	const { easing: _previousEasing, ...keyframeWithoutEasing } =
+		nextKeyframes[keyframeIndex];
+	nextKeyframes[keyframeIndex] = easing
+		? { ...keyframeWithoutEasing, easing }
+		: keyframeWithoutEasing;
+
+	const updatedChannel = toChannel({
+		keyframes: nextKeyframes,
+		valueKind: channel.valueKind,
 	});
 	return setChannel({
 		animations,

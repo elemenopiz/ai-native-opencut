@@ -36,3 +36,4 @@ ai-models/
 ai-generated/
 
 *.md
+!THIRD_PARTY_NOTICES.md

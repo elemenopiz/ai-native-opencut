@@ -26,6 +26,7 @@ export function getElementKeyframes({
 				time: keyframe.time,
 				value: keyframe.value,
 				interpolation: keyframe.interpolation,
+				easing: keyframe.easing,
 			}));
 		},
 	);
@@ -63,5 +64,6 @@ export function getKeyframeAtTime({
 		time: keyframe.time,
 		value: keyframe.value,
 		interpolation: keyframe.interpolation,
+		easing: keyframe.easing,
 	};
 }

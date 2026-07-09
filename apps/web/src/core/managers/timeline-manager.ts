@@ -10,6 +10,7 @@ import type {
 	AnimationInterpolation,
 	AnimationPropertyPath,
 	AnimationValue,
+	KeyframeEasing,
 } from "@/types/animation";
 import { calculateTotalDuration } from "@/lib/timeline";
 import {
@@ -33,6 +34,7 @@ import {
 	UpsertKeyframeCommand,
 	RemoveKeyframeCommand,
 	RetimeKeyframeCommand,
+	SetKeyframeEasingCommand,
 	AddClipEffectCommand,
 	RemoveClipEffectCommand,
 	UpdateClipEffectParamsCommand,
@@ -381,6 +383,7 @@ export class TimelineManager {
 			time: number;
 			value: AnimationValue;
 			interpolation?: AnimationInterpolation;
+			easing?: KeyframeEasing;
 			keyframeId?: string;
 		}>;
 	}): void {
@@ -396,6 +399,7 @@ export class TimelineManager {
 				time,
 				value,
 				interpolation,
+				easing,
 				keyframeId,
 			}) =>
 				new UpsertKeyframeCommand({
@@ -405,7 +409,39 @@ export class TimelineManager {
 					time,
 					value,
 					interpolation,
+					easing,
 					keyframeId,
+				}),
+		);
+		const command =
+			commands.length === 1 ? commands[0] : new BatchCommand(commands);
+		this.editor.command.execute({ command });
+	}
+
+	setKeyframesEasing({
+		keyframes,
+		easing,
+	}: {
+		keyframes: Array<{
+			trackId: string;
+			elementId: string;
+			propertyPath: AnimationPropertyPath;
+			keyframeId: string;
+		}>;
+		easing: KeyframeEasing | undefined;
+	}): void {
+		if (keyframes.length === 0) {
+			return;
+		}
+
+		const commands = keyframes.map(
+			({ trackId, elementId, propertyPath, keyframeId }) =>
+				new SetKeyframeEasingCommand({
+					trackId,
+					elementId,
+					propertyPath,
+					keyframeId,
+					easing,
 				}),
 		);
 		const command =

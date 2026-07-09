@@ -7,6 +7,7 @@ import type {
 	NumberAnimationChannel,
 } from "@/types/animation";
 import { TIME_EPSILON_SECONDS } from "@/constants/animation-constants";
+import { applyEasing } from "./easing";
 
 function byTimeAscending({
 	leftTime,
@@ -271,7 +272,10 @@ export function getNumberChannelValueAtTime({
 			return lerpNumber({
 				leftValue: leftKeyframe.value,
 				rightValue: rightKeyframe.value,
-				progress,
+				progress: applyEasing({
+					easing: leftKeyframe.easing,
+					progress,
+				}),
 			});
 		},
 	});
@@ -298,7 +302,10 @@ export function getColorValueAtTime({
 			return interpolateColor({
 				leftColor: leftKeyframe.value,
 				rightColor: rightKeyframe.value,
-				progress,
+				progress: applyEasing({
+					easing: leftKeyframe.easing,
+					progress,
+				}),
 			});
 		},
 	});

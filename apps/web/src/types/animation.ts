@@ -27,6 +27,32 @@ export type AnimationInterpolation =
 	| ContinuousKeyframeInterpolation
 	| DiscreteKeyframeInterpolation;
 
+/**
+ * CSS-style cubic-bezier control points `[x1, y1, x2, y2]`. The curve runs from
+ * an implicit `(0, 0)` to an implicit `(1, 1)`; `x` is normalized segment time
+ * and `y` is the eased progress used to interpolate the value.
+ */
+export type CubicBezierControlPoints = readonly [number, number, number, number];
+
+export type EasingPresetId =
+	| "linear"
+	| "ease"
+	| "ease-in"
+	| "ease-out"
+	| "ease-in-out";
+
+/**
+ * Optional easing applied to the segment that *starts* at a keyframe (mirroring
+ * how `interpolation: "hold"` governs the outgoing segment). `bezier` is the
+ * authoritative value so the AI Director can emit arbitrary curves; `preset` is
+ * a convenience label kept in sync for the UI. When omitted, interpolation is
+ * linear, preserving the pre-easing behavior.
+ */
+export interface KeyframeEasing {
+	preset?: EasingPresetId;
+	bezier: CubicBezierControlPoints;
+}
+
 interface BaseAnimationKeyframe<
 	TValue extends AnimationValue,
 	TInterpolation extends AnimationInterpolation,
@@ -35,6 +61,7 @@ interface BaseAnimationKeyframe<
 	time: number; // relative to element start time
 	value: TValue;
 	interpolation: TInterpolation;
+	easing?: KeyframeEasing;
 }
 
 export interface NumberKeyframe
@@ -88,6 +115,7 @@ export interface ElementKeyframe {
 	time: number;
 	value: AnimationValue;
 	interpolation: AnimationInterpolation;
+	easing?: KeyframeEasing;
 }
 
 export interface SelectedKeyframeRef {
