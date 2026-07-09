@@ -84,3 +84,123 @@ Files reproduced verbatim from this project (prose unmodified):
 `apps/web/src/lib/studio/playbooks/index.ts` is a generated verbatim mirror of
 those two `.md` bodies (JSON-stringified) so the prose can be imported as string
 constants; it is a derived copy, not a modification of the prose.
+
+---
+
+## OpenCut-app/opencut-classic — MIT
+
+Copyright 2025-2026 OpenCut. Source: https://github.com/OpenCut-app/opencut-classic
+
+```
+MIT License
+
+Copyright 2025-2026 OpenCut
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN
+AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+Files adapted from this project (TypeScript / algorithm level only; none of the
+project's Rust/WASM engine code was copied):
+
+- `apps/web/src/lib/animation/easing.ts` — cubic-bezier keyframe easing (presets,
+  the CSS-style timing-function evaluator, and the easing-picker UI patterns),
+  adapted from the pure-TypeScript animation math in `apps/web/src/animation/bezier.ts`,
+  `graph-channels.ts`, and the `timeline/components/graph-editor/*` modules.
+- `apps/web/src/lib/effects/definitions/shape-mask.frag.glsl` /
+  `apps/web/src/lib/effects/definitions/shape-mask.ts` /
+  `apps/web/src/hooks/use-mask-handles.ts` /
+  `apps/web/src/components/editor/panels/preview/mask-handles.tsx` — shape-mask
+  geometry, parameterization (center/size/rotation/feather/invert), and the
+  draggable-handle interaction model, adapted from opencut-classic's
+  `apps/web/src/masks/` and `commands/timeline/element/masks/`. Feather is
+  re-implemented as a signed-distance smoothstep in our WebGL effect system
+  (their Rust JFA feather crate was not ported).
+
+---
+
+## francozanardi/pycaps — MIT
+
+Copyright (c) 2025 Franco Zanardi. Source: https://github.com/francozanardi/pycaps
+
+```
+MIT License
+
+Copyright (c) 2025 Franco Zanardi
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN
+AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+Files adapted from this project (re-implemented in TypeScript for our canvas
+renderer; no source copied verbatim):
+
+- `apps/web/src/lib/captions/caption-presets.ts` and the karaoke rendering in
+  `apps/web/src/services/renderer/nodes/text-node.ts` — the three-state per-word
+  caption model (not-yet-narrated → being-narrated → already-narrated) and the
+  pop/fade word-entry animation approach, adapted from pycaps' CSS word-state
+  hooks (`.word-being-narrated`) and its `fade_in` / `zoom_in` on-narration
+  animations.
+
+---
+
+## itsjwill/vanta — MIT
+
+Copyright (c) 2026 itsjwill. Source: https://github.com/itsjwill/vanta
+
+```
+MIT License
+
+Copyright (c) 2026 itsjwill
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN
+AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+Referenced from this project (a curated map of open-source video tooling):
+
+- `apps/web/src/lib/captions/caption-presets.ts` — the caption-preset taxonomy
+  and active-word configuration shape were informed by vanta's caption-template
+  catalog. No source copied verbatim.

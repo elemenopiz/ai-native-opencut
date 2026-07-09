@@ -1,54 +1,43 @@
 import { EditorCore } from "@/core";
+import {
+	setElementKeyframeEasing,
+	supportsAnimationProperty,
+} from "@/lib/animation";
 import { Command } from "@/lib/commands/base-command";
-import { supportsAnimationProperty, upsertElementKeyframe } from "@/lib/animation";
 import { updateElementInTracks } from "@/lib/timeline";
-import type { TimelineTrack } from "@/types/timeline";
 import type {
-	AnimationInterpolation,
 	AnimationPropertyPath,
-	AnimationValue,
 	KeyframeEasing,
 } from "@/types/animation";
+import type { TimelineTrack } from "@/types/timeline";
 
-export class UpsertKeyframeCommand extends Command {
+export class SetKeyframeEasingCommand extends Command {
 	private savedState: TimelineTrack[] | null = null;
 	private readonly trackId: string;
 	private readonly elementId: string;
 	private readonly propertyPath: AnimationPropertyPath;
-	private readonly time: number;
-	private readonly value: AnimationValue;
-	private readonly interpolation: AnimationInterpolation | undefined;
+	private readonly keyframeId: string;
 	private readonly easing: KeyframeEasing | undefined;
-	private readonly keyframeId: string | undefined;
 
 	constructor({
 		trackId,
 		elementId,
 		propertyPath,
-		time,
-		value,
-		interpolation,
-		easing,
 		keyframeId,
+		easing,
 	}: {
 		trackId: string;
 		elementId: string;
 		propertyPath: AnimationPropertyPath;
-		time: number;
-		value: AnimationValue;
-		interpolation?: AnimationInterpolation;
-		easing?: KeyframeEasing;
-		keyframeId?: string;
+		keyframeId: string;
+		easing: KeyframeEasing | undefined;
 	}) {
 		super();
 		this.trackId = trackId;
 		this.elementId = elementId;
 		this.propertyPath = propertyPath;
-		this.time = time;
-		this.value = value;
-		this.interpolation = interpolation;
-		this.easing = easing;
 		this.keyframeId = keyframeId;
+		this.easing = easing;
 	}
 
 	execute(): void {
@@ -64,21 +53,15 @@ export class UpsertKeyframeCommand extends Command {
 					element,
 					propertyPath: this.propertyPath,
 				}),
-			update: (element) => {
-				const boundedTime = Math.max(0, Math.min(this.time, element.duration));
-				return {
-					...element,
-					animations: upsertElementKeyframe({
-						animations: element.animations,
-						propertyPath: this.propertyPath,
-						time: boundedTime,
-						value: this.value,
-						interpolation: this.interpolation,
-						easing: this.easing,
-						keyframeId: this.keyframeId,
-					}),
-				};
-			},
+			update: (element) => ({
+				...element,
+				animations: setElementKeyframeEasing({
+					animations: element.animations,
+					propertyPath: this.propertyPath,
+					keyframeId: this.keyframeId,
+					easing: this.easing,
+				}),
+			}),
 		});
 
 		editor.timeline.updateTracks(updatedTracks);

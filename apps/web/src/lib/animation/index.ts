@@ -11,9 +11,22 @@ export {
 	removeElementKeyframe,
 	retimeElementKeyframe,
 	setChannel,
+	setElementKeyframeEasing,
 	splitAnimationsAtTime,
 	upsertElementKeyframe,
 } from "./keyframes";
+
+export {
+	applyEasing,
+	easingFromBezier,
+	easingFromPreset,
+	evaluateCubicBezier,
+	matchEasingPreset,
+	resolveEasingControlPoints,
+	EASING_PRESETS,
+	EASING_PRESET_OPTIONS,
+	type EasingPresetOption,
+} from "./easing";
 
 export {
 	getElementLocalTime,

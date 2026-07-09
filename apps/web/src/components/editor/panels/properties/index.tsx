@@ -7,6 +7,7 @@ import { GenerativeClipProperties } from "./generative-clip-properties";
 import { TextProperties } from "./text-properties";
 import { EffectProperties } from "./effect-properties";
 import { ClipEffectsProperties } from "./clip-effects-properties";
+import { EasingPicker } from "./easing-picker";
 import { EmptyView } from "./empty-view";
 import {
 	TemplateGuideProperties,
@@ -91,15 +92,18 @@ export function PropertiesPanel() {
 					trackId={clipEffectsTrack.id}
 				/>
 			) : selectedElements.length > 0 ? (
-				<ScrollArea className="h-full scrollbar-hidden">
-					{elementsWithTracks.map(({ track, element }) => (
-						<ElementProperties
-							key={element.id}
-							track={track}
-							element={element}
-						/>
-					))}
-				</ScrollArea>
+				<div className="flex h-full flex-col">
+					<ScrollArea className="min-h-0 flex-1 scrollbar-hidden">
+						{elementsWithTracks.map(({ track, element }) => (
+							<ElementProperties
+								key={element.id}
+								track={track}
+								element={element}
+							/>
+						))}
+					</ScrollArea>
+					<EasingPicker />
+				</div>
 			) : (
 				<EmptyView />
 			)}
