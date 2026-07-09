@@ -19,7 +19,10 @@ export function getSpeakerColor(speakerIndex: number): string {
 	return SPEAKER_COLORS[String(speakerIndex % SPEAKER_COLORS_ARRAY.length)];
 }
 
-export function getSpeakerLabel(speaker: string | undefined, index: number): string {
+export function getSpeakerLabel(
+	speaker: string | undefined,
+	index: number,
+): string {
 	if (!speaker) return `Speaker ${index + 1}`;
 	const match = speaker.match(/\d+/);
 	const num = match ? parseInt(match[0], 10) : index;
@@ -41,36 +44,121 @@ export interface SpeakerCaptionSegment {
 	}>;
 }
 
+export interface BuildSpeakerCaptionOptions {
+	/** Custom display names keyed by raw speaker id (e.g. "SPEAKER_A"). */
+	speakerNames?: Record<string, string>;
+	/**
+	 * Merge runs of consecutive segments spoken by the same speaker into one
+	 * caption block (text + word timings concatenated). Off by default so
+	 * word-level karaoke timings stay per-segment.
+	 */
+	groupConsecutive?: boolean;
+}
+
 export function buildSpeakerCaptionSegments(
 	segments: TranscriptionSegment[],
-	speakerNames?: Record<string, string>,
+	optionsOrNames?: BuildSpeakerCaptionOptions | Record<string, string>,
 ): SpeakerCaptionSegment[] {
+	// Back-compat: the old signature took a bare `speakerNames` map as the 2nd arg.
+	const options: BuildSpeakerCaptionOptions =
+		optionsOrNames && "speakerNames" in optionsOrNames
+			? (optionsOrNames as BuildSpeakerCaptionOptions)
+			: optionsOrNames
+				? { speakerNames: optionsOrNames as Record<string, string> }
+				: {};
+	const { speakerNames, groupConsecutive } = options;
+
 	const seenSpeakers = new Map<string, number>();
 	let speakerCounter = 0;
 
-	return segments.map((seg) => {
-		const speaker = seg.speaker ?? "unknown";
-		if (!seenSpeakers.has(speaker)) {
-			seenSpeakers.set(speaker, speakerCounter);
-			speakerCounter++;
-		}
-		const speakerIndex = seenSpeakers.get(speaker)!;
-		const rawLabel = getSpeakerLabel(speaker, speakerIndex);
-		const customLabel = speakerNames?.[speaker];
+	const indexFor = (speaker: string): number => {
+		const existing = seenSpeakers.get(speaker);
+		if (existing !== undefined) return existing;
+		const next = speakerCounter;
+		seenSpeakers.set(speaker, next);
+		speakerCounter++;
+		return next;
+	};
 
+	const build = (
+		speaker: string,
+		text: string,
+		start: number,
+		end: number,
+		words: SpeakerCaptionSegment["words"],
+	): SpeakerCaptionSegment => {
+		const speakerIndex = indexFor(speaker);
+		const rawLabel = getSpeakerLabel(speaker, speakerIndex);
 		return {
 			speaker,
 			speakerIndex,
-			speakerLabel: customLabel ?? rawLabel,
+			speakerLabel: speakerNames?.[speaker] ?? rawLabel,
 			speakerColor: getSpeakerColor(speakerIndex),
-			text: seg.text,
-			start: seg.start,
-			end: seg.end,
-			words: seg.words.map((w) => ({
-				word: w.word,
-				start: w.start,
-				end: w.end,
-			})),
+			text,
+			start,
+			end,
+			words,
 		};
-	});
+	};
+
+	if (!groupConsecutive) {
+		return segments.map((seg) =>
+			build(
+				seg.speaker ?? "unknown",
+				seg.text,
+				seg.start,
+				seg.end,
+				seg.words.map((w) => ({ word: w.word, start: w.start, end: w.end })),
+			),
+		);
+	}
+
+	// Merge consecutive same-speaker segments.
+	const result: SpeakerCaptionSegment[] = [];
+	let run: {
+		speaker: string;
+		texts: string[];
+		start: number;
+		end: number;
+		words: SpeakerCaptionSegment["words"];
+	} | null = null;
+
+	const flush = () => {
+		if (!run) return;
+		result.push(
+			build(
+				run.speaker,
+				run.texts.join(" ").trim(),
+				run.start,
+				run.end,
+				run.words,
+			),
+		);
+		run = null;
+	};
+
+	for (const seg of segments) {
+		const speaker = seg.speaker ?? "unknown";
+		const words = seg.words.map((w) => ({
+			word: w.word,
+			start: w.start,
+			end: w.end,
+		}));
+		if (run && run.speaker === speaker) {
+			run.texts.push(seg.text);
+			run.end = seg.end;
+			run.words.push(...words);
+		} else {
+			flush();
+			run = {
+				speaker,
+				texts: [seg.text],
+				start: seg.start,
+				end: seg.end,
+				words,
+			};
+		}
+	}
+	flush();
+	return result;
 }
