@@ -15,7 +15,9 @@ import {
 	generateMultiframe,
 	type MultiframeBase,
 } from "@/lib/studio/multiframe";
-import { addsPerShotStill, estimateCost, formatUsd } from "@/lib/studio/cost";
+import { estimateBatchCost, formatUsd, needsApproval } from "@/lib/studio/cost";
+import { CostApprovalDialog } from "@/components/studio/cost-approval-dialog";
+import { useStudioSettingsStore } from "@/stores/studio-settings-store";
 import { useTakesNotificationStore } from "@/stores/takes-notification-store";
 import { cn } from "@/utils/ui";
 import { TakeReview } from "@/components/editor/take-review";
@@ -75,30 +77,22 @@ export function GenerateView() {
 	}, [editor]);
 
 	const promptedSlots = slots.filter((s) => s.hasPrompt);
-	const batchCost = promptedSlots.reduce(
-		(acc, s) => {
-			// `alternatives` takes per slot share a single per-shot still, so the
-			// still is counted once (inside estimateCost) and the video cost scales
-			// with the alternatives count.
-			const rendersStill = addsPerShotStill(
-				!!s.spec.personaId,
-				s.spec.consistencyMode,
-			);
-			const c = estimateCost(
-				s.spec.resolution,
-				s.spec.duration,
-				rendersStill,
-				alternatives,
-			);
-			return {
-				low: acc.low + c.low,
-				high: acc.high + c.high,
-			};
-		},
-		{ low: 0, high: 0 },
+	// `alternatives` takes per slot share a single per-shot still, so the still is
+	// counted once per slot (inside estimateSpecCost) while the video cost scales
+	// with the alternatives count.
+	const batchCost = estimateBatchCost(
+		promptedSlots.map((s) => s.spec),
+		alternatives,
 	);
 
-	const runBatch = useCallback(async () => {
+	// Cost-preview approval gate (concept: cost-preview gate). A batch above the
+	// user's threshold confirms before spending; anything cheaper runs straight.
+	const approvalThresholdUsd = useStudioSettingsStore(
+		(s) => s.approvalThresholdUsd,
+	);
+	const [approvalOpen, setApprovalOpen] = useState(false);
+
+	const runBatchNow = useCallback(async () => {
 		setBatchBusy(true);
 		try {
 			const r = await generateAllSlots({ alternatives });
@@ -113,6 +107,14 @@ export function GenerateView() {
 			setBatchBusy(false);
 		}
 	}, [alternatives, generateAllSlots]);
+
+	const runBatch = useCallback(() => {
+		if (needsApproval(batchCost, approvalThresholdUsd)) {
+			setApprovalOpen(true);
+			return;
+		}
+		void runBatchNow();
+	}, [batchCost, approvalThresholdUsd, runBatchNow]);
 
 	// Drive the Takes tab icon (left rail): fill it blue while a generation is in
 	// flight, keep it blue once done so the user knows takes are waiting there.
@@ -271,6 +273,17 @@ export function GenerateView() {
 			)}
 
 			<TakeReview open={reviewOpen} onOpenChange={setReviewOpen} />
+
+			<CostApprovalDialog
+				open={approvalOpen}
+				onOpenChange={setApprovalOpen}
+				estimate={batchCost}
+				clips={batchCost.clips}
+				onApprove={() => {
+					setApprovalOpen(false);
+					void runBatchNow();
+				}}
+			/>
 		</PanelView>
 	);
 }

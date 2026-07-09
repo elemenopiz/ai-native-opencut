@@ -6,6 +6,7 @@ import type {
 	VideoMode,
 } from "@/lib/studio/provider-adapter";
 import type { ImageSize, ImageQuality } from "@/lib/studio/image-generator";
+import { DEFAULT_APPROVAL_THRESHOLD_USD } from "@/lib/studio/cost";
 
 /**
  * How attached media is interpreted:
@@ -40,6 +41,10 @@ interface StudioSettingsState {
 	// GPT Image
 	imageSize: ImageSize;
 	imageQuality: ImageQuality;
+	// Cost-preview approval gate: generations whose estimated cost meets or
+	// exceeds this USD threshold ask for explicit approval before spending
+	// (see `lib/studio/cost.ts`). Trivial single re-rolls fall under it.
+	approvalThresholdUsd: number;
 
 	set: (patch: Partial<Omit<StudioSettingsState, "set">>) => void;
 }
@@ -57,6 +62,7 @@ export const useStudioSettingsStore = create<StudioSettingsState>()(
 			consistencyMode: "high",
 			imageSize: "1024x1536",
 			imageQuality: "high",
+			approvalThresholdUsd: DEFAULT_APPROVAL_THRESHOLD_USD,
 			set: (patch) => set(patch),
 		}),
 		{ name: "studio-settings" },

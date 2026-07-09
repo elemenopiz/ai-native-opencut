@@ -46,6 +46,11 @@ import {
 	type ConsistencyContext,
 } from "./consistency-prompt";
 import { buildRemixSpec } from "@/lib/studio/remix";
+import {
+	estimateBatchCost,
+	formatCostRange,
+	type CostRange,
+} from "@/lib/studio/cost";
 import { createShortIdMap } from "./short-id";
 import { aiClient } from "@/lib/ai-client";
 import { getAllEmbeddings } from "@/services/search/embedding-store";
@@ -84,11 +89,11 @@ export type {
  * A timeline element that is a generative slot — i.e. it carries a
  * `generation` recipe. Takes live alongside on `takes`/`activeTakeId`.
  */
-type SlotElement = (TimelineElement & {
+type SlotElement = TimelineElement & {
 	generation: GenerationSpec;
 	takes?: Take[];
 	activeTakeId?: string;
-});
+};
 
 /** Located slot together with the track that holds it. */
 interface LocatedSlot {
@@ -308,7 +313,11 @@ export function createDirectorApi(
 			}
 			if (changed(a.start, b.start)) {
 				change.start = a.start;
-				shifted.push({ trackId: a.trackId, from: b.start, by: a.start - b.start });
+				shifted.push({
+					trackId: a.trackId,
+					from: b.start,
+					by: a.start - b.start,
+				});
 				touched = true;
 			}
 			if (touched) changes.set(id, change);
@@ -317,7 +326,10 @@ export function createDirectorApi(
 		// Compress uniform runs: group start-shifts by (track, rounded amount);
 		// any group of >= 3 becomes one rule and its slots drop the `start` field.
 		const shifts: UniformShift[] = [];
-		const groups = new Map<string, { trackId: string; by: number; froms: number[] }>();
+		const groups = new Map<
+			string,
+			{ trackId: string; by: number; froms: number[] }
+		>();
 		for (const s of shifted) {
 			const key = `${s.trackId}|${s.by.toFixed(4)}`;
 			const g = groups.get(key);
@@ -366,7 +378,10 @@ export function createDirectorApi(
 	 * pass through untouched (no mutation happened). Capture `before` at the top
 	 * of a verb, then wrap each terminal `ok(...)` with this.
 	 */
-	function withDelta<T>(before: ReelCapture, result: DirectorResult<T>): DirectorResult<T> {
+	function withDelta<T>(
+		before: ReelCapture,
+		result: DirectorResult<T>,
+	): DirectorResult<T> {
 		if (!result.ok) return result;
 		result.delta = diffReel(before, captureReel());
 		return result;
@@ -428,8 +443,13 @@ export function createDirectorApi(
 	// ---- CONSISTENCY --------------------------------------------------------
 
 	/** Read the reel-level STYLE/CHARACTERS/SETTING context, if one is set. */
-	function getConsistencyContext(): DirectorResult<ConsistencyContext | undefined> {
-		return ok("Current consistency context.", getStoredConsistencyContext(editor));
+	function getConsistencyContext(): DirectorResult<
+		ConsistencyContext | undefined
+	> {
+		return ok(
+			"Current consistency context.",
+			getStoredConsistencyContext(editor),
+		);
 	}
 
 	/**
@@ -448,9 +468,11 @@ export function createDirectorApi(
 		const personas =
 			input.includeAllPersonas === false
 				? []
-				: usePersonaStore
-						.getState()
-						.personas.map((p) => ({ id: p.id, name: p.name, descriptor: p.descriptor }));
+				: usePersonaStore.getState().personas.map((p) => ({
+						id: p.id,
+						name: p.name,
+						descriptor: p.descriptor,
+					}));
 
 		const context = buildConsistencyContext({
 			style: input.style,
@@ -510,7 +532,9 @@ export function createDirectorApi(
 			);
 		}
 
-		const queryVec = Float32Array.from((await aiClient.embedText(query)).vector);
+		const queryVec = Float32Array.from(
+			(await aiClient.embedText(query)).vector,
+		);
 		const assets = editor.media.getAssets();
 		const byId = new Map(assets.map((a) => [a.id, a]));
 		const limit = Math.max(1, input.limit ?? 5);
@@ -569,7 +593,9 @@ export function createDirectorApi(
 		}
 
 		const duration =
-			input.duration ?? asset.duration ?? TIMELINE_CONSTANTS.DEFAULT_ELEMENT_DURATION;
+			input.duration ??
+			asset.duration ??
+			TIMELINE_CONSTANTS.DEFAULT_ELEMENT_DURATION;
 		if (duration <= 0) return fail("addClip requires a positive duration.");
 
 		const startTime = input.startTime ?? editor.timeline.getTotalDuration();
@@ -764,7 +790,11 @@ export function createDirectorApi(
 				"status" | "mediaId" | "thumbnailUrl" | "seed" | "jobId" | "error"
 			>;
 			try {
-				result = await executor.run({ slotId, takeId: take.id, spec: take.spec });
+				result = await executor.run({
+					slotId,
+					takeId: take.id,
+					spec: take.spec,
+				});
 			} catch (error) {
 				result = {
 					status: "failed",
@@ -785,7 +815,10 @@ export function createDirectorApi(
 				(t) => t.status === "ready",
 			);
 			if (firstReady) {
-				editor.timeline.selectTake({ elementId: slotId, takeId: firstReady.id });
+				editor.timeline.selectTake({
+					elementId: slotId,
+					takeId: firstReady.id,
+				});
 			}
 		}
 
@@ -793,6 +826,38 @@ export function createDirectorApi(
 			slotId,
 			takeIds,
 		});
+	}
+
+	/** Resolve a `generate`-style target selector into the located slots it hits. */
+	function resolveTargets(slotIds?: string[] | "all"): LocatedSlot[] {
+		const all = locateSlots();
+		if (!slotIds || slotIds === "all") return all;
+		const wanted = new Set(slotIds);
+		return all.filter((s) => wanted.has(s.element.id));
+	}
+
+	/**
+	 * Estimate the cost of a `generate` call WITHOUT running it — the read-only
+	 * half of the cost-preview approval gate (concept: cost-preview gate). Same
+	 * target/alternatives resolution as `generate`, so a caller can preview the
+	 * exact spend of the action it's about to take. Read-only (no `withDelta`).
+	 */
+	function estimateGenerateCost(input: {
+		slotIds?: string[] | "all";
+		alternatives?: number;
+	}): DirectorResult<CostRange & { clips: number }> {
+		const count = Math.max(1, input.alternatives ?? 1);
+		const targets = resolveTargets(input.slotIds).filter((s) =>
+			s.element.generation.prompt?.trim(),
+		);
+		const estimate = estimateBatchCost(
+			targets.map((s) => s.element.generation),
+			count,
+		);
+		return ok(
+			`~${formatCostRange(estimate)} for ${estimate.clips} clip(s).`,
+			estimate,
+		);
 	}
 
 	/**
@@ -859,17 +924,23 @@ export function createDirectorApi(
 		const before = captureReel();
 		const located = findSlot(input.slotId);
 		if (!located) return fail(`No slot with id "${input.slotId}".`);
-		if (!input.remixPrompt.trim()) return fail("remix requires a non-empty remixPrompt.");
+		if (!input.remixPrompt.trim())
+			return fail("remix requires a non-empty remixPrompt.");
 
 		const takes = takesOf(located.element);
 		const source = located.element.activeTakeId
 			? takes.find((t) => t.id === located.element.activeTakeId)
 			: takes[takes.length - 1];
 		if (!source) {
-			return fail(`Slot "${input.slotId}" has no take to remix yet — generate one first.`);
+			return fail(
+				`Slot "${input.slotId}" has no take to remix yet — generate one first.`,
+			);
 		}
 
-		const spec = buildRemixSpec({ priorTake: source, remixPrompt: input.remixPrompt });
+		const spec = buildRemixSpec({
+			priorTake: source,
+			remixPrompt: input.remixPrompt,
+		});
 		const newTake: Take = {
 			id: generateUUID(),
 			status: "queued",
@@ -877,7 +948,10 @@ export function createDirectorApi(
 			seed: spec.seed,
 			createdAt: Date.now(),
 		};
-		editor.timeline.addTakeToElement({ elementId: input.slotId, take: newTake });
+		editor.timeline.addTakeToElement({
+			elementId: input.slotId,
+			take: newTake,
+		});
 
 		if (!executor) {
 			return withDelta(
@@ -895,24 +969,41 @@ export function createDirectorApi(
 			patch: { status: "generating" },
 		});
 
-		let result: Pick<Take, "status" | "mediaId" | "thumbnailUrl" | "seed" | "jobId" | "error">;
+		let result: Pick<
+			Take,
+			"status" | "mediaId" | "thumbnailUrl" | "seed" | "jobId" | "error"
+		>;
 		try {
-			result = await executor.run({ slotId: input.slotId, takeId: newTake.id, spec });
+			result = await executor.run({
+				slotId: input.slotId,
+				takeId: newTake.id,
+				spec,
+			});
 		} catch (error) {
 			result = {
 				status: "failed",
 				error: error instanceof Error ? error.message : String(error),
 			};
 		}
-		editor.timeline.updateTake({ elementId: input.slotId, takeId: newTake.id, patch: result });
+		editor.timeline.updateTake({
+			elementId: input.slotId,
+			takeId: newTake.id,
+			patch: result,
+		});
 
 		if (result.status === "ready" && !located.element.activeTakeId) {
-			editor.timeline.selectTake({ elementId: input.slotId, takeId: newTake.id });
+			editor.timeline.selectTake({
+				elementId: input.slotId,
+				takeId: newTake.id,
+			});
 		}
 
 		return withDelta(
 			before,
-			ok(`Remixed slot "${input.slotId}".`, { slotId: input.slotId, takeId: newTake.id }),
+			ok(`Remixed slot "${input.slotId}".`, {
+				slotId: input.slotId,
+				takeId: newTake.id,
+			}),
 		);
 	}
 
@@ -999,7 +1090,10 @@ export function createDirectorApi(
 			elementId: located.element.id,
 			newStartTime: input.newStartTime,
 		});
-		return withDelta(before, ok(`Moved slot "${input.slotId}" to ${input.newStartTime}s.`));
+		return withDelta(
+			before,
+			ok(`Moved slot "${input.slotId}" to ${input.newStartTime}s.`),
+		);
 	}
 
 	/** `atTime` is in SECONDS. */
@@ -1118,7 +1212,9 @@ export function createDirectorApi(
 
 		return withDelta(
 			before,
-			ok(`Applied "${input.transitionType}" transition to slot "${input.slotId}".`),
+			ok(
+				`Applied "${input.transitionType}" transition to slot "${input.slotId}".`,
+			),
 		);
 	}
 
@@ -1207,7 +1303,8 @@ export function createDirectorApi(
 		color?: string;
 		textAlign?: TextElement["textAlign"];
 	}): DirectorResult<{ elementId: string }> {
-		if (!input.content.trim()) return fail("addText requires non-empty content.");
+		if (!input.content.trim())
+			return fail("addText requires non-empty content.");
 		if (input.startTime < 0) return fail("addText requires startTime >= 0.");
 
 		const element = {
@@ -1273,7 +1370,9 @@ export function createDirectorApi(
 		}
 
 		editor.timeline.updateElements({
-			updates: [{ trackId: located.track.id, elementId: input.elementId, updates }],
+			updates: [
+				{ trackId: located.track.id, elementId: input.elementId, updates },
+			],
 		});
 		return ok(`Updated text element "${input.elementId}".`);
 	}
@@ -1316,6 +1415,7 @@ export function createDirectorApi(
 		reserveSlot,
 		setPrompt,
 		// generate
+		estimateGenerateCost,
 		generate,
 		reroll,
 		remix,
