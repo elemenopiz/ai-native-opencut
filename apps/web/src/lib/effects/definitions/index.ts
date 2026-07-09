@@ -14,6 +14,7 @@ import { duotoneEffectDefinition } from "./duotone";
 import { chromaKeyEffectDefinition } from "./chroma-key";
 import { shapeMaskEffectDefinition } from "./shape-mask";
 import { lutEffectDefinition } from "./lut";
+import { lut3dEffectDefinition } from "./lut-3d";
 
 const defaultEffects = [
 	blurEffectDefinition,
@@ -31,6 +32,7 @@ const defaultEffects = [
 	chromaKeyEffectDefinition,
 	shapeMaskEffectDefinition,
 	lutEffectDefinition,
+	lut3dEffectDefinition,
 ];
 
 export function registerDefaultEffects(): void {

@@ -87,6 +87,16 @@ export interface WebGLPassTexture {
 	filter?: "linear" | "nearest";
 }
 
+/** An extra sampler2D texture (e.g. a baked 3D LUT) an effect pass can bind. */
+export interface EffectTextureUniformData {
+	width: number;
+	height: number;
+	/** RGBA8 pixel data, row-major, top row first. */
+	data: Uint8Array;
+	/** Cache key so the renderer can reuse the uploaded GPU texture across frames instead of re-uploading every draw. Omit to skip caching. */
+	cacheKey?: string;
+}
+
 export interface WebGLEffectPass {
 	fragmentShader: string;
 	uniforms(params: {
@@ -95,14 +105,16 @@ export interface WebGLEffectPass {
 		height: number;
 	}): Record<string, number | number[]>;
 	/**
-	 * Optional auxiliary textures bound at units >= 1 (e.g. a baked LUT atlas).
-	 * Return `[]` / `undefined` when the pass needs only its input texture.
+	 * Optional auxiliary textures bound at units >= 1. Either an array of
+	 * source-backed textures (e.g. the 2D LUT atlas) or a uniform-name-keyed map
+	 * of raw RGBA8 data textures (e.g. the baked 3D LUT). Return `[]` / `{}` /
+	 * `undefined` when the pass needs only its input texture.
 	 */
 	textures?(params: {
 		effectParams: EffectParamValues;
 		width: number;
 		height: number;
-	}): WebGLPassTexture[];
+	}): WebGLPassTexture[] | Record<string, EffectTextureUniformData>;
 }
 
 export interface WebGLEffectRenderer {

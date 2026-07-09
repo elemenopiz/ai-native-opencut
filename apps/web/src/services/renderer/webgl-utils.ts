@@ -1,11 +1,21 @@
 import VERTEX_SHADER_SOURCE from "@/lib/effects/effect.vert.glsl";
-import type { WebGLPassTexture } from "@/types/effects";
+import type {
+	EffectTextureUniformData,
+	WebGLPassTexture,
+} from "@/types/effects";
 
 export interface EffectPassData {
 	fragmentShader: string;
 	uniforms: Record<string, number | number[]>;
-	/** Auxiliary textures bound at units >= 1 (e.g. a LUT atlas). */
-	textures?: WebGLPassTexture[];
+	/**
+	 * Auxiliary textures bound at units >= 1. Two supported shapes:
+	 * - `WebGLPassTexture[]`: source-backed textures uploaded from a
+	 *   `TexImageSource` (e.g. the 2D LUT atlas effect), uploaded every draw.
+	 * - `Record<string, EffectTextureUniformData>`: raw RGBA8 data textures keyed
+	 *   by sampler uniform name (e.g. the baked 3D LUT), with optional
+	 *   `cacheKey`-based reuse across frames via `textureCache`.
+	 */
+	textures?: WebGLPassTexture[] | Record<string, EffectTextureUniformData>;
 }
 
 export const QUAD_POSITIONS = new Float32Array([
@@ -176,6 +186,62 @@ export function createAuxTexture({
 	return texture;
 }
 
+/**
+ * Uploads raw RGBA8 pixel data as a WebGL texture (as opposed to `createTexture`,
+ * which uploads from a `CanvasImageSource`). Used for baked-data textures like
+ * a tiled 3D LUT. No Y-flip is applied — callers own their own row order.
+ */
+export function createDataTexture({
+	context,
+	width,
+	height,
+	data,
+}: {
+	context: WebGLRenderingContext;
+	width: number;
+	height: number;
+	data: Uint8Array;
+}): WebGLTexture {
+	const texture = context.createTexture();
+	if (!texture) {
+		throw new Error("Failed to create WebGL data texture");
+	}
+	context.bindTexture(context.TEXTURE_2D, texture);
+	context.pixelStorei(context.UNPACK_FLIP_Y_WEBGL, 0);
+	context.texParameteri(
+		context.TEXTURE_2D,
+		context.TEXTURE_WRAP_S,
+		context.CLAMP_TO_EDGE,
+	);
+	context.texParameteri(
+		context.TEXTURE_2D,
+		context.TEXTURE_WRAP_T,
+		context.CLAMP_TO_EDGE,
+	);
+	context.texParameteri(
+		context.TEXTURE_2D,
+		context.TEXTURE_MIN_FILTER,
+		context.LINEAR,
+	);
+	context.texParameteri(
+		context.TEXTURE_2D,
+		context.TEXTURE_MAG_FILTER,
+		context.LINEAR,
+	);
+	context.texImage2D(
+		context.TEXTURE_2D,
+		0,
+		context.RGBA,
+		width,
+		height,
+		0,
+		context.RGBA,
+		context.UNSIGNED_BYTE,
+		data,
+	);
+	return texture;
+}
+
 export function setUniforms({
 	context,
 	program,
@@ -294,6 +360,7 @@ export function applyMultiPassEffect({
 	height,
 	passes,
 	programCache,
+	textureCache,
 }: {
 	context: WebGLRenderingContext;
 	source: CanvasImageSource;
@@ -301,9 +368,17 @@ export function applyMultiPassEffect({
 	height: number;
 	passes: EffectPassData[];
 	programCache: Map<string, WebGLProgram>;
+	/**
+	 * Optional cache for extra pass textures (keyed by `EffectTextureUniformData.cacheKey`),
+	 * so e.g. a 3D LUT texture is uploaded once and reused across frames instead of
+	 * re-uploading every draw. Textures without a cache key (or when this is omitted)
+	 * are created and torn down within a single call.
+	 */
+	textureCache?: Map<string, WebGLTexture>;
 }): void {
 	const sourceTexture = createTexture({ context, source });
 	let currentTexture: WebGLTexture = sourceTexture;
+	const transientTextures: WebGLTexture[] = [];
 
 	const intermediates: Array<{
 		texture: WebGLTexture;
@@ -334,9 +409,13 @@ export function applyMultiPassEffect({
 			context.uniform1i(uTextureLocation, 0);
 		}
 
-		// Bind auxiliary textures (e.g. a LUT atlas) at units >= 1.
+		// Bind auxiliary textures at units >= 1. Two supported shapes:
+		//  - WebGLPassTexture[]: source-backed textures (e.g. 2D LUT atlas),
+		//    uploaded fresh each draw and torn down after via `auxTextures`.
+		//  - Record<uniform, EffectTextureUniformData>: raw data textures (e.g. a
+		//    baked 3D LUT) with optional cacheKey-based reuse across frames.
 		const auxTextures: WebGLTexture[] = [];
-		if (pass.textures) {
+		if (Array.isArray(pass.textures)) {
 			for (const aux of pass.textures) {
 				const auxTexture = createAuxTexture({
 					context,
@@ -349,6 +428,35 @@ export function applyMultiPassEffect({
 					context.uniform1i(auxLocation, aux.unit);
 				}
 				auxTextures.push(auxTexture);
+			}
+			// Restore the active unit so the input texture stays at unit 0.
+			context.activeTexture(context.TEXTURE0);
+		} else if (pass.textures) {
+			let unit = 1;
+			for (const [uniformName, textureData] of Object.entries(pass.textures)) {
+				const cacheKey = textureData.cacheKey;
+				let glTexture = cacheKey ? textureCache?.get(cacheKey) : undefined;
+				if (!glTexture) {
+					glTexture = createDataTexture({
+						context,
+						width: textureData.width,
+						height: textureData.height,
+						data: textureData.data,
+					});
+					if (cacheKey && textureCache) {
+						textureCache.set(cacheKey, glTexture);
+					} else {
+						transientTextures.push(glTexture);
+					}
+				}
+
+				context.activeTexture(context.TEXTURE0 + unit);
+				context.bindTexture(context.TEXTURE_2D, glTexture);
+				const location = context.getUniformLocation(program, uniformName);
+				if (location) {
+					context.uniform1i(location, unit);
+				}
+				unit++;
 			}
 			// Restore the active unit so the input texture stays at unit 0.
 			context.activeTexture(context.TEXTURE0);
@@ -375,6 +483,10 @@ export function applyMultiPassEffect({
 		context.deleteTexture(intermediate.texture);
 		context.deleteFramebuffer(intermediate.framebuffer);
 	}
+	for (const texture of transientTextures) {
+		context.deleteTexture(texture);
+	}
+	context.activeTexture(context.TEXTURE0);
 	context.bindTexture(context.TEXTURE_2D, null);
 	context.bindFramebuffer(context.FRAMEBUFFER, null);
 }

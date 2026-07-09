@@ -12,6 +12,7 @@ let previewCanvas: OffscreenCanvas | HTMLCanvasElement | null = null;
 let testSourceCanvas: OffscreenCanvas | HTMLCanvasElement | null = null;
 let previewImageElement: HTMLImageElement | null = null;
 const programCache = new Map<string, WebGLProgram>();
+const textureCache = new Map<string, WebGLTexture>();
 const onReadyCallbacks = new Set<() => void>();
 
 export function onPreviewImageReady({
@@ -137,6 +138,7 @@ function applyWebGlEffect({
 		height,
 		passes,
 		programCache,
+		textureCache,
 	});
 
 	const outputCanvas = createOffscreenCanvas({ width, height });

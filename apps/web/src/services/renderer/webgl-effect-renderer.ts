@@ -12,6 +12,7 @@ export interface ApplyEffectParams {
 let gl: WebGLRenderingContext | null = null;
 let canvas: OffscreenCanvas | HTMLCanvasElement | null = null;
 const programCache = new Map<string, WebGLProgram>();
+const textureCache = new Map<string, WebGLTexture>();
 
 function getOrCreateCanvas({
 	width,
@@ -55,6 +56,7 @@ function applyEffect({
 		height,
 		passes,
 		programCache,
+		textureCache,
 	});
 
 	const outputCanvas = createOffscreenCanvas({ width, height });
