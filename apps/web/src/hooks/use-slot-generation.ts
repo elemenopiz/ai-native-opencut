@@ -3,13 +3,49 @@
 import { useCallback } from "react";
 import { useEditor } from "@/hooks/use-editor";
 import { generateTakeMedia } from "@/lib/studio/generate-take";
+import { createLeaseScheduler } from "@/lib/studio/lease-scheduler";
 import { generateUUID } from "@/utils/id";
 import type { GenerationSpec, TimelineElement } from "@/types/timeline";
+
+/** The provider channels a generation can run on. Each has its own request-rate
+ *  budget, so each gets its own lease pool below. */
+type GenerationChannel = "image" | "video" | "audio";
+
+/**
+ * Max concurrent generations per channel — one place to tune throughput vs. the
+ * providers' rate limits. Video is the heaviest / most rate-limited, so it runs
+ * the tightest; stills and audio are cheaper and tolerate more in-flight work.
+ */
+const STUDIO_CHANNEL_CONCURRENCY: Record<GenerationChannel, number> = {
+	image: 4,
+	video: 2,
+	audio: 4,
+};
+
+/**
+ * One scheduler shared across every slot and every caller of this hook, so the
+ * per-channel caps are global: "Generate all" over 20 slots still only keeps
+ * `STUDIO_CHANNEL_CONCURRENCY.video` video requests in flight at once. It lives
+ * at module scope (not in a ref) precisely so those caps aren't reset per mount.
+ */
+const generationScheduler = createLeaseScheduler(STUDIO_CHANNEL_CONCURRENCY);
+
+/** Map a timeline element type to the channel that generates it. */
+function channelForElementType(
+	type: TimelineElement["type"],
+): GenerationChannel {
+	if (type === "image") return "image";
+	if (type === "audio") return "audio";
+	// Video slots — and anything else routed through this generative pipeline —
+	// go through the (heaviest) video provider.
+	return "video";
+}
 
 /** A generative slot located on the timeline. */
 interface SlotRef {
 	elementId: string;
 	spec: GenerationSpec;
+	channel: GenerationChannel;
 }
 
 /**
@@ -81,6 +117,19 @@ export function useSlotGeneration() {
 		[editor],
 	);
 
+	/** Find a slot's channel from its timeline element type, defaulting to the
+	 *  video pool when the element can't be located. */
+	const channelForElement = useCallback(
+		(elementId: string): GenerationChannel => {
+			const element = editor.timeline
+				.getTracks()
+				.flatMap((track) => track.elements as TimelineElement[])
+				.find((el) => el.id === elementId);
+			return element ? channelForElementType(element.type) : "video";
+		},
+		[editor],
+	);
+
 	/** True if the slot has no active take chosen yet. */
 	const slotHasNoActiveTake = useCallback(
 		(elementId: string): boolean => {
@@ -100,21 +149,29 @@ export function useSlotGeneration() {
 			elementId: string;
 			spec: GenerationSpec;
 			alternatives?: number;
+			/** Channel override (computed once by `generateAllSlots`); resolved
+			 *  from the element's type when omitted. */
+			channel?: GenerationChannel;
 		}): Promise<{ ok: number; failed: number }> => {
 			const projectId = getActiveProjectId();
 			if (!projectId) return { ok: 0, failed: 0 };
 			const n = Math.max(1, params.alternatives ?? 1);
+			const channel = params.channel ?? channelForElement(params.elementId);
 
-			// Run every take concurrently — none of them auto-select on their own
-			// anymore, since with all takes racing there's no meaningful "first"
-			// until they've all settled.
+			// Submit every take through the scheduler: it runs them concurrently
+			// but caps in-flight requests per channel, so we parallelize without
+			// tripping provider rate limits. None auto-select on their own anymore,
+			// since with all takes racing there's no meaningful "first" until
+			// they've all settled.
 			const results = await Promise.all(
 				Array.from({ length: n }, () =>
-					runOneTake({
-						elementId: params.elementId,
-						spec: params.spec,
-						projectId,
-					}),
+					generationScheduler.submit(channel, () =>
+						runOneTake({
+							elementId: params.elementId,
+							spec: params.spec,
+							projectId,
+						}),
+					),
 				),
 			);
 
@@ -137,7 +194,13 @@ export function useSlotGeneration() {
 
 			return { ok, failed };
 		},
-		[getActiveProjectId, runOneTake, slotHasNoActiveTake, editor],
+		[
+			getActiveProjectId,
+			runOneTake,
+			slotHasNoActiveTake,
+			channelForElement,
+			editor,
+		],
 	);
 
 	/** Collect every generative slot on the timeline that has a prompt. */
@@ -150,7 +213,11 @@ export function useSlotGeneration() {
 					el.generation &&
 					el.generation.prompt?.trim()
 				) {
-					slots.push({ elementId: el.id, spec: el.generation });
+					slots.push({
+						elementId: el.id,
+						spec: el.generation,
+						channel: channelForElementType(el.type),
+					});
 				}
 			}
 		}
@@ -169,6 +236,7 @@ export function useSlotGeneration() {
 						elementId: slot.elementId,
 						spec: slot.spec,
 						alternatives: params.alternatives,
+						channel: slot.channel,
 					}),
 				),
 			);
