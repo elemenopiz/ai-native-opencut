@@ -11,6 +11,7 @@ import {
 import { useEditorActions } from "@/hooks/actions/use-editor-actions";
 import { useEmbeddingIndexer } from "@/hooks/use-embedding-indexer";
 import { useStudioHandoff } from "@/hooks/use-studio-handoff";
+import { useMcpBridge } from "@/hooks/use-mcp-bridge";
 import { prefetchFontAtlas } from "@/lib/fonts/google-fonts";
 
 interface EditorProviderProps {
@@ -114,13 +115,13 @@ export function EditorProvider({ projectId, children }: EditorProviderProps) {
 
 	return (
 		<>
-			<EditorRuntimeBindings />
+			<EditorRuntimeBindings projectId={projectId} />
 			{children}
 		</>
 	);
 }
 
-function EditorRuntimeBindings() {
+function EditorRuntimeBindings({ projectId }: { projectId: string }) {
 	const editor = useEditor();
 
 	useEffect(() => {
@@ -138,5 +139,8 @@ function EditorRuntimeBindings() {
 	useKeybindingsListener();
 	useEmbeddingIndexer();
 	useStudioHandoff();
+	// Register this tab as the live MCP executor for the open project (the
+	// server-side /api/mcp relay drives the editor through this channel).
+	useMcpBridge(projectId);
 	return null;
 }
