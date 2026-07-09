@@ -7,6 +7,7 @@ import {
 } from "mediabunny";
 
 interface VideoSinkData {
+	input: Input;
 	sink: CanvasSink;
 	iterator: AsyncGenerator<WrappedCanvas, void, unknown> | null;
 	currentFrame: WrappedCanvas | null;
@@ -268,6 +269,7 @@ export class VideoCache {
 			});
 
 			this.sinks.set(mediaId, {
+				input,
 				sink,
 				iterator: null,
 				currentFrame: null,
@@ -288,6 +290,10 @@ export class VideoCache {
 			if (sinkData.iterator) {
 				void sinkData.iterator.return();
 			}
+
+			// Free the mediabunny Input's decoders/resources; without this the
+			// decoder leaks every time a cached video is cleared.
+			sinkData.input.dispose();
 
 			this.sinks.delete(mediaId);
 		}
