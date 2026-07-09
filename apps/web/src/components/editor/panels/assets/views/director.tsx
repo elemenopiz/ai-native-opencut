@@ -24,8 +24,15 @@ import { useAIStore } from "@/stores/ai-store";
 import { useTranscriptStore } from "@/stores/transcript-store";
 import { useEditor } from "@/hooks/use-editor";
 import { useDirector } from "@/hooks/use-director";
-import { runDirectorAgent } from "@/lib/director/agent";
+import {
+	runDirectorAgent,
+	executeDirectorAction,
+	type AgentApproval,
+} from "@/lib/director/agent";
 import type { ReelSnapshot } from "@/lib/director/types";
+import { needsApproval, type CostRange } from "@/lib/studio/cost";
+import { useStudioSettingsStore } from "@/stores/studio-settings-store";
+import { CostApprovalDialog } from "@/components/studio/cost-approval-dialog";
 import { toast } from "sonner";
 import { TemplatePanel } from "@/components/editor/ai/template-panel";
 import { BRollSuggestionsPanel } from "@/components/editor/ai/broll-suggestions-panel";
@@ -62,7 +69,9 @@ const THINKING_MESSAGES = [
 ];
 
 function useThinkingMessage(isThinking: boolean) {
-	const [index, setIndex] = useState(() => Math.floor(Math.random() * THINKING_MESSAGES.length));
+	const [index, setIndex] = useState(() =>
+		Math.floor(Math.random() * THINKING_MESSAGES.length),
+	);
 
 	useEffect(() => {
 		if (!isThinking) return;
@@ -90,7 +99,20 @@ interface WorkflowStep {
 	isCompleted?: boolean;
 }
 
-type StudioMode = "direct" | "chat" | "workflow" | "transcript" | "templates" | "ideas" | "broll" | "youtube-reels" | "dubbing" | "chapters" | "reframe" | "tracking" | "ab-testing";
+type StudioMode =
+	| "direct"
+	| "chat"
+	| "workflow"
+	| "transcript"
+	| "templates"
+	| "ideas"
+	| "broll"
+	| "youtube-reels"
+	| "dubbing"
+	| "chapters"
+	| "reframe"
+	| "tracking"
+	| "ab-testing";
 
 // ----- Workflow Steps -----
 
@@ -140,8 +162,7 @@ const VIDEO_WORKFLOWS: {
 			{
 				id: "transcribe",
 				label: "Transcribe and edit",
-				description:
-					"Transcribe the recording, then edit text to edit video.",
+				description: "Transcribe the recording, then edit text to edit video.",
 				icon: AiMicIcon,
 				action: "transcribe",
 			},
@@ -163,8 +184,7 @@ const VIDEO_WORKFLOWS: {
 			{
 				id: "hook",
 				label: "Craft the hook",
-				description:
-					"AI helps write a 3-second hook that stops the scroll.",
+				description: "AI helps write a 3-second hook that stops the scroll.",
 				icon: SparklesIcon,
 				action: "hook",
 			},
@@ -179,24 +199,21 @@ const VIDEO_WORKFLOWS: {
 			{
 				id: "record",
 				label: "Record vertically",
-				description:
-					"Film in 9:16 portrait mode following the script.",
+				description: "Film in 9:16 portrait mode following the script.",
 				icon: AiMicIcon,
 				action: "import",
 			},
 			{
 				id: "edit",
 				label: "Fast-cut edit",
-				description:
-					"Remove silences and filler for punchy pacing.",
+				description: "Remove silences and filler for punchy pacing.",
 				icon: SparklesIcon,
 				action: "fast-edit",
 			},
 			{
 				id: "subtitles",
 				label: "Add bold subtitles",
-				description:
-					"Most viewers watch muted — add animated captions.",
+				description: "Most viewers watch muted — add animated captions.",
 				icon: TextIcon,
 				action: "subtitles",
 			},
@@ -225,24 +242,21 @@ const VIDEO_WORKFLOWS: {
 			{
 				id: "clean",
 				label: "Clean the audio",
-				description:
-					"Remove background noise and normalize levels.",
+				description: "Remove background noise and normalize levels.",
 				icon: SparklesIcon,
 				action: "clean-audio",
 			},
 			{
 				id: "transcribe",
 				label: "Transcribe and find clips",
-				description:
-					"Transcribe to easily navigate and find the best moments.",
+				description: "Transcribe to easily navigate and find the best moments.",
 				icon: TextIcon,
 				action: "transcribe",
 			},
 			{
 				id: "clip",
 				label: "Create highlight clips",
-				description:
-					"AI identifies the best segments for social media clips.",
+				description: "AI identifies the best segments for social media clips.",
 				icon: Image01Icon,
 				action: "highlights",
 			},
@@ -267,8 +281,7 @@ const STARTER_PROMPTS = [
 	},
 	{
 		label: "Write a script for a 60-second reel",
-		prompt:
-			"Write a script for a 60-second vertical video/reel about ",
+		prompt: "Write a script for a 60-second vertical video/reel about ",
 	},
 	{
 		label: "Give me 5 video ideas about...",
@@ -281,40 +294,44 @@ const STARTER_PROMPTS = [
 	},
 	{
 		label: "Create an outline for a tutorial",
-		prompt:
-			"Create a detailed outline for a tutorial video about ",
+		prompt: "Create a detailed outline for a tutorial video about ",
 	},
 	{
 		label: "Suggest a thumbnail concept",
-		prompt:
-			"Describe a compelling thumbnail concept for a video about ",
+		prompt: "Describe a compelling thumbnail concept for a video about ",
 	},
 ];
 
 const TRANSCRIPT_PROMPTS = [
 	{
 		label: "Make it more concise",
-		prompt: "Rewrite this transcript to be more concise. Remove redundant phrases and tighten the language while keeping the same meaning:\n\n",
+		prompt:
+			"Rewrite this transcript to be more concise. Remove redundant phrases and tighten the language while keeping the same meaning:\n\n",
 	},
 	{
 		label: "Make it more professional",
-		prompt: "Rewrite this transcript in a more professional and polished tone:\n\n",
+		prompt:
+			"Rewrite this transcript in a more professional and polished tone:\n\n",
 	},
 	{
 		label: "Simplify the language",
-		prompt: "Rewrite this transcript using simpler, more accessible language that a general audience can understand:\n\n",
+		prompt:
+			"Rewrite this transcript using simpler, more accessible language that a general audience can understand:\n\n",
 	},
 	{
 		label: "Add more energy",
-		prompt: "Rewrite this transcript to be more engaging and energetic, with stronger hooks and more dynamic phrasing:\n\n",
+		prompt:
+			"Rewrite this transcript to be more engaging and energetic, with stronger hooks and more dynamic phrasing:\n\n",
 	},
 	{
 		label: "Fix grammar and flow",
-		prompt: "Fix any grammar issues and improve the flow of this transcript while keeping the original meaning:\n\n",
+		prompt:
+			"Fix any grammar issues and improve the flow of this transcript while keeping the original meaning:\n\n",
 	},
 	{
 		label: "Summarize key points",
-		prompt: "Summarize the key points from this transcript in bullet points:\n\n",
+		prompt:
+			"Summarize the key points from this transcript in bullet points:\n\n",
 	},
 ];
 
@@ -342,16 +359,23 @@ export function DirectorView() {
 	const [directing, setDirecting] = useState(false);
 	const [reel, setReel] = useState<ReelSnapshot | null>(null);
 
+	// Cost-preview approval gate (concept: cost-preview gate). Pending confirmation
+	// for the manual "Generate all" button and for a gated verb the chat agent
+	// proposed but paused on — both run only after the user approves the estimate.
+	const approvalThresholdUsd = useStudioSettingsStore(
+		(s) => s.approvalThresholdUsd,
+	);
+	const [genAllApproval, setGenAllApproval] = useState<
+		(CostRange & { clips: number }) | null
+	>(null);
+	const [chatApproval, setChatApproval] = useState<AgentApproval | null>(null);
+
 	const [mode, setMode] = useState<StudioMode>("direct");
 	const [inputValue, setInputValue] = useState("");
 	const [isThinking, setIsThinking] = useState(false);
 	const thinkingMessage = useThinkingMessage(isThinking);
-	const [selectedWorkflow, setSelectedWorkflow] = useState<string | null>(
-		null,
-	);
-	const [completedSteps, setCompletedSteps] = useState<Set<string>>(
-		new Set(),
-	);
+	const [selectedWorkflow, setSelectedWorkflow] = useState<string | null>(null);
+	const [completedSteps, setCompletedSteps] = useState<Set<string>>(new Set());
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 	const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -359,11 +383,14 @@ export function DirectorView() {
 	const [activeModel, setActiveModel] = useState("");
 
 	useEffect(() => {
-		aiClient.llmStatus().then((data) => {
-			if (data.available) {
-				setActiveModel(data.default_model || "");
-			}
-		}).catch(() => {});
+		aiClient
+			.llmStatus()
+			.then((data) => {
+				if (data.available) {
+					setActiveModel(data.default_model || "");
+				}
+			})
+			.catch(() => {});
 	}, []);
 
 	// Auto-scroll on new messages
@@ -408,7 +435,7 @@ export function DirectorView() {
 		}
 	}, [shotText, director]);
 
-	const handleGenerateAll = useCallback(async () => {
+	const runGenerateAllNow = useCallback(async () => {
 		setDirecting(true);
 		try {
 			const res = await director.generate({ slotIds: "all", alternatives });
@@ -417,6 +444,42 @@ export function DirectorView() {
 			setDirecting(false);
 		}
 	}, [director, alternatives]);
+
+	const handleGenerateAll = useCallback(() => {
+		const est = director.estimateGenerateCost({
+			slotIds: "all",
+			alternatives,
+		}).data;
+		if (est && needsApproval(est, approvalThresholdUsd)) {
+			setGenAllApproval(est);
+			return;
+		}
+		void runGenerateAllNow();
+	}, [director, alternatives, approvalThresholdUsd, runGenerateAllNow]);
+
+	// Run the gated verb the chat agent paused on, after the user approves its
+	// cost. Executes the exact proposed action deterministically (bypassing the
+	// LLM) so approval spends on precisely what was previewed.
+	const approveChatAction = useCallback(async () => {
+		if (!chatApproval) return;
+		const pending = chatApproval;
+		setChatApproval(null);
+		setIsThinking(true);
+		try {
+			const step = await executeDirectorAction(
+				director,
+				pending.action,
+				pending.args,
+			);
+			addMessage({
+				id: crypto.randomUUID(),
+				role: "assistant",
+				content: `${step.ok ? "✅" : "⚠️"} \`${step.action}\` — ${step.message}`,
+			});
+		} finally {
+			setIsThinking(false);
+		}
+	}, [chatApproval, director, addMessage]);
 
 	const handleSend = useCallback(async () => {
 		const trimmed = inputValue.trim();
@@ -467,12 +530,18 @@ export function DirectorView() {
 					role: "assistant",
 					content: result.finalMessage || "Done.",
 				});
+				// The run paused on a gated verb — surface the cost dialog so the
+				// user can approve (or dismiss) the exact proposed spend.
+				if (result.awaitingApproval) {
+					setChatApproval(result.awaitingApproval);
+				}
 			} catch (error) {
 				const detail = error instanceof Error ? error.message : "";
 				// Frontier (Claude relay) failures carry their own explanation;
 				// everything else is the local Ollama path.
 				const isRelayIssue = detail.includes("Claude relay");
-				const isOllamaDown = detail.includes("503") || detail.includes("Ollama");
+				const isOllamaDown =
+					detail.includes("503") || detail.includes("Ollama");
 				addMessage({
 					id: crypto.randomUUID(),
 					role: "assistant",
@@ -533,7 +602,10 @@ export function DirectorView() {
 						content: "Here's what I suggest based on your request.",
 					});
 				} else {
-					updateMessage(assistantId, "Here's what I suggest based on your request.");
+					updateMessage(
+						assistantId,
+						"Here's what I suggest based on your request.",
+					);
 				}
 			}
 		} catch (error) {
@@ -544,14 +616,28 @@ export function DirectorView() {
 				: `Something went wrong: ${detail || "Unknown error"}. Make sure the AI backend and Ollama are running with a model loaded.`;
 
 			if (!messageAdded) {
-				addMessage({ id: assistantId, role: "assistant", content: errorContent });
+				addMessage({
+					id: assistantId,
+					role: "assistant",
+					content: errorContent,
+				});
 			} else {
 				updateMessage(assistantId, errorContent);
 			}
 		} finally {
 			setIsThinking(false);
 		}
-	}, [inputValue, isThinking, isConnected, mode, hasTranscript, transcriptSegments, addMessage, updateMessage, director]);
+	}, [
+		inputValue,
+		isThinking,
+		isConnected,
+		mode,
+		hasTranscript,
+		transcriptSegments,
+		addMessage,
+		updateMessage,
+		director,
+	]);
 
 	const handleKeyDown = useCallback(
 		(event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -586,9 +672,7 @@ export function DirectorView() {
 		});
 	};
 
-	const activeWorkflow = VIDEO_WORKFLOWS.find(
-		(w) => w.id === selectedWorkflow,
-	);
+	const activeWorkflow = VIDEO_WORKFLOWS.find((w) => w.id === selectedWorkflow);
 
 	return (
 		<div className="relative flex h-full flex-col overflow-hidden">
@@ -596,12 +680,18 @@ export function DirectorView() {
 			<div className="bg-background h-11 shrink-0 px-4 pr-2 flex items-center justify-between border-b">
 				<div className="flex items-center gap-2">
 					{activeModel && (
-						<Badge variant="secondary" className="text-[10px] px-1.5 py-0 font-mono">
+						<Badge
+							variant="secondary"
+							className="text-[10px] px-1.5 py-0 font-mono"
+						>
 							{activeModel}
 						</Badge>
 					)}
 					{!isConnected && (
-						<Badge variant="outline" className="text-[8px] px-1.5 py-0 text-yellow-500 border-yellow-500/30">
+						<Badge
+							variant="outline"
+							className="text-[8px] px-1.5 py-0 text-yellow-500 border-yellow-500/30"
+						>
 							Offline
 						</Badge>
 					)}
@@ -616,16 +706,17 @@ export function DirectorView() {
 						<HugeiconsIcon icon={FilmRoll01Icon} className="size-3" />
 						Direct
 					</Button>
-					{(mode === "chat" || mode === "transcript") && messages.length > 0 && (
-						<Button
-							variant="ghost"
-							size="sm"
-							className="h-6 text-[10px] px-1.5 text-muted-foreground"
-							onClick={clearMessages}
-						>
-							<HugeiconsIcon icon={Delete02Icon} className="size-3" />
-						</Button>
-					)}
+					{(mode === "chat" || mode === "transcript") &&
+						messages.length > 0 && (
+							<Button
+								variant="ghost"
+								size="sm"
+								className="h-6 text-[10px] px-1.5 text-muted-foreground"
+								onClick={clearMessages}
+							>
+								<HugeiconsIcon icon={Delete02Icon} className="size-3" />
+							</Button>
+						)}
 					{hasTranscript && (
 						<Button
 							variant={mode === "transcript" ? "secondary" : "ghost"}
@@ -762,21 +853,23 @@ export function DirectorView() {
 					<div className="space-y-1">
 						<p className="text-xs font-medium">Direct the reel</p>
 						<p className="text-[10px] text-muted-foreground leading-relaxed">
-							Storyboard a shot list into generative slots, then generate
-							every slot at once. Each shot becomes a slot on the timeline;
-							takes drop in as they finish.
+							Storyboard a shot list into generative slots, then generate every
+							slot at once. Each shot becomes a slot on the timeline; takes drop
+							in as they finish.
 						</p>
 					</div>
 
 					{/* Reel status */}
 					<div className="flex items-center gap-2 text-[11px] text-muted-foreground">
 						<span>{reel?.slots.length ?? 0} slots</span>
-						{(reel?.slots.filter((s) => s.status === "ready").length ?? 0) > 0 && (
+						{(reel?.slots.filter((s) => s.status === "ready").length ?? 0) >
+							0 && (
 							<span>
 								· {reel?.slots.filter((s) => s.status === "ready").length} ready
 							</span>
 						)}
-						{(reel?.slots.filter((s) => s.status === "generating").length ?? 0) > 0 && (
+						{(reel?.slots.filter((s) => s.status === "generating").length ??
+							0) > 0 && (
 							<span>
 								· {reel?.slots.filter((s) => s.status === "generating").length}{" "}
 								generating
@@ -791,7 +884,9 @@ export function DirectorView() {
 							value={shotText}
 							onChange={(e) => setShotText(e.target.value)}
 							rows={5}
-							placeholder={"One shot per line — optional | seconds:\nwide shot of a city at dusk\nclose-up of the hero | 4"}
+							placeholder={
+								"One shot per line — optional | seconds:\nwide shot of a city at dusk\nclose-up of the hero | 4"
+							}
 							className="w-full resize-none rounded-md border bg-transparent px-2.5 py-2 text-xs outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50"
 						/>
 						<Button
@@ -835,9 +930,9 @@ export function DirectorView() {
 					</div>
 
 					<p className="text-[10px] text-muted-foreground leading-relaxed">
-						Drives the reel via the Director API. Natural-language control
-						plugs into these same verbs when the AI backend is connected — use
-						Chat to brainstorm the shot list first.
+						Drives the reel via the Director API. Natural-language control plugs
+						into these same verbs when the AI backend is connected — use Chat to
+						brainstorm the shot list first.
 					</p>
 				</div>
 			)}
@@ -850,45 +945,51 @@ export function DirectorView() {
 						ref={scrollRef}
 						className="flex-1 min-h-0 overflow-y-auto px-2 py-2"
 					>
-						{messages.length === 0 && mode === "transcript" && hasTranscript && (
-							<div className="flex flex-col gap-3 py-4 px-1">
-								<div className="text-center">
-									<HugeiconsIcon
-										icon={TextIcon}
-										className="size-8 text-muted-foreground/30 mx-auto mb-2"
-									/>
-									<p className="text-xs font-medium">
-										Edit script with AI
-									</p>
-									<p className="text-[10px] text-muted-foreground mt-0.5">
-										Rewrite, improve, or transform your transcript
-									</p>
-								</div>
+						{messages.length === 0 &&
+							mode === "transcript" &&
+							hasTranscript && (
+								<div className="flex flex-col gap-3 py-4 px-1">
+									<div className="text-center">
+										<HugeiconsIcon
+											icon={TextIcon}
+											className="size-8 text-muted-foreground/30 mx-auto mb-2"
+										/>
+										<p className="text-xs font-medium">Edit script with AI</p>
+										<p className="text-[10px] text-muted-foreground mt-0.5">
+											Rewrite, improve, or transform your transcript
+										</p>
+									</div>
 
-								<div className="rounded-md bg-muted/50 px-3 py-2 max-h-32 overflow-y-auto">
-									<p className="text-[10px] text-muted-foreground leading-relaxed">
-										{transcriptSegments.map((s) => s.text).join(" ").slice(0, 300)}
-										{transcriptSegments.map((s) => s.text).join(" ").length > 300 && "..."}
-									</p>
-								</div>
+									<div className="rounded-md bg-muted/50 px-3 py-2 max-h-32 overflow-y-auto">
+										<p className="text-[10px] text-muted-foreground leading-relaxed">
+											{transcriptSegments
+												.map((s) => s.text)
+												.join(" ")
+												.slice(0, 300)}
+											{transcriptSegments.map((s) => s.text).join(" ").length >
+												300 && "..."}
+										</p>
+									</div>
 
-								<div className="flex flex-col gap-1.5">
-									{TRANSCRIPT_PROMPTS.map((starter) => (
-										<button
-											key={starter.label}
-											type="button"
-											onClick={() => {
-												const fullText = transcriptSegments.map((s) => s.text).join(" ");
-												handleStarterPrompt(starter.prompt + fullText);
-											}}
-											className="text-left rounded-md border px-2.5 py-2 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-										>
-											{starter.label}
-										</button>
-									))}
+									<div className="flex flex-col gap-1.5">
+										{TRANSCRIPT_PROMPTS.map((starter) => (
+											<button
+												key={starter.label}
+												type="button"
+												onClick={() => {
+													const fullText = transcriptSegments
+														.map((s) => s.text)
+														.join(" ");
+													handleStarterPrompt(starter.prompt + fullText);
+												}}
+												className="text-left rounded-md border px-2.5 py-2 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+											>
+												{starter.label}
+											</button>
+										))}
+									</div>
 								</div>
-							</div>
-						)}
+							)}
 
 						{messages.length === 0 && mode === "chat" && (
 							<div className="flex flex-col gap-3 py-4 px-1">
@@ -897,12 +998,10 @@ export function DirectorView() {
 										icon={SparklesIcon}
 										className="size-8 text-muted-foreground/30 mx-auto mb-2"
 									/>
-									<p className="text-xs font-medium">
-										Direct with AI
-									</p>
+									<p className="text-xs font-medium">Direct with AI</p>
 									<p className="text-[10px] text-muted-foreground mt-0.5">
-										Brainstorm scripts and ideas, or tell me to
-										storyboard and generate the reel for you
+										Brainstorm scripts and ideas, or tell me to storyboard and
+										generate the reel for you
 									</p>
 								</div>
 
@@ -911,11 +1010,7 @@ export function DirectorView() {
 										<button
 											key={starter.label}
 											type="button"
-											onClick={() =>
-												handleStarterPrompt(
-													starter.prompt,
-												)
-											}
+											onClick={() => handleStarterPrompt(starter.prompt)}
 											className="text-left rounded-md border px-2.5 py-2 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
 										>
 											{starter.label}
@@ -936,14 +1031,42 @@ export function DirectorView() {
 										<div className="prose-studio text-xs leading-relaxed">
 											<ReactMarkdown
 												components={{
-													h1: ({ children }) => <h3 className="text-sm font-bold mt-2 mb-1">{children}</h3>,
-													h2: ({ children }) => <h4 className="text-xs font-bold mt-2 mb-1">{children}</h4>,
-													h3: ({ children }) => <h4 className="text-xs font-semibold mt-1.5 mb-0.5">{children}</h4>,
-													p: ({ children }) => <p className="mb-1.5 last:mb-0">{children}</p>,
-													strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
-													em: ({ children }) => <em className="italic">{children}</em>,
-													ul: ({ children }) => <ul className="list-disc pl-4 mb-1.5 space-y-0.5">{children}</ul>,
-													ol: ({ children }) => <ol className="list-decimal pl-4 mb-1.5 space-y-0.5">{children}</ol>,
+													h1: ({ children }) => (
+														<h3 className="text-sm font-bold mt-2 mb-1">
+															{children}
+														</h3>
+													),
+													h2: ({ children }) => (
+														<h4 className="text-xs font-bold mt-2 mb-1">
+															{children}
+														</h4>
+													),
+													h3: ({ children }) => (
+														<h4 className="text-xs font-semibold mt-1.5 mb-0.5">
+															{children}
+														</h4>
+													),
+													p: ({ children }) => (
+														<p className="mb-1.5 last:mb-0">{children}</p>
+													),
+													strong: ({ children }) => (
+														<strong className="font-semibold text-foreground">
+															{children}
+														</strong>
+													),
+													em: ({ children }) => (
+														<em className="italic">{children}</em>
+													),
+													ul: ({ children }) => (
+														<ul className="list-disc pl-4 mb-1.5 space-y-0.5">
+															{children}
+														</ul>
+													),
+													ol: ({ children }) => (
+														<ol className="list-decimal pl-4 mb-1.5 space-y-0.5">
+															{children}
+														</ol>
+													),
 													li: ({ children }) => <li>{children}</li>,
 													code: ({ children, className }) => {
 														const isBlock = className?.includes("language-");
@@ -955,7 +1078,9 @@ export function DirectorView() {
 															);
 														}
 														return (
-															<code className="bg-background rounded px-1 py-0.5 text-[10px] font-mono">{children}</code>
+															<code className="bg-background rounded px-1 py-0.5 text-[10px] font-mono">
+																{children}
+															</code>
 														);
 													},
 													blockquote: ({ children }) => (
@@ -984,7 +1109,10 @@ export function DirectorView() {
 													});
 												}}
 											>
-												<HugeiconsIcon icon={Bookmark01Icon} className="size-3" />
+												<HugeiconsIcon
+													icon={Bookmark01Icon}
+													className="size-3"
+												/>
 												Save idea
 											</Button>
 										</div>
@@ -1013,9 +1141,7 @@ export function DirectorView() {
 							<textarea
 								ref={inputRef}
 								value={inputValue}
-								onChange={(event) =>
-									setInputValue(event.target.value)
-								}
+								onChange={(event) => setInputValue(event.target.value)}
 								onKeyDown={handleKeyDown}
 								placeholder={
 									!isConnected && mode !== "chat"
@@ -1041,9 +1167,7 @@ export function DirectorView() {
 							/>
 							<Button
 								size="icon"
-								variant={
-									inputValue.trim() ? "default" : "secondary"
-								}
+								variant={inputValue.trim() ? "default" : "secondary"}
 								className="size-[36px] shrink-0"
 								onClick={handleSend}
 								disabled={
@@ -1055,10 +1179,7 @@ export function DirectorView() {
 								{isThinking ? (
 									<Spinner className="size-3.5" />
 								) : (
-									<HugeiconsIcon
-										icon={SentIcon}
-										className="size-3.5"
-									/>
+									<HugeiconsIcon icon={SentIcon} className="size-3.5" />
 								)}
 							</Button>
 						</div>
@@ -1070,14 +1191,10 @@ export function DirectorView() {
 			)}
 
 			{/* ── Templates Mode ── */}
-			{mode === "templates" && (
-				<TemplatePanel className="flex-1 min-h-0" />
-			)}
+			{mode === "templates" && <TemplatePanel className="flex-1 min-h-0" />}
 
 			{/* ── B-Roll Mode ── */}
-			{mode === "broll" && (
-				<BRollSuggestionsPanel className="flex-1 min-h-0" />
-			)}
+			{mode === "broll" && <BRollSuggestionsPanel className="flex-1 min-h-0" />}
 
 			{/* ── Dubbing Mode ── */}
 			{mode === "dubbing" && (
@@ -1101,9 +1218,7 @@ export function DirectorView() {
 			)}
 
 			{/* ── Smart Reframe Mode ── */}
-			{mode === "reframe" && (
-				<SmartReframePanel className="flex-1 min-h-0" />
-			)}
+			{mode === "reframe" && <SmartReframePanel className="flex-1 min-h-0" />}
 
 			{/* ── Motion Tracking Mode ── */}
 			{mode === "tracking" && (
@@ -1111,10 +1226,7 @@ export function DirectorView() {
 			)}
 
 			{/* ── A/B Testing Mode ── */}
-			{mode === "ab-testing" && (
-				<ABTestingPanel className="flex-1 min-h-0" />
-			)}
-
+			{mode === "ab-testing" && <ABTestingPanel className="flex-1 min-h-0" />}
 
 			{/* ── Ideas Mode ── */}
 			{mode === "ideas" && (
@@ -1127,7 +1239,8 @@ export function DirectorView() {
 							/>
 							<p className="text-xs font-medium">No saved ideas yet</p>
 							<p className="text-[10px] text-muted-foreground leading-relaxed">
-								Chat with AI and hit &ldquo;Save idea&rdquo; on any response to collect it here.
+								Chat with AI and hit &ldquo;Save idea&rdquo; on any response to
+								collect it here.
 							</p>
 							<Button
 								variant="outline"
@@ -1143,7 +1256,8 @@ export function DirectorView() {
 						<>
 							<div className="flex items-center justify-between px-1 mb-2">
 								<p className="text-[11px] text-muted-foreground">
-									{savedIdeas.length} saved idea{savedIdeas.length !== 1 ? "s" : ""}
+									{savedIdeas.length} saved idea
+									{savedIdeas.length !== 1 ? "s" : ""}
 								</p>
 								<Button
 									variant="ghost"
@@ -1151,7 +1265,10 @@ export function DirectorView() {
 									className="h-6 text-[10px] px-1.5 text-muted-foreground"
 									onClick={clearIdeas}
 								>
-									<HugeiconsIcon icon={Delete02Icon} className="size-3 mr-0.5" />
+									<HugeiconsIcon
+										icon={Delete02Icon}
+										className="size-3 mr-0.5"
+									/>
 									Clear all
 								</Button>
 							</div>
@@ -1164,10 +1281,24 @@ export function DirectorView() {
 										<div className="text-xs leading-relaxed line-clamp-6 pr-6">
 											<ReactMarkdown
 												components={{
-													p: ({ children }) => <p className="mb-1 last:mb-0">{children}</p>,
-													strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
-													ul: ({ children }) => <ul className="list-disc pl-4 mb-1 space-y-0.5">{children}</ul>,
-													ol: ({ children }) => <ol className="list-decimal pl-4 mb-1 space-y-0.5">{children}</ol>,
+													p: ({ children }) => (
+														<p className="mb-1 last:mb-0">{children}</p>
+													),
+													strong: ({ children }) => (
+														<strong className="font-semibold">
+															{children}
+														</strong>
+													),
+													ul: ({ children }) => (
+														<ul className="list-disc pl-4 mb-1 space-y-0.5">
+															{children}
+														</ul>
+													),
+													ol: ({ children }) => (
+														<ol className="list-decimal pl-4 mb-1 space-y-0.5">
+															{children}
+														</ol>
+													),
 													li: ({ children }) => <li>{children}</li>,
 												}}
 											>
@@ -1206,8 +1337,8 @@ export function DirectorView() {
 			{mode === "workflow" && !activeWorkflow && (
 				<div className="flex-1 min-h-0 overflow-y-auto px-2 py-3">
 					<p className="text-[11px] text-muted-foreground px-1 mb-2">
-						Follow a step-by-step guide to create your video from
-						idea to export.
+						Follow a step-by-step guide to create your video from idea to
+						export.
 					</p>
 					{VIDEO_WORKFLOWS.map((workflow) => (
 						<button
@@ -1221,16 +1352,11 @@ export function DirectorView() {
 								className="size-4 text-primary mt-0.5 shrink-0"
 							/>
 							<div className="flex-1 min-w-0">
-								<p className="text-xs font-medium">
-									{workflow.title}
-								</p>
+								<p className="text-xs font-medium">{workflow.title}</p>
 								<p className="text-[10px] text-muted-foreground mt-0.5">
 									{workflow.description}
 								</p>
-								<Badge
-									variant="secondary"
-									className="text-[9px] mt-1.5"
-								>
+								<Badge variant="secondary" className="text-[9px] mt-1.5">
 									{workflow.steps.length} steps
 								</Badge>
 							</div>
@@ -1254,9 +1380,7 @@ export function DirectorView() {
 						>
 							Workflows
 						</button>
-						<span className="text-[10px] text-muted-foreground">
-							/
-						</span>
+						<span className="text-[10px] text-muted-foreground">/</span>
 						<span className="text-[11px] font-medium">
 							{activeWorkflow.title}
 						</span>
@@ -1284,9 +1408,7 @@ export function DirectorView() {
 							const isActive =
 								!isCompleted &&
 								(index === 0 ||
-									completedSteps.has(
-										activeWorkflow.steps[index - 1].id,
-									));
+									completedSteps.has(activeWorkflow.steps[index - 1].id));
 
 							return (
 								<button
@@ -1295,13 +1417,9 @@ export function DirectorView() {
 									onClick={() => handleStepClick(step.id)}
 									className={cn(
 										"flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-all",
-										isCompleted &&
-											"border-green-500/30 bg-green-500/5",
-										isActive &&
-											"border-primary/30 bg-primary/5",
-										!isCompleted &&
-											!isActive &&
-											"opacity-60",
+										isCompleted && "border-green-500/30 bg-green-500/5",
+										isActive && "border-primary/30 bg-primary/5",
+										!isCompleted && !isActive && "opacity-60",
 									)}
 								>
 									<div
@@ -1321,8 +1439,7 @@ export function DirectorView() {
 										<p
 											className={cn(
 												"text-[11px] font-medium",
-												isCompleted &&
-													"line-through text-muted-foreground",
+												isCompleted && "line-through text-muted-foreground",
 											)}
 										>
 											{step.label}
@@ -1343,30 +1460,52 @@ export function DirectorView() {
 								className="h-7 text-[11px] mt-1"
 								onClick={() => {
 									setMode("chat");
-									const currentStep =
-										activeWorkflow.steps.find(
-											(step) =>
-												!completedSteps.has(step.id),
-										);
+									const currentStep = activeWorkflow.steps.find(
+										(step) => !completedSteps.has(step.id),
+									);
 									if (currentStep) {
 										setInputValue(
 											`Help me with "${currentStep.label}" for my ${activeWorkflow.title}. ${currentStep.description}`,
 										);
-										requestAnimationFrame(() =>
-											inputRef.current?.focus(),
-										);
+										requestAnimationFrame(() => inputRef.current?.focus());
 									}
 								}}
 							>
-								<HugeiconsIcon
-									icon={SparklesIcon}
-									className="size-3 mr-1"
-								/>
+								<HugeiconsIcon icon={SparklesIcon} className="size-3 mr-1" />
 								Ask AI about next step
 							</Button>
 						)}
 					</div>
 				</div>
+			)}
+
+			{/* Cost-preview approval gate — manual "Generate all" button. */}
+			{genAllApproval && (
+				<CostApprovalDialog
+					open={!!genAllApproval}
+					onOpenChange={(o) => {
+						if (!o) setGenAllApproval(null);
+					}}
+					estimate={genAllApproval}
+					clips={genAllApproval.clips}
+					onApprove={() => {
+						setGenAllApproval(null);
+						void runGenerateAllNow();
+					}}
+				/>
+			)}
+
+			{/* Cost-preview approval gate — chat agent's paused generate/reroll. */}
+			{chatApproval && (
+				<CostApprovalDialog
+					open={!!chatApproval}
+					onOpenChange={(o) => {
+						if (!o) setChatApproval(null);
+					}}
+					estimate={chatApproval.estimate}
+					clips={chatApproval.clips}
+					onApprove={approveChatAction}
+				/>
 			)}
 		</div>
 	);

@@ -46,6 +46,13 @@ import { PLAYBOOKS } from "@/lib/studio/playbooks";
 import { createShortIdMap, type ShortIdMap } from "./short-id";
 import { getAllTransitions } from "@/lib/transitions";
 import { getAllEffects } from "@/lib/effects";
+import {
+	needsApproval,
+	formatCostRange,
+	DEFAULT_APPROVAL_THRESHOLD_USD,
+	type CostRange,
+} from "@/lib/studio/cost";
+import { useStudioSettingsStore } from "@/stores/studio-settings-store";
 
 /** Single-shot, non-streaming chat call: (message, system) → assistant text. Local (Ollama) transport. */
 export type AgentChatFn = (message: string, system: string) => Promise<string>;
@@ -57,9 +64,29 @@ export interface AgentToolStep {
 	message: string;
 }
 
+/**
+ * A gated action the agent proposed but did NOT run — it hit the cost-preview
+ * approval gate and ended its turn instead of spending (fail-closed). The UI
+ * surfaces the cost and, on the user's explicit approval, runs this exact action
+ * via {@link executeDirectorAction}. `args` are the raw (short-id) args the model
+ * emitted, ready to feed straight back through the tool layer.
+ */
+export interface AgentApproval {
+	action: string;
+	args: Record<string, unknown>;
+	estimate: CostRange;
+	/** Number of takes the proposed action would render. */
+	clips: number;
+}
+
 export interface AgentRunResult {
 	finalMessage: string;
 	steps: AgentToolStep[];
+	/**
+	 * Set when the run paused on a gated verb awaiting the user's approval.
+	 * Present ⇒ nothing was spent; the proposed action is in `awaitingApproval`.
+	 */
+	awaitingApproval?: AgentApproval;
 }
 
 interface DirectorResultLike {
@@ -305,7 +332,7 @@ const DIRECTOR_TOOLS: Record<string, DirectorToolDef> = {
 	},
 	generate: {
 		description:
-			"Render takes for slots (runs the actual video generation). Omit slotIds to generate EVERY slot in the reel.",
+			"Render takes for slots (runs the actual video generation). Omit slotIds to generate EVERY slot in the reel. May pause for the user's approval before spending if the estimated cost is high.",
 		input_schema: objectSchema({
 			slotIds: {
 				type: "array",
@@ -323,7 +350,7 @@ const DIRECTOR_TOOLS: Record<string, DirectorToolDef> = {
 	},
 	reroll: {
 		description:
-			"Add fresh alternate take(s) to one slot, keeping existing takes.",
+			"Add fresh alternate take(s) to one slot, keeping existing takes. May pause for the user's approval before spending if the estimated cost is high.",
 		input_schema: objectSchema(
 			{
 				slotId: stringProp("Short slot id."),
@@ -881,6 +908,112 @@ async function executeTool(
 	return { step, observation };
 }
 
+// ── cost-preview approval gate (concept: cost-preview gate) ──────────────────
+//
+// Verbs that spend real generation credits carry an implicit `requiresApproval`
+// flag. Before EITHER brain runs one, we estimate its cost; if it crosses the
+// user's threshold the loop ENDS ITS TURN with an `awaitingApproval` result
+// instead of spending. The human approves (or not) out-of-band and the UI then
+// runs the exact proposed action via `executeDirectorAction`. Fail-closed: the
+// agent cannot talk itself past the gate within a turn — the loop returns.
+
+/** Verbs gated behind the approval gate — they render takes and cost money. */
+const REQUIRES_APPROVAL = new Set(["generate", "reroll"]);
+
+/** The user-configured USD threshold, read live from the studio settings store. */
+function approvalThreshold(): number {
+	return (
+		useStudioSettingsStore.getState().approvalThresholdUsd ??
+		DEFAULT_APPROVAL_THRESHOLD_USD
+	);
+}
+
+/**
+ * Estimate the cost of a gated action from its (already id-expanded) args, or
+ * `null` if the action isn't cost-bearing. Mirrors how the matching registry
+ * entry resolves its targets so the preview matches what would actually run.
+ */
+function estimateActionCost(
+	director: DirectorApi,
+	action: string,
+	args: Record<string, unknown>,
+): (CostRange & { clips: number }) | null {
+	if (action === "generate") {
+		return (
+			director.estimateGenerateCost({
+				slotIds: Array.isArray(args.slotIds) ? args.slotIds.map(str) : "all",
+				alternatives: numOr(args.alternatives, 1),
+			}).data ?? null
+		);
+	}
+	if (action === "reroll") {
+		return (
+			director.estimateGenerateCost({
+				slotIds: [str(args.slotId)],
+				alternatives: numOr(args.alternatives, 1),
+			}).data ?? null
+		);
+	}
+	return null;
+}
+
+/** Human-facing copy for a paused, awaiting-approval action. */
+function approvalMessage(a: AgentApproval): string {
+	return (
+		`This will generate ${a.clips} clip(s) at an estimated ` +
+		`${formatCostRange(a.estimate)}. Approve to run it — nothing has been ` +
+		`generated yet.`
+	);
+}
+
+/**
+ * Evaluate the approval gate for a single proposed tool call BEFORE it runs.
+ * Returns an {@link AgentApproval} (carrying the RAW short-id args, ready to feed
+ * back through {@link executeDirectorAction}) when the action is gated AND its
+ * estimate crosses the threshold; otherwise `null` (run it normally). Id
+ * expansion failures aren't gated here — they surface as a failed step when the
+ * action actually executes.
+ */
+function evaluateApprovalGate(
+	director: DirectorApi,
+	action: string,
+	rawArgs: Record<string, unknown>,
+): AgentApproval | null {
+	if (!REQUIRES_APPROVAL.has(action)) return null;
+	let expanded: Record<string, unknown>;
+	try {
+		expanded = expandIdArgs(rawArgs, reelShortIdMap(director));
+	} catch {
+		return null;
+	}
+	const est = estimateActionCost(director, action, expanded);
+	if (est && est.clips > 0 && needsApproval(est, approvalThreshold())) {
+		return {
+			action,
+			args: rawArgs,
+			estimate: { low: est.low, high: est.high },
+			clips: est.clips,
+		};
+	}
+	return null;
+}
+
+/**
+ * Run a single director verb through the same coercion + short-id expansion the
+ * agent loop uses. Exposed so the UI can execute an approved {@link AgentApproval}
+ * deterministically (bypassing the LLM) once the user confirms the cost. Reuses
+ * {@link executeTool}, so unknown actions and id-expansion errors surface as a
+ * failed {@link AgentToolStep} rather than throwing.
+ */
+export async function executeDirectorAction(
+	director: DirectorApi,
+	action: string,
+	args: Record<string, unknown>,
+): Promise<AgentToolStep> {
+	const { step } = await executeTool(director, action, args);
+	return step;
+}
+
 // ── frontier brain (Claude native tool-calling via the server relay) ─────────
 
 /** Thrown when the relay reports that ANTHROPIC_API_KEY is not configured — the signal to fall back to local mode. */
@@ -961,6 +1094,7 @@ function buildFrontierSystemPrompt(director: DirectorApi): string {
 		"Use tools ONLY when the user wants to build or change the reel. For questions, ideas, scripts, or advice, reply with plain text and no tool calls.",
 		"You may request several independent tool calls in one turn; dependent steps (e.g. storyboard, then generate the new slots) belong in separate turns so you can read the ids from the results. Each tool result is a compact observation — mutating verbs report a CHANGES diff in short ids. The REEL listing below is a snapshot from the start of this turn; call getReel when you need a fresh view.",
 		"Think through multi-step edits as much as needed, then act decisively. When the task is done, reply with a short plain-text summary of what you did.",
+		"COST GATE: a generate/reroll that would spend more than a small amount pauses for the user's approval — the run stops and asks them out-of-band. This is expected, not an error; do NOT retry the same action to force it through.",
 		"",
 		'If the user wants UGC/influencer-style, "looks like a real phone photo" imagery or video, follow these playbook conventions when writing prompts:',
 		PLAYBOOK_POINTER,
@@ -1035,10 +1169,31 @@ async function runDirectorAgentFrontier(opts: {
 		// object — never string-parse it.
 		const resultBlocks: Anthropic.ContentBlockParam[] = [];
 		for (const use of toolUses) {
+			const rawArgs = (use.input ?? {}) as Record<string, unknown>;
+
+			// Cost-preview approval gate: a gated verb whose estimate crosses the
+			// threshold ENDS THE TURN here (fail-closed) BEFORE it spends. The user
+			// approves out-of-band; the UI then runs the exact proposed action via
+			// `executeDirectorAction`. Checked per-block right before execution, so
+			// nothing gated ever runs without approval.
+			const approval = evaluateApprovalGate(director, use.name, rawArgs);
+			if (approval) {
+				const message = approvalMessage(approval);
+				const step: AgentToolStep = {
+					action: approval.action,
+					args: approval.args,
+					ok: false,
+					message: `⏸ Awaiting approval — ${message}`,
+				};
+				steps.push(step);
+				onStep?.(step);
+				return { finalMessage: message, steps, awaitingApproval: approval };
+			}
+
 			const { step, observation } = await executeTool(
 				director,
 				use.name,
-				(use.input ?? {}) as Record<string, unknown>,
+				rawArgs,
 			);
 			steps.push(step);
 			onStep?.(step);
@@ -1092,6 +1247,7 @@ function buildLocalSystemPrompt(director: DirectorApi): string {
 		'  to reply: {"final":"<message to the user>"}',
 		"Use actions ONLY when the user wants to build or change the reel. For questions, ideas, scripts, or advice, answer with a final message.",
 		"After each action you receive an OBSERVATION. When the task is done, send a final message summarizing what you did.",
+		"COST GATE: a generate/reroll that would spend more than a small amount pauses for the user's approval — the run stops and asks them. This is expected, not an error; never retry the same action to force it through.",
 		"",
 		buildContextBlock(director),
 		"",
@@ -1185,6 +1341,24 @@ export async function runDirectorAgentLocal(opts: {
 
 		if (parsed.kind === "final") {
 			return { finalMessage: parsed.text, steps };
+		}
+
+		// Cost-preview approval gate: a gated verb whose estimate crosses the
+		// threshold ENDS THE TURN here (fail-closed) instead of spending. The user
+		// approves out-of-band; the UI then runs the exact proposed action via
+		// `executeDirectorAction`.
+		const approval = evaluateApprovalGate(director, parsed.action, parsed.args);
+		if (approval) {
+			const message = approvalMessage(approval);
+			const step: AgentToolStep = {
+				action: parsed.action,
+				args: parsed.args,
+				ok: false,
+				message: `⏸ Awaiting approval — ${message}`,
+			};
+			steps.push(step);
+			onStep?.(step);
+			return { finalMessage: message, steps, awaitingApproval: approval };
 		}
 
 		const { step, observation } = await executeTool(
