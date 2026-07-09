@@ -1,7 +1,12 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { commits, branches, tags } from "@/lib/db/schema-version-control";
+import {
+	commits,
+	branches,
+	tags,
+	projectRepositories,
+} from "@/lib/db/schema-version-control";
 import { auth } from "@/lib/auth/server";
 import { headers } from "next/headers";
 import { eq } from "drizzle-orm";
@@ -32,6 +37,17 @@ export async function POST(
 		}
 
 		const { repoId } = await params;
+
+		// Verify the caller owns this repo before reading or writing its history.
+		const [repo] = await db
+			.select({ userId: projectRepositories.userId })
+			.from(projectRepositories)
+			.where(eq(projectRepositories.id, repoId))
+			.limit(1);
+		if (!repo || repo.userId !== session.user.id) {
+			return NextResponse.json({ error: "Not found" }, { status: 404 });
+		}
+
 		const body = await request.json();
 		const parsed = syncRequestSchema.safeParse(body);
 		if (!parsed.success) {
@@ -118,14 +134,12 @@ export async function POST(
 		}
 
 		// ── Pull: find commits server has that client doesn't ─────────────
-		let pullCommits: typeof commits.$inferSelect[] = [];
+		let pullCommits: (typeof commits.$inferSelect)[] = [];
 		if (knownCommitIds.length > 0) {
 			pullCommits = await db
 				.select()
 				.from(commits)
-				.where(
-					eq(commits.repoId, repoId),
-				);
+				.where(eq(commits.repoId, repoId));
 			// Filter out known commits in JS to avoid SQL size limits
 			const knownSet = new Set(knownCommitIds);
 			pullCommits = pullCommits.filter((c) => !knownSet.has(c.id));
@@ -156,6 +170,9 @@ export async function POST(
 		});
 	} catch (error) {
 		console.error("Error syncing:", error);
-		return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+		return NextResponse.json(
+			{ error: "Internal server error" },
+			{ status: 500 },
+		);
 	}
 }
