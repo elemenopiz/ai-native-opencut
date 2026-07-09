@@ -20,7 +20,9 @@ function extractPeaks({
 
 	for (let c = 0; c < channels; c++) {
 		const data = buffer.getChannelData(c);
-		const step = Math.floor(data.length / length);
+		// Guard against buffers shorter than `length` samples: Math.floor would
+		// yield step=0, collapsing every bucket to an empty range (flat waveform).
+		const step = Math.max(1, Math.floor(data.length / length));
 		const channelPeaks: number[] = [];
 
 		for (let i = 0; i < length; i++) {
