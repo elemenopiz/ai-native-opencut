@@ -17,9 +17,9 @@
  */
 
 import type { DirectorApi } from "./director-api";
-import type { ConsistencyCharacter } from "./consistency-prompt";
 import { PLAYBOOKS } from "@/lib/studio/playbooks";
 import { createShortIdMap, type ShortIdMap } from "./short-id";
+import { toolCatalog, type JSONSchema, type ToolHandler } from "./tool-catalog";
 
 /** Single-shot, non-streaming chat call: (message, system) → assistant text. */
 export type AgentChatFn = (message: string, system: string) => Promise<string>;
@@ -45,162 +45,52 @@ interface DirectorResultLike {
 /** Hard ceiling on tool calls per user turn — keeps a runaway model bounded. */
 const MAX_STEPS = 6;
 
-// ── helpers ──────────────────────────────────────────────────────────────────
+// ── tool registry + docs (built from the shared catalog) ─────────────────────
+//
+// The executor registry and the agent-facing docs string are BOTH derived from
+// `toolCatalog()` — the SAME catalog the future MCP server consumes — so there
+// is a single source of truth for verbs, arg shapes, arg-coercion, and the
+// SECONDS convention. (The arg-coercion helpers that used to live here now live
+// in `tool-catalog.ts`, alongside the handlers that use them.)
 
-const numOr = (v: unknown, fallback: number): number => {
-	const n = Number(v);
-	return Number.isFinite(n) && n > 0 ? n : fallback;
-};
+/** The verb registry the agent may call — every catalog handler, keyed by name. */
+const TOOLS: Record<string, ToolHandler> = Object.fromEntries(
+	toolCatalog().map((t) => [t.name, t.handler]),
+);
 
-/**
- * Optional numeric arg: `undefined` when unset/non-finite, otherwise the
- * number as-is — unlike `numOr`, 0 and negative values pass through untouched
- * (needed for time fields where 0 is a legitimate SECONDS value, e.g.
- * `trimStart: 0` or `startTime: 0`).
- */
-const numOrUndefined = (v: unknown): number | undefined => {
-	if (v == null) return undefined;
-	const n = Number(v);
-	return Number.isFinite(n) ? n : undefined;
-};
-
-/** Required numeric time arg (SECONDS) that may legitimately be 0; falls back to 0 if unparsable. */
-const numOrZeroTime = (v: unknown): number => {
-	const n = Number(v);
-	return Number.isFinite(n) ? n : 0;
-};
-
-const str = (v: unknown): string => (v == null ? "" : String(v));
-
-/** Optional string arg: `undefined` when unset (vs. `str`, which coerces to `""`). */
-const strOrUndefined = (v: unknown): string | undefined =>
-	v == null ? undefined : String(v);
-
-/** Validate a loose `textAlign` arg against the literal union the API accepts; drops anything else. */
-const textAlignOf = (v: unknown): "left" | "center" | "right" | undefined => {
-	const s = v == null ? undefined : String(v);
-	return s === "left" || s === "center" || s === "right" ? s : undefined;
-};
-
-/** Coerce a loose `shots` arg into the storyboard shape. */
-function asShots(
-	args: Record<string, unknown>,
-): { prompt: string; duration: number }[] {
-	const raw = Array.isArray(args.shots) ? args.shots : [];
-	return raw.map((s) => {
-		if (typeof s === "string") return { prompt: s, duration: 6 };
-		const obj = (s ?? {}) as Record<string, unknown>;
-		return { prompt: str(obj.prompt), duration: numOr(obj.duration, 6) };
-	});
+/** Render one arg's type for the docs string (SECONDS fields show as `seconds`). */
+function argType(node: JSONSchema): string {
+	if (node.enum) return node.enum.map((e) => JSON.stringify(e)).join("|");
+	if (node["x-seconds"]) return "seconds";
+	if (node.oneOf) return node.oneOf.map(argType).join(" | ");
+	if (node.type === "array")
+		return `[${node.items ? argType(node.items) : "any"}, ...]`;
+	if (node.type === "object" && node.properties) {
+		return `{ ${Object.entries(node.properties)
+			.map(([k, v]) => `"${k}": ${argType(v)}`)
+			.join(", ")} }`;
+	}
+	return node.type ?? "any";
 }
 
-/** Coerce a loose `extraCharacters` arg for setConsistencyContext. */
-function asExtraCharacters(args: Record<string, unknown>): ConsistencyCharacter[] {
-	const raw = Array.isArray(args.extraCharacters) ? args.extraCharacters : [];
-	return raw.map((c) => {
-		const obj = (c ?? {}) as Record<string, unknown>;
-		return { name: str(obj.name), descriptor: str(obj.descriptor) };
-	});
+/** Render a verb's args object for the docs string; optional keys get a `?`. */
+function renderArgs(schema: JSONSchema): string {
+	const props = schema.properties;
+	if (!props || Object.keys(props).length === 0) return "{}";
+	const required = new Set(schema.required ?? []);
+	const parts = Object.entries(props).map(
+		([k, v]) => `"${k}"${required.has(k) ? "" : "?"}: ${argType(v)}`,
+	);
+	return `{ ${parts.join(", ")} }`;
 }
 
-/**
- * The verb registry the agent is allowed to call. A focused subset of the
- * DirectorApi — the orchestration-relevant verbs, not the low-level edit ops.
- */
-const TOOLS: Record<
-	string,
-	(d: DirectorApi, a: Record<string, unknown>) => DirectorResultLike | Promise<DirectorResultLike>
-> = {
-	getReel: (d) => ({ ok: true, message: "Current reel returned.", data: d.getReel() }),
-	reserveSlot: (d, a) =>
-		d.reserveSlot({ prompt: str(a.prompt), duration: numOr(a.duration, 6) }),
-	storyboard: (d, a) => d.storyboard({ shots: asShots(a) }),
-	setPrompt: (d, a) => d.setPrompt({ slotId: str(a.slotId), prompt: str(a.prompt) }),
-	generate: (d, a) =>
-		d.generate({
-			slotIds: Array.isArray(a.slotIds) ? a.slotIds.map(str) : "all",
-			alternatives: numOr(a.alternatives, 1),
-		}),
-	reroll: (d, a) =>
-		d.reroll({ slotId: str(a.slotId), alternatives: numOr(a.alternatives, 1) }),
-	remix: (d, a) => d.remix({ slotId: str(a.slotId), remixPrompt: str(a.remixPrompt) }),
-	setConsistencyContext: (d, a) =>
-		d.setConsistencyContext({
-			style: a.style != null ? str(a.style) : undefined,
-			setting: a.setting != null ? str(a.setting) : undefined,
-			extraCharacters: asExtraCharacters(a),
-		}),
-	getConsistencyContext: (d) => d.getConsistencyContext(),
-	chooseTake: (d, a) =>
-		a.index != null
-			? d.chooseTake({ slotId: str(a.slotId), index: Number(a.index) })
-			: d.chooseTake({ slotId: str(a.slotId), takeId: str(a.takeId) }),
-	remove: (d, a) => d.remove({ slotId: str(a.slotId) }),
-	reorder: (d, a) =>
-		d.reorder({ slotIds: Array.isArray(a.slotIds) ? a.slotIds.map(str) : [] }),
-	trim: (d, a) =>
-		d.trim({
-			slotId: str(a.slotId),
-			trimStart: numOrUndefined(a.trimStart),
-			trimEnd: numOrUndefined(a.trimEnd),
-			startTime: numOrUndefined(a.startTime),
-			duration: numOrUndefined(a.duration),
-		}),
-	move: (d, a) =>
-		d.move({
-			slotId: str(a.slotId),
-			newStartTime: numOrZeroTime(a.newStartTime),
-			targetTrackId: strOrUndefined(a.targetTrackId),
-		}),
-	split: (d, a) => d.split({ slotId: str(a.slotId), atTime: numOrZeroTime(a.atTime) }),
-	searchMedia: (d, a) =>
-		d.searchMedia({ query: str(a.query), limit: numOrUndefined(a.limit) }),
-	addText: (d, a) =>
-		d.addText({
-			content: str(a.content),
-			startTime: numOrZeroTime(a.startTime),
-			duration: numOrUndefined(a.duration),
-			trackId: strOrUndefined(a.trackId),
-			fontSize: numOrUndefined(a.fontSize),
-			fontFamily: strOrUndefined(a.fontFamily),
-			color: strOrUndefined(a.color),
-			textAlign: textAlignOf(a.textAlign),
-		}),
-	updateText: (d, a) =>
-		d.updateText({
-			elementId: str(a.elementId),
-			content: strOrUndefined(a.content),
-			startTime: numOrUndefined(a.startTime),
-			duration: numOrUndefined(a.duration),
-			fontSize: numOrUndefined(a.fontSize),
-			fontFamily: strOrUndefined(a.fontFamily),
-			color: strOrUndefined(a.color),
-			textAlign: textAlignOf(a.textAlign),
-		}),
-	undo: (d) => d.undo(),
-	redo: (d) => d.redo(),
-};
-
-const TOOL_DOCS = `Tools (call ONE per turn):
-- getReel — inspect current slots/takes. args: {}
-- reserveSlot — append ONE empty slot (optionally with a prompt). args: { "prompt": string, "duration": seconds }
-- storyboard — append SEVERAL slots from a shot list. args: { "shots": [ { "prompt": string, "duration": seconds }, ... ] }
-- setPrompt — change a slot's prompt. args: { "slotId": string, "prompt": string }
-- generate — render takes. args: { "slotIds": ["id",...] | "all", "alternatives": 1-4 }
-- reroll — add fresh alternate take(s) to one slot. args: { "slotId": string, "alternatives": 1-4 }
-- remix — edit a slot's current take with a short delta prompt (e.g. "add a sunset"), keeping its seed/identity anchored. args: { "slotId": string, "remixPrompt": string }
-- setConsistencyContext — pin STYLE/SETTING text for the whole reel so every shot's prompt stays visually consistent; characters are pulled from active personas automatically. args: { "style": string, "setting": string, "extraCharacters": [{ "name": string, "descriptor": string }] }
-- getConsistencyContext — inspect the current reel-level style/character/setting block. args: {}
-- chooseTake — pick the active take. args: { "slotId": string, "index": number } (or "takeId")
-- remove — delete a slot. args: { "slotId": string }
-- reorder — set slot order. args: { "slotIds": ["id", ...] }
-- trim — adjust a slot's in/out points. ALL fields SECONDS. args: { "slotId": string, "trimStart": seconds, "trimEnd": seconds, "startTime": seconds, "duration": seconds } (all but slotId optional)
-- move — reposition a slot. args: { "slotId": string, "newStartTime": seconds, "targetTrackId": string } (targetTrackId optional, defaults to the slot's current track; it is a TRACK id, not a slot id — do not use a short slot id here)
-- split — cut a slot into two at a point in time. args: { "slotId": string, "atTime": seconds }
-- searchMedia — semantic search over indexed footage (CLIP embeddings). args: { "query": string, "limit": number } (limit optional, default 5). Returns FULL mediaIds (not reel slot ids).
-- addText — add a text overlay. args: { "content": string, "startTime": seconds, "duration": seconds, "trackId": string, "fontSize": number, "fontFamily": string, "color": string, "textAlign": "left"|"center"|"right" } (only content+startTime required). Returns a FULL elementId — text overlays are NOT reel slots, so this id never appears in the REEL listing below and is never shortened; pass it back verbatim to updateText.
-- updateText — edit an existing text overlay by its FULL elementId (from addText's result, never a short slot id). args: { "elementId": string, "content": string, "startTime": seconds, "duration": seconds, "fontSize": number, "fontFamily": string, "color": string, "textAlign": "left"|"center"|"right" } (elementId required, all else optional)
-- undo / redo — args: {}`;
+/** Agent-facing tool docs, one line per verb, built from `toolCatalog()`. */
+const TOOL_DOCS = [
+	"Tools (call ONE per turn):",
+	...toolCatalog().map(
+		(t) => `- ${t.name} — ${t.description} args: ${renderArgs(t.inputSchema)}`,
+	),
+].join("\n");
 
 /** Concise pointer to the UGC prompt playbooks — titles/descriptions only, not the full content (keeps the system prompt small for a local model). */
 const PLAYBOOK_POINTER = Object.values(PLAYBOOKS)
