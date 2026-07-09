@@ -26,6 +26,17 @@ export const runtime = "nodejs";
 /** Default model for the Director brain; override with DIRECTOR_MODEL. */
 const DEFAULT_MODEL = "claude-opus-4-8";
 
+/**
+ * Kimi (Moonshot) as the Director brain — used when `MOONSHOT_API_KEY` is set.
+ * Moonshot exposes an Anthropic-compatible endpoint, so the same
+ * `@anthropic-ai/sdk` client drives it with only a `baseURL` swap; native
+ * tool-calling works identically (verified: returns `stop_reason: "tool_use"`).
+ * This is the zero-setup brain — no Anthropic key, MCP, or Claude Desktop.
+ * Override the model with `DIRECTOR_MODEL` (e.g. `kimi-k2.7-code`).
+ */
+const KIMI_BASE_URL = "https://api.moonshot.ai/anthropic";
+const DEFAULT_KIMI_MODEL = "kimi-k2.6";
+
 /** Non-streaming per-turn output budget (thinking + text + tool calls). */
 const DEFAULT_MAX_TOKENS = 16000;
 
@@ -41,7 +52,12 @@ interface AgentRelayRequest {
 }
 
 export async function POST(req: Request) {
-	const apiKey = process.env.ANTHROPIC_API_KEY;
+	// Provider selection: prefer Kimi (Moonshot) when its key is present — the
+	// zero-setup Director brain — otherwise fall back to Anthropic.
+	const moonshotKey = process.env.MOONSHOT_API_KEY;
+	const anthropicKey = process.env.ANTHROPIC_API_KEY;
+	const useKimi = Boolean(moonshotKey);
+	const apiKey = useKimi ? moonshotKey : anthropicKey;
 	if (!apiKey) {
 		// Deliberate, machine-readable "no key" signal — the client agent falls
 		// back to the local Ollama brain on this exact error code.
@@ -49,7 +65,7 @@ export async function POST(req: Request) {
 			{
 				error: "anthropic_not_configured",
 				message:
-					"ANTHROPIC_API_KEY is not set on the server. Add it to apps/web/.env.local to enable the frontier Director brain.",
+					"No Director brain key configured. Set MOONSHOT_API_KEY (Kimi) or ANTHROPIC_API_KEY in apps/web/.env.local.",
 			},
 			{ status: 503 },
 		);
@@ -74,18 +90,27 @@ export async function POST(req: Request) {
 		);
 	}
 
-	const client = new Anthropic({ apiKey });
+	const client = new Anthropic({
+		apiKey,
+		...(useKimi ? { baseURL: KIMI_BASE_URL } : {}),
+	});
 	try {
 		const response = await client.messages.create({
 			model:
 				body.model?.trim() ||
 				process.env.DIRECTOR_MODEL?.trim() ||
-				DEFAULT_MODEL,
+				(useKimi ? DEFAULT_KIMI_MODEL : DEFAULT_MODEL),
 			max_tokens: body.max_tokens ?? DEFAULT_MAX_TOKENS,
-			// Adaptive thinking + high effort — the supported knobs on Opus 4.8
-			// (budget_tokens / temperature / top_p / top_k all 400 there).
-			thinking: body.thinking ?? { type: "adaptive" },
-			output_config: { effort: "high" },
+			// Adaptive thinking + high effort are Opus-4.8 knobs (budget_tokens /
+			// temperature / top_p / top_k all 400 there). Kimi's Anthropic-compatible
+			// endpoint is cleanest WITHOUT them — no thinking blocks to echo back
+			// through the multi-turn tool loop — so send them only for Anthropic.
+			...(useKimi
+				? {}
+				: {
+						thinking: body.thinking ?? { type: "adaptive" },
+						output_config: { effort: "high" },
+					}),
 			...(body.system ? { system: body.system } : {}),
 			messages: body.messages,
 			...(body.tools?.length ? { tools: body.tools } : {}),
