@@ -22,6 +22,8 @@
  * is in SECONDS (matching `director-api.ts`); `x-seconds` marks those fields.
  */
 
+import { getAllTransitions } from "@/lib/transitions";
+import { getAllEffects } from "@/lib/effects";
 import type { DirectorApi } from "./director-api";
 import type { DirectorResult } from "./types";
 import type { ConsistencyCharacter } from "./consistency-prompt";
@@ -87,6 +89,29 @@ export function asExtraCharacters(
 		const obj = (c ?? {}) as Record<string, unknown>;
 		return { name: str(obj.name), descriptor: str(obj.descriptor) };
 	});
+}
+
+/**
+ * Coerce a loose `params` arg for applyEffect: a bag of primitive (number/
+ * string/boolean) overrides keyed by effect-specific param names. Non-object
+ * input or non-primitive values are dropped rather than rejected — the agent
+ * doesn't know each effect's exact param shape, so this is lenient by design.
+ */
+export function asEffectParams(
+	v: unknown,
+): Record<string, number | string | boolean> | undefined {
+	if (!v || typeof v !== "object" || Array.isArray(v)) return undefined;
+	const out: Record<string, number | string | boolean> = {};
+	for (const [key, val] of Object.entries(v as Record<string, unknown>)) {
+		if (
+			typeof val === "number" ||
+			typeof val === "string" ||
+			typeof val === "boolean"
+		) {
+			out[key] = val;
+		}
+	}
+	return Object.keys(out).length ? out : undefined;
 }
 
 // ── types ─────────────────────────────────────────────────────────────────────
@@ -158,7 +183,7 @@ const slotIdProp: JSONSchema = {
 // ── the catalog ───────────────────────────────────────────────────────────────
 
 /**
- * The 21 Director verbs, one descriptor each. The `export` verb is intentionally
+ * The 25 Director verbs, one descriptor each. The `export` verb is intentionally
  * omitted — it is not wired (see `director-api.ts`'s `exportReel`).
  */
 export function toolCatalog(): ToolDescriptor[] {
@@ -202,6 +227,14 @@ export function toolCatalog(): ToolDescriptor[] {
 			handler: (d, a) =>
 				d.searchMedia({ query: str(a.query), limit: numOrUndefined(a.limit) }),
 		},
+		{
+			name: "getProjectInfo",
+			description:
+				"inspect project settings (fps, canvas size/orientation), the persona roster, and a media-library summary. The same context is already in your system prompt — call this only to re-check it mid-task after it may have changed.",
+			mutating: false,
+			inputSchema: EMPTY,
+			handler: (d) => d.getProjectInfo(),
+		},
 		// ── storyboard ──────────────────────────────────────────────────────
 		{
 			name: "storyboard",
@@ -238,7 +271,10 @@ export function toolCatalog(): ToolDescriptor[] {
 				},
 			},
 			handler: (d, a) =>
-				d.reserveSlot({ prompt: str(a.prompt), duration: numOr(a.duration, 6) }),
+				d.reserveSlot({
+					prompt: str(a.prompt),
+					duration: numOr(a.duration, 6),
+				}),
 		},
 		{
 			name: "setPrompt",
@@ -300,12 +336,15 @@ export function toolCatalog(): ToolDescriptor[] {
 				required: ["slotId"],
 			},
 			handler: (d, a) =>
-				d.reroll({ slotId: str(a.slotId), alternatives: numOr(a.alternatives, 1) }),
+				d.reroll({
+					slotId: str(a.slotId),
+					alternatives: numOr(a.alternatives, 1),
+				}),
 		},
 		{
 			name: "remix",
 			description:
-				"edit a slot's current take with a short delta prompt (e.g. \"add a sunset\"), keeping its seed/identity anchored.",
+				'edit a slot\'s current take with a short delta prompt (e.g. "add a sunset"), keeping its seed/identity anchored.',
 			mutating: true,
 			inputSchema: {
 				type: "object",
@@ -446,7 +485,9 @@ export function toolCatalog(): ToolDescriptor[] {
 				required: ["slotIds"],
 			},
 			handler: (d, a) =>
-				d.reorder({ slotIds: Array.isArray(a.slotIds) ? a.slotIds.map(str) : [] }),
+				d.reorder({
+					slotIds: Array.isArray(a.slotIds) ? a.slotIds.map(str) : [],
+				}),
 		},
 		{
 			name: "remove",
@@ -523,6 +564,97 @@ export function toolCatalog(): ToolDescriptor[] {
 					fontFamily: strOrUndefined(a.fontFamily),
 					color: strOrUndefined(a.color),
 					textAlign: textAlignOf(a.textAlign),
+				}),
+		},
+		// ── polish (transitions / effects) ──────────────────────────────────
+		{
+			name: "applyTransition",
+			description:
+				"apply a transition (dissolve, wipe, slide, zoom, etc.) to a slot's outgoing edge — polish cuts between generated shots.",
+			mutating: true,
+			inputSchema: {
+				type: "object",
+				properties: {
+					slotId: slotIdProp,
+					transitionType: {
+						type: "string",
+						enum: getAllTransitions().map((t) => t.type),
+						description:
+							"Transition type to apply to the slot's outgoing edge.",
+					},
+					duration: secs(
+						"transition duration; omit for the transition's own default",
+					),
+				},
+				required: ["slotId", "transitionType"],
+			},
+			handler: (d, a) =>
+				d.applyTransition({
+					slotId: str(a.slotId),
+					transitionType: str(a.transitionType),
+					duration: numOrUndefined(a.duration),
+				}),
+		},
+		{
+			name: "applyEffect",
+			description:
+				"apply a visual effect (blur, color grade, film grain, glitch, chroma key, etc.) to a slot — polish generated shots.",
+			mutating: true,
+			inputSchema: {
+				type: "object",
+				properties: {
+					slotId: slotIdProp,
+					effectType: {
+						type: "string",
+						enum: getAllEffects().map((e) => e.type),
+						description: "Effect type to apply to the slot.",
+					},
+					params: {
+						type: "object",
+						description:
+							"Optional effect parameter overrides (keys vary by effectType, e.g. blur: {radius}, color-adjust: {brightness, contrast, saturation}). Omit for defaults.",
+					},
+				},
+				required: ["slotId", "effectType"],
+			},
+			handler: (d, a) =>
+				d.applyEffect({
+					slotId: str(a.slotId),
+					effectType: str(a.effectType),
+					params: asEffectParams(a.params),
+				}),
+		},
+		{
+			name: "addClip",
+			description:
+				"place EXISTING footage found via searchMedia onto the timeline as a real clip (not a generative slot). Pass the FULL mediaId from a searchMedia hit.",
+			mutating: true,
+			inputSchema: {
+				type: "object",
+				properties: {
+					mediaId: {
+						type: "string",
+						description:
+							"FULL media-library asset id from a searchMedia hit — NOT a short reel id.",
+					},
+					startTime: secs(
+						"timeline start for the clip; defaults to the end of the current timeline",
+					),
+					duration: secs("clip duration; defaults to the asset's own duration"),
+					trackId: {
+						type: "string",
+						description:
+							"FULL track id (not a slot id); omit to auto-place on a suitable track.",
+					},
+				},
+				required: ["mediaId"],
+			},
+			handler: (d, a) =>
+				d.addClip({
+					mediaId: str(a.mediaId),
+					startTime: numOrUndefined(a.startTime),
+					duration: numOrUndefined(a.duration),
+					trackId: strOrUndefined(a.trackId),
 				}),
 		},
 		// ── lifecycle ───────────────────────────────────────────────────────
