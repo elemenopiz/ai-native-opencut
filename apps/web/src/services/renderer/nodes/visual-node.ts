@@ -98,10 +98,14 @@ export abstract class VisualNode<
 	}
 
 	protected isInRange({ time }: { time: number }): boolean {
-		const localTime = this.getSourceLocalTime({ time });
+		// Visibility is governed by the clip's timeline slot, not its rate-scaled
+		// source position. Gating on source-local time (rate * elapsed + trimStart)
+		// made sped-up clips vanish for the tail of their slot and skipped the
+		// first frame of reversed clips. Match text-node / effect-layer-node.
+		const elapsed = time - this.params.timeOffset;
 		return (
-			localTime >= this.params.trimStart - TIME_EPSILON_SECONDS &&
-			localTime < this.params.trimStart + this.params.duration
+			elapsed >= -TIME_EPSILON_SECONDS &&
+			elapsed < this.params.duration + TIME_EPSILON_SECONDS
 		);
 	}
 
