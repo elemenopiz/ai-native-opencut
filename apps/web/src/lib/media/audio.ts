@@ -4,10 +4,12 @@ import type {
 	TimelineElement,
 	TimelineTrack,
 } from "@/types/timeline";
+import type { ElementAnimations } from "@/types/animation";
 import type { MediaAsset } from "@/types/assets";
 import { canElementHaveAudio } from "@/lib/timeline/element-utils";
 import { canTracktHaveAudio } from "@/lib/timeline";
 import { mediaSupportsAudio } from "@/lib/media/media-utils";
+import { getNumberChannelForPath } from "@/lib/animation/number-channel";
 import { Input, ALL_FORMATS, BlobSource, AudioBufferSink } from "mediabunny";
 
 const MAX_AUDIO_CHANNELS = 2;
@@ -16,7 +18,58 @@ const EXPORT_SAMPLE_RATE = 44100;
 export type CollectedAudioElement = Omit<
 	AudioElement,
 	"type" | "mediaId" | "volume" | "id" | "name" | "sourceType" | "sourceUrl"
-> & { buffer: AudioBuffer };
+> & {
+	buffer: AudioBuffer;
+	/** Constant playback-speed multiplier (1.0 = normal). Slot duration is fixed; source is traversed at this rate. */
+	playbackRate: number;
+	/**
+	 * True when the element has a keyframed (variable) speed curve, which is not
+	 * yet handled in the export mixdown. When set, `playbackRate` holds the base
+	 * rate used as a best-effort constant fallback. See resolveClipPlaybackRate.
+	 */
+	hasVariableRate: boolean;
+};
+
+/**
+ * Resolve a constant playback rate for an element in the export audio mixdown.
+ *
+ * Matches the visual renderer (see VisualNode.getSourceLocalTime): the element
+ * occupies a fixed timeline `duration`, and source media is traversed at
+ * `playbackRate`, so a 2x clip consumes source audio twice as fast (and
+ * pitch-shifts up, matching the non-pitch-preserving preview).
+ *
+ * Variable/keyframed speed curves are not yet supported here and are flagged via
+ * `hasVariableRate` so the mixer can warn instead of silently mishandling them.
+ */
+function resolveClipPlaybackRate(element: {
+	playbackRate?: number;
+	animations?: ElementAnimations;
+}): { playbackRate: number; hasVariableRate: boolean } {
+	const baseRate =
+		typeof element.playbackRate === "number" && element.playbackRate > 0
+			? element.playbackRate
+			: 1;
+
+	const channel = getNumberChannelForPath({
+		animations: element.animations,
+		propertyPath: "playbackRate",
+	});
+
+	if (!channel || channel.keyframes.length === 0) {
+		return { playbackRate: baseRate, hasVariableRate: false };
+	}
+
+	// A single keyframe is a constant rate; two or more describe a curve.
+	if (channel.keyframes.length === 1) {
+		const value = channel.keyframes[0].value;
+		return {
+			playbackRate: value > 0 ? value : baseRate,
+			hasVariableRate: false,
+		};
+	}
+
+	return { playbackRate: baseRate, hasVariableRate: true };
+}
 
 export function createAudioContext({ sampleRate }: { sampleRate?: number } = {}): AudioContext {
 	const AudioContextConstructor =
@@ -88,6 +141,8 @@ export async function collectAudioElements({
 						audioContext,
 					}).then((audioBuffer) => {
 						if (!audioBuffer) return null;
+						const { playbackRate, hasVariableRate } =
+							resolveClipPlaybackRate(element);
 						return {
 							buffer: audioBuffer,
 							startTime: element.startTime,
@@ -95,6 +150,8 @@ export async function collectAudioElements({
 							trimStart: element.trimStart,
 							trimEnd: element.trimEnd,
 							muted: element.muted || isTrackMuted,
+							playbackRate,
+							hasVariableRate,
 						};
 					}),
 				);
@@ -112,6 +169,8 @@ export async function collectAudioElements({
 					}).then((audioBuffer) => {
 						if (!audioBuffer) return null;
 						const elementMuted = element.muted ?? false;
+						const { playbackRate, hasVariableRate } =
+							resolveClipPlaybackRate(element);
 						return {
 							buffer: audioBuffer,
 							startTime: element.startTime,
@@ -119,6 +178,8 @@ export async function collectAudioElements({
 							trimStart: element.trimStart,
 							trimEnd: element.trimEnd,
 							muted: elementMuted || isTrackMuted,
+							playbackRate,
+							hasVariableRate,
 						};
 					}),
 				);
@@ -523,7 +584,7 @@ export async function createTimelineAudioBuffer({
 	return outputBuffer;
 }
 
-function mixAudioChannels({
+export function mixAudioChannels({
 	element,
 	outputBuffer,
 	outputLength,
@@ -534,14 +595,39 @@ function mixAudioChannels({
 	outputLength: number;
 	sampleRate: number;
 }): void {
-	const { buffer, startTime, trimStart, duration: elementDuration } = element;
+	const {
+		buffer,
+		startTime,
+		trimStart,
+		duration: elementDuration,
+		playbackRate,
+		hasVariableRate,
+	} = element;
+
+	if (hasVariableRate) {
+		// Keyframed/variable speed curves are not yet supported in the export
+		// mixdown; fall back to the constant base rate rather than mishandling
+		// it silently. Tracked as a follow-up.
+		console.warn(
+			"Export audio: variable-rate (keyframed) speed curve is not yet supported; " +
+				`using constant base rate ${playbackRate}x for this clip.`,
+		);
+	}
+
+	// The clip occupies a fixed timeline slot (`elementDuration`). Speed only
+	// changes how fast the source is traversed within that slot, matching the
+	// visual renderer (VisualNode.getSourceLocalTime): source position =
+	// trimStart + timelineElapsed * playbackRate. A 2x clip therefore reads the
+	// source twice as fast (and pitch-shifts up), staying in sync with video.
+	const rate = playbackRate > 0 ? playbackRate : 1;
 
 	const sourceStartSample = Math.floor(trimStart * buffer.sampleRate);
-	const sourceLengthSamples = Math.floor(elementDuration * buffer.sampleRate);
 	const outputStartSample = Math.floor(startTime * sampleRate);
 
 	const resampleRatio = sampleRate / buffer.sampleRate;
-	const resampledLength = Math.floor(sourceLengthSamples * resampleRatio);
+	// Output length is the timeline duration (independent of rate); the rate is
+	// applied to the per-sample source step below.
+	const resampledLength = Math.floor(elementDuration * sampleRate);
 
 	const outputChannels = 2;
 	for (let channel = 0; channel < outputChannels; channel++) {
@@ -553,7 +639,8 @@ function mixAudioChannels({
 			const outputIndex = outputStartSample + i;
 			if (outputIndex >= outputLength) break;
 
-			const sourceIndex = sourceStartSample + Math.floor(i / resampleRatio);
+			const sourceIndex =
+				sourceStartSample + Math.floor((i * rate) / resampleRatio);
 			if (sourceIndex >= sourceData.length) break;
 
 			outputData[outputIndex] += sourceData[sourceIndex];
