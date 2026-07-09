@@ -15,15 +15,26 @@ export function formatUsd(n: number): string {
 }
 
 /**
- * Whether a generation renders a fresh per-shot still (the +1 GPT Image cost).
- * Single source of truth so the three cost-estimate call sites can't drift on
- * what counts toward cost.
+ * Whether a generation renders a fresh per-shot still that adds API cost (the +1
+ * GPT Image charge). Single source of truth so the cost-estimate call sites can't
+ * drift on what counts toward cost.
+ *
+ * Only "high" (Balanced) bills for the still — it goes through gpt-image-2.
+ * "fast" reuses the anchor (no still) and "durable" renders the still locally on
+ * the PhotoMaker image service ($0 API cost), so neither adds to the estimate.
  */
 export function addsPerShotStill(
 	hasPersona: boolean,
-	consistencyMode: "high" | "fast" | undefined,
+	consistencyMode: "high" | "fast" | "durable" | undefined,
 ): boolean {
-	return hasPersona && consistencyMode === "high";
+	switch (consistencyMode) {
+		case "high":
+			return hasPersona;
+		case "fast":
+		case "durable":
+		case undefined:
+			return false;
+	}
 }
 
 /**

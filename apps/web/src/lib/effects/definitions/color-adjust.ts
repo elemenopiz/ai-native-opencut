@@ -6,11 +6,56 @@ function getParam(effectParams: Record<string, unknown>, key: string, fallback: 
 	return typeof val === "number" ? val : fallback;
 }
 
+/** Neutral color-wheel value: mid-gray = zero tint. */
+export const NEUTRAL_WHEEL = "#808080";
+
+/** Decode a hex color into a signed per-channel offset in [-1, 1] around neutral gray. */
+function hexToWheelOffset(hex: string): [number, number, number] {
+	const matched = hex.trim().match(/^#?([0-9a-fA-F]{6})$/);
+	if (!matched) return [0, 0, 0];
+	const int = parseInt(matched[1], 16);
+	const r = ((int >> 16) & 0xff) / 255;
+	const g = ((int >> 8) & 0xff) / 255;
+	const b = (int & 0xff) / 255;
+	return [(r - 0.5) * 2, (g - 0.5) * 2, (b - 0.5) * 2];
+}
+
+function getWheelHex(effectParams: Record<string, unknown>, key: string): string {
+	const val = effectParams[key];
+	return typeof val === "string" ? val : NEUTRAL_WHEEL;
+}
+
 export const colorAdjustEffectDefinition: EffectDefinition = {
 	type: "color-adjust",
-	name: "Color Adjust",
-	keywords: ["color", "brightness", "contrast", "saturation", "temperature", "adjust"],
+	name: "Color Grade",
+	keywords: [
+		"color",
+		"grade",
+		"grading",
+		"brightness",
+		"contrast",
+		"saturation",
+		"temperature",
+		"tint",
+		"exposure",
+		"highlights",
+		"shadows",
+		"lift",
+		"gamma",
+		"gain",
+		"wheels",
+		"adjust",
+	],
 	params: [
+		{
+			key: "exposure",
+			label: "Exposure",
+			type: "number",
+			default: 0,
+			min: -2,
+			max: 2,
+			step: 0.01,
+		},
 		{
 			key: "brightness",
 			label: "Brightness",
@@ -48,6 +93,96 @@ export const colorAdjustEffectDefinition: EffectDefinition = {
 			step: 0.01,
 		},
 		{
+			key: "tint",
+			label: "Tint",
+			type: "number",
+			default: 0,
+			min: -1,
+			max: 1,
+			step: 0.01,
+		},
+		{
+			key: "highlights",
+			label: "Highlights",
+			type: "number",
+			default: 0,
+			min: -1,
+			max: 1,
+			step: 0.01,
+		},
+		{
+			key: "shadows",
+			label: "Shadows",
+			type: "number",
+			default: 0,
+			min: -1,
+			max: 1,
+			step: 0.01,
+		},
+		{
+			key: "whites",
+			label: "Whites",
+			type: "number",
+			default: 0,
+			min: -1,
+			max: 1,
+			step: 0.01,
+		},
+		{
+			key: "blacks",
+			label: "Blacks",
+			type: "number",
+			default: 0,
+			min: -1,
+			max: 1,
+			step: 0.01,
+		},
+		{
+			key: "liftColor",
+			label: "Lift (Shadows)",
+			type: "wheel",
+			default: NEUTRAL_WHEEL,
+		},
+		{
+			key: "liftLuma",
+			label: "Lift Luma",
+			type: "number",
+			default: 0,
+			min: -0.5,
+			max: 0.5,
+			step: 0.01,
+		},
+		{
+			key: "gammaColor",
+			label: "Gamma (Midtones)",
+			type: "wheel",
+			default: NEUTRAL_WHEEL,
+		},
+		{
+			key: "gammaLuma",
+			label: "Gamma Luma",
+			type: "number",
+			default: 0,
+			min: -0.5,
+			max: 0.5,
+			step: 0.01,
+		},
+		{
+			key: "gainColor",
+			label: "Gain (Highlights)",
+			type: "wheel",
+			default: NEUTRAL_WHEEL,
+		},
+		{
+			key: "gainLuma",
+			label: "Gain Luma",
+			type: "number",
+			default: 0,
+			min: -0.5,
+			max: 0.5,
+			step: 0.01,
+		},
+		{
 			key: "vignette",
 			label: "Vignette",
 			type: "number",
@@ -62,13 +197,43 @@ export const colorAdjustEffectDefinition: EffectDefinition = {
 		passes: [
 			{
 				fragmentShader: colorAdjustShader,
-				uniforms: ({ effectParams }) => ({
-					u_brightness: getParam(effectParams, "brightness", 0),
-					u_contrast: getParam(effectParams, "contrast", 1),
-					u_saturation: getParam(effectParams, "saturation", 1),
-					u_temperature: getParam(effectParams, "temperature", 0),
-					u_vignette: getParam(effectParams, "vignette", 0),
-				}),
+				uniforms: ({ effectParams }) => {
+					const lift = hexToWheelOffset(getWheelHex(effectParams, "liftColor"));
+					const gamma = hexToWheelOffset(getWheelHex(effectParams, "gammaColor"));
+					const gain = hexToWheelOffset(getWheelHex(effectParams, "gainColor"));
+					const liftLuma = getParam(effectParams, "liftLuma", 0);
+					const gammaLuma = getParam(effectParams, "gammaLuma", 0);
+					const gainLuma = getParam(effectParams, "gainLuma", 0);
+					return {
+						u_exposure: getParam(effectParams, "exposure", 0),
+						u_brightness: getParam(effectParams, "brightness", 0),
+						u_contrast: getParam(effectParams, "contrast", 1),
+						u_saturation: getParam(effectParams, "saturation", 1),
+						u_temperature: getParam(effectParams, "temperature", 0),
+						u_tint: getParam(effectParams, "tint", 0),
+						u_highlights: getParam(effectParams, "highlights", 0),
+						u_shadows: getParam(effectParams, "shadows", 0),
+						u_whites: getParam(effectParams, "whites", 0),
+						u_blacks: getParam(effectParams, "blacks", 0),
+						u_vignette: getParam(effectParams, "vignette", 0),
+						// Lift: additive offset, Gain: multiplier around 1, Gamma: exponent basis around 1
+						u_lift: [
+							lift[0] * 0.2 + liftLuma,
+							lift[1] * 0.2 + liftLuma,
+							lift[2] * 0.2 + liftLuma,
+						],
+						u_gain: [
+							1 + gain[0] * 0.5 + gainLuma,
+							1 + gain[1] * 0.5 + gainLuma,
+							1 + gain[2] * 0.5 + gainLuma,
+						],
+						u_gamma: [
+							1 + gamma[0] * 0.5 + gammaLuma,
+							1 + gamma[1] * 0.5 + gammaLuma,
+							1 + gamma[2] * 0.5 + gammaLuma,
+						],
+					};
+				},
 			},
 		],
 	},

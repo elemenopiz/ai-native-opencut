@@ -22,7 +22,9 @@ export type CaptionPresetId =
 	| "highlight-box"
 	| "bounce"
 	| "clean-bold"
-	| "hype";
+	| "hype"
+	| "classic-outline"
+	| "neon-glow";
 
 export interface CaptionStylePreset {
 	id: CaptionPresetId;
@@ -41,6 +43,10 @@ export interface CaptionStylePreset {
 	wordActiveBackground?: string;
 	/** Scale multiplier for the currently-spoken word (1.0 = no pop). */
 	wordPopScale: number;
+	/** Outline color drawn around glyphs (CapCut-style readability outline). */
+	strokeColor?: string;
+	/** Outline width as a ratio of font size (0 = none, ~0.08 = bold outline). */
+	strokeWidth?: number;
 	/** Background box behind the whole caption line. */
 	background: Omit<TextBackground, "enabled"> & { enabled: boolean };
 	/** Vertical position as a ratio of canvas height (0 = top, 1 = bottom). */
@@ -61,6 +67,8 @@ export const CAPTION_PRESETS: CaptionStylePreset[] = [
 		highlightColor: "#FACC15",
 		wordActiveColor: "#FACC15",
 		wordPopScale: 1.25,
+		strokeColor: "#000000",
+		strokeWidth: 0.08,
 		background: {
 			enabled: false,
 			color: "transparent",
@@ -108,6 +116,8 @@ export const CAPTION_PRESETS: CaptionStylePreset[] = [
 		highlightColor: "#22D3EE",
 		wordActiveColor: "#22D3EE",
 		wordPopScale: 1.4,
+		strokeColor: "#000000",
+		strokeWidth: 0.09,
 		background: {
 			enabled: false,
 			color: "transparent",
@@ -155,6 +165,58 @@ export const CAPTION_PRESETS: CaptionStylePreset[] = [
 		highlightColor: "#FFFFFF",
 		wordActiveColor: "#FFFF00",
 		wordPopScale: 1.3,
+		strokeColor: "#000000",
+		strokeWidth: 0.1,
+		background: {
+			enabled: false,
+			color: "transparent",
+			cornerRadius: 0,
+			paddingX: 0,
+			paddingY: 0,
+			offsetX: 0,
+			offsetY: 0,
+		},
+		yPositionRatio: 0.36,
+		animateSegmentIn: true,
+	},
+	{
+		id: "classic-outline",
+		name: "Classic Outline",
+		description: "White text with a heavy black outline; no box.",
+		fontSize: 4.5,
+		fontFamily: "Inter",
+		fontWeight: "bold",
+		color: "#FFFFFF",
+		highlightColor: "#FFFFFF",
+		wordActiveColor: "#FFFFFF",
+		wordPopScale: 1.0,
+		strokeColor: "#000000",
+		strokeWidth: 0.11,
+		background: {
+			enabled: false,
+			color: "transparent",
+			cornerRadius: 0,
+			paddingX: 0,
+			paddingY: 0,
+			offsetX: 0,
+			offsetY: 0,
+		},
+		yPositionRatio: 0.4,
+		animateSegmentIn: false,
+	},
+	{
+		id: "neon-glow",
+		name: "Neon Glow",
+		description: "Bright active word with a dark outline for punch.",
+		fontSize: 5.5,
+		fontFamily: "Inter",
+		fontWeight: "bold",
+		color: "#FFFFFF",
+		highlightColor: "#F0ABFC",
+		wordActiveColor: "#E879F9",
+		wordPopScale: 1.2,
+		strokeColor: "#3B0764",
+		strokeWidth: 0.09,
 		background: {
 			enabled: false,
 			color: "transparent",
@@ -223,6 +285,8 @@ export function buildCaptionElementStyle({
 		wordActiveColor: preset.wordActiveColor,
 		wordActiveBackground: preset.wordActiveBackground,
 		wordPopScale: preset.wordPopScale,
+		strokeColor: preset.strokeColor,
+		strokeWidth: preset.strokeWidth,
 		textAlign: "center",
 		background: preset.background,
 		...(preset.animateSegmentIn

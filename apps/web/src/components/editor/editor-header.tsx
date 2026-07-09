@@ -18,7 +18,7 @@ import { ExportButton } from "./export-button";
 import { ThemeToggle } from "../theme-toggle";
 import { toast } from "sonner";
 import { useEditor } from "@/hooks/use-editor";
-import { CommandIcon, GridViewIcon, Logout05Icon, Search01Icon, SparklesIcon } from "@hugeicons/core-free-icons";
+import { Album02Icon, CommandIcon, GridViewIcon, Logout05Icon, Search01Icon, SparklesIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ShortcutsDialog } from "./dialogs/shortcuts-dialog";
 import { ByornLogo } from "@/components/footer";
@@ -42,6 +42,7 @@ import {
 } from "@/components/ui/dialog";
 import { useAssetsPanelStore } from "@/stores/assets-panel-store";
 import { useBoardStore } from "@/stores/board-store";
+import { SaveArrangementDialog } from "@/components/arrangements/save-arrangement-dialog";
 
 export function EditorHeader() {
 	const toggleBoard = useBoardStore((s) => s.toggle);
@@ -131,7 +132,7 @@ export function EditorHeader() {
 
 function ProjectDropdown() {
 	const [openDialog, setOpenDialog] = useState<
-		"delete" | "rename" | "shortcuts" | "features" | null
+		"delete" | "rename" | "shortcuts" | "features" | "arrangement" | null
 	>(null);
 	const [isExiting, setIsExiting] = useState(false);
 	const router = useRouter();
@@ -248,6 +249,13 @@ function ProjectDropdown() {
 						Features
 					</DropdownMenuItem>
 
+					<DropdownMenuItem
+						onClick={() => setOpenDialog("arrangement")}
+						icon={<HugeiconsIcon icon={Album02Icon} />}
+					>
+						Save as arrangement
+					</DropdownMenuItem>
+
 					<DropdownMenuSeparator />
 
 					</DropdownMenuContent>
@@ -271,6 +279,10 @@ function ProjectDropdown() {
 			<FeaturesDialog
 				isOpen={openDialog === "features"}
 				onOpenChange={(isOpen) => setOpenDialog(isOpen ? "features" : null)}
+			/>
+			<SaveArrangementDialog
+				isOpen={openDialog === "arrangement"}
+				onOpenChange={(isOpen) => setOpenDialog(isOpen ? "arrangement" : null)}
 			/>
 		</>
 	);

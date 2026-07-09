@@ -29,6 +29,7 @@ import {
 } from "@/lib/studio/options";
 import { useStudioSettingsStore } from "@/stores/studio-settings-store";
 import { usePersonaStore } from "@/stores/persona-store";
+import { useServiceHealth } from "@/hooks/use-service-health";
 import { toast } from "sonner";
 
 interface GenerationFormProps {
@@ -44,7 +45,7 @@ interface GenerationFormProps {
 		duration: number;
 		mode: VideoMode;
 		personaId?: string;
-		consistencyMode?: "high" | "fast";
+		consistencyMode?: "high" | "fast" | "durable";
 	}) => void;
 	onGenerateMultiframe?: (
 		keyframes: string[],
@@ -73,19 +74,24 @@ const GEN_MODES: { value: GenMode; label: string; hint: string }[] = [
 ];
 
 const CONSISTENCY_OPTIONS: {
-	value: "high" | "fast";
+	value: "high" | "fast" | "durable";
 	label: string;
 	hint: string;
 }[] = [
 	{
-		value: "high",
-		label: "High",
-		hint: "Renders a fresh per-shot still of your character — best identity match (+1 image per shot).",
-	},
-	{
 		value: "fast",
 		label: "Fast",
-		hint: "Reuses the persona's anchor image directly — quicker and cheaper.",
+		hint: "Reuses the persona's anchor image directly — quickest and cheapest, loosest likeness.",
+	},
+	{
+		value: "high",
+		label: "Balanced",
+		hint: "Renders a fresh per-shot still via GPT Image — best all-round likeness (+1 image per shot).",
+	},
+	{
+		value: "durable",
+		label: "Durable (HD)",
+		hint: "Renders the still locally with PhotoMaker — best durable likeness, no API cost, needs the local image service.",
 	},
 ];
 
@@ -130,6 +136,12 @@ export function GenerationForm({
 		s.personas.find((p) => p.id === s.activePersonaId),
 	);
 	const clearPersona = usePersonaStore((s) => s.setActive);
+
+	// Durable (HD) consistency renders the persona still locally on the image
+	// service (PhotoMaker v1). Surface a hint when that service isn't up so the
+	// user knows the tier needs it — a warning, not a hard block.
+	const { services } = useServiceHealth();
+	const imageServiceDown = services.image.status !== "running";
 
 	// Transient per-generation inputs.
 	const [prompt, setPrompt] = useState("");
@@ -418,7 +430,7 @@ export function GenerationForm({
 									onClick={() => setSettings({ consistencyMode: opt.value })}
 									title={opt.hint}
 									className={cn(
-										"flex-1 py-1 rounded text-[11px] font-medium border transition-colors",
+										"flex-1 py-1 rounded text-[11px] font-medium border transition-colors whitespace-nowrap",
 										consistencyMode === opt.value
 											? "bg-primary text-primary-foreground border-primary"
 											: "border-border text-muted-foreground hover:border-foreground",
@@ -431,6 +443,12 @@ export function GenerationForm({
 						<p className="text-[10px] text-muted-foreground">
 							{CONSISTENCY_OPTIONS.find((o) => o.value === consistencyMode)?.hint}
 						</p>
+						{consistencyMode === "durable" && imageServiceDown && (
+							<p className="text-[10px] text-amber-500">
+								Requires the local image service (port 8423) — start it
+								before generating.
+							</p>
+						)}
 					</div>
 				</div>
 			)}

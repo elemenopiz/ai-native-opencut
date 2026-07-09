@@ -21,6 +21,11 @@ import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
 import { useEditor } from "@/hooks/use-editor";
 import { useSlotGeneration } from "@/hooks/use-slot-generation";
+import { TakeProvenanceBadge } from "@/components/editor/take-provenance-badge";
+import {
+	estimateVideoCredits,
+	formatCredits,
+} from "@/lib/studio/backends/cost";
 import { CAMERA_PRESETS } from "@/lib/studio/camera-presets";
 import { addsPerShotStill, estimateCost, formatUsd } from "@/lib/studio/cost";
 import { RESOLUTIONS, ORIENTATIONS } from "@/lib/studio/options";
@@ -231,9 +236,16 @@ function SpecSection({
 							{rendersStill && " · +1 still"}
 						</span>
 					</div>
-					<span className="text-sm font-semibold tabular-nums">
-						{formatUsd(cost.low)}–{formatUsd(cost.high)}
-					</span>
+					<div className="flex flex-col items-end">
+						<span className="text-sm font-semibold tabular-nums">
+							{formatUsd(cost.low)}–{formatUsd(cost.high)}
+						</span>
+						{/* Pre-generate credits preview — normalized, client-safe
+						    estimate. Exact routed cost is stamped server-side. */}
+						<span className="text-[10px] text-muted-foreground tabular-nums">
+							~{formatCredits(estimateVideoCredits(spec.resolution, spec.duration))} credits est.
+						</span>
+					</div>
 				</div>
 
 				{/* Re-roll — enqueue a fresh take for this slot via the orchestrator. */}
@@ -415,6 +427,13 @@ function TakeThumb({
 				<span className="mt-1 block truncate text-center font-mono text-[9px] text-muted-foreground">
 					#{take.seed}
 				</span>
+			)}
+
+			{/* Provenance + cost — shown for the active take (metadata chrome). */}
+			{active && (
+				<div className="mt-1 flex justify-center">
+					<TakeProvenanceBadge take={take} />
+				</div>
 			)}
 		</div>
 	);

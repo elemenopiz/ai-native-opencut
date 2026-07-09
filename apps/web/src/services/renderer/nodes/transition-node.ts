@@ -19,6 +19,7 @@ export interface TransitionSourceParams {
 	trimStart: number;
 	trimEnd: number;
 	playbackRate?: number;
+	reversed?: boolean;
 	transform: Transform;
 	animations?: ElementAnimations;
 	opacity: number;

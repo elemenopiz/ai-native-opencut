@@ -2,11 +2,20 @@ import type { EditorCore } from "@/core";
 import { processMediaAssets } from "@/lib/media/processing";
 import { composePromptWithCamera } from "@/lib/studio/camera-presets";
 import { waitForJobTerminal } from "@/stores/generation-status-store";
-import type { GenerationSpec } from "@/types/timeline";
+import type { GenerationSpec, Provenance, TakeCost } from "@/types/timeline";
 
 /** Terminal result of generating one take's media. */
 export type GenerateTakeResult =
-	| { status: "ready"; mediaId: string; thumbnailUrl?: string; seed?: number }
+	| {
+			status: "ready";
+			mediaId: string;
+			thumbnailUrl?: string;
+			seed?: number;
+			/** Which backend produced the take + its safety tier (from the route). */
+			provenance?: Provenance;
+			/** Actualized cost of the generation. */
+			cost?: TakeCost;
+	  }
 	| { status: "failed"; error: string };
 
 /** Fetch a finished take's video (via same-origin proxy to dodge provider CORS),
@@ -88,6 +97,8 @@ export async function generateTakeMedia({
 			status: string;
 			videoUrl?: string;
 			seed?: number;
+			provenance?: Provenance;
+			cost?: TakeCost;
 		};
 
 		let videoUrl = data.videoUrl;
@@ -107,7 +118,14 @@ export async function generateTakeMedia({
 			videoUrl!,
 			spec.prompt || "take",
 		);
-		return { status: "ready", mediaId, thumbnailUrl, seed };
+		return {
+			status: "ready",
+			mediaId,
+			thumbnailUrl,
+			seed,
+			provenance: data.provenance,
+			cost: data.cost,
+		};
 	} catch (err) {
 		return {
 			status: "failed",

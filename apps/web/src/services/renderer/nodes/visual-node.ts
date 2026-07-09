@@ -25,6 +25,8 @@ export interface VisualNodeParams {
 	trimEnd: number;
 	/** Playback speed multiplier (default 1.0). */
 	playbackRate?: number;
+	/** When true, the trimmed source span plays backwards. */
+	reversed?: boolean;
 	transform: Transform;
 	animations?: ElementAnimations;
 	opacity: number;
@@ -39,6 +41,7 @@ export abstract class VisualNode<
 	protected getSourceLocalTime({ time }: { time: number }): number {
 		const baseRate = this.params.playbackRate ?? 1.0;
 		const elapsed = time - this.params.timeOffset;
+		const reversed = this.params.reversed ?? false;
 		const animations = this.params.animations;
 
 		const speedChannel = animations
@@ -46,14 +49,18 @@ export abstract class VisualNode<
 			: null;
 
 		if (speedChannel && speedChannel.keyframes.length > 0) {
+			const local = Math.max(0, Math.min(elapsed, this.params.duration));
+			// Reverse mirrors the elapsed position within the clip span.
+			const effLocal = reversed ? this.params.duration - local : local;
 			return this.getSourceTimeViaSpeedCurve({
-				localTime: Math.max(0, Math.min(elapsed, this.params.duration)),
+				localTime: effLocal,
 				baseRate,
 				animations: animations!,
 			});
 		}
 
-		return elapsed * baseRate + this.params.trimStart;
+		const effElapsed = reversed ? this.params.duration - elapsed : elapsed;
+		return effElapsed * baseRate + this.params.trimStart;
 	}
 
 	private getSourceTimeViaSpeedCurve({
@@ -188,6 +195,11 @@ export abstract class VisualNode<
 			const passes = definition.renderer.passes.map((pass) => ({
 				fragmentShader: pass.fragmentShader,
 				uniforms: pass.uniforms({
+					effectParams: resolvedParams,
+					width: scaledWidth,
+					height: scaledHeight,
+				}),
+				textures: pass.textures?.({
 					effectParams: resolvedParams,
 					width: scaledWidth,
 					height: scaledHeight,

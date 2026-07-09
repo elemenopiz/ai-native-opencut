@@ -36,7 +36,7 @@ export interface UseStudioGenerationReturn {
 		duration: number;
 		mode: VideoMode;
 		personaId?: string;
-		consistencyMode?: "high" | "fast";
+		consistencyMode?: "high" | "fast" | "durable";
 	}) => Promise<void>;
 	promoteTo1080p: (takeId: string) => Promise<void>;
 	starTake: (takeId: string, starred: boolean) => Promise<void>;
@@ -111,7 +111,7 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 			duration: number;
 			mode: VideoMode;
 			personaId?: string;
-			consistencyMode?: "high" | "fast";
+			consistencyMode?: "high" | "fast" | "durable";
 		}) => {
 			setStatus("submitting");
 			setError(null);

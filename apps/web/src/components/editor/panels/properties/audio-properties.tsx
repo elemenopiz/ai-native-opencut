@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { useEditor } from "@/hooks/use-editor";
 import { clamp } from "@/utils/math";
 import { NumberField } from "@/components/ui/number-field";
 import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
 import {
 	Section,
 	SectionContent,
@@ -14,14 +16,17 @@ import { useKeyframedNumberProperty } from "./hooks/use-keyframed-number-propert
 import { useElementPlayhead } from "./hooks/use-element-playhead";
 import { resolveVolumeAtTime } from "@/lib/animation";
 import { isPropertyAtDefault } from "./sections/transform";
+import { useNoiseReduction } from "@/hooks/use-noise-reduction";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	VolumeHighIcon,
 	VolumeOffIcon,
+	SparklesIcon,
 } from "@hugeicons/core-free-icons";
 import type { AudioElement } from "@/types/timeline";
 
 const DEFAULT_VOLUME = 1;
+const DEFAULT_DENOISE_STRENGTH = 0.7;
 
 function volumeToDb(volume: number): string {
 	if (volume <= 0) return "-inf";
@@ -38,6 +43,10 @@ export function AudioProperties({
 }) {
 	const editor = useEditor();
 	const isMuted = element.muted === true;
+	const { applyNoiseReduction, isProcessing } = useNoiseReduction();
+	const [denoiseStrength, setDenoiseStrength] = useState(
+		DEFAULT_DENOISE_STRENGTH,
+	);
 
 	const { localTime, isPlayheadWithinElementRange } = useElementPlayhead({
 		startTime: element.startTime,
@@ -156,6 +165,54 @@ export function AudioProperties({
 							{Math.round(resolvedVolume * 100)}%
 						</span>
 					</div>
+				</SectionContent>
+			</Section>
+
+			<Section
+				collapsible
+				sectionKey="audio:noise-reduction"
+			>
+				<SectionHeader>
+					<SectionTitle>Noise Reduction</SectionTitle>
+				</SectionHeader>
+				<SectionContent>
+					<SectionField label="Strength">
+						<div className="flex items-center gap-2">
+							<Slider
+								value={[denoiseStrength]}
+								onValueChange={([v]) => setDenoiseStrength(v)}
+								min={0}
+								max={1}
+								step={0.05}
+								disabled={isProcessing}
+							/>
+							<span className="text-muted-foreground w-9 shrink-0 text-right text-xs tabular-nums">
+								{Math.round(denoiseStrength * 100)}%
+							</span>
+						</div>
+					</SectionField>
+
+					<Button
+						size="sm"
+						variant="secondary"
+						className="mt-3 w-full"
+						disabled={isProcessing}
+						onClick={() =>
+							applyNoiseReduction({
+								trackId,
+								element,
+								strength: denoiseStrength,
+							})
+						}
+					>
+						<HugeiconsIcon icon={SparklesIcon} className="size-3.5" />
+						{isProcessing ? "Reducing noise..." : "Reduce Noise"}
+					</Button>
+
+					<p className="text-muted-foreground mt-2 text-[11px]">
+						Runs spectral-gating denoise on this clip's source audio and
+						swaps in the cleaned result.
+					</p>
 				</SectionContent>
 			</Section>
 		</div>

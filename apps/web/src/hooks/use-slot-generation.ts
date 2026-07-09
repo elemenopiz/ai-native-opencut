@@ -74,6 +74,8 @@ export function useSlotGeneration() {
 					mediaId: result.mediaId,
 					thumbnailUrl: result.thumbnailUrl,
 					seed: result.seed,
+					provenance: result.provenance,
+					cost: result.cost,
 				},
 			});
 			return { takeId, success: true };

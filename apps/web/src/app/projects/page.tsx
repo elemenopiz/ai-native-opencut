@@ -2,10 +2,8 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import type { KeyboardEvent, MouseEvent } from "react";
 import { useEffect, useState } from "react";
-import { toast } from "sonner";
 import { MigrationDialog } from "@/components/editor/dialogs/migration-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -63,6 +61,7 @@ import {
 import { DeleteProjectDialog } from "@/components/editor/dialogs/delete-project-dialog";
 import { ProjectInfoDialog } from "@/components/editor/dialogs/project-info-dialog";
 import { RenameProjectDialog } from "@/components/editor/dialogs/rename-project-dialog";
+import { NewProjectDialog } from "@/components/arrangements/new-project-dialog";
 import { cn } from "@/utils/ui";
 
 const formatProjectDuration = ({
@@ -502,25 +501,20 @@ function SortDropdown({ children }: { children: React.ReactNode }) {
 }
 
 function NewProjectButton() {
-	const editor = useEditor();
-	const router = useRouter();
-
-	const handleCreateProject = async () => {
-		const projectId = await editor.project.createNewProject({
-			name: "New project",
-		});
-		router.push(`/editor/${projectId}`);
-	};
+	const [isDialogOpen, setIsDialogOpen] = useState(false);
 
 	return (
-		<Button
-			size="lg"
-			className="flex px-5 md:px-6"
-			onClick={handleCreateProject}
-		>
-			<span className="text-sm font-medium hidden md:block">New project</span>
-			<span className="text-sm font-medium block md:hidden">New</span>
-		</Button>
+		<>
+			<Button
+				size="lg"
+				className="flex px-5 md:px-6"
+				onClick={() => setIsDialogOpen(true)}
+			>
+				<span className="text-sm font-medium hidden md:block">New project</span>
+				<span className="text-sm font-medium block md:hidden">New</span>
+			</Button>
+			<NewProjectDialog isOpen={isDialogOpen} onOpenChange={setIsDialogOpen} />
+		</>
 	);
 }
 
@@ -946,22 +940,12 @@ function ProjectsSkeleton() {
 
 function EmptyState() {
 	const { searchQuery, setSearchQuery } = useProjectsStore();
-	const router = useRouter();
 	const editor = useEditor();
 	const savedProjects = editor.project.getSavedProjects();
+	const [isDialogOpen, setIsDialogOpen] = useState(false);
 
-	const handleCreateProject = async () => {
-		try {
-			const projectId = await editor.project.createNewProject({
-				name: "New project",
-			});
-			router.push(`/editor/${projectId}`);
-		} catch (error) {
-			toast.error("Failed to create project", {
-				description:
-					error instanceof Error ? error.message : "Please try again",
-			});
-		}
+	const handleCreateProject = () => {
+		setIsDialogOpen(true);
 	};
 
 	if (savedProjects.length > 0) {
@@ -1009,6 +993,7 @@ function EmptyState() {
 				<HugeiconsIcon icon={PlusSignIcon} />
 				Create your first project
 			</Button>
+			<NewProjectDialog isOpen={isDialogOpen} onOpenChange={setIsDialogOpen} />
 		</div>
 	);
 }

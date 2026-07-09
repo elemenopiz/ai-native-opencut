@@ -60,6 +60,7 @@ function SpeedSection({
 }) {
 	const editor = useEditor();
 	const currentRate = element.playbackRate ?? 1.0;
+	const isReversed = element.reversed ?? false;
 
 	const handleSpeedChange = (rate: number) => {
 		editor.timeline.updateElements({
@@ -68,6 +69,18 @@ function SpeedSection({
 					trackId,
 					elementId: element.id,
 					updates: { playbackRate: rate },
+				},
+			],
+		});
+	};
+
+	const handleToggleReverse = () => {
+		editor.timeline.updateElements({
+			updates: [
+				{
+					trackId,
+					elementId: element.id,
+					updates: { reversed: !isReversed },
 				},
 			],
 		});
@@ -122,6 +135,22 @@ function SpeedSection({
 								{preset.label}
 							</Button>
 						))}
+					</div>
+
+					{/* Reverse toggle */}
+					<div className="flex items-center justify-between">
+						<span className="text-[11px] text-muted-foreground">Reverse</span>
+						<Button
+							variant={isReversed ? "secondary" : "outline"}
+							size="sm"
+							className={cn(
+								"h-6 px-2 text-[10px]",
+								isReversed && "ring-1 ring-primary",
+							)}
+							onClick={handleToggleReverse}
+						>
+							{isReversed ? "Reversed" : "Play backwards"}
+						</Button>
 					</div>
 
 					{/* Speed Curve Editor */}

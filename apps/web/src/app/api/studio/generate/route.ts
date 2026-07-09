@@ -1,23 +1,36 @@
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import {
-	generateVideo,
-	type VideoResolution,
-	type VideoOrientation,
-	type VideoMode,
+import type {
+	VideoResolution,
+	VideoOrientation,
+	VideoMode,
 } from "@/lib/studio/provider-adapter";
+import {
+	ensureBackendsRegistered,
+	normalizeSeedLock,
+	routeSlot,
+	toTakeCost,
+	type BackendRequest,
+} from "@/lib/studio/backends";
 import { renderPersonaStill } from "@/lib/studio/persona-still";
+import { renderPersonaStillPhotoMaker } from "@/lib/studio/persona-still-photomaker";
 import { composePersonaVideoPrompt } from "@/lib/studio/personas";
 import { STILL_SIZE_BY_ORIENTATION } from "@/lib/studio/options";
 import { db } from "@/lib/db";
 import { generationSets, personas, takes } from "@/lib/db/schema-studio";
+import type { GenerationSpec, Provenance, TakeCost } from "@/types/timeline";
 
 /** Max value BytePlus accepts for a seed (signed 32-bit). */
 const MAX_SEED = 2_147_483_647;
 
 export async function POST(req: Request) {
 	try {
+		// Register the routed generation backends (idempotent). The unified
+		// generator dispatches through this registry; without it the router has
+		// nothing to resolve to.
+		ensureBackendsRegistered();
+
 		const body = await req.json() as {
 			prompt: string;
 			referenceImageUrl?: string;
@@ -30,8 +43,11 @@ export async function POST(req: Request) {
 			duration?: number;
 			mode?: VideoMode;
 			personaId?: string;
-			consistencyMode?: "high" | "fast";
+			consistencyMode?: "high" | "fast" | "durable";
 			userId?: string;
+			/** Manual model pin → the router's `preferredBackendId` (a backend id).
+			 *  Absent ⇒ auto-route (defaults to Seedance for video). */
+			model?: string;
 		};
 
 		const {
@@ -56,10 +72,11 @@ export async function POST(req: Request) {
 
 		// Persona orchestration (reference-conditioned consistency). When a persona
 		// is active we weave its locked descriptor into the prompt, force
-		// image-to-video, and supply the reference frame: High renders a fresh
-		// per-shot still of the same character via gpt-image-2 edits; Fast uses the
-		// persona's anchor image directly. All stored on the set so promote-to-1080p
-		// reproduces the exact same shot.
+		// image-to-video, and supply the reference frame per tier: Balanced ("high")
+		// renders a fresh per-shot still via gpt-image-2 edits; Durable renders that
+		// still locally via PhotoMaker v1 on the image service ($0 API cost); Fast
+		// uses the persona's anchor image directly. All stored on the set so
+		// promote-to-1080p reproduces the exact same shot.
 		let finalPrompt = prompt;
 		let finalReferenceImageUrl = referenceImageUrl;
 		let finalMode: VideoMode = mode;
@@ -78,17 +95,23 @@ export async function POST(req: Request) {
 			if (consistencyMode === "fast") {
 				finalReferenceImageUrl = persona.anchorImageUrl;
 			} else if (referenceImageUrl) {
-				// High consistency: the client pre-renders ONE reference still for the
-				// whole batch and passes it here, so every draft shares an identical
-				// frame (drafts stay comparable, promote-to-1080p reproduces the exact
-				// shot) and we pay for a single gpt-image render instead of one per
-				// draft. Fall through to rendering only when no still was supplied.
+				// High/Durable consistency: the client pre-renders ONE reference still
+				// for the whole batch and passes it here, so every draft shares an
+				// identical frame (drafts stay comparable, promote-to-1080p reproduces
+				// the exact shot) and we render the still once instead of per draft.
+				// Fall through to rendering only when no still was supplied.
 				finalReferenceImageUrl = referenceImageUrl;
 			} else {
 				const refImageUrls = persona.refImageUrls
 					? (JSON.parse(persona.refImageUrls) as string[])
 					: undefined;
-				const still = await renderPersonaStill({
+				// Durable renders the still locally on the PhotoMaker image service
+				// (best durable likeness, $0 API cost); Balanced uses gpt-image-2.
+				const renderStill =
+					consistencyMode === "durable"
+						? renderPersonaStillPhotoMaker
+						: renderPersonaStill;
+				const still = await renderStill({
 					anchorImageUrl: persona.anchorImageUrl,
 					refImageUrls,
 					scenePrompt: prompt,
@@ -127,9 +150,36 @@ export async function POST(req: Request) {
 			personaId: personaId ?? null,
 		});
 
-		// Submit to provider
-		const result = await generateVideo({
+		// Route the slot to a backend, then hold identity across whichever backend
+		// was chosen. With no `model` pinned and Seedance available this resolves to
+		// Seedance and — because we hand normalizeSeedLock the already-pinned
+		// `effectiveSeed` as `request.seed` — the normalizer never rolls its own
+		// random seed, so the exact seed we persisted on the set is the exact seed
+		// submitted to the provider. The routing/normalizer layer only formalizes
+		// what this route already did.
+		const wantsLock = Boolean(personaId) || seed != null;
+		const personaLocked = Boolean(personaId);
+
+		const spec: GenerationSpec = {
 			prompt: finalPrompt,
+			model: body.model,
+			mode: finalMode,
+			referenceImageUrl: finalReferenceImageUrl,
+			referenceImages,
+			referenceVideos,
+			personaId,
+			consistencyMode,
+			seed: effectiveSeed,
+			seedLocked: seed != null,
+			resolution,
+			orientation,
+			duration,
+		};
+
+		const request: BackendRequest = {
+			modality: "video",
+			prompt: finalPrompt,
+			mode: finalMode,
 			referenceImageUrl: finalReferenceImageUrl,
 			referenceImages,
 			referenceVideos,
@@ -138,8 +188,38 @@ export async function POST(req: Request) {
 			resolution,
 			orientation,
 			duration,
-			mode: finalMode,
+		};
+
+		const route = routeSlot({
+			modality: "video",
+			spec,
+			preferredBackendId: body.model,
 		});
+
+		if (!route.backend.isAvailable()) {
+			return NextResponse.json(
+				{
+					error: `${route.backend.label} is not configured — set ${route.backend.requiredEnv.join(
+						", ",
+					)}`,
+				},
+				{ status: 400 },
+			);
+		}
+
+		const normalized = normalizeSeedLock(request, route.backend, {
+			wantsLock,
+			personaLocked,
+		});
+
+		// Submit through the routed backend. `submit` never throws for provider
+		// errors — it returns `{ status: "failed", error }` — so re-throw to land in
+		// the outer catch (500, no take persisted), matching the pre-routing flow
+		// where `generateVideo` threw on submit failure.
+		const result = await route.backend.submit(normalized.request);
+		if (result.status === "failed") {
+			throw new Error(result.error ?? "Generation failed");
+		}
 
 		// Persist the take
 		const takeId = nanoid();
@@ -150,8 +230,24 @@ export async function POST(req: Request) {
 			resolution,
 			providerJobId: result.jobId,
 			status: result.status === "completed" ? "kept" : "drafting",
-			videoUrl: result.videoUrl ?? null,
+			videoUrl: result.mediaUrl ?? null,
 		});
+
+		const provenance: Provenance = {
+			backendId: route.backend.id,
+			vendor: route.backend.vendor,
+			model: body.model ?? route.backend.id,
+			safetyTier: route.backend.safetyTier,
+			routedBy: route.routedBy,
+			intent: route.intent,
+			seedLocked: normalized.mechanism.includes("seed"),
+			generatedAt: Date.now(),
+		};
+
+		const cost: TakeCost = toTakeCost(
+			route.backend.estimateCost(normalized.request),
+			{ estimated: false },
+		);
 
 		return NextResponse.json({
 			takeId,
@@ -159,7 +255,9 @@ export async function POST(req: Request) {
 			jobId: result.jobId,
 			seed: result.seed ?? effectiveSeed,
 			status: result.status,
-			videoUrl: result.videoUrl,
+			videoUrl: result.mediaUrl,
+			provenance,
+			cost,
 		});
 	} catch (err) {
 		const message = err instanceof Error ? err.message : "Generation failed";

@@ -5,10 +5,11 @@ import { cn } from "@/utils/ui";
 import { TextEditingPanel } from "@/components/editor/ai/text-editing-panel";
 import { PropertiesPanel } from "@/components/editor/panels/properties";
 import { GenerateView } from "@/components/editor/panels/assets/views/generate";
+import { ScopesPanel } from "@/components/editor/panels/scopes";
 import { useTranscriptStore } from "@/stores/transcript-store";
 import { useElementSelection } from "@/hooks/timeline/element/use-element-selection";
 
-type RightTab = "generate" | "properties" | "transcript";
+type RightTab = "generate" | "properties" | "transcript" | "scopes";
 
 /**
  * The always-open right panel. Generate lives here permanently (it is no longer
@@ -60,6 +61,12 @@ export function RightPanel({ className }: { className?: string }) {
 				>
 					Properties
 				</TabButton>
+				<TabButton
+					active={activeTab === "scopes"}
+					onClick={() => setActiveTab("scopes")}
+				>
+					Scopes
+				</TabButton>
 				{hasTranscript && (
 					<TabButton
 						active={activeTab === "transcript"}
@@ -74,6 +81,7 @@ export function RightPanel({ className }: { className?: string }) {
 			<div className="flex-1 min-h-0 overflow-hidden">
 				{activeTab === "generate" && <GenerateView />}
 				{activeTab === "properties" && <PropertiesPanel />}
+				{activeTab === "scopes" && <ScopesPanel />}
 				{activeTab === "transcript" && hasTranscript && (
 					<TextEditingPanel className="size-full" />
 				)}

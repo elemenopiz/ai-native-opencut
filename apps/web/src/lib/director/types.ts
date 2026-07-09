@@ -156,6 +156,28 @@ export interface MediaSearchHit {
 }
 
 /**
+ * Compact project-level grounding for the agent (see {@link DirectorApi.getProjectInfo}):
+ * canvas/fps settings, the persona roster (reusable characters), and a
+ * media-library summary. Cheap to compute and small enough to ride in the
+ * once-per-turn system prompt.
+ */
+export interface ProjectInfo {
+	/** Frames per second of the active project, if any. */
+	fps?: number;
+	canvasWidth?: number;
+	canvasHeight?: number;
+	orientation?: "portrait" | "landscape" | "square";
+	/** First few personas (name + descriptor), capped for prompt size. */
+	personas: { name: string; descriptor: string }[];
+	/** Total persona count (may exceed `personas.length`). */
+	personaCount: number;
+	/** Total indexed/available media-library assets. */
+	assetCount: number;
+	/** A few recent asset names + ids, capped for prompt size. */
+	recentAssets: { id: string; name: string }[];
+}
+
+/**
  * Injectable boundary for the actual generation network calls.
  *
  * The Director API performs all *bookkeeping* (appending takes, flipping

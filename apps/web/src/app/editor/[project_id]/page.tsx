@@ -15,6 +15,7 @@ import { Onboarding } from "@/components/editor/onboarding";
 import { MigrationDialog } from "@/components/editor/dialogs/migration-dialog";
 import { usePanelStore } from "@/stores/panel-store";
 import { usePasteMedia } from "@/hooks/use-paste-media";
+import { useArrangementHandoff } from "@/hooks/use-arrangement-handoff";
 import { MobileGate } from "@/components/editor/mobile-gate";
 import { AIPanelWrapper } from "@/components/editor/ai/ai-panel-wrapper";
 import { QuickActionsBar } from "@/components/editor/ai/quick-actions-bar";
@@ -57,6 +58,7 @@ export default function Editor() {
 function EditorLayout() {
 	usePasteMedia();
 	useTranscribePrompt();
+	useArrangementHandoff();
 	const { panels, setPanel } = usePanelStore();
 	const transcriptSegments = useTranscriptStore((s) => s.segments);
 	const isTranscribing = useTranscriptStore((s) => s.isTranscribing);

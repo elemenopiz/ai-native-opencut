@@ -13,6 +13,7 @@ import { posterizeEffectDefinition } from "./posterize";
 import { duotoneEffectDefinition } from "./duotone";
 import { chromaKeyEffectDefinition } from "./chroma-key";
 import { shapeMaskEffectDefinition } from "./shape-mask";
+import { lutEffectDefinition } from "./lut";
 
 const defaultEffects = [
 	blurEffectDefinition,
@@ -29,6 +30,7 @@ const defaultEffects = [
 	duotoneEffectDefinition,
 	chromaKeyEffectDefinition,
 	shapeMaskEffectDefinition,
+	lutEffectDefinition,
 ];
 
 export function registerDefaultEffects(): void {

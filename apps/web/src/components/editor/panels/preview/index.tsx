@@ -14,6 +14,7 @@ import { PreviewInteractionOverlay } from "./preview-interaction-overlay";
 import { BookmarkNoteOverlay } from "./bookmark-note-overlay";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { clampPreviewZoom, usePreviewStore } from "@/stores/preview-store";
+import { usePreviewCanvasStore } from "@/stores/preview-canvas-store";
 import { PreviewContextMenu } from "./context-menu";
 import { PreviewToolbar } from "./toolbar";
 import { FramePresetPicker } from "./frame-preset-picker";
@@ -81,7 +82,14 @@ function RenderTreeController() {
 		});
 
 		editor.renderer.setRenderTree({ renderTree });
-	}, [tracks, mediaAssets, activeProject?.settings.background, activeProject?.settings.proxyEditing, width, height]);
+	}, [
+		tracks,
+		mediaAssets,
+		activeProject?.settings.background,
+		activeProject?.settings.proxyEditing,
+		width,
+		height,
+	]);
 
 	return null;
 }
@@ -228,6 +236,15 @@ function PreviewCanvas({
 		panDragRef.current = null;
 		setIsPanning(false);
 		(event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
+	}, []);
+
+	// Publish the composited-frame canvas so the scopes panel and auto
+	// color-correction can sample pixels without prop-drilling the ref.
+	useEffect(() => {
+		usePreviewCanvasStore.getState().setCanvasEl({ canvas: canvasRef.current });
+		return () => {
+			usePreviewCanvasStore.getState().setCanvasEl({ canvas: null });
+		};
 	}, []);
 
 	const renderTree = editor.renderer.getRenderTree();

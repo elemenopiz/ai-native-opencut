@@ -422,7 +422,11 @@ export function DirectorView() {
 		const trimmed = inputValue.trim();
 		if (!trimmed || isThinking) return;
 
-		if (!isConnected) {
+		// Chat mode defaults to the frontier brain (server-side Claude via
+		// /api/llm/agent), so it works without the local AI backend; the local
+		// Ollama loop is the automatic fallback when no ANTHROPIC_API_KEY is set.
+		// Every other mode still needs the local backend.
+		if (!isConnected && mode !== "chat") {
 			toast.error("AI backend is not connected", {
 				description: "Start the AI backend to use the Director chat.",
 			});
@@ -440,6 +444,9 @@ export function DirectorView() {
 		// ── Agent mode: drive the reel through director-api tool calls ──
 		// Chat is now agentic — the model can storyboard, generate, re-roll, and
 		// pick takes via the same DirectorApi the manual UI uses, or just answer.
+		// Brain: frontier Claude (native tool-calling via /api/llm/agent) by
+		// default, with automatic fallback to the local Ollama text loop when no
+		// ANTHROPIC_API_KEY is configured server-side.
 		if (mode === "chat") {
 			try {
 				const result = await runDirectorAgent({
@@ -462,13 +469,18 @@ export function DirectorView() {
 				});
 			} catch (error) {
 				const detail = error instanceof Error ? error.message : "";
+				// Frontier (Claude relay) failures carry their own explanation;
+				// everything else is the local Ollama path.
+				const isRelayIssue = detail.includes("Claude relay");
 				const isOllamaDown = detail.includes("503") || detail.includes("Ollama");
 				addMessage({
 					id: crypto.randomUUID(),
 					role: "assistant",
-					content: isOllamaDown
-						? "Ollama is not running or no LLM model is loaded. Open the AI Setup guide (click the AI indicator in the header) to pull a model like `llama3.2:1b`."
-						: `Something went wrong: ${detail || "Unknown error"}. Make sure the AI backend and Ollama are running with a model loaded.`,
+					content: isRelayIssue
+						? `${detail} Check ANTHROPIC_API_KEY / DIRECTOR_MODEL in apps/web/.env.local, or leave the key unset to use the local Ollama brain.`
+						: isOllamaDown
+							? "Ollama is not running or no LLM model is loaded. Open the AI Setup guide (click the AI indicator in the header) to pull a model like `llama3.2:1b`."
+							: `Something went wrong: ${detail || "Unknown error"}. Make sure the AI backend and Ollama are running with a model loaded.`,
 				});
 			} finally {
 				setIsThinking(false);
@@ -1006,13 +1018,13 @@ export function DirectorView() {
 								}
 								onKeyDown={handleKeyDown}
 								placeholder={
-									!isConnected
+									!isConnected && mode !== "chat"
 										? "Connect AI backend first"
 										: mode === "transcript"
 											? "Tell AI how to edit the transcript..."
 											: "Describe your video idea..."
 								}
-								disabled={!isConnected}
+								disabled={!isConnected && mode !== "chat"}
 								rows={1}
 								className={cn(
 									"flex-1 resize-none rounded-md border bg-transparent px-2.5 py-2 text-xs outline-none",
@@ -1037,7 +1049,7 @@ export function DirectorView() {
 								disabled={
 									!inputValue.trim() ||
 									isThinking ||
-									!isConnected
+									(!isConnected && mode !== "chat")
 								}
 							>
 								{isThinking ? (

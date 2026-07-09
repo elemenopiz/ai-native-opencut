@@ -10,6 +10,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/utils/ui";
 import { useEditor } from "@/hooks/use-editor";
+import { TakeProvenanceBadge } from "@/components/editor/take-provenance-badge";
 import type { Take, VideoElement, ImageElement } from "@/types/timeline";
 
 type SlotEl = (VideoElement | ImageElement) & { id: string };
@@ -194,6 +195,10 @@ function TakeTile({
 					Active
 				</Badge>
 			)}
+			<TakeProvenanceBadge
+				take={take}
+				className="absolute inset-x-1 bottom-1 justify-start rounded bg-black/70 px-1 py-0.5"
+			/>
 		</button>
 	);
 }

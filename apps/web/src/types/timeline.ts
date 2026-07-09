@@ -165,7 +165,14 @@ export interface GenerationSpec {
 	referenceImages?: string[];
 	referenceVideos?: string[];
 	personaId?: string;
-	consistencyMode?: "high" | "fast";
+	/**
+	 * Persona consistency tier:
+	 *  - "fast": use the persona anchor image directly (cheapest, loosest likeness).
+	 *  - "high": per-shot gpt-image-2 still (Balanced — current default).
+	 *  - "durable": local PhotoMaker v1 still via the image service (best durable
+	 *    likeness, $0 API cost, needs the local image service running).
+	 */
+	consistencyMode?: "high" | "fast" | "durable";
 	cameraPreset?: string;
 	seed?: number;
 	seedLocked?: boolean;
@@ -196,6 +203,47 @@ export interface GenerationSpec {
 
 export type TakeStatus = "queued" | "generating" | "ready" | "failed";
 
+/**
+ * Commercial-safety tier of the backend that produced a take — Adobe's
+ * indemnity tiering mapped onto our take primitive, but surfaced as a visible
+ * badge instead of buried in a legal PDF. See `lib/studio/backends/types.ts`.
+ */
+export type SafetyTier =
+	| "indemnified-equivalent" // trained on licensed/owned data — safest for brand work
+	| "partner" // third-party model, standard provider terms
+	| "experimental"; // preview / unstable
+
+/**
+ * Where a take came from, carried through export (generation-provenance is one
+ * of our wedges). Additive/optional — pre-existing takes simply lack it.
+ */
+export interface Provenance {
+	/** Registry id of the backend that generated this take. */
+	backendId: string;
+	vendor: string;
+	/** Concrete provider model id used. */
+	model: string;
+	safetyTier: SafetyTier;
+	/** Whether the router auto-selected the backend or the user pinned it. */
+	routedBy?: "auto" | "manual";
+	/** Slot intent the router resolved (for auditing routing decisions). */
+	intent?: string;
+	/** Identity preserved by seed (true) or by reference-conditioning fallback. */
+	seedLocked?: boolean;
+	generatedAt: number;
+}
+
+/** Normalized cost of a take — the honest, per-model number Firefly won't show. */
+export interface TakeCost {
+	/** Byorn credits (single normalized unit across all backends). */
+	credits: number;
+	usd?: number;
+	/** Plain-language derivation for the cost tooltip. */
+	basis?: string;
+	/** True while this is a pre-generation estimate, false once actualized. */
+	estimated?: boolean;
+}
+
 /** One generated variant of a clip. Alternates are never destroyed on selection. */
 export interface Take {
 	id: string;
@@ -208,6 +256,10 @@ export interface Take {
 	spec: GenerationSpec;
 	/** Provider job id, for polling while the take is generating. */
 	jobId?: string;
+	/** Which backend produced this take + its safety tier (survives export). */
+	provenance?: Provenance;
+	/** Normalized cost (estimate before generation, actual after). */
+	cost?: TakeCost;
 	createdAt: number;
 	error?: string;
 }
@@ -228,6 +280,8 @@ export interface VideoElement extends BaseTimelineElement, GenerativeFields {
 	muted?: boolean;
 	hidden?: boolean;
 	playbackRate?: number;
+	/** Play the trimmed source span backwards. */
+	reversed?: boolean;
 	transform: Transform;
 	opacity: number;
 	blendMode?: BlendMode;
@@ -284,6 +338,10 @@ export interface TextElement extends BaseTimelineElement {
 	wordTimings?: TextWordTiming[];
 	/** Scale multiplier for the currently-spoken word (pop effect). 1.0 = no pop, 1.3 = 30% larger. */
 	wordPopScale?: number;
+	/** Outline/stroke color drawn around glyphs (CapCut-style caption outline). */
+	strokeColor?: string;
+	/** Outline width as a ratio of font size (0 = none, ~0.08 = a bold outline). */
+	strokeWidth?: number;
 	background: TextBackground;
 	textAlign: "left" | "center" | "right";
 	fontWeight: "normal" | "bold";

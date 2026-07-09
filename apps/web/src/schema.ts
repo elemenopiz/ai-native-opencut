@@ -2,3 +2,4 @@
 export * from "./lib/db/schema";
 export * from "./lib/db/schema-version-control";
 export * from "./lib/db/schema-studio";
+export * from "./lib/db/schema-arrangements";

@@ -50,10 +50,16 @@ import { createShortIdMap } from "./short-id";
 import { aiClient } from "@/lib/ai-client";
 import { getAllEmbeddings } from "@/services/search/embedding-store";
 import { DEFAULT_TEXT_ELEMENT } from "@/constants/text-constants";
+import { buildElementFromMedia } from "@/lib/timeline/element-utils";
+import { AddTransitionCommand } from "@/lib/commands/timeline/element/transitions/add-transition";
+import { getAllTransitions } from "@/lib/transitions";
+import { getAllEffects } from "@/lib/effects";
+import type { EffectParamValues } from "@/types/effects";
 import type {
 	DirectorResult,
 	MediaSearchHit,
 	MutationDelta,
+	ProjectInfo,
 	ReelSnapshot,
 	SlotChange,
 	SlotSnapshot,
@@ -67,6 +73,7 @@ export type {
 	GenerationSpec,
 	GenerativeFields,
 	MediaSearchHit,
+	ProjectInfo,
 	ReelSnapshot,
 	SlotSnapshot,
 	Take,
@@ -261,7 +268,7 @@ export function createDirectorApi(
 		// `start` field back out later.
 		const changes = new Map<string, SlotChange>();
 
-		for (const [id, b] of before.slots) {
+		for (const [id] of before.slots) {
 			if (!after.slots.has(id)) removed.push(short(id));
 		}
 		for (const [id, a] of after.slots) {
@@ -375,6 +382,47 @@ export function createDirectorApi(
 			canRedo: editor.command.canRedo(),
 			consistency: getStoredConsistencyContext(editor),
 		};
+	}
+
+	/** Cap on personas/assets surfaced in {@link getProjectInfo} — keep the once-per-turn system prompt cheap. */
+	const CONTEXT_LIST_CAP = 5;
+
+	/**
+	 * Compact project-level grounding: canvas/fps settings, the persona roster
+	 * (reusable characters for consistency), and a media-library summary. Read-
+	 * only — no `withDelta`, nothing mutates. Cheap enough to call every turn;
+	 * also folded into the agent's system prompt (see `agent.ts`'s context block)
+	 * so this exists both as prompt grounding AND as a re-queryable verb.
+	 */
+	function getProjectInfo(): DirectorResult<ProjectInfo> {
+		const project = editor.project.getActiveOrNull();
+		const settings = project?.settings;
+		const orientation: ProjectInfo["orientation"] = settings
+			? settings.canvasSize.width === settings.canvasSize.height
+				? "square"
+				: settings.canvasSize.width > settings.canvasSize.height
+					? "landscape"
+					: "portrait"
+			: undefined;
+
+		const personas = usePersonaStore.getState().personas;
+		const assets = editor.media.getAssets();
+
+		return ok("Project info.", {
+			fps: settings?.fps,
+			canvasWidth: settings?.canvasSize.width,
+			canvasHeight: settings?.canvasSize.height,
+			orientation,
+			personas: personas
+				.slice(0, CONTEXT_LIST_CAP)
+				.map((p) => ({ name: p.name, descriptor: p.descriptor })),
+			personaCount: personas.length,
+			assetCount: assets.length,
+			// Assets are stored in insertion order, so the tail is the most recent.
+			recentAssets: assets
+				.slice(-CONTEXT_LIST_CAP)
+				.map((a) => ({ id: a.id, name: a.name })),
+		});
 	}
 
 	// ---- CONSISTENCY --------------------------------------------------------
@@ -491,6 +539,63 @@ export function createDirectorApi(
 		const top = hits.slice(0, limit);
 		if (top.length === 0) return ok(`No footage matched "${query}".`, []);
 		return ok(`Found ${top.length} match(es) for "${query}".`, top);
+	}
+
+	/**
+	 * Place an EXISTING media-library asset (e.g. a `searchMedia` hit) onto the
+	 * timeline as a plain clip — closes the search→place loop. This is NOT a
+	 * generative slot: it carries no `generation` recipe, so it never appears in
+	 * `getReel()`/`captureReel()` and won't show up in a mutation `delta` (same
+	 * reasoning as `addText` below). `startTime`/`duration` are SECONDS.
+	 *
+	 * Mirrors the canonical media→timeline insertion in `addClipsToEditor`
+	 * (`lib/studio/add-to-editor.ts`), which builds the element via
+	 * `buildElementFromMedia` (`lib/timeline/element-utils.ts`) and inserts it
+	 * with `editor.timeline.insertElement`.
+	 */
+	function addClip(input: {
+		mediaId: string;
+		startTime?: number;
+		duration?: number;
+		trackId?: string;
+	}): DirectorResult<{ elementId: string }> {
+		const asset = editor.media.getAssetById(input.mediaId);
+		if (!asset) return fail(`No media asset with id "${input.mediaId}".`);
+
+		if (asset.type === "audio") {
+			return fail(
+				`Asset "${input.mediaId}" ("${asset.name}") is audio — addClip only places video/image assets onto the timeline. Audio placement isn't wired yet.`,
+			);
+		}
+
+		const duration =
+			input.duration ?? asset.duration ?? TIMELINE_CONSTANTS.DEFAULT_ELEMENT_DURATION;
+		if (duration <= 0) return fail("addClip requires a positive duration.");
+
+		const startTime = input.startTime ?? editor.timeline.getTotalDuration();
+		if (startTime < 0) return fail("addClip requires startTime >= 0.");
+
+		const element = buildElementFromMedia({
+			mediaId: input.mediaId,
+			mediaType: asset.type,
+			name: asset.name,
+			duration,
+			startTime,
+		});
+
+		const elementId = editor.timeline.insertElement({
+			element,
+			placement: input.trackId
+				? { mode: "explicit", trackId: input.trackId }
+				: { mode: "auto" },
+		});
+
+		return ok(
+			`Placed "${asset.name}" on the timeline as element "${elementId}" ` +
+				`(${duration.toFixed(1)}s starting at ${startTime.toFixed(1)}s). Not a reel slot — ` +
+				`this id won't appear in REEL listings or mutation deltas; it's returned here so you can reference it.`,
+			{ elementId },
+		);
 	}
 
 	// ---- STORYBOARD -------------------------------------------------------
@@ -971,6 +1076,98 @@ export function createDirectorApi(
 		return withDelta(before, ok(`Removed slot "${input.slotId}".`));
 	}
 
+	// ---- TRANSITIONS & EFFECTS ---------------------------------------------
+	//
+	// The uncopyable wedge: competitor AI reel tools can generate clips but
+	// can't polish them. `duration` (applyTransition) is SECONDS, matching the
+	// rest of this API's unit convention. Neither `transitionOut` nor an
+	// element's effect list is part of `SlotCapture`'s tracked fields, so
+	// `withDelta` may report an EMPTY delta here even on success — that's
+	// expected; the result `message` (and `effectId` for applyEffect) carries
+	// the outcome.
+
+	/**
+	 * Apply a transition to a slot's outgoing edge. Delegates to
+	 * `AddTransitionCommand` (mirrors the Transitions panel UI). `duration` is
+	 * SECONDS; omit it to use the transition's own default duration.
+	 */
+	function applyTransition(input: {
+		slotId: string;
+		transitionType: string;
+		duration?: number;
+	}): DirectorResult {
+		const before = captureReel();
+		const located = findSlot(input.slotId);
+		if (!located) return fail(`No slot with id "${input.slotId}".`);
+
+		const validTypes = getAllTransitions().map((t) => t.type);
+		if (!validTypes.includes(input.transitionType)) {
+			return fail(
+				`Unknown transition type "${input.transitionType}". Valid types: ${validTypes.join(", ")}.`,
+			);
+		}
+
+		editor.command.execute({
+			command: new AddTransitionCommand({
+				trackId: located.track.id,
+				elementId: located.element.id,
+				transitionType: input.transitionType,
+				duration: input.duration,
+			}),
+		});
+
+		return withDelta(
+			before,
+			ok(`Applied "${input.transitionType}" transition to slot "${input.slotId}".`),
+		);
+	}
+
+	/**
+	 * Apply a visual effect to a slot. Delegates to
+	 * `editor.timeline.addClipEffect`, then optionally overrides params via
+	 * `updateClipEffectParams`. Generative slots are always video/image
+	 * elements, which are within `EFFECT_TARGET_ELEMENT_TYPES` — no extra
+	 * target-type check needed here.
+	 */
+	function applyEffect(input: {
+		slotId: string;
+		effectType: string;
+		params?: Partial<EffectParamValues>;
+	}): DirectorResult<{ effectId: string }> {
+		const before = captureReel();
+		const located = findSlot(input.slotId);
+		if (!located) return fail(`No slot with id "${input.slotId}".`);
+
+		const validTypes = getAllEffects().map((e) => e.type);
+		if (!validTypes.includes(input.effectType)) {
+			return fail(
+				`Unknown effect type "${input.effectType}". Valid types: ${validTypes.join(", ")}.`,
+			);
+		}
+
+		const effectId = editor.timeline.addClipEffect({
+			trackId: located.track.id,
+			elementId: located.element.id,
+			effectType: input.effectType,
+		});
+
+		if (input.params && Object.keys(input.params).length > 0) {
+			editor.timeline.updateClipEffectParams({
+				trackId: located.track.id,
+				elementId: located.element.id,
+				effectId,
+				params: input.params,
+			});
+		}
+
+		return withDelta(
+			before,
+			ok(`Applied "${input.effectType}" effect to slot "${input.slotId}".`, {
+				effectId,
+			}),
+		);
+	}
+
 	// ---- TEXT ---------------------------------------------------------------
 	//
 	// Text overlays are plain (non-generative) timeline elements — they never
@@ -1110,8 +1307,10 @@ export function createDirectorApi(
 		// read
 		getReel,
 		getSlot,
-		// media search
+		getProjectInfo,
+		// media search / placement
 		searchMedia,
+		addClip,
 		// storyboard
 		storyboard,
 		reserveSlot,
@@ -1130,6 +1329,9 @@ export function createDirectorApi(
 		split,
 		reorder,
 		remove,
+		// transitions & effects
+		applyTransition,
+		applyEffect,
 		// text
 		addText,
 		updateText,

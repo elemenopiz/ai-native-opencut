@@ -318,6 +318,45 @@ class AIClient {
 	}
 
 	/**
+	 * Same as {@link requestFormData}, but for endpoints that return a raw
+	 * binary body (e.g. `FileResponse` audio/video) instead of JSON.
+	 */
+	private async requestFormDataBlob(
+		endpoint: string,
+		formData: FormData,
+		timeoutMs: number = REQUEST_TIMEOUT_MS,
+	): Promise<Blob> {
+		const url = `${this.baseUrl}${endpoint}`;
+		const controller = new AbortController();
+		const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+		try {
+			const response = await fetch(url, {
+				method: "POST",
+				body: formData,
+				signal: controller.signal,
+			});
+
+			if (!response.ok) {
+				const errorBody = await response.text().catch(() => "Unknown error");
+				throw new AIClientError(
+					`AI Backend error (${response.status}): ${errorBody}`,
+					response.status >= 500 ? "backend_error" : "network_error",
+					response.status,
+				);
+			}
+
+			return await response.blob();
+		} catch (error) {
+			if (error instanceof AIClientError) throw error;
+			const classified = classifyError(error);
+			throw new AIClientError(classified.message, classified.errorType);
+		} finally {
+			clearTimeout(timeoutId);
+		}
+	}
+
+	/**
 	 * Make a request to a streaming NDJSON endpoint that sends keepalive pings.
 	 * Ignores {"ping": true} lines and returns the {"result": ...} payload.
 	 * Falls back to parsing plain JSON if the backend hasn't been updated yet.
@@ -1305,10 +1344,19 @@ class AIClient {
 		formData.append("file", file);
 		formData.append("strength", strength.toString());
 
-		return this.requestFormData<DenoiseResult>(
+		// The backend returns the denoised audio as a raw FileResponse (audio/wav),
+		// not JSON — use the blob-aware request path and wrap it as object URLs.
+		// Denoising a full clip can take longer than the default timeout, so allow more time.
+		const blob = await this.requestFormDataBlob(
 			"/api/audio/denoise",
 			formData,
+			Math.max(REQUEST_TIMEOUT_MS, 180_000),
 		);
+
+		return {
+			audioUrl: URL.createObjectURL(blob),
+			originalUrl: URL.createObjectURL(file),
+		};
 	}
 
 	async exportRender(

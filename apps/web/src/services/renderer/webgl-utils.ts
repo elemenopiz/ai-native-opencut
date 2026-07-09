@@ -1,8 +1,11 @@
 import VERTEX_SHADER_SOURCE from "@/lib/effects/effect.vert.glsl";
+import type { WebGLPassTexture } from "@/types/effects";
 
 export interface EffectPassData {
 	fragmentShader: string;
 	uniforms: Record<string, number | number[]>;
+	/** Auxiliary textures bound at units >= 1 (e.g. a LUT atlas). */
+	textures?: WebGLPassTexture[];
 }
 
 export const QUAD_POSITIONS = new Float32Array([
@@ -114,6 +117,61 @@ export function createTexture({
 		context.RGBA,
 		context.UNSIGNED_BYTE,
 		source as TexImageSource,
+	);
+	return texture;
+}
+
+/**
+ * Create and configure an auxiliary (non-input) texture, bound to the given
+ * texture unit. Unlike {@link createTexture} this does NOT flip Y — LUT atlases
+ * and other data textures are addressed directly by the shader.
+ */
+export function createAuxTexture({
+	context,
+	source,
+	unit,
+	filter,
+}: {
+	context: WebGLRenderingContext;
+	source: TexImageSource;
+	unit: number;
+	filter: "linear" | "nearest";
+}): WebGLTexture {
+	const texture = context.createTexture();
+	if (!texture) {
+		throw new Error("Failed to create auxiliary WebGL texture");
+	}
+	context.activeTexture(context.TEXTURE0 + unit);
+	context.bindTexture(context.TEXTURE_2D, texture);
+	context.pixelStorei(context.UNPACK_FLIP_Y_WEBGL, 0);
+	const filterMode = filter === "nearest" ? context.NEAREST : context.LINEAR;
+	context.texParameteri(
+		context.TEXTURE_2D,
+		context.TEXTURE_WRAP_S,
+		context.CLAMP_TO_EDGE,
+	);
+	context.texParameteri(
+		context.TEXTURE_2D,
+		context.TEXTURE_WRAP_T,
+		context.CLAMP_TO_EDGE,
+	);
+	context.texParameteri(
+		context.TEXTURE_2D,
+		context.TEXTURE_MIN_FILTER,
+		filterMode,
+	);
+	context.texParameteri(
+		context.TEXTURE_2D,
+		context.TEXTURE_MAG_FILTER,
+		filterMode,
+	);
+	context.texImage2D(
+		context.TEXTURE_2D,
+		0,
+		context.RGBA,
+		context.RGBA,
+		context.UNSIGNED_BYTE,
+		source,
 	);
 	return texture;
 }
@@ -276,12 +334,36 @@ export function applyMultiPassEffect({
 			context.uniform1i(uTextureLocation, 0);
 		}
 
+		// Bind auxiliary textures (e.g. a LUT atlas) at units >= 1.
+		const auxTextures: WebGLTexture[] = [];
+		if (pass.textures) {
+			for (const aux of pass.textures) {
+				const auxTexture = createAuxTexture({
+					context,
+					source: aux.source,
+					unit: aux.unit,
+					filter: aux.filter ?? "linear",
+				});
+				const auxLocation = context.getUniformLocation(program, aux.uniform);
+				if (auxLocation) {
+					context.uniform1i(auxLocation, aux.unit);
+				}
+				auxTextures.push(auxTexture);
+			}
+			// Restore the active unit so the input texture stays at unit 0.
+			context.activeTexture(context.TEXTURE0);
+		}
+
 		setUniforms({
 			context,
 			program,
 			uniforms: { ...pass.uniforms, u_resolution: [width, height] },
 		});
 		drawFullscreenQuad({ context, program, width, height });
+
+		for (const auxTexture of auxTextures) {
+			context.deleteTexture(auxTexture);
+		}
 
 		if (!isLastPass) {
 			currentTexture = intermediates[i].texture;

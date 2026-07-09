@@ -130,7 +130,14 @@ function applyWebGlEffect({
 }): OffscreenCanvas | HTMLCanvasElement {
 	const { canvas: glCanvas, gl } = getOrCreatePreviewContext({ width, height });
 
-	applyMultiPassEffect({ context: gl, source, width, height, passes, programCache });
+	applyMultiPassEffect({
+		context: gl,
+		source,
+		width,
+		height,
+		passes,
+		programCache,
+	});
 
 	const outputCanvas = createOffscreenCanvas({ width, height });
 	const outputCtx = outputCanvas.getContext("2d") as
@@ -165,6 +172,11 @@ export function renderPreview({
 	const passes = definition.renderer.passes.map((pass) => ({
 		fragmentShader: pass.fragmentShader,
 		uniforms: pass.uniforms({
+			effectParams: resolvedParams,
+			width: size,
+			height: size,
+		}),
+		textures: pass.textures?.({
 			effectParams: resolvedParams,
 			width: size,
 			height: size,
