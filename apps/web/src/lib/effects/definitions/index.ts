@@ -12,6 +12,7 @@ import { motionBlurEffectDefinition } from "./motion-blur";
 import { posterizeEffectDefinition } from "./posterize";
 import { duotoneEffectDefinition } from "./duotone";
 import { chromaKeyEffectDefinition } from "./chroma-key";
+import { shapeMaskEffectDefinition } from "./shape-mask";
 
 const defaultEffects = [
 	blurEffectDefinition,
@@ -27,6 +28,7 @@ const defaultEffects = [
 	posterizeEffectDefinition,
 	duotoneEffectDefinition,
 	chromaKeyEffectDefinition,
+	shapeMaskEffectDefinition,
 ];
 
 export function registerDefaultEffects(): void {

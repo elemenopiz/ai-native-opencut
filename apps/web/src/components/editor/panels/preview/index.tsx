@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useDeepCompareEffect from "use-deep-compare-effect";
 import { useEditor } from "@/hooks/use-editor";
 import { useRafLoop } from "@/hooks/use-raf-loop";
@@ -13,10 +13,13 @@ import { getLastFrameTime } from "@/lib/time";
 import { PreviewInteractionOverlay } from "./preview-interaction-overlay";
 import { BookmarkNoteOverlay } from "./bookmark-note-overlay";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
-import { usePreviewStore } from "@/stores/preview-store";
+import { clampPreviewZoom, usePreviewStore } from "@/stores/preview-store";
 import { PreviewContextMenu } from "./context-menu";
 import { PreviewToolbar } from "./toolbar";
 import { FramePresetPicker } from "./frame-preset-picker";
+import { cn } from "@/utils/ui";
+
+const WHEEL_ZOOM_SENSITIVITY = 0.0015;
 
 function usePreviewSize() {
 	const editor = useEditor();
@@ -100,7 +103,14 @@ function PreviewCanvas({
 	const containerSize = useContainerSize({ containerRef: outerContainerRef });
 	const editor = useEditor();
 	const activeProject = editor.project.getActive();
-	const { overlays } = usePreviewStore();
+	const { overlays, zoom, pan, panMode } = usePreviewStore();
+	const [isPanning, setIsPanning] = useState(false);
+	const panDragRef = useRef<{
+		pointerId: number;
+		startClientX: number;
+		startClientY: number;
+		startPan: { x: number; y: number };
+	} | null>(null);
 
 	const renderer = useMemo(() => {
 		return new CanvasRenderer({
@@ -139,6 +149,87 @@ function PreviewCanvas({
 		return { width: displayWidth, height: displayHeight };
 	}, [nativeWidth, nativeHeight, containerSize.width, containerSize.height]);
 
+	const zoomedSize = useMemo(
+		() => ({
+			width: displaySize.width * zoom,
+			height: displaySize.height * zoom,
+		}),
+		[displaySize.width, displaySize.height, zoom],
+	);
+
+	useEffect(() => {
+		if (!nativeWidth || displaySize.width === 0) return;
+		usePreviewStore
+			.getState()
+			.setFitScale({ fitScale: displaySize.width / nativeWidth });
+	}, [displaySize.width, nativeWidth]);
+
+	useEffect(() => {
+		const container = outerContainerRef.current;
+		if (!container) return;
+
+		const handleWheel = (event: WheelEvent) => {
+			event.preventDefault();
+			const state = usePreviewStore.getState();
+			const rect = container.getBoundingClientRect();
+			const cursorX = event.clientX - rect.left - rect.width / 2;
+			const cursorY = event.clientY - rect.top - rect.height / 2;
+			const nextZoom = clampPreviewZoom({
+				zoom: state.zoom * Math.exp(-event.deltaY * WHEEL_ZOOM_SENSITIVITY),
+			});
+			if (nextZoom === state.zoom) return;
+
+			// Keep the canvas point under the cursor stationary while zooming.
+			const scale = nextZoom / state.zoom;
+			state.setZoomAndPan({
+				zoom: nextZoom,
+				pan: {
+					x: cursorX - (cursorX - state.pan.x) * scale,
+					y: cursorY - (cursorY - state.pan.y) * scale,
+				},
+			});
+		};
+
+		container.addEventListener("wheel", handleWheel, { passive: false });
+		return () => container.removeEventListener("wheel", handleWheel);
+	}, []);
+
+	const handlePanPointerDown = useCallback((event: React.PointerEvent) => {
+		const state = usePreviewStore.getState();
+		const isPanGesture =
+			event.button === 1 || (state.panMode && event.button === 0);
+		if (!isPanGesture) return;
+		event.preventDefault();
+		event.stopPropagation();
+		panDragRef.current = {
+			pointerId: event.pointerId,
+			startClientX: event.clientX,
+			startClientY: event.clientY,
+			startPan: state.pan,
+		};
+		(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+		setIsPanning(true);
+	}, []);
+
+	const handlePanPointerMove = useCallback((event: React.PointerEvent) => {
+		const drag = panDragRef.current;
+		if (!drag || event.pointerId !== drag.pointerId) return;
+		usePreviewStore.getState().setPan({
+			pan: {
+				x: drag.startPan.x + (event.clientX - drag.startClientX),
+				y: drag.startPan.y + (event.clientY - drag.startClientY),
+			},
+		});
+	}, []);
+
+	const handlePanPointerUp = useCallback((event: React.PointerEvent) => {
+		const drag = panDragRef.current;
+		if (!drag || event.pointerId !== drag.pointerId) return;
+		panDragRef.current = null;
+		setIsPanning(false);
+		(event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
+	}, []);
+
 	const renderTree = editor.renderer.getRenderTree();
 
 	const render = useCallback(() => {
@@ -174,16 +265,29 @@ function PreviewCanvas({
 	useRafLoop(render);
 
 	return (
+		// biome-ignore lint/a11y/noStaticElementInteractions: canvas pan surface, pointer-only interaction
 		<div
 			ref={outerContainerRef}
-			className="relative flex size-full items-center justify-center"
+			className={cn(
+				"relative flex size-full items-center justify-center overflow-hidden",
+				panMode && "cursor-grab",
+				isPanning && "cursor-grabbing",
+			)}
+			onPointerDownCapture={handlePanPointerDown}
+			onPointerMove={handlePanPointerMove}
+			onPointerUp={handlePanPointerUp}
+			onPointerCancel={handlePanPointerUp}
 		>
 			<ContextMenu>
 				<ContextMenuTrigger asChild>
 					<div
 						ref={canvasBoundsRef}
-						className="relative"
-						style={{ width: displaySize.width, height: displaySize.height }}
+						className="relative shrink-0"
+						style={{
+							width: zoomedSize.width,
+							height: zoomedSize.height,
+							transform: `translate(${pan.x}px, ${pan.y}px)`,
+						}}
 					>
 						<canvas
 							ref={canvasRef}
@@ -191,8 +295,8 @@ function PreviewCanvas({
 							height={nativeHeight}
 							className="block border"
 							style={{
-								width: displaySize.width,
-								height: displaySize.height,
+								width: zoomedSize.width,
+								height: zoomedSize.height,
 								background:
 									activeProject.settings.background.type === "blur"
 										? "transparent"
