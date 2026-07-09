@@ -52,7 +52,7 @@ export function MobileGate({ children }: MobileGateProps) {
 						Desktop only (for now)
 					</h1>
 					<p className="text-muted-foreground text-sm leading-relaxed">
-						OpenCut AI needs a desktop to run AI models locally and render the
+						Byorn needs a desktop to run AI models locally and render the
 						full timeline editor. Come back on a computer for the real experience.
 					</p>
 				</div>

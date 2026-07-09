@@ -1,9 +1,9 @@
 ---
 name: ai-backend-dev
-description: Guide for building FastAPI endpoints, ML service integrations, and API design for the OpenCut AI backend. Use when creating routes, services, or models in services/ai-backend/.
+description: Guide for building FastAPI endpoints, ML service integrations, and API design for the Byorn backend. Use when creating routes, services, or models in services/ai-backend/.
 ---
 
-This skill guides development of the OpenCut AI Python backend — a FastAPI service that wraps ML models (Whisper, Stable Diffusion, Ollama, Coqui TTS) and exposes them as clean REST/WebSocket APIs consumed by the Next.js frontend.
+This skill guides development of the Byorn Python backend — a FastAPI service that wraps ML models (Whisper, Stable Diffusion, Ollama, Coqui TTS) and exposes them as clean REST/WebSocket APIs consumed by the Next.js frontend.
 
 ## Architecture
 

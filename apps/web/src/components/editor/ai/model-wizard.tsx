@@ -196,7 +196,7 @@ export function ModelWizard({
 					{step === "welcome" && (
 						<div className="flex flex-col gap-4">
 							<p className="text-sm text-muted-foreground">
-								OpenCut AI runs models locally on your machine for maximum
+								Byorn runs models locally on your machine for maximum
 								privacy and speed. Let&apos;s detect your hardware to find
 								the best configuration.
 							</p>

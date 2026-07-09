@@ -1,6 +1,6 @@
 """Semantic media search routes.
 
-Proxies the OpenCut CLIP embedding microservice (services/clip-service, port 8426)
+Proxies the Byorn CLIP embedding microservice (services/clip-service, port 8426)
 which returns L2-normalized 512-dim vectors for images and text.
 
 Privacy: this layer NEVER persists embeddings or input frames — it only forwards

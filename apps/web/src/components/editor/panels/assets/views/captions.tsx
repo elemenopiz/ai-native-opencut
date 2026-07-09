@@ -384,9 +384,9 @@ export function Captions() {
 			if (message.includes("Cannot connect") || message.includes("connection_refused")) {
 				setError("Cannot connect to AI backend. Make sure it is running (docker compose up -d).");
 			} else if (message.includes("Sarvam API key")) {
-				setError("Sarvam API key is not configured. Add OPENCUTAI_SARVAM_API_KEY to your environment.");
+				setError("Sarvam API key is not configured. Add BYORN_SARVAM_API_KEY to your environment.");
 			} else if (message.includes("Smallest AI API key")) {
-				setError("Smallest AI API key is not configured. Add it in Settings > API Keys, or set OPENCUTAI_SMALLEST_API_KEY in your environment.");
+				setError("Smallest AI API key is not configured. Add it in Settings > API Keys, or set BYORN_SMALLEST_API_KEY in your environment.");
 			} else {
 				setError(message);
 			}
@@ -640,9 +640,9 @@ export function Captions() {
 					"Cannot connect to AI backend. Make sure it is running and an LLM model is loaded.",
 				);
 			} else if (message.includes("Sarvam API key")) {
-				setError("Sarvam API key is not configured. Add OPENCUTAI_SARVAM_API_KEY to your environment.");
+				setError("Sarvam API key is not configured. Add BYORN_SARVAM_API_KEY to your environment.");
 			} else if (message.includes("Smallest AI API key")) {
-				setError("Smallest AI API key is not configured. Add it in Settings > API Keys, or set OPENCUTAI_SMALLEST_API_KEY in your environment.");
+				setError("Smallest AI API key is not configured. Add it in Settings > API Keys, or set BYORN_SMALLEST_API_KEY in your environment.");
 			} else {
 				setError(message);
 			}

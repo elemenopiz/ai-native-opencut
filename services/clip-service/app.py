@@ -1,7 +1,7 @@
 """CLIP embedding microservice using open_clip.
 
 Accepts image frames (multipart) or text (JSON), returns L2-normalized
-512-dim float vectors from a ViT-B-32 CLIP model. Used by the OpenCut AI
+512-dim float vectors from a ViT-B-32 CLIP model. Used by the Byorn
 editor for privacy-first semantic media search.
 
 Privacy note: this service only computes embeddings on demand. It does NOT
@@ -23,7 +23,7 @@ from pydantic import BaseModel
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="OpenCut CLIP Embedding Service", version="0.1.0")
+app = FastAPI(title="Byorn CLIP Embedding Service", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,

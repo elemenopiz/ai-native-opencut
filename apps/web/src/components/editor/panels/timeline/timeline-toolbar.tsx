@@ -61,17 +61,22 @@ export function TimelineToolbar({
 
 	return (
 		<ScrollArea className="scrollbar-hidden">
-			<div className="flex h-10 items-center justify-between border-b px-2 py-1">
-				<ToolbarLeftSection />
+			<div className="flex h-10 items-center border-b px-2 py-1">
+				{/* Equal-weight flanks so the scene selector sits dead center. */}
+				<div className="flex flex-1 justify-start">
+					<ToolbarLeftSection />
+				</div>
 
 				<SceneSelector />
 
-				<ToolbarRightSection
-					zoomLevel={zoomLevel}
-					minZoom={minZoom}
-					onZoomChange={(zoom) => setZoomLevel({ zoom })}
-					onZoom={handleZoom}
-				/>
+				<div className="flex flex-1 justify-end">
+					<ToolbarRightSection
+						zoomLevel={zoomLevel}
+						minZoom={minZoom}
+						onZoomChange={(zoom) => setZoomLevel({ zoom })}
+						onZoom={handleZoom}
+					/>
+				</div>
 			</div>
 		</ScrollArea>
 	);

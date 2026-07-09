@@ -283,6 +283,7 @@ class StorageService {
 			thumbnailUrl: mediaAsset.thumbnailUrl,
 			ephemeral: mediaAsset.ephemeral,
 			label: mediaAsset.label,
+			source: mediaAsset.source,
 			proxy: mediaAsset.proxy,
 			needsProxy: mediaAsset.needsProxy,
 		};
@@ -344,6 +345,8 @@ class StorageService {
 			duration: metadata.duration,
 			thumbnailUrl: metadata.thumbnailUrl,
 			ephemeral: metadata.ephemeral,
+			label: metadata.label,
+			source: metadata.source,
 			proxy: metadata.proxy,
 			needsProxy: metadata.needsProxy,
 		};

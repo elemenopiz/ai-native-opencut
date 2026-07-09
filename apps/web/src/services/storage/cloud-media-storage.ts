@@ -1,5 +1,5 @@
 import { AwsClient } from "aws4fetch";
-import { webEnv } from "@opencut-ai/env/web";
+import { webEnv } from "@byorn/env/web";
 
 /**
  * Content-addressable cloud media storage using Cloudflare R2 (S3-compatible).
@@ -18,9 +18,59 @@ function getR2Client(): AwsClient {
 	return r2Client;
 }
 
+function bucketName(): string {
+	// Keep this fallback in lockstep with the R2_BUCKET_NAME env default
+	// (packages/env/src/web.ts) so the two don't resolve to different buckets.
+	return webEnv.R2_BUCKET_NAME || "byorn-media";
+}
+
 function getR2Url(key: string): string {
-	const bucket = webEnv.R2_BUCKET_NAME || "opencut-media";
-	return `https://${webEnv.CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com/${bucket}/${key}`;
+	return `https://${webEnv.CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com/${bucketName()}/${key}`;
+}
+
+// ── Storage guard (R2 free tier is 10 GB) ──────────────────────────────────
+// We refuse new uploads once the bucket reaches R2_MAX_STORAGE_BYTES. Usage is
+// computed by listing the bucket and summing object sizes, cached briefly so we
+// don't list on every write. Dedup (content-addressing) means identical bytes
+// are never stored — or counted — twice.
+
+const USAGE_TTL_MS = 60_000;
+let usageCache: { bytes: number; at: number } | null = null;
+
+/** Sum the size of every object in the bucket (paginated), with a short cache. */
+export async function getBucketUsageBytes(force = false): Promise<number> {
+	if (!force && usageCache && Date.now() - usageCache.at < USAGE_TTL_MS) {
+		return usageCache.bytes;
+	}
+
+	const client = getR2Client();
+	const root = `https://${webEnv.CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com/${bucketName()}`;
+	let total = 0;
+	let token: string | undefined;
+
+	do {
+		const url = new URL(root);
+		url.searchParams.set("list-type", "2");
+		url.searchParams.set("max-keys", "1000");
+		if (token) url.searchParams.set("continuation-token", token);
+
+		const res = await client.fetch(url.toString(), { method: "GET" });
+		if (!res.ok) {
+			// If we can't read usage, don't block uploads — fail open.
+			return usageCache?.bytes ?? 0;
+		}
+		const xml = await res.text();
+		for (const m of xml.matchAll(/<Size>(\d+)<\/Size>/g)) {
+			total += Number(m[1]);
+		}
+		const truncated = /<IsTruncated>true<\/IsTruncated>/.test(xml);
+		token = truncated
+			? xml.match(/<NextContinuationToken>([^<]+)<\/NextContinuationToken>/)?.[1]
+			: undefined;
+	} while (token);
+
+	usageCache = { bytes: total, at: Date.now() };
+	return total;
 }
 
 /**
@@ -60,20 +110,43 @@ export async function uploadMedia(
 		return getR2Url(`media/${hash}`);
 	}
 
+	// Guard the R2 free tier: refuse a genuinely new object if it would push the
+	// bucket past the configured cap. Dedup hits above never reach here.
+	const cap = webEnv.R2_MAX_STORAGE_BYTES;
+	if (cap > 0) {
+		const usage = await getBucketUsageBytes();
+		if (usage + data.byteLength > cap) {
+			const gb = (n: number) => (n / 1e9).toFixed(2);
+			throw new Error(
+				`R2 storage limit reached: ${gb(usage)} GB used of ${gb(cap)} GB cap. ` +
+					`Delete old media in the "${bucketName()}" bucket or raise R2_MAX_STORAGE_BYTES.`,
+			);
+		}
+	}
+
 	const client = getR2Client();
 	const url = getR2Url(`media/${hash}`);
 
+	// R2 rejects PUTs without a Content-Length (411). undici won't infer length
+	// for a bare ArrayBuffer body and falls back to chunked encoding, so wrap it
+	// in a Uint8Array and set the length explicitly.
+	const body = new Uint8Array(data);
 	const response = await client.fetch(url, {
 		method: "PUT",
-		body: data,
+		body,
 		headers: {
 			"Content-Type": mimeType,
+			"Content-Length": String(body.byteLength),
 		},
 	});
 
 	if (!response.ok) {
 		throw new Error(`R2 upload failed: ${response.status} ${response.statusText}`);
 	}
+
+	// Keep the cached usage roughly current so back-to-back uploads in the same
+	// window still respect the cap without re-listing.
+	if (usageCache) usageCache.bytes += data.byteLength;
 
 	return url;
 }
@@ -90,10 +163,13 @@ export function getMediaUrl(hash: string): string {
  * optional and degrade gracefully when this is false.
  */
 export function isCloudStorageConfigured(): boolean {
-	return Boolean(
-		webEnv.CLOUDFLARE_ACCOUNT_ID &&
-			webEnv.R2_ACCESS_KEY_ID &&
-			webEnv.R2_SECRET_ACCESS_KEY,
+	// Treat the .env.example placeholders ("your_account_id_here", etc.) as
+	// unconfigured so they don't trick callers into attempting doomed R2 writes.
+	const real = (v: string) => Boolean(v) && !/^your_/.test(v);
+	return (
+		real(webEnv.CLOUDFLARE_ACCOUNT_ID) &&
+		real(webEnv.R2_ACCESS_KEY_ID) &&
+		real(webEnv.R2_SECRET_ACCESS_KEY)
 	);
 }
 

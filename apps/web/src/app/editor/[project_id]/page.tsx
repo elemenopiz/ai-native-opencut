@@ -20,13 +20,15 @@ import { AIPanelWrapper } from "@/components/editor/ai/ai-panel-wrapper";
 import { QuickActionsBar } from "@/components/editor/ai/quick-actions-bar";
 import { EmptyEditorGuide } from "@/components/editor/empty-editor-guide";
 import { RightPanel } from "@/components/editor/panels/right-panel";
+import { useLocalStorage } from "@/hooks/storage/use-local-storage";
 import { useTranscriptStore } from "@/stores/transcript-store";
 import { useEditor } from "@/hooks/use-editor";
 import { useTranscribePrompt } from "@/hooks/use-transcribe-prompt";
 import { useEffect, useRef } from "react";
-import type { TextElement } from "@/types/timeline";
+import type { TextElement, Take } from "@/types/timeline";
 import { BackgroundTasksWidget } from "@/components/editor/background-tasks";
 import { CommandPalette } from "@/components/editor/command-palette";
+import { ReelBoard } from "@/components/editor/board/reel-board";
 
 export default function Editor() {
 	const params = useParams();
@@ -45,6 +47,7 @@ export default function Editor() {
 					<MigrationDialog />
 					<BackgroundTasksWidget />
 					<CommandPalette />
+					<ReelBoard />
 				</div>
 			</EditorProvider>
 		</MobileGate>
@@ -67,6 +70,46 @@ function EditorLayout() {
 			t.elements.length > 0,
 	);
 	const hasTranscript = hasMedia && (transcriptSegments.length > 0 || isTranscribing);
+
+	// First-run "Get started" guide lives in the right panel until the user
+	// dismisses it; after that the slot becomes the Generate panel so you can
+	// generate without leaving the right side. Persists across reloads.
+	const [guideDismissed, setGuideDismissed] = useLocalStorage({
+		key: "hasReadEditorGuide-v1",
+		defaultValue: false,
+	});
+
+	// Recover takes stuck "generating" from a previous session. Our current
+	// generation pipeline (`use-slot-generation.ts` / the Director executor)
+	// awaits the provider job to completion in-process and only writes the
+	// take's `jobId` once the job is already terminal — so a take sitting at
+	// "generating" never actually has a `jobId` persisted on it. If the page
+	// reloads mid-generation there is no provider job id to resume polling
+	// with, so these takes can never reach a terminal state on their own.
+	// Recovery here is: mark them "failed" so the UI stops showing a spinner
+	// forever and the user can just retry. Runs once per project load.
+	const hasRecoveredInterruptedTakes = useRef(false);
+	useEffect(() => {
+		if (hasRecoveredInterruptedTakes.current) return;
+		hasRecoveredInterruptedTakes.current = true;
+
+		for (const track of editor.timeline.getTracks()) {
+			for (const el of track.elements) {
+				const generative = el as { id: string; takes?: Take[] };
+				for (const take of generative.takes ?? []) {
+					if (take.status !== "generating") continue;
+					editor.timeline.updateTake({
+						elementId: generative.id,
+						takeId: take.id,
+						patch: {
+							status: "failed",
+							error: "Generation interrupted by reload",
+						},
+					});
+				}
+			}
+		}
+	}, [editor]);
 
 	// Restore transcript from existing caption text elements on the timeline
 	const hasRestoredTranscript = useRef(false);
@@ -194,10 +237,12 @@ function EditorLayout() {
 						maxSize={40}
 						className="min-w-0"
 					>
-						{hasTranscript || hasTimelineContent ? (
-							<RightPanel className="size-full" />
+						{!guideDismissed && !hasTranscript && !hasTimelineContent ? (
+							<EmptyEditorGuide
+								onDismiss={() => setGuideDismissed({ value: true })}
+							/>
 						) : (
-							<EmptyEditorGuide />
+							<RightPanel className="size-full" />
 						)}
 					</ResizablePanel>
 				</ResizablePanelGroup>

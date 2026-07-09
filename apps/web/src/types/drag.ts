@@ -27,8 +27,22 @@ export interface EffectDragData extends BaseDragData {
 	targetElementTypes: VisualElement["type"][];
 }
 
+/**
+ * A generated take being dragged out of the Takes bin. Unlike MediaDragData it
+ * doesn't reference an existing library asset — it carries the remote URL so the
+ * drop target can import it into the project media on demand (e.g. dropping on
+ * the Assets tab to save it).
+ */
+export interface StudioTakeDragData extends BaseDragData {
+	type: "studio-take";
+	url: string;
+	kind: "video" | "image";
+	takeId: string;
+}
+
 export type TimelineDragData =
 	| MediaDragData
 	| TextDragData
 	| StickerDragData
-	| EffectDragData;
+	| EffectDragData
+	| StudioTakeDragData;

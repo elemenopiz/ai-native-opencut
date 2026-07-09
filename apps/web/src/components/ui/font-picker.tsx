@@ -69,7 +69,7 @@ export function FontPicker({
 	const [customFonts, setCustomFonts] = useState<string[]>(() => {
 		if (typeof window === "undefined") return [];
 		try {
-			const stored = localStorage.getItem("opencut:custom-fonts");
+			const stored = localStorage.getItem("byorn:custom-fonts");
 			return stored ? JSON.parse(stored) : [];
 		} catch {
 			return [];
@@ -277,7 +277,7 @@ export function FontPicker({
 							if (loaded.length > 0) {
 								const updated = [...new Set([...customFonts, ...loaded])];
 								setCustomFonts(updated);
-								try { localStorage.setItem("opencut:custom-fonts", JSON.stringify(updated)); } catch {}
+								try { localStorage.setItem("byorn:custom-fonts", JSON.stringify(updated)); } catch {}
 								toast.success(`Loaded ${loaded.join(", ")}`);
 								setActiveTab("my-fonts");
 							}

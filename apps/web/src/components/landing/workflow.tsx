@@ -119,7 +119,7 @@ export function Workflow() {
 						From raw footage to final cut
 					</h2>
 					<p className="text-muted-foreground mx-auto mt-4 max-w-lg text-base">
-						A fork of OpenCut with AI added on top. Import, transcribe,
+						AI woven through every step. Import, transcribe,
 						translate, enhance, and export. All running locally on your machine.
 					</p>
 				</motion.div>

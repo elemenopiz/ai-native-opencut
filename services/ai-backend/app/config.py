@@ -118,7 +118,7 @@ class Settings(BaseSettings):
     IMAGE_DEFAULT_GUIDANCE: float = 7.5
 
     model_config = {
-        "env_prefix": "OPENCUTAI_",
+        "env_prefix": "BYORN_",
         "env_file": ".env",
         "env_file_encoding": "utf-8",
     }
@@ -139,7 +139,7 @@ _engagement_sum = (
 if abs(_engagement_sum - 1.0) > 0.01:
     raise ValueError(
         f"Engagement weights must sum to 1.0, got {_engagement_sum:.3f}. "
-        "Check OPENCUTAI_ENGAGEMENT_*_WEIGHT environment variables."
+        "Check BYORN_ENGAGEMENT_*_WEIGHT environment variables."
     )
 
 # Ensure directories exist

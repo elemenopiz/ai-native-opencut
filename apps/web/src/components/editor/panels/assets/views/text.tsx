@@ -161,7 +161,7 @@ export function TextView() {
 	const [uploadedFonts, setUploadedFonts] = useState<string[]>(() => {
 		if (typeof window === "undefined") return [];
 		try {
-			const stored = localStorage.getItem("opencut:custom-fonts");
+			const stored = localStorage.getItem("byorn:custom-fonts");
 			return stored ? JSON.parse(stored) : [];
 		} catch {
 			return [];
@@ -217,7 +217,7 @@ export function TextView() {
 				const updated = [...new Set([...uploadedFonts, ...loaded])];
 				setUploadedFonts(updated);
 				try {
-					localStorage.setItem("opencut:custom-fonts", JSON.stringify(updated));
+					localStorage.setItem("byorn:custom-fonts", JSON.stringify(updated));
 				} catch { /* ignore */ }
 				toast.success(`Loaded ${loaded.length} font${loaded.length > 1 ? "s" : ""}: ${loaded.join(", ")}`);
 			}

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { SOCIAL_LINKS } from "@/constants/site-constants";
 import { useLocalStorage } from "@/hooks/storage/use-local-storage";
 import { Button } from "../ui/button";
 import { Dialog, DialogBody, DialogContent, DialogTitle } from "../ui/dialog";
@@ -32,17 +31,17 @@ export function Onboarding() {
 		<Dialog open={isOpen} onOpenChange={handleClose}>
 			<DialogContent className="sm:max-w-md">
 				<DialogTitle>
-					<span className="sr-only">Welcome to OpenCut AI</span>
+					<span className="sr-only">Welcome to Byorn</span>
 				</DialogTitle>
 				<DialogBody>
 					{step === 0 && (
 						<div className="flex flex-col gap-5">
 							<div className="flex flex-col gap-2">
-								<h2 className="text-lg font-bold">Welcome to OpenCut AI</h2>
+								<h2 className="text-lg font-bold">Welcome to Byorn</h2>
 								<p className="text-sm text-muted-foreground leading-relaxed">
-									This is a fork of OpenCut with AI added on top. Edit video
-									by text, generate visuals, clone voices, and command the
-									timeline — install locally and everything runs on your machine.
+									Edit video by text, generate visuals, clone voices, and
+									command the timeline — install locally and everything runs
+									on your machine.
 								</p>
 							</div>
 
@@ -125,16 +124,8 @@ export function Onboarding() {
 							<div className="flex flex-col gap-2">
 								<h2 className="text-lg font-bold">You're ready to go</h2>
 								<p className="text-sm text-muted-foreground leading-relaxed">
-									This is an early beta. Open an issue on{" "}
-									<a
-										href={SOCIAL_LINKS.github}
-										target="_blank"
-										rel="noopener noreferrer"
-										className="text-foreground underline hover:text-foreground/80"
-									>
-										GitHub
-									</a>{" "}
-									to share feedback and help shape the editor.
+									This is an early beta. Share feedback with the Byorn team to
+									help shape the editor.
 								</p>
 							</div>
 

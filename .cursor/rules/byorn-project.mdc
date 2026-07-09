@@ -2,7 +2,7 @@
 alwaysApply: true
 ---
 
-# OpenCut AI — Project Context
+# Byorn — Project Context
 
 ## Architecture
 
@@ -74,9 +74,9 @@ services/ai-backend/
 - Heavy ML models: load on first use, unload to free GPU/RAM
 - Config via Pydantic BaseSettings in `app/config.py`
 
-## AI Features (Issue Tracker: opencut-ai-issues-with-skills.md)
+## AI Features
 
-The project adds AI capabilities to the OpenCutAI video editor:
+The project adds AI capabilities to the Byorn video editor:
 
 1. **Transcription** (faster-whisper) — speech-to-text with word-level timestamps
 2. **Text-based editing** (Lexical) — edit video by editing transcript text

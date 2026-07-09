@@ -12,7 +12,7 @@
  * publicly-fetchable URL (Seedance needs to fetch the reference frame).
  */
 
-import { webEnv } from "@opencut-ai/env/web";
+import { webEnv } from "@byorn/env/web";
 import { canRehost, fetchBytes, rehostToR2 } from "@/lib/studio/media-storage";
 import type { ImageSize } from "@/lib/studio/image-generator";
 import { composePersonaScenePrompt } from "@/lib/studio/personas";
@@ -83,19 +83,37 @@ export async function renderPersonaStill(
 		data: Array<{ b64_json?: string; url?: string }>;
 	};
 	const first = data.data?.[0];
-	if (!first) throw new Error("OpenAI returned no image for persona still");
-
-	// gpt-image returns b64_json. Rehost to R2 for a stable public URL (needed as
-	// a Seedance image-to-video reference); fall back to a data URL if R2 is off.
-	let imageUrl = first.url ?? `data:image/png;base64,${first.b64_json}`;
-	if (canRehost()) {
-		try {
-			const bytes = await fetchBytes(imageUrl);
-			imageUrl = await rehostToR2(bytes, "image/png");
-		} catch (err) {
-			console.error("Failed to rehost persona still to R2:", err);
-		}
+	// Require an actual image payload — an item that carries neither a url nor
+	// b64_json would otherwise build the literal "data:image/png;base64,undefined"
+	// and surface downstream as an opaque Seedance fetch error.
+	if (!first || (!first.url && !first.b64_json)) {
+		throw new Error("OpenAI returned no image for persona still");
 	}
+
+	// The still becomes a Seedance image-to-video reference, so it MUST end up at
+	// a publicly-fetchable http(s) URL. gpt-image returns b64_json (no url), which
+	// we rehost to R2. A data: URL is not fetchable by Seedance, so we never hand
+	// one downstream — if we can't produce a real URL we fail loudly instead of
+	// letting it surface as an opaque provider fetch error.
+	if (first.url) {
+		return { imageUrl: first.url };
+	}
+
+	if (!canRehost()) {
+		throw new Error(
+			"Persona stills require R2 storage: gpt-image returns base64 only and " +
+				"Seedance cannot fetch data URLs. Configure R2_* env vars.",
+		);
+	}
+
+	// Decode the base64 payload straight to bytes (no data-URL round-trip) and
+	// upload to R2 for a stable, fetchable URL.
+	const buf = Buffer.from(first.b64_json!, "base64");
+	const bytes = buf.buffer.slice(
+		buf.byteOffset,
+		buf.byteOffset + buf.byteLength,
+	);
+	const imageUrl = await rehostToR2(bytes, "image/png");
 
 	return { imageUrl };
 }

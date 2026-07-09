@@ -1,0 +1,426 @@
+- generic [active] [ref=e1]:
+  - region "Notifications alt+T"
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]:
+          - link "Byorn Byorn" [ref=e6] [cursor=pointer]:
+            - /url: /
+            - img "Byorn" [ref=e7]
+            - generic [ref=e8]: Byorn
+          - navigation [ref=e9]:
+            - link "Models" [ref=e10] [cursor=pointer]:
+              - /url: /models
+              - button "Models" [ref=e11]
+            - link "Roadmap" [ref=e12] [cursor=pointer]:
+              - /url: /roadmap
+              - button "Roadmap" [ref=e13]
+        - generic [ref=e15]:
+          - link "GitHub" [ref=e16] [cursor=pointer]:
+            - /url: https://github.com/Ekaanth/OpenCut-AI
+            - button "GitHub" [ref=e17]:
+              - img
+              - text: GitHub
+          - link "Start editing" [ref=e18] [cursor=pointer]:
+            - /url: /projects
+            - button "Start editing" [ref=e19]:
+              - text: Start editing
+              - img
+          - button "Toggle theme" [ref=e20] [cursor=pointer]:
+            - img
+            - generic [ref=e21]: Toggle theme
+        - generic:
+          - generic:
+            - button "Close menu"
+            - navigation:
+              - generic:
+                - link "Models":
+                  - /url: /models
+              - generic:
+                - link "Roadmap":
+                  - /url: /roadmap
+            - button "Toggle theme":
+              - img
+              - generic: Toggle theme
+    - generic [ref=e22]:
+      - generic [ref=e30]:
+        - generic [ref=e36]:
+          - generic [ref=e37]: Open source
+          - generic [ref=e38]: Runs locally
+          - generic [ref=e39]: No cloud
+        - heading "Video editing, reimagined by AI." [level=1] [ref=e40]:
+          - generic [ref=e41]: Video editing,
+          - generic [ref=e42]: reimagined
+          - generic [ref=e43]: by AI.
+        - paragraph [ref=e44]: Turn long podcasts into viral clips. Multi-speaker detection, word-pop subtitles, auto-reframe for Shorts, brand kits. 22 Indian languages via Sarvam AI. Everything runs locally.
+        - generic [ref=e45]:
+          - link "Start editing" [ref=e46] [cursor=pointer]:
+            - /url: /projects
+            - button "Start editing" [ref=e47]:
+              - text: Start editing
+              - img
+          - link "Star on GitHub" [ref=e48] [cursor=pointer]:
+            - /url: https://github.com/Ekaanth/OpenCut-AI
+            - button "Star on GitHub" [ref=e49]:
+              - img
+              - text: Star on GitHub
+        - generic [ref=e50]:
+          - generic [ref=e51]:
+            - generic [ref=e52]: "10"
+            - generic [ref=e53]: AI Services
+          - generic [ref=e54]:
+            - generic [ref=e55]: 30+
+            - generic [ref=e56]: Languages
+          - generic [ref=e57]:
+            - generic [ref=e58]: $0
+            - generic [ref=e59]: API Cost
+          - generic [ref=e60]:
+            - generic [ref=e61]: 100%
+            - generic [ref=e62]: Local
+      - generic [ref=e64]: Scroll to explore
+    - generic [ref=e70]:
+      - generic [ref=e71]:
+        - heading "AI-powered editing for creators who ship" [level=2] [ref=e72]
+        - paragraph [ref=e73]: Transcription in 30+ languages, multi-speaker detection, viral clip finding, voice cloning, word-pop subtitles, auto-reframe, brand kits — with 22 Indian languages powered by Sarvam AI.
+      - generic [ref=e76]: Core AI Engine
+      - generic [ref=e78]:
+        - generic [ref=e81]:
+          - img [ref=e84]
+          - heading "Edit by Text" [level=3] [ref=e87]
+          - paragraph [ref=e88]: Transcribe your video, then edit it like a document. Delete a sentence and the video cuts itself. Drag to reorder scenes.
+        - generic [ref=e91]:
+          - generic [ref=e92]:
+            - img [ref=e94]
+            - generic [ref=e99]: New
+          - heading "Multi-Speaker Detection" [level=3] [ref=e100]
+          - paragraph [ref=e101]: Auto-detect who's talking with pyannote AI. Each speaker gets a label you can rename. Video auto-cuts at speaker boundaries.
+        - generic [ref=e104]:
+          - img [ref=e107]
+          - heading "Voice Cloning" [level=3] [ref=e108]
+          - paragraph [ref=e109]: Clone any voice from a 6-second sample. Generate voiceovers in cloned voices across any language. XTTS v2 powered.
+        - generic [ref=e112]:
+          - generic [ref=e113]:
+            - img [ref=e115]
+            - generic [ref=e118]: New
+          - heading "22 Indian Languages" [level=3] [ref=e119]
+          - paragraph [ref=e120]: Hindi, Tamil, Telugu, Kannada, Bengali, Malayalam, and 16 more Indian languages. Transcribe, translate, and generate TTS via Sarvam AI with your API key.
+        - generic [ref=e123]:
+          - img [ref=e126]
+          - heading "100% Local" [level=3] [ref=e129]
+          - paragraph [ref=e130]: All models run on your machine. No cloud uploads, no API keys, no subscriptions. Your footage stays private.
+      - generic [ref=e131]:
+        - generic [ref=e134]: Podcast Clip Studio
+        - generic [ref=e136]:
+          - generic [ref=e139]:
+            - generic [ref=e140]:
+              - img [ref=e142]
+              - generic [ref=e146]: New
+            - heading "Podcast Clip Generator" [level=3] [ref=e147]
+            - paragraph [ref=e148]: AI finds the most viral-worthy 30-60 second moments from long podcasts. Scored by engagement potential, emotional peaks, and shareability.
+          - generic [ref=e151]:
+            - generic [ref=e152]:
+              - img [ref=e154]
+              - generic [ref=e156]: New
+            - heading "Word-Pop Karaoke Subs" [level=3] [ref=e157]
+            - paragraph [ref=e158]: Hormozi-style subtitles where each word pops up when spoken and scales larger. Keyword highlighting with accent colors. 4 preset styles.
+          - generic [ref=e161]:
+            - generic [ref=e162]:
+              - img [ref=e164]
+              - generic [ref=e167]: New
+            - heading "Auto-Reframe 9:16" [level=3] [ref=e168]
+            - paragraph [ref=e169]: Face-tracking crop that converts 16:9 to 9:16 for TikTok, Reels, and Shorts. Smooth pan transitions between speakers using MediaPipe.
+          - generic [ref=e172]:
+            - generic [ref=e173]:
+              - img [ref=e175]
+              - generic [ref=e179]: New
+            - heading "Brand Kit" [level=3] [ref=e180]
+            - paragraph [ref=e181]: Define your brand once — colors, fonts, logo, social handles, CTA. One-click intro/outro cards, lower thirds, and persistent watermarks.
+      - generic [ref=e182]:
+        - generic [ref=e185]: And Even More
+        - generic [ref=e187]:
+          - generic [ref=e190]:
+            - generic [ref=e191]:
+              - img [ref=e193]
+              - generic [ref=e195]: New
+            - heading "AI Question Cards" [level=3] [ref=e196]
+            - paragraph [ref=e197]: AI generates topic question slides from your transcript. Overlaid on video with transparent or themed backgrounds. Subtitles auto-hide during cards.
+          - generic [ref=e200]:
+            - generic [ref=e201]:
+              - img [ref=e203]
+              - generic [ref=e206]: New
+            - heading "Emotion Detection" [level=3] [ref=e207]
+            - paragraph [ref=e208]: SpeechBrain AI detects emotional peaks in your audio — excitement, calm, neutral. Used to boost clip scores and find the most impactful moments.
+          - generic [ref=e211]:
+            - generic [ref=e212]:
+              - img [ref=e214]
+              - generic [ref=e216]: New
+            - heading "Speed Control" [level=3] [ref=e217]
+            - paragraph [ref=e218]: 0.1x slow-mo to 4x fast-forward on any clip. 8 preset speeds plus a continuous slider. Audio pitch adjusts automatically.
+          - generic [ref=e221]:
+            - img [ref=e224]
+            - heading "AI Transcription" [level=3] [ref=e227]
+            - paragraph [ref=e228]: Whisper + Sarvam AI speech-to-text with word-level timestamps. 30+ languages including 22 Indian regional languages. Runs locally or via Sarvam cloud.
+    - generic [ref=e232]:
+      - generic [ref=e233]:
+        - heading "From raw footage to final cut" [level=2] [ref=e234]
+        - paragraph [ref=e235]: A fork of OpenCut with AI added on top. Import, transcribe, translate, enhance, and export. All running locally on your machine.
+      - generic [ref=e238]:
+        - generic [ref=e239]:
+          - img [ref=e241]
+          - generic [ref=e244]:
+            - generic [ref=e245]: Step 01
+            - heading "Drop your footage" [level=3] [ref=e246]
+            - paragraph [ref=e247]: Drag any video or audio file into the editor. Pick 16:9 for YouTube, 9:16 for TikTok/Reels, or 1:1 for Instagram. Start editing instantly.
+            - generic [ref=e248]:
+              - generic [ref=e249]: Multi-format
+              - generic [ref=e250]: Local-first
+              - generic [ref=e251]: No upload
+        - generic [ref=e252]:
+          - img [ref=e254]
+          - generic [ref=e257]:
+            - generic [ref=e258]: Step 02
+            - heading "Transcribe + detect speakers" [level=3] [ref=e259]
+            - paragraph [ref=e260]: One click to transcribe with Whisper and auto-detect speakers with pyannote. Each speaker gets a name you can edit. Emotion peaks are detected simultaneously.
+            - generic [ref=e261]:
+              - generic [ref=e262]: Multi-speaker
+              - generic [ref=e263]: Word-level
+              - generic [ref=e264]: Emotion AI
+        - generic [ref=e265]:
+          - img [ref=e267]
+          - generic [ref=e269]:
+            - generic [ref=e270]: Step 03
+            - heading "Find the best clips" [level=3] [ref=e271]
+            - paragraph [ref=e272]: AI scores every moment for viral potential — hot takes, surprising facts, emotional peaks, humor. Get ranked clip candidates with one-click apply.
+            - generic [ref=e273]:
+              - generic [ref=e274]: Clip scoring
+              - generic [ref=e275]: Smart finder
+              - generic [ref=e276]: LLM-powered
+        - generic [ref=e277]:
+          - img [ref=e279]
+          - generic [ref=e283]:
+            - generic [ref=e284]: Step 04
+            - heading "Add word-pop subtitles" [level=3] [ref=e285]
+            - paragraph [ref=e286]: Hormozi-style karaoke subtitles where each word pops in when spoken. AI highlights keywords in accent colors. 4 preset styles. No subtitles during question cards.
+            - generic [ref=e287]:
+              - generic [ref=e288]: Word-pop
+              - generic [ref=e289]: Keyword colors
+              - generic [ref=e290]: Card-aware
+        - generic [ref=e291]:
+          - img [ref=e293]
+          - generic [ref=e296]:
+            - generic [ref=e297]: Step 05
+            - heading "Brand it and reframe" [level=3] [ref=e298]
+            - paragraph [ref=e299]: Apply your brand kit — logo, colors, intro/outro, CTA. Auto-reframe 16:9 to 9:16 with face tracking. Speed up or slow down any clip from 0.1x to 4x.
+            - generic [ref=e300]:
+              - generic [ref=e301]: Brand kit
+              - generic [ref=e302]: Auto-reframe
+              - generic [ref=e303]: Speed control
+        - generic [ref=e304]:
+          - img [ref=e306]
+          - generic [ref=e308]:
+            - generic [ref=e309]: Step 06
+            - heading "Export for any platform" [level=3] [ref=e310]
+            - paragraph [ref=e311]: One-click export presets for YouTube, TikTok, Reels, Instagram, and more. Everything composited — subs, cards, brand overlays, speed changes. No watermark.
+            - generic [ref=e312]:
+              - generic [ref=e313]: Platform presets
+              - generic [ref=e314]: Background export
+              - generic [ref=e315]: Auto-save
+    - generic [ref=e318]:
+      - generic [ref=e319]:
+        - generic [ref=e320]:
+          - img [ref=e321]
+          - text: No per-seat pricing
+        - heading "Self-host for the cost of a VPS" [level=2] [ref=e323]:
+          - text: Self-host for the
+          - text: cost of a VPS
+        - paragraph [ref=e324]: No usage credits. No cloud lock-in. Pay only for the server and use it as much as you want, with as many users as you need.
+      - generic [ref=e325]:
+        - generic [ref=e326]:
+          - heading "Local Machine" [level=3] [ref=e327]
+          - generic [ref=e328]:
+            - generic [ref=e329]: $0
+            - generic [ref=e330]: forever
+          - paragraph [ref=e331]: Run on your own computer
+          - paragraph [ref=e332]: Any laptop with 8+ GB RAM
+          - list [ref=e333]:
+            - listitem [ref=e334]:
+              - generic [ref=e335]: ✓
+              - text: Full video editor
+            - listitem [ref=e336]:
+              - generic [ref=e337]: ✓
+              - text: AI transcription (CPU)
+            - listitem [ref=e338]:
+              - generic [ref=e339]: ✓
+              - text: Voice cloning & TTS
+            - listitem [ref=e340]:
+              - generic [ref=e341]: ✓
+              - text: Text-based editing
+            - listitem [ref=e342]:
+              - generic [ref=e343]: ✓
+              - text: Filler word removal
+            - listitem [ref=e344]:
+              - generic [ref=e345]: ✓
+              - text: All filters & effects
+          - paragraph [ref=e346]: No GPU = no image generation
+        - generic [ref=e347]:
+          - heading "Starter VPS" [level=3] [ref=e348]
+          - generic [ref=e349]:
+            - generic [ref=e350]: $20
+            - generic [ref=e351]: /month
+          - paragraph [ref=e352]: Light editing & transcription
+          - paragraph [ref=e353]: 4 vCPU, 8 GB RAM, CPU-only
+          - list [ref=e354]:
+            - listitem [ref=e355]:
+              - generic [ref=e356]: ✓
+              - text: Everything in Local
+            - listitem [ref=e357]:
+              - generic [ref=e358]: ✓
+              - text: Remote access from any device
+            - listitem [ref=e359]:
+              - generic [ref=e360]: ✓
+              - text: Always-on availability
+            - listitem [ref=e361]:
+              - generic [ref=e362]: ✓
+              - text: Shareable with team
+            - listitem [ref=e363]:
+              - generic [ref=e364]: ✓
+              - text: Transcription + TTS
+            - listitem [ref=e365]:
+              - generic [ref=e366]: ✓
+              - text: LLM commands
+          - paragraph [ref=e367]: Hetzner, DigitalOcean, Vultr
+        - generic [ref=e368]:
+          - generic [ref=e369]: Most Popular
+          - heading "Standard VPS" [level=3] [ref=e370]
+          - generic [ref=e371]:
+            - generic [ref=e372]: $50
+            - generic [ref=e373]: /month
+          - paragraph [ref=e374]: Full workflow, no GPU
+          - paragraph [ref=e375]: 4 vCPU, 16 GB RAM
+          - list [ref=e376]:
+            - listitem [ref=e377]:
+              - generic [ref=e378]: ✓
+              - text: Everything in Starter
+            - listitem [ref=e379]:
+              - generic [ref=e380]: ✓
+              - text: Faster transcription
+            - listitem [ref=e381]:
+              - generic [ref=e382]: ✓
+              - text: Larger LLM models (7B+)
+            - listitem [ref=e383]:
+              - generic [ref=e384]: ✓
+              - text: Voice cloning at quality
+            - listitem [ref=e385]:
+              - generic [ref=e386]: ✓
+              - text: Multiple concurrent users
+            - listitem [ref=e387]:
+              - generic [ref=e388]: ✓
+              - text: Full TTS generation
+          - paragraph [ref=e389]: Best value for most teams
+        - generic [ref=e390]:
+          - heading "GPU Server" [level=3] [ref=e391]
+          - generic [ref=e392]:
+            - generic [ref=e393]: $150
+            - generic [ref=e394]: /month
+          - paragraph [ref=e395]: All AI features at speed
+          - paragraph [ref=e396]: 8 vCPU, 32 GB RAM, NVIDIA T4
+          - list [ref=e397]:
+            - listitem [ref=e398]:
+              - generic [ref=e399]: ✓
+              - text: Everything in Standard
+            - listitem [ref=e400]:
+              - generic [ref=e401]: ✓
+              - text: 10x faster transcription
+            - listitem [ref=e402]:
+              - generic [ref=e403]: ✓
+              - text: AI image generation
+            - listitem [ref=e404]:
+              - generic [ref=e405]: ✓
+              - text: Real-time voice cloning
+            - listitem [ref=e406]:
+              - generic [ref=e407]: ✓
+              - text: Large LLM models
+            - listitem [ref=e408]:
+              - generic [ref=e409]: ✓
+              - text: Production-ready speed
+          - paragraph [ref=e410]: AWS g4dn, RunPod, Lambda
+    - generic [ref=e414]:
+      - heading "Your footage. Your machine. Your rules." [level=2] [ref=e415]:
+        - text: Your footage.
+        - text: Your machine.
+        - text: Your rules.
+      - paragraph [ref=e416]: Fork it. Install it. Self-host it. No cloud, no subscriptions, no limits.
+      - generic [ref=e417]:
+        - link "Open the editor" [ref=e418] [cursor=pointer]:
+          - /url: /projects
+          - button "Open the editor" [ref=e419]:
+            - text: Open the editor
+            - img
+        - link "Star on GitHub" [ref=e420] [cursor=pointer]:
+          - /url: https://github.com/Ekaanth/OpenCut-AI
+          - button "Star on GitHub" [ref=e421]
+      - generic [ref=e423]:
+        - button "Copy" [ref=e429]:
+          - img [ref=e430]
+          - generic [ref=e433]: Copy
+        - generic [ref=e435]:
+          - generic [ref=e436]: $ git clone https://github.com/Ekaanth/OpenCut-AI.git
+          - generic [ref=e437]: $ cd OpenCut-AI
+          - generic [ref=e438]: $ docker compose up -d
+    - contentinfo [ref=e440]:
+      - generic [ref=e441]:
+        - generic [ref=e442]:
+          - generic [ref=e443]:
+            - generic [ref=e444]:
+              - img "Byorn" [ref=e445]
+              - generic [ref=e446]: Byorn
+            - paragraph [ref=e447]: Open-source AI video editor. Transcribe, edit by text, clone voices, and generate visuals. Runs locally on your machine.
+            - generic [ref=e448]:
+              - link "GitHub" [ref=e449] [cursor=pointer]:
+                - /url: https://github.com/Ekaanth/OpenCut-AI
+                - img [ref=e450]
+              - link "X / Twitter" [ref=e452] [cursor=pointer]:
+                - /url: https://x.com/humblefool
+                - img [ref=e453]
+          - generic [ref=e455]:
+            - heading "Product" [level=3] [ref=e456]
+            - list [ref=e457]:
+              - listitem [ref=e458]:
+                - link "Editor" [ref=e459] [cursor=pointer]:
+                  - /url: /projects
+              - listitem [ref=e460]:
+                - link "Models" [ref=e461] [cursor=pointer]:
+                  - /url: /models
+              - listitem [ref=e462]:
+                - link "Roadmap" [ref=e463] [cursor=pointer]:
+                  - /url: /roadmap
+              - listitem [ref=e464]:
+                - link "Changelog" [ref=e465] [cursor=pointer]:
+                  - /url: /changelog
+          - generic [ref=e466]:
+            - heading "Resources" [level=3] [ref=e467]
+            - list [ref=e468]:
+              - listitem [ref=e469]:
+                - link "GitHub" [ref=e470] [cursor=pointer]:
+                  - /url: https://github.com/Ekaanth/OpenCut-AI
+              - listitem [ref=e471]:
+                - link "Contributors" [ref=e472] [cursor=pointer]:
+                  - /url: /contributors
+          - generic [ref=e473]:
+            - heading "Legal" [level=3] [ref=e474]
+            - list [ref=e475]:
+              - listitem [ref=e476]:
+                - link "Privacy" [ref=e477] [cursor=pointer]:
+                  - /url: /privacy
+              - listitem [ref=e478]:
+                - link "Terms of use" [ref=e479] [cursor=pointer]:
+                  - /url: /terms
+        - generic [ref=e480]:
+          - generic [ref=e481]: © 2026 Byorn
+          - generic [ref=e482]:
+            - text: Forked from
+            - link "OpenCut" [ref=e483] [cursor=pointer]:
+              - /url: https://github.com/OpenCut-app/OpenCut
+            - text: · Open source under MIT
+  - button "Open Next.js Dev Tools" [ref=e489] [cursor=pointer]:
+    - img [ref=e490]

@@ -1,7 +1,4 @@
 import Link from "next/link";
-import { RiTwitterXLine } from "react-icons/ri";
-import { FaGithub } from "react-icons/fa6";
-import { SOCIAL_LINKS, UPSTREAM_URL } from "@/constants/site-constants";
 
 const footerLinks = {
 	product: [
@@ -11,7 +8,6 @@ const footerLinks = {
 		{ label: "Changelog", href: "/changelog" },
 	],
 	resources: [
-		{ label: "GitHub", href: SOCIAL_LINKS.github },
 		{ label: "Contributors", href: "/contributors" },
 	],
 	legal: [
@@ -28,33 +24,13 @@ export function Footer() {
 					{/* Brand */}
 					<div className="max-w-xs">
 						<div className="mb-4 flex items-center gap-2.5">
-							<OpenCutAILogo />
-							<span className="text-base font-bold tracking-tight">OpenCut AI</span>
+							<ByornLogo />
+							<span className="text-base font-bold tracking-tight">Byorn</span>
 						</div>
 						<p className="text-muted-foreground text-sm leading-relaxed">
-							Open-source AI video editor. Transcribe, edit by text,
-							clone voices, and generate visuals. Runs locally on your machine.
+							Open-source AI video editor. Transcribe, edit by text, clone
+							voices, and generate visuals. Runs locally on your machine.
 						</p>
-						<div className="mt-5 flex gap-3">
-							<Link
-								href={SOCIAL_LINKS.github}
-								className="text-muted-foreground hover:text-foreground transition-colors"
-								target="_blank"
-								rel="noopener noreferrer"
-								aria-label="GitHub"
-							>
-								<FaGithub className="size-[18px]" />
-							</Link>
-							<Link
-								href={SOCIAL_LINKS.x}
-								className="text-muted-foreground hover:text-foreground transition-colors"
-								target="_blank"
-								rel="noopener noreferrer"
-								aria-label="X / Twitter"
-							>
-								<RiTwitterXLine className="size-[18px]" />
-							</Link>
-						</div>
 					</div>
 
 					{/* Product links */}
@@ -84,7 +60,11 @@ export function Footer() {
 										href={link.href}
 										className="text-sm text-muted-foreground hover:text-foreground transition-colors"
 										target={link.href.startsWith("http") ? "_blank" : undefined}
-										rel={link.href.startsWith("http") ? "noopener noreferrer" : undefined}
+										rel={
+											link.href.startsWith("http")
+												? "noopener noreferrer"
+												: undefined
+										}
 									>
 										{link.label}
 									</Link>
@@ -114,19 +94,10 @@ export function Footer() {
 				{/* Bottom bar */}
 				<div className="mt-10 flex flex-col items-start justify-between gap-3 border-t pt-6 md:flex-row md:items-center">
 					<span className="text-sm text-muted-foreground">
-						&copy; {new Date().getFullYear()} OpenCut AI
+						&copy; {new Date().getFullYear()} Byorn
 					</span>
 					<span className="text-xs text-muted-foreground/60">
-						Forked from{" "}
-						<Link
-							href={UPSTREAM_URL}
-							target="_blank"
-							rel="noopener noreferrer"
-							className="underline hover:text-muted-foreground transition-colors"
-						>
-							OpenCut
-						</Link>
-						{" "}&middot; Open source under MIT
+						Open source under MIT
 					</span>
 				</div>
 			</div>
@@ -134,43 +105,18 @@ export function Footer() {
 	);
 }
 
-export function OpenCutAILogo({ size = 26 }: { size?: number }) {
+/**
+ * Brand mark placeholder. The real logo is intentionally removed for now — this
+ * renders a neutral rounded square sized to match the old mark so layouts stay
+ * intact. Swap the inner content for an <Image> when the final logo is ready.
+ */
+export function ByornLogo({ size = 26 }: { size?: number }) {
 	return (
-		<svg
-			width={size}
-			height={size}
-			viewBox="0 0 48 48"
-			fill="none"
-			className="shrink-0"
-		>
-			<defs>
-				<linearGradient id="oc-bg" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
-					<stop offset="0%" stopColor="#2567EC" />
-					<stop offset="100%" stopColor="#37B6F7" />
-				</linearGradient>
-				<linearGradient id="oc-spark" x1="32" y1="4" x2="44" y2="18" gradientUnits="userSpaceOnUse">
-					<stop offset="0%" stopColor="#FFF" />
-					<stop offset="100%" stopColor="#FFD96A" />
-				</linearGradient>
-			</defs>
-
-			{/* Rounded square bg */}
-			<rect x="2" y="2" width="44" height="44" rx="13" fill="url(#oc-bg)" />
-
-			{/* Top highlight */}
-			<rect x="2" y="2" width="44" height="22" rx="13" fill="white" opacity="0.07" />
-
-			{/* Play triangle */}
-			<path d="M19 14L19 34L35 24L19 14Z" fill="white" />
-
-			{/* AI sparkle */}
-			<path
-				d="M38.5 7L40 11.5L44 13L40 14.5L38.5 19L37 14.5L33 13L37 11.5L38.5 7Z"
-				fill="url(#oc-spark)"
-			/>
-
-			{/* Small sparkle */}
-			<circle cx="9" cy="8" r="1.5" fill="white" opacity="0.4" />
-		</svg>
+		<span
+			aria-label="Byorn"
+			role="img"
+			className="shrink-0 rounded-lg border border-dashed border-border bg-muted/50"
+			style={{ width: size, height: size }}
+		/>
 	);
 }

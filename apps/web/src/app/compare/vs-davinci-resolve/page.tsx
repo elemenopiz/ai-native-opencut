@@ -4,22 +4,22 @@ import { BasePage } from "@/app/base-page";
 import { SITE_URL } from "@/constants/site-constants";
 
 export const metadata: Metadata = {
-	title: "OpenCut AI vs DaVinci Resolve — Free Open Source Video Editor with AI (No $295 Lock-in)",
+	title: "Byorn vs DaVinci Resolve — Free Open Source Video Editor with AI (No $295 Lock-in)",
 	description:
-		"OpenCut AI is the browser-based, open-source alternative to DaVinci Resolve. Compare: AI transcription, text-based editing, filler word removal, AI dubbing in 37 languages, B-roll generation, karaoke subtitles. Free, self-hosted, no hardware requirements.",
+		"Byorn is the browser-based, open-source alternative to DaVinci Resolve. Compare: AI transcription, text-based editing, filler word removal, AI dubbing in 37 languages, B-roll generation, karaoke subtitles. Free, self-hosted, no hardware requirements.",
 	alternates: {
 		canonical: `${SITE_URL}/compare/vs-davinci-resolve`,
 	},
 	openGraph: {
-		title: "OpenCut AI vs DaVinci Resolve — Free Browser-Based AI Video Editor",
+		title: "Byorn vs DaVinci Resolve — Free Browser-Based AI Video Editor",
 		description:
-			"DaVinci Resolve costs $295 and needs a powerful GPU. OpenCut AI runs in your browser, is free, open source, and has AI transcription, dubbing, and B-roll generation.",
+			"DaVinci Resolve costs $295 and needs a powerful GPU. Byorn runs in your browser, is free, open source, and has AI transcription, dubbing, and B-roll generation.",
 		url: `${SITE_URL}/compare/vs-davinci-resolve`,
 		type: "website",
 	},
 	twitter: {
 		card: "summary_large_image",
-		title: "OpenCut AI vs DaVinci Resolve",
+		title: "Byorn vs DaVinci Resolve",
 		description:
 			"Free, browser-based, AI-powered video editor. No $295 price tag. No GPU requirements.",
 	},
@@ -29,58 +29,58 @@ const FEATURES = [
 	{
 		category: "Core Editing",
 		rows: [
-			{ feature: "Timeline-based editing", opencut: "Yes", resolve: "Yes" },
-			{ feature: "Multi-track support", opencut: "Yes", resolve: "Yes (unlimited)" },
-			{ feature: "Color grading", opencut: "Basic", resolve: "Industry-leading" },
-			{ feature: "Transitions library", opencut: "7 types", resolve: "Extensive" },
-			{ feature: "Speed ramping", opencut: "Variable curve editor", resolve: "Yes (Speed Editor)" },
-			{ feature: "Audio mixer with meters", opencut: "Yes", resolve: "Fairlight (professional)" },
-			{ feature: "Proxy editing (4K+)", opencut: "Yes", resolve: "Yes" },
-			{ feature: "Text-based editing", opencut: "Yes", resolve: "No" },
+			{ feature: "Timeline-based editing", byorn: "Yes", resolve: "Yes" },
+			{ feature: "Multi-track support", byorn: "Yes", resolve: "Yes (unlimited)" },
+			{ feature: "Color grading", byorn: "Basic", resolve: "Industry-leading" },
+			{ feature: "Transitions library", byorn: "7 types", resolve: "Extensive" },
+			{ feature: "Speed ramping", byorn: "Variable curve editor", resolve: "Yes (Speed Editor)" },
+			{ feature: "Audio mixer with meters", byorn: "Yes", resolve: "Fairlight (professional)" },
+			{ feature: "Proxy editing (4K+)", byorn: "Yes", resolve: "Yes" },
+			{ feature: "Text-based editing", byorn: "Yes", resolve: "No" },
 		],
 	},
 	{
 		category: "AI Features",
 		rows: [
-			{ feature: "AI transcription", opencut: "Whisper (local)", resolve: "No" },
-			{ feature: "Filler word removal", opencut: "One-click Smart Cut", resolve: "No" },
-			{ feature: "Silence detection", opencut: "Yes", resolve: "No" },
-			{ feature: "AI voice cloning", opencut: "XTTS v2 (local)", resolve: "No" },
-			{ feature: "AI dubbing / translation", opencut: "37 languages", resolve: "No" },
-			{ feature: "B-roll generation (AI)", opencut: "Image + Video", resolve: "No" },
-			{ feature: "Auto-chapters", opencut: "Yes", resolve: "No" },
-			{ feature: "Auto-reframe (9:16)", opencut: "Yes", resolve: "No (manual)" },
-			{ feature: "AI text-to-speech", opencut: "Yes (local + cloud)", resolve: "No" },
+			{ feature: "AI transcription", byorn: "Whisper (local)", resolve: "No" },
+			{ feature: "Filler word removal", byorn: "One-click Smart Cut", resolve: "No" },
+			{ feature: "Silence detection", byorn: "Yes", resolve: "No" },
+			{ feature: "AI voice cloning", byorn: "XTTS v2 (local)", resolve: "No" },
+			{ feature: "AI dubbing / translation", byorn: "37 languages", resolve: "No" },
+			{ feature: "B-roll generation (AI)", byorn: "Image + Video", resolve: "No" },
+			{ feature: "Auto-chapters", byorn: "Yes", resolve: "No" },
+			{ feature: "Auto-reframe (9:16)", byorn: "Yes", resolve: "No (manual)" },
+			{ feature: "AI text-to-speech", byorn: "Yes (local + cloud)", resolve: "No" },
 		],
 	},
 	{
 		category: "Subtitles & Accessibility",
 		rows: [
-			{ feature: "Karaoke subtitles", opencut: "Yes", resolve: "No" },
-			{ feature: "Word-pop subtitles", opencut: "Yes", resolve: "No" },
-			{ feature: "Multi-speaker subtitles", opencut: "Yes", resolve: "No" },
-			{ feature: "Indian language support", opencut: "22 languages (Sarvam AI)", resolve: "No" },
-			{ feature: "Custom subtitle styles", opencut: "Yes", resolve: "Fusion-based (complex)" },
+			{ feature: "Karaoke subtitles", byorn: "Yes", resolve: "No" },
+			{ feature: "Word-pop subtitles", byorn: "Yes", resolve: "No" },
+			{ feature: "Multi-speaker subtitles", byorn: "Yes", resolve: "No" },
+			{ feature: "Indian language support", byorn: "22 languages (Sarvam AI)", resolve: "No" },
+			{ feature: "Custom subtitle styles", byorn: "Yes", resolve: "Fusion-based (complex)" },
 		],
 	},
 	{
 		category: "Deployment & Requirements",
 		rows: [
-			{ feature: "Runs in browser", opencut: "Yes", resolve: "No (desktop app)" },
-			{ feature: "No installation needed", opencut: "Yes", resolve: "No" },
-			{ feature: "Open source", opencut: "Yes (MIT)", resolve: "No (free version + $295 Studio)" },
-			{ feature: "Self-hosted option", opencut: "Yes", resolve: "No" },
-			{ feature: "GPU required", opencut: "No", resolve: "Strongly recommended" },
-			{ feature: "Cross-platform", opencut: "Any browser", resolve: "Win/Mac/Linux app" },
-			{ feature: "Learning curve", opencut: "Easy", resolve: "Steep" },
+			{ feature: "Runs in browser", byorn: "Yes", resolve: "No (desktop app)" },
+			{ feature: "No installation needed", byorn: "Yes", resolve: "No" },
+			{ feature: "Open source", byorn: "Yes (MIT)", resolve: "No (free version + $295 Studio)" },
+			{ feature: "Self-hosted option", byorn: "Yes", resolve: "No" },
+			{ feature: "GPU required", byorn: "No", resolve: "Strongly recommended" },
+			{ feature: "Cross-platform", byorn: "Any browser", resolve: "Win/Mac/Linux app" },
+			{ feature: "Learning curve", byorn: "Easy", resolve: "Steep" },
 		],
 	},
 	{
 		category: "Pricing",
 		rows: [
-			{ feature: "Free tier", opencut: "Full features, unlimited", resolve: "Full features, limited codecs" },
-			{ feature: "Paid version", opencut: "$0 forever", resolve: "$295 one-time (Studio)" },
-			{ feature: "Total cost of ownership", opencut: "$0", resolve: "$0–295 + hardware upgrades" },
+			{ feature: "Free tier", byorn: "Full features, unlimited", resolve: "Full features, limited codecs" },
+			{ feature: "Paid version", byorn: "$0 forever", resolve: "$295 one-time (Studio)" },
+			{ feature: "Total cost of ownership", byorn: "$0", resolve: "$0–295 + hardware upgrades" },
 		],
 	},
 ];
@@ -91,11 +91,11 @@ export default function VsDaVinciResolvePage() {
 			<div className="flex flex-col gap-12">
 				<header className="text-center flex flex-col gap-6">
 					<h1 className="text-4xl md:text-5xl font-bold tracking-tight">
-						OpenCut AI vs DaVinci Resolve
+						Byorn vs DaVinci Resolve
 					</h1>
 					<p className="text-lg text-muted-foreground max-w-2xl mx-auto">
 						DaVinci Resolve is the king of color grading and professional post-production. 
-						OpenCut AI is the king of <strong>AI-powered, browser-based editing</strong> — 
+						Byorn is the king of <strong>AI-powered, browser-based editing</strong> — 
 						text-based editing, one-click filler removal, AI dubbing in 37 languages, 
 						and B-roll generation. Free and open source.
 					</p>
@@ -104,15 +104,7 @@ export default function VsDaVinciResolvePage() {
 							href="/editor"
 							className="inline-flex items-center justify-center rounded-md bg-primary px-6 py-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"
 						>
-							Try OpenCut AI Free
-						</Link>
-						<Link
-							href="https://github.com/Ekaanth/OpenCut-AI"
-							target="_blank"
-							rel="noopener noreferrer"
-							className="inline-flex items-center justify-center rounded-md border px-6 py-3 text-sm font-medium hover:bg-accent"
-						>
-							View on GitHub
+							Try Byorn Free
 						</Link>
 					</div>
 				</header>
@@ -127,7 +119,7 @@ export default function VsDaVinciResolvePage() {
 										<tr className="bg-muted/50">
 											<th className="text-left px-4 py-2.5 font-medium">Feature</th>
 											<th className="text-center px-4 py-2.5 font-medium text-primary">
-												OpenCut AI
+												Byorn
 											</th>
 											<th className="text-center px-4 py-2.5 font-medium text-muted-foreground">
 												DaVinci Resolve
@@ -141,7 +133,7 @@ export default function VsDaVinciResolvePage() {
 												className={i % 2 === 0 ? "bg-background" : "bg-muted/20"}
 											>
 												<td className="px-4 py-2.5">{row.feature}</td>
-												<td className="px-4 py-2.5 text-center">{row.opencut}</td>
+												<td className="px-4 py-2.5 text-center">{row.byorn}</td>
 												<td className="px-4 py-2.5 text-center text-muted-foreground">
 													{row.resolve}
 												</td>
@@ -158,7 +150,7 @@ export default function VsDaVinciResolvePage() {
 					<h2 className="text-2xl font-bold">When to use each</h2>
 					<div className="grid md:grid-cols-2 gap-6">
 						<div className="rounded-lg border p-4 space-y-2">
-							<h3 className="font-semibold text-primary">Choose OpenCut AI when:</h3>
+							<h3 className="font-semibold text-primary">Choose Byorn when:</h3>
 							<ul className="text-sm text-muted-foreground space-y-1 list-disc pl-4">
 								<li>You need AI transcription and text-based editing</li>
 								<li>You want one-click filler/silence removal (Smart Cut)</li>
@@ -188,24 +180,24 @@ export default function VsDaVinciResolvePage() {
 					<h2 className="text-2xl font-bold">Frequently Asked Questions</h2>
 					<div className="max-w-2xl mx-auto space-y-4 text-left">
 						<FAQ
-							question="Can OpenCut AI replace DaVinci Resolve for professional work?"
-							answer="It depends on the work. For podcast editing, social media content, talking-head videos, and AI-powered workflows, OpenCut AI is often better. For color grading, VFX, and film production, DaVinci Resolve is the industry standard."
+							question="Can Byorn replace DaVinci Resolve for professional work?"
+							answer="It depends on the work. For podcast editing, social media content, talking-head videos, and AI-powered workflows, Byorn is often better. For color grading, VFX, and film production, DaVinci Resolve is the industry standard."
 						/>
 						<FAQ
 							question="Why would I use a browser editor instead of a native app?"
-							answer="Zero installation, instant access from any device, no hardware requirements, and automatic updates. OpenCut AI runs on Chromebooks, tablets, and low-end laptops where DaVinci Resolve won't even launch."
+							answer="Zero installation, instant access from any device, no hardware requirements, and automatic updates. Byorn runs on Chromebooks, tablets, and low-end laptops where DaVinci Resolve won't even launch."
 						/>
 						<FAQ
-							question="Does OpenCut AI support color grading?"
-							answer="OpenCut AI has basic color adjustments. It's not designed to compete with DaVinci Resolve's industry-leading color science. The focus is on AI-powered editing workflows."
+							question="Does Byorn support color grading?"
+							answer="Byorn has basic color adjustments. It's not designed to compete with DaVinci Resolve's industry-leading color science. The focus is on AI-powered editing workflows."
 						/>
 						<FAQ
 							question="Is DaVinci Resolve free?"
-							answer="DaVinci Resolve has a free version, but it's not open source. The Studio version costs $295 and is needed for features like neural engine, HDR grading, and some codecs. OpenCut AI is fully free and open source (MIT license)."
+							answer="DaVinci Resolve has a free version, but it's not open source. The Studio version costs $295 and is needed for features like neural engine, HDR grading, and some codecs. Byorn is fully free and open source (MIT license)."
 						/>
 						<FAQ
 							question="Can I use both together?"
-							answer="Absolutely. Many creators use OpenCut AI for AI transcription, filler removal, and subtitle generation, then export to DaVinci Resolve for color grading and final polish."
+							answer="Absolutely. Many creators use Byorn for AI transcription, filler removal, and subtitle generation, then export to DaVinci Resolve for color grading and final polish."
 						/>
 					</div>
 				</section>

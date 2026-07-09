@@ -1,6 +1,6 @@
 ---
 name: video-overlay-templates
-description: Create video overlay templates (lower thirds, callouts, titles, transitions) for the OpenCutAI editor. Each template is a React component rendered at 1920x1080 and captured to image via html2canvas for timeline placement.
+description: Create video overlay templates (lower thirds, callouts, titles, transitions) for the Byorn editor. Each template is a React component rendered at 1920x1080 and captured to image via html2canvas for timeline placement.
 ---
 
 This skill guides creation of video overlay templates — React components that render at 1920×1080, accept structured data props, and can be captured to image for placement on the video timeline.

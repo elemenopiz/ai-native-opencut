@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/llm", tags=["command"])
 
 COMMAND_SYSTEM_PROMPT = """\
-You are an AI assistant for a video editor called OpenCut AI. The user gives you \
+You are an AI assistant for a video editor called Byorn. The user gives you \
 natural-language editing commands and you respond with a JSON object containing \
 the actions to perform on the timeline.
 

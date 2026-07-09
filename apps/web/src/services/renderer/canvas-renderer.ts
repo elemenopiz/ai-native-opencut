@@ -143,7 +143,7 @@ export class CanvasRenderer {
 		// Scale relative to 1080p
 		const sf = Math.max(ch / 1080, 0.5);
 
-		const text = "Made with OpenCut AI";
+		const text = "Made with Byorn";
 		const logoSz = Math.round(48 * sf);
 		const fontSize = Math.round(32 * sf);
 		const pad = Math.round(18 * sf);

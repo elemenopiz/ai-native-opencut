@@ -5,7 +5,7 @@
  * we generate direct-to-source via BytePlus only (no reseller markup).
  */
 
-import { webEnv } from "@opencut-ai/env/web";
+import { webEnv } from "@byorn/env/web";
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -16,6 +16,15 @@ export type VideoMode = "text-to-video" | "image-to-video";
 export interface GenerateVideoParams {
 	prompt: string;
 	referenceImageUrl?: string;
+	/**
+	 * Seedance 2.0 omni-reference: reference media the model conditions on for
+	 * subject / style / scene — none is a fixed frame; the prompt @mentions them.
+	 * Publicly-fetchable URLs (R2) so BytePlus can pull them.
+	 */
+	referenceImages?: string[];
+	referenceVideos?: string[];
+	/** First & last frame mode: the end frame to transition to (flf2v). */
+	lastFrameUrl?: string;
 	seed?: number;
 	resolution: VideoResolution;
 	orientation: VideoOrientation;
@@ -69,17 +78,67 @@ async function byteplusSubmit(params: GenerateVideoParams): Promise<GenerateVide
 	const key = webEnv.BYTEPLUS_API_KEY;
 	if (!key) throw new Error("BYTEPLUS_API_KEY is not configured");
 
-	const modelId = webEnv.BYTEPLUS_SEEDANCE_ENDPOINT_ID || "doubao-seedance-2-0-260128";
+	// Seedance 2.0 multimodal model on BytePlus international. This is the
+	// MultimodalToVideo model that powers omni-reference. Note the `dreamina-`
+	// prefix — the `doubao-` IDs are Volcengine-China-only and 404 on BytePlus.
+	const modelId =
+		webEnv.BYTEPLUS_SEEDANCE_ENDPOINT_ID || "dreamina-seedance-2-0-260128";
+
+	// Build the multimodal content array. Order: prompt text, then the
+	// image-to-video first frame (if any), then any omni-reference images and
+	// videos. Each reference carries a `role` so Seedance 2.0 treats it as a
+	// conditioning reference rather than a frame to animate.
+	const content: Record<string, unknown>[] = [
+		{ type: "text", text: params.prompt },
+	];
+
+	// First frame — persona stills + First-&-last-frame mode. Only inject the
+	// reference as a frame to animate when the caller actually asked for an
+	// image-conditioned generation; a stray referenceImageUrl on a text-to-video
+	// request must not silently flip it into i2v. ModelArk REQUIRES a role on
+	// every image, so this is tagged `first_frame`: alone it's i2v mode, paired
+	// with a `last_frame` it's flf2v (verified against the live API).
+	if (params.referenceImageUrl && params.mode === "image-to-video") {
+		content.push({
+			type: "image_url",
+			image_url: { url: params.referenceImageUrl },
+			role: "first_frame",
+		});
+	}
+	if (params.lastFrameUrl) {
+		content.push({
+			type: "image_url",
+			image_url: { url: params.lastFrameUrl },
+			role: "last_frame",
+		});
+	}
+
+	// Omni-reference: each ref carries an explicit role so Seedance conditions on
+	// it (subject/style/scene) rather than animating it as a frame. The prompt
+	// @mentions them by order (the Nth reference_image is @ImageN). Roles per the
+	// ModelArk Seedance 2.0 spec: reference_image / reference_video.
+	for (const url of params.referenceImages ?? []) {
+		if (!url) continue;
+		content.push({
+			type: "image_url",
+			image_url: { url },
+			role: "reference_image",
+		});
+	}
+
+	for (const url of params.referenceVideos ?? []) {
+		if (!url) continue;
+		content.push({
+			type: "video_url",
+			video_url: { url },
+			role: "reference_video",
+		});
+	}
 
 	// Root-level fields (not a nested `parameters` object).
 	const body: Record<string, unknown> = {
 		model: modelId,
-		content: [
-			{ type: "text", text: params.prompt },
-			...(params.referenceImageUrl && params.mode === "image-to-video"
-				? [{ type: "image_url", image_url: { url: params.referenceImageUrl } }]
-				: []),
-		],
+		content,
 		resolution: params.resolution,
 		ratio: RATIO_BY_ORIENTATION[params.orientation],
 		duration: params.duration,

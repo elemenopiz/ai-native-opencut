@@ -39,8 +39,14 @@ export class MediaManager {
 			await storageService.saveMediaAsset({ projectId, mediaAsset: newAsset });
 		} catch (error) {
 			console.error("Failed to save media asset:", error);
+			// Roll the optimistic asset back out of the list, then rethrow so
+			// callers don't treat a failed save as success. Returning the id here
+			// (the old behavior) handed back a phantom asset that no longer exists,
+			// so callers counted it as added / built timeline elements referencing
+			// media that was never persisted.
 			this.assets = this.assets.filter((asset) => asset.id !== newAsset.id);
 			this.notify();
+			throw error;
 		}
 
 		return newAsset.id;

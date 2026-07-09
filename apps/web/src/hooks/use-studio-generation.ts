@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import type { VideoResolution, VideoOrientation, VideoMode } from "@/lib/studio/provider-adapter";
+import { waitForJobTerminal } from "@/stores/generation-status-store";
 
 export type GenerationStatus = "idle" | "submitting" | "polling" | "done" | "error";
 
@@ -14,6 +15,7 @@ export interface StudioTake {
 	videoUrl?: string;
 	error?: string;
 	resolution: VideoResolution;
+	orientation?: VideoOrientation;
 	prompt: string;
 	starred?: boolean;
 }
@@ -25,6 +27,9 @@ export interface UseStudioGenerationReturn {
 	generate: (params: {
 		prompt: string;
 		referenceImageUrl?: string;
+		referenceImages?: string[];
+		referenceVideos?: string[];
+		lastFrameUrl?: string;
 		seed?: number;
 		resolution: VideoResolution;
 		orientation: VideoOrientation;
@@ -41,9 +46,6 @@ export interface UseStudioGenerationReturn {
 	clearError: () => void;
 }
 
-const POLL_INTERVAL_MS = 4000;
-const MAX_POLLS = 120; // 8 min max
-
 export function useStudioGeneration(): UseStudioGenerationReturn {
 	const [status, setStatus] = useState<GenerationStatus>("idle");
 	const [activeTakes, setActiveTakes] = useState<StudioTake[]>([]);
@@ -51,54 +53,49 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 	const [historyLoaded, setHistoryLoaded] = useState(false);
 	const cancelRef = useRef(false);
 
-	// Shared poll loop — polls a job to a terminal state and patches the take by
-	// takeId. Used by both initial generation and promote-to-1080p so every
-	// pending take resolves instead of spinning forever.
+	// Shared poll — waits for a job to reach a terminal state and patches the
+	// take by takeId. Used by both initial generation and promote-to-1080p so
+	// every pending take resolves instead of spinning forever. Polling itself
+	// runs through the shared generation-status store, so any other watcher of
+	// the same jobId (timeline slot badge, Takes grid) joins one deduped
+	// interval instead of stacking its own fetch loop.
 	const pollJobToCompletion = useCallback(
 		async (takeId: string, jobId: string): Promise<"done" | "error" | "cancelled"> => {
-			for (let i = 0; i < MAX_POLLS; i++) {
-				if (cancelRef.current) return "cancelled";
+			if (cancelRef.current) return "cancelled";
 
-				await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+			const outcome = await waitForJobTerminal(jobId, {
+				isCancelled: () => cancelRef.current,
+			});
 
-				const pollRes = await fetch(`/api/studio/generate/${jobId}`);
-				if (!pollRes.ok) continue;
+			if (outcome === "cancelled") return "cancelled";
 
-				const poll = await pollRes.json() as {
-					status: string;
-					videoUrl?: string;
-					seed?: number;
-					error?: string;
-				};
+			if (outcome === "timeout") {
+				setActiveTakes((prev) =>
+					prev.map((t) =>
+						t.takeId === takeId ? { ...t, status: "error", error: "Generation timed out" } : t,
+					),
+				);
+				setError("Generation timed out");
+				return "error";
+			}
 
-				if (poll.status === "completed") {
-					setActiveTakes((prev) =>
-						prev.map((t) =>
-							t.takeId === takeId
-								? { ...t, status: "done", videoUrl: poll.videoUrl, seed: poll.seed ?? t.seed }
-								: t,
-						),
-					);
-					return "done";
-				}
-
-				if (poll.status === "failed") {
-					setActiveTakes((prev) =>
-						prev.map((t) =>
-							t.takeId === takeId ? { ...t, status: "error", error: poll.error } : t,
-						),
-					);
-					setError(poll.error ?? "Generation failed");
-					return "error";
-				}
+			if (outcome.status === "completed") {
+				setActiveTakes((prev) =>
+					prev.map((t) =>
+						t.takeId === takeId
+							? { ...t, status: "done", videoUrl: outcome.videoUrl, seed: outcome.seed ?? t.seed }
+							: t,
+					),
+				);
+				return "done";
 			}
 
 			setActiveTakes((prev) =>
 				prev.map((t) =>
-					t.takeId === takeId ? { ...t, status: "error", error: "Generation timed out" } : t,
+					t.takeId === takeId ? { ...t, status: "error", error: outcome.error } : t,
 				),
 			);
-			setError("Generation timed out");
+			setError(outcome.error ?? "Generation failed");
 			return "error";
 		},
 		[],
@@ -149,6 +146,7 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 					status: data.status === "completed" ? "done" : "polling",
 					videoUrl: data.videoUrl,
 					resolution: params.resolution,
+					orientation: params.orientation,
 					prompt: params.prompt,
 				};
 
@@ -187,6 +185,7 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 			seed: source?.seed,
 			status: "polling",
 			resolution: "1080p",
+			orientation: source?.orientation,
 			prompt: source?.prompt ?? "",
 		};
 		setActiveTakes((prev) => [promoted, ...prev]);
@@ -228,6 +227,7 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 				sets: Array<{
 					id: string;
 					prompt: string;
+					orientation?: string;
 					takes: Array<{
 						id: string;
 						setId: string;
@@ -259,6 +259,7 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 						videoUrl: take.videoUrl ?? undefined,
 						error: take.errorMessage ?? undefined,
 						resolution: take.resolution as VideoResolution,
+						orientation: set.orientation as VideoOrientation | undefined,
 						prompt: set.prompt,
 						starred: take.starred,
 					});

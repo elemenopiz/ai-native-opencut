@@ -1,6 +1,6 @@
 # Create AI Editor Component
 
-Create a new AI-related React component for the OpenCutAI editor.
+Create a new AI-related React component for the Byorn editor.
 
 ## Instructions
 

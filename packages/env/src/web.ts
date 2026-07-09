@@ -31,11 +31,14 @@ const webEnvSchema = z.object({
 	CLOUDFLARE_ACCOUNT_ID: z.string().default(""),
 	R2_ACCESS_KEY_ID: z.string().default(""),
 	R2_SECRET_ACCESS_KEY: z.string().default(""),
-	R2_BUCKET_NAME: z.string().default("opencut-transcription"),
+	R2_BUCKET_NAME: z.string().default("byorn-media"),
 	// Public read base for R2 objects (custom domain or r2.dev), e.g.
 	// https://media.yourapp.com — used to serve rehosted Studio media with
 	// permanent URLs. Leave blank to fall back to time-limited presigned URLs.
 	R2_PUBLIC_BASE_URL: z.string().default(""),
+	// Soft storage cap (bytes) to stay under R2's 10 GB free tier. New uploads
+	// are refused once the bucket reaches this size. 0 disables the guard.
+	R2_MAX_STORAGE_BYTES: z.coerce.number().default(9_500_000_000),
 	MODAL_TRANSCRIPTION_URL: z.url().optional(),
 
 	// ── Studio: direct-to-source video generation ─────────────────────────
@@ -45,7 +48,7 @@ const webEnvSchema = z.object({
 	// https://ark.cn-beijing.volces.com/api/v3 for Volcengine China accounts.
 	BYTEPLUS_BASE_URL: z.string().default(""),
 	// Endpoint IDs are user-specific in ModelArk; leave blank to use the
-	// default Seedance 2.0 model (doubao-seedance-2-0-260128).
+	// default Seedance 2.0 model (dreamina-seedance-2-0-260128 on BytePlus).
 	BYTEPLUS_SEEDANCE_ENDPOINT_ID: z.string().default(""),
 
 	// OpenAI — for GPT Image reference frame generation

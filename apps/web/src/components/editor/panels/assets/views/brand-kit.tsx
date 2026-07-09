@@ -75,8 +75,8 @@ const DEFAULT_BRAND: BrandConfig = {
 
 // ── Persistence ──
 
-const STORAGE_KEY = "opencut:brand-kit";
-const LOGO_STORAGE_KEY = "opencut:brand-kit-logo";
+const STORAGE_KEY = "byorn:brand-kit";
+const LOGO_STORAGE_KEY = "byorn:brand-kit-logo";
 
 /** Fields safe to serialize (everything except File/blob URL). */
 type SerializableBrand = Omit<BrandConfig, "logoFile" | "logoPreviewUrl"> & {

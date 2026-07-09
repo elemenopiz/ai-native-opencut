@@ -1,58 +1,57 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cn } from "@/utils/ui";
 import { TextEditingPanel } from "@/components/editor/ai/text-editing-panel";
 import { PropertiesPanel } from "@/components/editor/panels/properties";
+import { GenerateView } from "@/components/editor/panels/assets/views/generate";
 import { useTranscriptStore } from "@/stores/transcript-store";
 import { useElementSelection } from "@/hooks/timeline/element/use-element-selection";
 
-type RightTab = "transcript" | "properties";
+type RightTab = "generate" | "properties" | "transcript";
 
 /**
- * Tabbed right panel that shows both the Transcript editor and the
- * Properties inspector. When a transcript exists AND an element is
- * selected, both tabs are available. Otherwise only the relevant one
- * shows (no tabs needed).
+ * The always-open right panel. Generate lives here permanently (it is no longer
+ * a left-side tab) alongside the Properties inspector; Transcript joins as a
+ * third tab only when a transcript exists. Selecting a timeline element auto-
+ * focuses Properties so the clip's inspector (incl. the generative-slot takes
+ * filmstrip) is one click from any clip.
  */
 export function RightPanel({ className }: { className?: string }) {
 	const hasTranscript = useTranscriptStore((s) => s.segments.length > 0);
 	const { selectedElements } = useElementSelection();
 	const hasSelection = selectedElements.length > 0;
 
-	// Auto-switch to properties when an element is selected
-	const [activeTab, setActiveTab] = useState<RightTab>("transcript");
+	const [activeTab, setActiveTab] = useState<RightTab>("generate");
 
-	// Show tabs only when both transcript and timeline content exist
-	const showTabs = hasTranscript;
+	// When the user selects a clip, jump to its inspector. Only on the
+	// false→true edge so we don't fight a manual tab switch while a clip stays
+	// selected.
+	const prevHasSelection = useRef(hasSelection);
+	useEffect(() => {
+		if (hasSelection && !prevHasSelection.current) setActiveTab("properties");
+		prevHasSelection.current = hasSelection;
+	}, [hasSelection]);
 
-	// If no transcript, always show properties
-	if (!hasTranscript) {
-		return (
-			<div className={cn("panel bg-background h-full rounded-sm border overflow-hidden", className)}>
-				<PropertiesPanel />
-			</div>
-		);
-	}
-
-	// If transcript but no tabs needed (single view)
-	if (!showTabs) {
-		return (
-			<div className={cn("h-full", className)}>
-				<TextEditingPanel className="size-full" />
-			</div>
-		);
-	}
+	// Transcript tab disappears when there's no transcript — fall back gracefully.
+	useEffect(() => {
+		if (!hasTranscript && activeTab === "transcript") setActiveTab("generate");
+	}, [hasTranscript, activeTab]);
 
 	return (
-		<div className={cn("panel bg-background h-full rounded-sm border overflow-hidden flex flex-col", className)}>
+		<div
+			className={cn(
+				"panel bg-background h-full rounded-sm border overflow-hidden flex flex-col",
+				className,
+			)}
+		>
 			{/* Tab bar */}
 			<div className="flex items-center border-b shrink-0">
 				<TabButton
-					active={activeTab === "transcript"}
-					onClick={() => setActiveTab("transcript")}
+					active={activeTab === "generate"}
+					onClick={() => setActiveTab("generate")}
 				>
-					Transcript
+					Generate
 				</TabButton>
 				<TabButton
 					active={activeTab === "properties"}
@@ -61,14 +60,22 @@ export function RightPanel({ className }: { className?: string }) {
 				>
 					Properties
 				</TabButton>
+				{hasTranscript && (
+					<TabButton
+						active={activeTab === "transcript"}
+						onClick={() => setActiveTab("transcript")}
+					>
+						Transcript
+					</TabButton>
+				)}
 			</div>
 
 			{/* Tab content */}
 			<div className="flex-1 min-h-0 overflow-hidden">
-				{activeTab === "transcript" ? (
+				{activeTab === "generate" && <GenerateView />}
+				{activeTab === "properties" && <PropertiesPanel />}
+				{activeTab === "transcript" && hasTranscript && (
 					<TextEditingPanel className="size-full" />
-				) : (
-					<PropertiesPanel />
 				)}
 			</div>
 		</div>
@@ -98,9 +105,7 @@ function TabButton({
 			)}
 		>
 			{children}
-			{badge && (
-				<span className="size-1.5 rounded-full bg-primary shrink-0" />
-			)}
+			{badge && <span className="size-1.5 rounded-full bg-primary shrink-0" />}
 		</button>
 	);
 }

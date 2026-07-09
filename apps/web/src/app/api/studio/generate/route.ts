@@ -9,25 +9,21 @@ import {
 } from "@/lib/studio/provider-adapter";
 import { renderPersonaStill } from "@/lib/studio/persona-still";
 import { composePersonaVideoPrompt } from "@/lib/studio/personas";
-import type { ImageSize } from "@/lib/studio/image-generator";
+import { STILL_SIZE_BY_ORIENTATION } from "@/lib/studio/options";
 import { db } from "@/lib/db";
 import { generationSets, personas, takes } from "@/lib/db/schema-studio";
 
 /** Max value BytePlus accepts for a seed (signed 32-bit). */
 const MAX_SEED = 2_147_483_647;
 
-/** Reference-still aspect to match the video orientation (High consistency). */
-const STILL_SIZE_BY_ORIENTATION: Record<VideoOrientation, ImageSize> = {
-	portrait: "1024x1536",
-	landscape: "1536x1024",
-	square: "1024x1024",
-};
-
 export async function POST(req: Request) {
 	try {
 		const body = await req.json() as {
 			prompt: string;
 			referenceImageUrl?: string;
+			referenceImages?: string[];
+			referenceVideos?: string[];
+			lastFrameUrl?: string;
 			seed?: number;
 			resolution?: VideoResolution;
 			orientation?: VideoOrientation;
@@ -41,6 +37,9 @@ export async function POST(req: Request) {
 		const {
 			prompt,
 			referenceImageUrl,
+			referenceImages,
+			referenceVideos,
+			lastFrameUrl,
 			seed,
 			resolution = "720p",
 			orientation = "landscape",
@@ -64,7 +63,6 @@ export async function POST(req: Request) {
 		let finalPrompt = prompt;
 		let finalReferenceImageUrl = referenceImageUrl;
 		let finalMode: VideoMode = mode;
-		let personaSeed: number | undefined;
 
 		if (personaId) {
 			const persona = await db.query.personas.findFirst({
@@ -76,10 +74,16 @@ export async function POST(req: Request) {
 
 			finalPrompt = composePersonaVideoPrompt(prompt, persona.descriptor);
 			finalMode = "image-to-video";
-			personaSeed = persona.seed ?? undefined;
 
 			if (consistencyMode === "fast") {
 				finalReferenceImageUrl = persona.anchorImageUrl;
+			} else if (referenceImageUrl) {
+				// High consistency: the client pre-renders ONE reference still for the
+				// whole batch and passes it here, so every draft shares an identical
+				// frame (drafts stay comparable, promote-to-1080p reproduces the exact
+				// shot) and we pay for a single gpt-image render instead of one per
+				// draft. Fall through to rendering only when no still was supplied.
+				finalReferenceImageUrl = referenceImageUrl;
 			} else {
 				const refImageUrls = persona.refImageUrls
 					? (JSON.parse(persona.refImageUrls) as string[])
@@ -95,13 +99,18 @@ export async function POST(req: Request) {
 			}
 		}
 
-		// Always pin a concrete seed. If the caller didn't lock one, fall back to
-		// the persona's locked seed, else pick a random seed ourselves rather than
-		// letting the provider choose silently — otherwise "generate 4 drafts,
+		// Always pin a concrete seed. If the caller locked one, clamp it into the
+		// provider's accepted range; otherwise pick a random seed ourselves rather
+		// than letting the provider choose silently — otherwise "generate 4 drafts,
 		// promote the winner at 1080p" can't reproduce the shot, because the
-		// provider doesn't reliably echo back the seed it used.
+		// provider doesn't reliably echo back the seed it used. We deliberately do
+		// NOT fall back to a persona-level seed here: a batch of unlocked drafts
+		// must each get a fresh random seed so the variations actually differ;
+		// reproducibility comes from the per-take seed we persist below.
 		const effectiveSeed =
-			seed ?? personaSeed ?? Math.floor(Math.random() * MAX_SEED);
+			seed != null
+				? Math.min(Math.max(0, Math.floor(seed)), MAX_SEED)
+				: Math.floor(Math.random() * MAX_SEED);
 
 		// Persist the generation set
 		const setId = nanoid();
@@ -122,6 +131,9 @@ export async function POST(req: Request) {
 		const result = await generateVideo({
 			prompt: finalPrompt,
 			referenceImageUrl: finalReferenceImageUrl,
+			referenceImages,
+			referenceVideos,
+			lastFrameUrl,
 			seed: effectiveSeed,
 			resolution,
 			orientation,

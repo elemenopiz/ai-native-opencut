@@ -1,33 +1,33 @@
 <table width="100%">
   <tr>
     <td align="left" width="120">
-      <img src="apps/web/public/favicon.png" alt="OpenCut AI Logo" width="80" />
+      <img src="apps/web/public/favicon.png" alt="Byorn Logo" width="80" />
     </td>
     <td align="right">
-      <h1>OpenCut AI</h1>
+      <h1>Byorn</h1>
       <h3 style="margin-top: -10px;">The privacy-first, open-source AI video editor.</h3>
-      <p>Self-host. Edit by text. Clone voices. Remove fillers. No cloud, no subscriptions, no data leaving your machine.</p>
+      <p>Self-host. Edit by text. Direct AI video generation. Local-first by default, with only the few cloud APIs that are worth the cost.</p>
     </td>
   </tr>
 </table>
 
-## Why OpenCut AI?
+## Why Byorn?
 
-Every major video editor sends your footage to the cloud. OpenCut AI doesn't.
+Every major video editor sends your footage to the cloud. Byorn doesn't unless a feature genuinely needs a frontier media model.
 
-| | OpenCut AI | Descript | CapCut | DaVinci Resolve |
+| | Byorn | Descript | CapCut | DaVinci Resolve |
 |---|---|---|---|---|
 | **Self-hosted** | Yes | No | No | No |
 | **Open source** | Yes | No | No | No |
 | **Data stays local** | Always | Cloud | Cloud (ByteDance) | Local |
 | **AI editing** | Yes | Yes | Yes | Limited |
-| **AI video generation** | 9 models, 5 providers | No | No | No |
+| **AI video generation** | Direct Seedance + GPT Image consistency | No | No | No |
 | **A/B testing** | Thumbnails + Hooks | No | No | No |
 | **Engagement analytics** | Yes (7 signals) | No | No | No |
 | **Cost** | Free (your server) | $24–65/mo | Free with watermark | $295 one-time |
 | **Per-seat pricing** | No | Yes | No | No |
 
-**OpenCut AI is the only self-hosted, open-source video editor with AI built in.** Run it on a $20/mo server or your laptop. Your footage, your models, your rules.
+**Byorn is a local-first, open-source video editor with AI built in.** Run it on a laptop or a small server. Your footage stays local by default; cloud APIs are reserved for the pieces where local alternatives are not good enough yet.
 
 ## Features
 
@@ -36,7 +36,7 @@ Every major video editor sends your footage to the cloud. OpenCut AI doesn't.
 - **Edit by text** — Transcribe, then edit video like a document. Delete a sentence and the timeline cuts itself.
 - **Smart Cut** — One-click filler word removal ("um", "uh", "like") and silence detection. Runs locally via FFmpeg.
 - **AI transcription** — Whisper-powered speech-to-text with word-level timestamps. GPU or CPU.
-- **Voice cloning & TTS** — Clone any voice from a 6-second sample. Supports [Sarvam AI](https://www.sarvam.ai/) for 22 Indian languages and [Smallest AI](https://www.smallest.ai/) for 15 languages with 80+ voices.
+- **Voice cloning & TTS** — Clone any voice from a 6-second sample. Local TTS remains the default direction; cloud speech providers are optional add-ons, not core infrastructure.
 - **AI Auto-Duck** — Automatically lowers background music during speech segments with configurable duck amount and fade.
 - **AI Music Generation** — Generate royalty-free background music with 15 genres, 12 moods, and 3 tempo settings. Preview and insert directly to the timeline.
 - **AI Thumbnail Generator** — Create eye-catching thumbnails from prompts or transcript analysis. 5 styles, 4 size presets, 5 color schemes, up to 4 variations at once.
@@ -51,7 +51,7 @@ Every major video editor sends your footage to the cloud. OpenCut AI doesn't.
 - **A/B Thumbnail Testing** — Generate up to 4 thumbnail variants, auto-score each on contrast, text readability, face presence, color vibrancy, and composition. Winner gets a "Recommended" badge. TubeBuddy charges $15/mo for this.
 - **A/B Hook Testing** — Generate 5 hook variants from your transcript, each scored for engagement potential. Compare side-by-side and pick the best opening.
 - **Engagement Analytics Dashboard** — Track score history over time. Avg composite, grade distribution, per-signal breakdown, strongest/weakest signals, trend chart.
-- **AI Video Generation Hub** — Generate video from text, image, or video using 9 models across 5 providers (Runway Gen-3 Alpha, Pika 1.0, Kling v1.6 Pro, MiniMax, Stable Video Diffusion, Seedance 2.0, Luma Dream Machine, CogVideoX). 3 modes, 6 aspect ratios, prompt enhancement, one-click add to timeline.
+- **AI Video Generation Hub** — Generate storyboarded shots through direct BytePlus ModelArk / Seedance, with OpenAI GPT Image reference frames for character/product consistency and R2 for durable media URLs.
 - **Smart Reframe** — AI-powered face detection generates position/scale keyframes to keep subjects centered when converting landscape to vertical. 4 presets: TikTok 9:16, Square, Instagram 4:5, YouTube 16:9.
 - **Chroma Key / Green Screen** — WebGL shader-based color keying with 5 presets, tolerance, softness, and spill suppression controls.
 - **Motion Tracking** — Client-side template matching (normalized cross-correlation) that generates transform keyframes. Runs entirely in the browser.
@@ -95,8 +95,8 @@ Every major video editor sends your footage to the cloud. OpenCut AI doesn't.
 ### Infrastructure
 
 - **TurboQuant inference** — KV cache compression down to 2-bit on GPU, 3-bit on CPU, with a compute mode toggle (Auto / CPU / GPU).
-- **Kimi K2 & Kimi VL** — MoonshotAI's open-source Kimi models are fully supported: Kimi K2 (1T/32B active MoE) via Ollama GGUF (Q3/Q4/Q5) for every tier, and Kimi VL A3B (vision-language, 3B active) via TurboQuant for multimodal scene analysis.
-- **All data local** — Files stored in OPFS (Origin Private File System). Nothing leaves the browser or your server.
+- **Local Director brain** — Ollama/open-weight models remain the default orchestration path. Cheap hosted LLMs can be added later as fallbacks, but the product philosophy is local-first unless the hosted path is clearly better.
+- **Local-first storage** — Project files live in OPFS (Origin Private File System). Cloud calls are reserved for explicit generation flows that need BytePlus, OpenAI, or R2.
 - **Docker-ready** — One command to start the full stack. BuildKit cache mounts, CPU-only PyTorch wheels, and parallel builds keep rebuilds fast.
 
 ## Project Structure
@@ -137,8 +137,9 @@ packages/             — Shared packages (env, UI)
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/Ekaanth/OpenCut-AI.git
-   cd OpenCut-AI
+   # TODO: replace with the real Byorn repo URL once published
+   git clone https://github.com/your-org/byorn.git
+   cd byorn
    ```
 
 2. Copy the environment file:
@@ -232,6 +233,18 @@ python run.py
 
 Configure AI models in the **Settings > AI Models** panel inside the editor.
 
+### Core Cloud APIs
+
+Byorn keeps local alternatives wherever they are good enough. The current core cloud stack is intentionally small:
+
+| Provider | Purpose | Required for full Studio/Director generation? |
+| --- | --- | --- |
+| BytePlus ModelArk | Direct Seedance video generation, without reseller markup | Yes |
+| OpenAI | GPT Image reference frames for consistent personas/products/scenes | Yes |
+| Cloudflare R2 | Durable storage for generated videos and reference stills | Yes for production |
+
+Everything else is optional or legacy. Replicate, PiAPI Seedance, Stability, Luma, Sarvam, Smallest, Freesound, Pexels, YouTube OAuth, analytics, and CMS keys should only be configured when intentionally enabling those specific non-core features.
+
 #### Optional dependencies
 
 | Dependency               | Purpose                                 | Required?                          |
@@ -289,7 +302,7 @@ Open the editor → **Settings → AI Optimization → Compute Mode** and pick o
 - **CPU** — force CPU inference. Works on any host; `CPUTurboBackend` kicks in.
 - **GPU (CUDA)** — force NVIDIA GPU. Button is greyed out (with a tooltip) when no GPU is detected.
 
-The selector shows a live "Running on: `<device>`" status line and a badge with the **actual** KV compression ratio from the most recent inference request. Selecting a new mode writes `OPENCUTAI_AI_COMPUTE_MODE` to `.env`, reloads the in-memory backend config, and reloads the model on the new device.
+The selector shows a live "Running on: `<device>`" status line and a badge with the **actual** KV compression ratio from the most recent inference request. Selecting a new mode writes `BYORN_AI_COMPUTE_MODE` to `.env`, reloads the in-memory backend config, and reloads the model on the new device.
 
 #### Running with a GPU (Docker) — reference
 
@@ -364,7 +377,7 @@ The turboquant-service is designed to run on a private Docker network behind the
 | -------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `TRUST_REMOTE_CODE`  | `false` | When `true`, HuggingFace model repos can execute arbitrary Python on load (`AutoTokenizer` / `AutoModelForCausalLM` with `trust_remote_code=True`). Only opt in for models you fully trust. |
 | `CORS_ORIGINS`       | `*`     | Comma-separated list of allowed origins. Wildcard mode intentionally runs with `allow_credentials=False` (forbidden-by-spec combo otherwise); set an explicit list to enable credentialed CORS. |
-| `DEVICE`             | `auto`  | Pinned by docker-compose to `${OPENCUTAI_AI_COMPUTE_MODE:-auto}` so the UI toggle drives it. `auto`/`cpu`/`cuda`/`mps` all accepted.                                  |
+| `DEVICE`             | `auto`  | Pinned by docker-compose to `${BYORN_AI_COMPUTE_MODE:-auto}` so the UI toggle drives it. `auto`/`cpu`/`cuda`/`mps` all accepted.                                  |
 
 The service also validates all `model_id` inputs against the strict HuggingFace `org/name` pattern (rejects path traversal and control characters) and caps every request body field (`content`, `prompt`, `messages`) at a reasonable length to prevent memory-exhaustion DOS. The ai-backend's `POST /api/config/update` endpoint rejects any value containing newlines, carriage returns, or NUL bytes before writing to `.env`, so the compute-mode toggle can't be abused to smuggle arbitrary env vars.
 
@@ -380,7 +393,7 @@ The app will be available at [http://localhost:3100](http://localhost:3100).
 
 ## Self-Hosting Costs
 
-OpenCut AI runs entirely on your own infrastructure — no per-seat fees, no API metering, no usage limits. The only cost is the server itself.
+Byorn runs mostly on your own infrastructure — no per-seat fees and no cloud by default. The only core metered APIs are BytePlus for video generation, OpenAI for consistency stills, and R2 for durable generated media.
 
 ### Recommended Configurations
 
@@ -413,7 +426,7 @@ OpenCut AI runs entirely on your own infrastructure — no per-seat fees, no API
 | Ollama (LLM)            | 1–5 GB    | Medium                    | 2–5x faster          | Depends on model size                    |
 | TurboQuant (LLM)        | 1–3 GB    | Medium                    | 2–5x faster          | 2-bit KV cache, lower memory than Ollama |
 | Whisper (transcription) | ~1 GB     | High during transcription | 10x faster           | `base` model uses ~1 GB                  |
-| TTS (voice generation)  | ~2 GB     | High during generation    | 5x faster            | XTTS v2, Sarvam AI, Smallest AI          |
+| TTS (voice generation)  | ~2 GB     | High during generation    | 5x faster            | XTTS v2 / local-first speech stack       |
 | Image generation        | ~3 GB     | Very high                 | Required practically | Stable Diffusion needs GPU               |
 | YouTube-to-Reels        | ~500 MB   | High during processing    | Moderate             | yt-dlp + clip detection + face reframe   |
 | Engagement scoring      | ~100 MB   | Medium during analysis    | None                 | Hook, energy, face, emotion analysis     |
@@ -426,7 +439,7 @@ OpenCut AI runs entirely on your own infrastructure — no per-seat fees, no API
 
 ### Cost Comparison
 
-|                  | OpenCut AI (self-hosted)   | Descript      | Kapwing       | Runway        |
+|                  | Byorn (local-first)        | Descript      | Kapwing       | Runway        |
 | ---------------- | -------------------------- | ------------- | ------------- | ------------- |
 | Monthly cost     | **$20–150** (server only)  | $24–33/user   | $24–79/user   | $12–76/user   |
 | Per-seat pricing | **No**                     | Yes           | Yes           | Yes           |
@@ -441,44 +454,12 @@ OpenCut AI runs entirely on your own infrastructure — no per-seat fees, no API
 - **Education** — install once in a lab, no per-seat licenses
 - **Developers** — fully open source, extend and contribute
 - **Subscription-fatigued creators** — pay for a server, not a subscription
-- **Indian market** — 22 Indian languages via Sarvam AI is unmatched by any competitor
+- **Local-first market** — local transcription, local orchestration, and minimal cloud media generation keep costs and privacy aligned
 
 ## Attribution
 
-This project is a fork of [OpenCut](https://github.com/OpenCut-app/OpenCut). We gratefully acknowledge the OpenCut team and all upstream contributors for the core video editor that makes this possible.
+Byorn is built on top of [OpenCut](https://github.com/OpenCut-app/OpenCut), an MIT-licensed open-source video editor. We gratefully acknowledge the OpenCut team and all upstream contributors for the core editor that makes Byorn possible.
 
 ## License
 
 [MIT LICENSE](LICENSE)
-
-
-## ❤️ Support This Project
-
-OpenCut-AI is an independent, open-source project maintained in my free time.  
-If it has helped you or saved you time, your support keeps development active and new features coming!
-
-### Ways to Support
-
-<a href="https://buymeacoffee.com/humblefool">
-  <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me a Coffee" style="height: 60px !important;width: 217px !important;" />
-</a>
-
-<br>
-
-- 💰 [Donate via PayPal](https://paypal.me/humblefool06)
-
-You can also click the **Sponsor** button on the top-right of this repository page (thanks to the `.github/FUNDING.yml` file).
-
-
-## Star History
-
-<a href="https://www.star-history.com/?repos=Ekaanth%2FOpenCut-AI&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=Ekaanth/OpenCut-AI&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=Ekaanth/OpenCut-AI&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=Ekaanth/OpenCut-AI&type=date&legend=top-left" />
- </picture>
-</a>
-
-Every contribution — big or small — is deeply appreciated! 🙏  
-Thank you for supporting independent open source!

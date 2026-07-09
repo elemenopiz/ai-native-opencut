@@ -36,3 +36,20 @@ ai-models/
 ai-generated/
 
 *.md
+
+# ...but keep intentionally-tracked docs, notices, and prompt playbooks
+!THIRD_PARTY_NOTICES.md
+!apps/web/src/lib/studio/playbooks/*.md
+!apps/web/docs/poach/*.md
+!CLAUDE.md
+!.claude/skills/**/*.md
+
+# graphify knowledge-graph build output (regenerate with /graphify .)
+graphify-out/
+
+# gitnexus knowledge-graph build output (regenerate with `npx gitnexus analyze`)
+.gitnexus/
+
+# per-machine Claude Code state (never share across machines/worktrees)
+.claude/settings.local.json
+.claude/worktrees/

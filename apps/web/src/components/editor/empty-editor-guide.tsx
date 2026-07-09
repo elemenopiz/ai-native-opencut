@@ -48,7 +48,13 @@ const GUIDE_STEPS: GuideStep[] = [
  * Shows a visual guide when the editor has no content.
  * Replaces the empty Properties panel for first-time users.
  */
-export function EmptyEditorGuide({ className }: { className?: string }) {
+export function EmptyEditorGuide({
+	className,
+	onDismiss,
+}: {
+	className?: string;
+	onDismiss?: () => void;
+}) {
 	const savedIdeas = useAIStore((s) => s.savedIdeas);
 	const removeIdea = useAIStore((s) => s.removeIdea);
 
@@ -87,6 +93,17 @@ export function EmptyEditorGuide({ className }: { className?: string }) {
 					Press <kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">Ctrl+K</kbd> for AI commands
 				</p>
 			</div>
+
+			{onDismiss && (
+				<Button
+					size="sm"
+					variant="outline"
+					className="text-xs"
+					onClick={onDismiss}
+				>
+					Okay, I&apos;ve read this
+				</Button>
+			)}
 
 			{/* Ideas Board */}
 			{savedIdeas.length > 0 && (

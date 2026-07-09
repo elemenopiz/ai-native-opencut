@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { BasePage } from "@/app/base-page";
-import { GitHubContributeSection } from "@/components/gitHub-contribute-section";
 import { Badge } from "@/components/ui/badge";
 import { ReactMarkdownWrapper } from "@/components/ui/react-markdown-wrapper";
 import { cn } from "@/utils/ui";
@@ -21,24 +20,6 @@ interface RoadmapItem {
 }
 
 const roadmapItems: RoadmapItem[] = [
-	{
-		title: "OpenCut — the foundation",
-		description:
-			"[OpenCut](https://github.com/OpenCut-app/OpenCut) is the open-source video editor this project is forked from. It provides the core editor — multi-track timeline, real-time preview, text/sticker/effect tracks, keyboard shortcuts, and browser-based storage. Huge thanks to the OpenCut team and all upstream contributors.",
-		status: {
-			text: "Upstream",
-			type: "complete",
-		},
-	},
-	{
-		title: "Fork & AI integration",
-		description:
-			"[OpenCut AI](https://github.com/Ekaanth/OpenCut-AI) is a fork that wraps AI capabilities around the core editor. The goal: make video editing accessible to non-editors by letting them edit videos through text, voice, and AI commands — all running locally.",
-		status: {
-			text: "Completed",
-			type: "complete",
-		},
-	},
 	{
 		title: "AI transcription & text-based editing",
 		description:
@@ -150,7 +131,7 @@ const roadmapItems: RoadmapItem[] = [
 	{
 		title: "Native app (mobile/desktop)",
 		description:
-			"Native OpenCut AI apps for Mac, Windows, Linux, and iOS/Android.",
+			"Native Byorn apps for Mac, Windows, Linux, and iOS/Android.",
 		status: {
 			text: "Not started",
 			type: "default",
@@ -159,28 +140,28 @@ const roadmapItems: RoadmapItem[] = [
 ];
 
 export const metadata: Metadata = {
-	title: "Roadmap - OpenCut AI",
+	title: "Roadmap - Byorn",
 	description:
-		"See what's coming next for OpenCut AI - the free, open-source video editor that respects your privacy.",
+		"See what's coming next for Byorn - the free, open-source video editor that respects your privacy.",
 	openGraph: {
-		title: "OpenCut AI Roadmap - What's Coming Next",
+		title: "Byorn Roadmap - What's Coming Next",
 		description:
-			"See what's coming next for OpenCut AI - the free, open-source video editor that respects your privacy.",
+			"See what's coming next for Byorn - the free, open-source video editor that respects your privacy.",
 		type: "website",
 		images: [
 			{
 				url: "/open-graph/roadmap.jpg",
 				width: 1200,
 				height: 630,
-				alt: "OpenCut AI Roadmap",
+				alt: "Byorn Roadmap",
 			},
 		],
 	},
 	twitter: {
 		card: "summary_large_image",
-		title: "OpenCut AI Roadmap - What's Coming Next",
+		title: "Byorn Roadmap - What's Coming Next",
 		description:
-			"See what's coming next for OpenCut AI - the free, open-source video editor that respects your privacy.",
+			"See what's coming next for Byorn - the free, open-source video editor that respects your privacy.",
 		images: ["/open-graph/roadmap.jpg"],
 	},
 };
@@ -189,7 +170,7 @@ export default function RoadmapPage() {
 	return (
 		<BasePage
 			title="Roadmap"
-			description={`OpenCut AI is a fork of OpenCut with AI wrapped around it. Here's what's been built and what's next. (last updated: ${LAST_UPDATED})`}
+			description={`Byorn is a local-first AI video editor. Here's what's been built and what's next. (last updated: ${LAST_UPDATED})`}
 		>
 			<div className="mx-auto flex max-w-4xl flex-col gap-16">
 				<div className="flex flex-col gap-6">
@@ -197,12 +178,6 @@ export default function RoadmapPage() {
 						<RoadmapItem key={item.title} item={item} index={index} />
 					))}
 				</div>
-				<GitHubContributeSection
-					title="Want to help?"
-					description="OpenCut AI is open source and built by the community. Every contribution,
-          no matter how small, helps us build the best free video editor
-          possible."
-				/>
 			</div>
 		</BasePage>
 	);

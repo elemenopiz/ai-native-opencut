@@ -139,7 +139,7 @@ export const useKeybindingsStore = create<KeybindingsState>()(
 			},
 		}),
 		{
-			name: "opencut-keybindings",
+			name: "byorn-keybindings",
 			version: CURRENT_VERSION,
 			partialize: (state) => ({
 				keybindings: state.keybindings,

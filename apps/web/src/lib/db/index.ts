@@ -2,7 +2,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "./schema";
 import * as studioSchema from "./schema-studio";
-import { webEnv } from "@opencut-ai/env/web";
+import { webEnv } from "@byorn/env/web";
 
 const combinedSchema = { ...schema, ...studioSchema };
 

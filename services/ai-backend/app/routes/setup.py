@@ -254,7 +254,7 @@ _ALLOWED_CONFIG_KEYS = {
 
 class ConfigUpdateRequest(BaseModel):
     updates: dict[str, str | int] = Field(
-        ..., description="Key-value pairs to update. Keys are setting names without the OPENCUTAI_ prefix."
+        ..., description="Key-value pairs to update. Keys are setting names without the BYORN_ prefix."
     )
 
 
@@ -306,7 +306,7 @@ def _update_env_file(updates: dict[str, str]) -> None:
 
     # Update or append
     for key, value in updates.items():
-        env_key = f"OPENCUTAI_{key}"
+        env_key = f"BYORN_{key}"
         if env_key in key_line_map:
             existing_lines[key_line_map[env_key]] = f"{env_key}={value}"
         else:

@@ -24,7 +24,7 @@ export class WatermarkNode extends BaseNode<WatermarkNodeParams> {
 		time: number;
 	}) {
 		const ctx = renderer.context;
-		const { canvasWidth, canvasHeight, text = "Made with OpenCut AI" } =
+		const { canvasWidth, canvasHeight, text = "Made with Byorn" } =
 			this.params;
 
 		const s = (v: number) => scale(v, canvasHeight);

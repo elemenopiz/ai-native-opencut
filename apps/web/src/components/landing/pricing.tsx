@@ -84,12 +84,12 @@ const tiers: PricingTier[] = [
 ];
 
 const comparisons = [
-	{ feature: "Monthly cost", opencut: "$0–150", descript: "$24–33/user", kapwing: "$24–79/user", runway: "$12–76/user" },
-	{ feature: "Per-seat pricing", opencut: "No", descript: "Yes", kapwing: "Yes", runway: "Yes" },
-	{ feature: "Usage limits", opencut: "None", descript: "Minutes", kapwing: "Credits", runway: "Credits" },
-	{ feature: "Data privacy", opencut: "Your server", descript: "Cloud", kapwing: "Cloud", runway: "Cloud" },
-	{ feature: "AI models", opencut: "Open-source", descript: "Proprietary", kapwing: "Proprietary", runway: "Proprietary" },
-	{ feature: "Self-hostable", opencut: "Yes", descript: "No", kapwing: "No", runway: "No" },
+	{ feature: "Monthly cost", byorn: "$0–150", descript: "$24–33/user", kapwing: "$24–79/user", runway: "$12–76/user" },
+	{ feature: "Per-seat pricing", byorn: "No", descript: "Yes", kapwing: "Yes", runway: "Yes" },
+	{ feature: "Usage limits", byorn: "None", descript: "Minutes", kapwing: "Credits", runway: "Credits" },
+	{ feature: "Data privacy", byorn: "Your server", descript: "Cloud", kapwing: "Cloud", runway: "Cloud" },
+	{ feature: "AI models", byorn: "Open-source", descript: "Proprietary", kapwing: "Proprietary", runway: "Proprietary" },
+	{ feature: "Self-hostable", byorn: "Yes", descript: "No", kapwing: "No", runway: "No" },
 ];
 
 export function Pricing() {

@@ -5,7 +5,7 @@ import { Toaster } from "../components/ui/sonner";
 import { TooltipProvider } from "../components/ui/tooltip";
 import { baseMetaData } from "./metadata";
 import { BotIdClient } from "botid/client";
-import { webEnv } from "@opencut-ai/env/web";
+import { webEnv } from "@byorn/env/web";
 import { Inter } from "next/font/google";
 import { JsonLd } from "@/components/seo/json-ld";
 import { GoogleAnalytics } from "@/components/seo/google-analytics";

@@ -1,0 +1,42 @@
+[    2059ms] [LOG] %c[·] %cReact Scan font-weight:bold;color:#7a68e8;font-size:20px; font-weight:bold;font-size:14px; @ http://unpkg.com/react-scan/dist/auto.global.js:1
+[    2212ms] [LOG] [HMR] connected @ http://localhost:3000/_next/static/chunks/a5e25_next_dist_7323f808._.js:2297
+[    2423ms] [WARNING] [React Scan] react-grab v0.1.32 is outdated (latest: v0.1.47). Update react-scan to pick up the newer react-grab. @ http://localhost:3000/_next/static/chunks/a5e25_next_dist_7323f808._.js:2297
+[    5460ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/a5e25_next_dist_7323f808._.js:2297
+[    5652ms] [LOG] [Fast Refresh] done in 293ms @ http://localhost:3000/_next/static/chunks/a5e25_next_dist_7323f808._.js:2297
+[    6224ms] [WARNING] Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}. @ http://localhost:3000/_next/static/chunks/a5e25_next_dist_7323f808._.js:2297
+[    6231ms] [WARNING] Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}. @ http://localhost:3000/_next/static/chunks/a5e25_next_dist_7323f808._.js:2297
+[    6316ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/services/health:0
+[    6317ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[    6371ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[    6428ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[    6446ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/services/health:0
+[    6447ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[    6464ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[    6481ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/services/health:0
+[    6481ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[    6498ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[    6515ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[    6534ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[    6548ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/services/health:0
+[    6549ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[    6579ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[    6579ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:11434/:0
+[    6579ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8421/health:0
+[    6579ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8422/health:0
+[    6579ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8423/health:0
+[    6584ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8421/health:0
+[    6584ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[    6584ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:11434/:0
+[    6584ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8422/health:0
+[    6584ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8423/health:0
+[    6584ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[    6584ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:11434/:0
+[    6584ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8421/health:0
+[    6584ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8422/health:0
+[    6584ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8423/health:0
+[    6585ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[    6585ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:11434/:0
+[    6585ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8421/health:0
+[    6585ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8422/health:0
+[    6585ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8423/health:0
+[    6616ms] [ERROR] Failed to initialize version control: ConstraintError: Unable to add key to index 'by-name': at least one key does not satisfy the uniqueness requirements. @ http://localhost:3000/_next/static/chunks/a5e25_next_dist_7323f808._.js:3127

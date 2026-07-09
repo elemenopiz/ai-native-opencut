@@ -7,16 +7,15 @@ import {
 	AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Separator } from "@/components/ui/separator";
-import { SOCIAL_LINKS } from "@/constants/site-constants";
 
 export const metadata: Metadata = {
-	title: "Privacy Policy - OpenCut AI",
+	title: "Privacy Policy - Byorn",
 	description:
-		"Learn how OpenCut AI handles your data and privacy. Our commitment to protecting your information while you edit videos.",
+		"Learn how Byorn handles your data and privacy. Our commitment to protecting your information while you edit videos.",
 	openGraph: {
-		title: "Privacy Policy - OpenCut AI",
+		title: "Privacy Policy - Byorn",
 		description:
-			"Learn how OpenCut AI handles your data and privacy. Our commitment to protecting your information while you edit videos.",
+			"Learn how Byorn handles your data and privacy. Our commitment to protecting your information while you edit videos.",
 		type: "website",
 	},
 };
@@ -62,7 +61,7 @@ export default function PrivacyPage() {
 				<h2 className="text-2xl font-semibold">How We Handle Your Content</h2>
 				<p>
 					<strong>Everything runs locally.</strong>{" "}
-					OpenCut AI is a self-hosted application. All video editing, AI transcription,
+					Byorn is a self-hosted application. All video editing, AI transcription,
 					voice generation, image generation, and other AI features run on your
 					machine or your self-hosted server. No data is sent to any external cloud service.
 				</p>
@@ -117,7 +116,7 @@ export default function PrivacyPage() {
 			<section className="flex flex-col gap-3">
 				<h2 className="text-2xl font-semibold">Analytics & Tracking</h2>
 				<p>
-					OpenCut AI does not include any analytics, telemetry, or tracking.
+					Byorn does not include any analytics, telemetry, or tracking.
 					No data is sent to any external service. The application operates
 					entirely offline once loaded.
 				</p>
@@ -139,7 +138,7 @@ export default function PrivacyPage() {
 
 			<section className="flex flex-col gap-3">
 				<h2 className="text-2xl font-semibold">Third-Party Services</h2>
-				<p>By default, OpenCut AI does not connect to any third-party services. Optional integrations:</p>
+				<p>By default, Byorn does not connect to any third-party services. Optional integrations:</p>
 				<ul className="list-disc space-y-2 pl-6">
 					<li>
 						<strong>Freesound:</strong> Sound library search (requires API key in Settings)
@@ -168,21 +167,9 @@ export default function PrivacyPage() {
 			<section className="flex flex-col gap-3">
 				<h2 className="text-2xl font-semibold">Open Source Transparency</h2>
 				<p>
-					OpenCut AI is completely open source. You can review our code, see
-					exactly how we handle data, and even self-host the application if you
+					Byorn is completely open source. You can review the code, see
+					exactly how data is handled, and even self-host the application if you
 					prefer.
-				</p>
-				<p>
-					View our source code on{" "}
-					<a
-						href={SOCIAL_LINKS.github}
-						target="_blank"
-						rel="noopener"
-						className="text-primary hover:underline"
-					>
-						GitHub
-					</a>
-					.
 				</p>
 			</section>
 
@@ -190,25 +177,7 @@ export default function PrivacyPage() {
 				<h2 className="text-2xl font-semibold">Contact Us</h2>
 				<p>Questions about this privacy policy or how we handle your data?</p>
 				<p>
-					Open an issue on our{" "}
-					<a
-						href={`${SOCIAL_LINKS.github}/issues`}
-						target="_blank"
-						rel="noopener"
-						className="text-primary hover:underline"
-					>
-						GitHub repository
-					</a>
-					, or reach out on{" "}
-					<a
-						href={SOCIAL_LINKS.x}
-						target="_blank"
-						rel="noopener"
-						className="text-primary hover:underline"
-					>
-						X (Twitter)
-					</a>
-					.
+					Reach out to the Byorn team and we'll be happy to help.
 				</p>
 			</section>
 

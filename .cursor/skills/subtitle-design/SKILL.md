@@ -1,9 +1,9 @@
 ---
 name: subtitle-design
-description: Design and implement subtitle styles, presets, and word-level animations for the OpenCutAI video editor. Covers CapCut-style animated captions, karaoke effects, and custom subtitle styling.
+description: Design and implement subtitle styles, presets, and word-level animations for the Byorn video editor. Covers CapCut-style animated captions, karaoke effects, and custom subtitle styling.
 ---
 
-This skill guides creation of subtitle styles, animation effects, and preset systems for the OpenCutAI video editor's auto-subtitle feature.
+This skill guides creation of subtitle styles, animation effects, and preset systems for the Byorn video editor's auto-subtitle feature.
 
 ## Existing Implementation
 

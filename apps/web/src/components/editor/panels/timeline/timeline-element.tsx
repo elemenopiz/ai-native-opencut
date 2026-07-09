@@ -614,7 +614,6 @@ export function renderTiledMedia({
 	}
 
 	const trackHeight = getTrackHeight({ type: track.type });
-	const tileWidth = trackHeight * (16 / 9);
 
 	return (
 		<div
@@ -622,7 +621,10 @@ export function renderTiledMedia({
 			style={{
 				backgroundImage: `url(${imageUrl})`,
 				backgroundRepeat: "repeat-x",
-				backgroundSize: `${tileWidth}px ${trackHeight}px`,
+				// `auto <height>` keeps each tile at the media's own aspect ratio
+				// (fit to track height, width proportional) so portrait clips don't
+				// get stretched into a 16:9 box.
+				backgroundSize: `auto ${trackHeight}px`,
 				backgroundPosition: "left center",
 				pointerEvents: "none",
 			}}

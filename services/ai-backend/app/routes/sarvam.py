@@ -36,7 +36,7 @@ def _get_sarvam_api_key(request: Request | None = None) -> str:
 
     Priority:
     1. X-Sarvam-Api-Key header (passed from the frontend / Settings page)
-    2. OPENCUTAI_SARVAM_API_KEY environment variable
+    2. BYORN_SARVAM_API_KEY environment variable
     """
     if request is not None:
         header_key = request.headers.get("x-sarvam-api-key", "").strip()
@@ -52,7 +52,7 @@ def _sarvam_headers(request: Request | None = None) -> dict:
         raise HTTPException(
             status_code=503,
             detail="Sarvam API key is not configured. "
-            "Add your key in Settings > API Keys, or set OPENCUTAI_SARVAM_API_KEY in your environment.",
+            "Add your key in Settings > API Keys, or set BYORN_SARVAM_API_KEY in your environment.",
         )
     return {"api-subscription-key": api_key}
 
@@ -113,7 +113,7 @@ async def sarvam_transcribe(
     Accepts audio files up to 30 seconds. For longer files, the audio is
     chunked into 30-second segments and transcribed sequentially.
 
-    Returns a transcription result compatible with the existing OpenCut format.
+    Returns a transcription result compatible with the existing Byorn format.
     """
     headers = _sarvam_headers(request)
 
@@ -261,7 +261,7 @@ async def sarvam_transcribe(
             except httpx.ConnectError:
                 raise HTTPException(status_code=503, detail="Cannot connect to Sarvam AI API.")
 
-    # Build OpenCut-compatible response.
+    # Build Byorn-compatible response.
     #
     # Sarvam REST API returns one transcript per 30-second chunk with no
     # internal timing.  We split each chunk into sentence-sized sub-segments

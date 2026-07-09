@@ -1,4 +1,4 @@
-import { SITE_INFO, SITE_URL, SOCIAL_LINKS } from "@/constants/site-constants";
+import { SITE_INFO, SITE_URL } from "@/constants/site-constants";
 
 /**
  * JSON-LD structured data for SEO.
@@ -12,10 +12,6 @@ export function JsonLd() {
 		url: SITE_URL,
 		logo: `${SITE_URL}/favicon.svg`,
 		description: SITE_INFO.description,
-		sameAs: [
-			SOCIAL_LINKS.github,
-			SOCIAL_LINKS.x,
-		],
 	};
 
 	const website = {

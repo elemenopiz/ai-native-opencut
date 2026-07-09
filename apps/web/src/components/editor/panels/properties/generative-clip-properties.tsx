@@ -6,8 +6,6 @@ import type {
 	ImageElement,
 	Take,
 	VideoElement,
-	VideoOrientation,
-	VideoResolution,
 } from "@/types/timeline";
 import {
 	Section,
@@ -22,22 +20,11 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
 import { useEditor } from "@/hooks/use-editor";
+import { useSlotGeneration } from "@/hooks/use-slot-generation";
 import { CAMERA_PRESETS } from "@/lib/studio/camera-presets";
-import { estimateCost, formatUsd } from "@/lib/studio/cost";
+import { addsPerShotStill, estimateCost, formatUsd } from "@/lib/studio/cost";
+import { RESOLUTIONS, ORIENTATIONS } from "@/lib/studio/options";
 import { cn } from "@/utils/ui";
-
-const RESOLUTIONS: { value: VideoResolution; label: string }[] = [
-	{ value: "480p", label: "480p" },
-	{ value: "720p", label: "720p" },
-	{ value: "1080p", label: "1080p" },
-];
-
-const ORIENTATIONS: { value: VideoOrientation; label: string; ratio: string }[] =
-	[
-		{ value: "portrait", label: "Portrait", ratio: "9:16" },
-		{ value: "landscape", label: "Landscape", ratio: "16:9" },
-		{ value: "square", label: "Square", ratio: "1:1" },
-	];
 
 type GenerativeElement = VideoElement | ImageElement;
 
@@ -70,6 +57,8 @@ function SpecSection({
 	spec: GenerationSpec;
 }) {
 	const editor = useEditor();
+	const { generateIntoSlot } = useSlotGeneration();
+	const [rerolling, setRerolling] = useState(false);
 
 	// Local prompt buffer so typing stays responsive; commit on blur.
 	const [prompt, setPrompt] = useState(spec.prompt);
@@ -92,9 +81,11 @@ function SpecSection({
 		});
 	}
 
-	const addsPerShotStill =
-		!!spec.personaId && spec.consistencyMode === "high";
-	const cost = estimateCost(spec.resolution, spec.duration, addsPerShotStill);
+	const rendersStill = addsPerShotStill(
+		!!spec.personaId,
+		spec.consistencyMode,
+	);
+	const cost = estimateCost(spec.resolution, spec.duration, rendersStill);
 
 	return (
 		<Section showTopBorder={false}>
@@ -237,7 +228,7 @@ function SpecSection({
 						<span className="text-xs font-medium">Estimated cost</span>
 						<span className="text-[10px] text-muted-foreground">
 							{spec.duration}s · {spec.resolution}
-							{addsPerShotStill && " · +1 still"}
+							{rendersStill && " · +1 still"}
 						</span>
 					</div>
 					<span className="text-sm font-semibold tabular-nums">
@@ -245,16 +236,29 @@ function SpecSection({
 					</span>
 				</div>
 
-				{/* Re-roll — generation wiring lands in a later phase. */}
+				{/* Re-roll — enqueue a fresh take for this slot via the orchestrator. */}
 				<Button
 					size="sm"
 					className="w-full"
-					onClick={() => {
-						// TODO(phase-4): enqueue a fresh take for this slot's spec via the
-						// batch/generation pipeline, then addTakeToElement(...) as jobs land.
+					disabled={rerolling || !spec.prompt?.trim()}
+					onClick={async () => {
+						setRerolling(true);
+						try {
+							await generateIntoSlot({
+								elementId: element.id,
+								spec,
+								alternatives: 1,
+							});
+						} finally {
+							setRerolling(false);
+						}
 					}}
 				>
-					Re-roll · +1 take
+					{rerolling
+						? "Generating…"
+						: spec.prompt?.trim()
+							? "Re-roll · +1 take"
+							: "Add a prompt to generate"}
 				</Button>
 			</SectionContent>
 		</Section>

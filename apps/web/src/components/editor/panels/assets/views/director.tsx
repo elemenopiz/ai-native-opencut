@@ -16,11 +16,16 @@ import {
 	ArrowRight01Icon,
 	Bookmark01Icon,
 	Delete02Icon,
+	FilmRoll01Icon,
 } from "@hugeicons/core-free-icons";
 import { aiClient } from "@/lib/ai-client";
 import { useAIStatus } from "@/hooks/use-ai-status";
 import { useAIStore } from "@/stores/ai-store";
 import { useTranscriptStore } from "@/stores/transcript-store";
+import { useEditor } from "@/hooks/use-editor";
+import { useDirector } from "@/hooks/use-director";
+import { runDirectorAgent } from "@/lib/director/agent";
+import type { ReelSnapshot } from "@/lib/director/types";
 import { toast } from "sonner";
 import { TemplatePanel } from "@/components/editor/ai/template-panel";
 import { BRollSuggestionsPanel } from "@/components/editor/ai/broll-suggestions-panel";
@@ -85,7 +90,7 @@ interface WorkflowStep {
 	isCompleted?: boolean;
 }
 
-type StudioMode = "chat" | "workflow" | "transcript" | "templates" | "ideas" | "broll" | "youtube-reels" | "dubbing" | "chapters" | "reframe" | "tracking" | "ab-testing";
+type StudioMode = "direct" | "chat" | "workflow" | "transcript" | "templates" | "ideas" | "broll" | "youtube-reels" | "dubbing" | "chapters" | "reframe" | "tracking" | "ab-testing";
 
 // ----- Workflow Steps -----
 
@@ -249,6 +254,14 @@ const VIDEO_WORKFLOWS: {
 
 const STARTER_PROMPTS = [
 	{
+		label: "Storyboard a 3-shot reel about...",
+		prompt: "Storyboard a 3-shot reel, ~6s each, about ",
+	},
+	{
+		label: "Generate all slots, 2 takes each",
+		prompt: "Generate every slot in the reel with 2 takes each.",
+	},
+	{
 		label: "Help me plan a YouTube video about...",
 		prompt: "Help me plan a YouTube video. I want to make a video about ",
 	},
@@ -307,7 +320,7 @@ const TRANSCRIPT_PROMPTS = [
 
 // ----- Component -----
 
-export function AIStudioView() {
+export function DirectorView() {
 	const { isConnected } = useAIStatus();
 	const toggleSetupGuide = useAIStore((s) => s.toggleSetupGuide);
 	const saveIdea = useAIStore((s) => s.saveIdea);
@@ -321,7 +334,15 @@ export function AIStudioView() {
 	const transcriptSegments = useTranscriptStore((s) => s.segments);
 	const hasTranscript = transcriptSegments.length > 0;
 
-	const [mode, setMode] = useState<StudioMode>("chat");
+	// ── Orchestrator (Director API) ──
+	const editor = useEditor();
+	const director = useDirector();
+	const [shotText, setShotText] = useState("");
+	const [alternatives, setAlternatives] = useState(1);
+	const [directing, setDirecting] = useState(false);
+	const [reel, setReel] = useState<ReelSnapshot | null>(null);
+
+	const [mode, setMode] = useState<StudioMode>("direct");
 	const [inputValue, setInputValue] = useState("");
 	const [isThinking, setIsThinking] = useState(false);
 	const thinkingMessage = useThinkingMessage(isThinking);
@@ -352,13 +373,58 @@ export function AIStudioView() {
 		}
 	}, [messages, isThinking]);
 
+	// Keep the reel summary live as slots/takes change (while directing).
+	useEffect(() => {
+		if (mode !== "direct") return;
+		const refresh = () => setReel(director.getReel());
+		refresh();
+		return editor.timeline.subscribe(refresh);
+	}, [mode, editor, director]);
+
+	const handleStoryboard = useCallback(() => {
+		const shots = shotText
+			.split("\n")
+			.map((line) => line.trim())
+			.filter(Boolean)
+			.map((line) => {
+				// "prompt | 6" → { prompt, duration: 6 }
+				const [prompt, dur] = line.split("|").map((s) => s.trim());
+				const duration = dur ? Number(dur) : 6;
+				return {
+					prompt,
+					duration: Number.isFinite(duration) && duration > 0 ? duration : 6,
+				};
+			});
+		if (shots.length === 0) {
+			toast.error("Add at least one shot (one per line).");
+			return;
+		}
+		const res = director.storyboard({ shots });
+		if (res.ok) {
+			toast.success(res.message);
+			setShotText("");
+		} else {
+			toast.error(res.message);
+		}
+	}, [shotText, director]);
+
+	const handleGenerateAll = useCallback(async () => {
+		setDirecting(true);
+		try {
+			const res = await director.generate({ slotIds: "all", alternatives });
+			res.ok ? toast.success(res.message) : toast.error(res.message);
+		} finally {
+			setDirecting(false);
+		}
+	}, [director, alternatives]);
+
 	const handleSend = useCallback(async () => {
 		const trimmed = inputValue.trim();
 		if (!trimmed || isThinking) return;
 
 		if (!isConnected) {
 			toast.error("AI backend is not connected", {
-				description: "Start the AI backend to use AI Studio.",
+				description: "Start the AI backend to use the Director chat.",
 			});
 			return;
 		}
@@ -370,6 +436,45 @@ export function AIStudioView() {
 		});
 		setInputValue("");
 		setIsThinking(true);
+
+		// ── Agent mode: drive the reel through director-api tool calls ──
+		// Chat is now agentic — the model can storyboard, generate, re-roll, and
+		// pick takes via the same DirectorApi the manual UI uses, or just answer.
+		if (mode === "chat") {
+			try {
+				const result = await runDirectorAgent({
+					director,
+					chat: (message, system) =>
+						aiClient.chat(message, system).then((r) => r.response),
+					userMessage: trimmed,
+					onStep: (step) => {
+						addMessage({
+							id: crypto.randomUUID(),
+							role: "assistant",
+							content: `${step.ok ? "✅" : "⚠️"} \`${step.action}\` — ${step.message}`,
+						});
+					},
+				});
+				addMessage({
+					id: crypto.randomUUID(),
+					role: "assistant",
+					content: result.finalMessage || "Done.",
+				});
+			} catch (error) {
+				const detail = error instanceof Error ? error.message : "";
+				const isOllamaDown = detail.includes("503") || detail.includes("Ollama");
+				addMessage({
+					id: crypto.randomUUID(),
+					role: "assistant",
+					content: isOllamaDown
+						? "Ollama is not running or no LLM model is loaded. Open the AI Setup guide (click the AI indicator in the header) to pull a model like `llama3.2:1b`."
+						: `Something went wrong: ${detail || "Unknown error"}. Make sure the AI backend and Ollama are running with a model loaded.`,
+				});
+			} finally {
+				setIsThinking(false);
+			}
+			return;
+		}
 
 		const assistantId = crypto.randomUUID();
 		let messageAdded = false;
@@ -434,7 +539,7 @@ export function AIStudioView() {
 		} finally {
 			setIsThinking(false);
 		}
-	}, [inputValue, isThinking, isConnected, mode, hasTranscript, transcriptSegments, addMessage, updateMessage]);
+	}, [inputValue, isThinking, isConnected, mode, hasTranscript, transcriptSegments, addMessage, updateMessage, director]);
 
 	const handleKeyDown = useCallback(
 		(event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -490,6 +595,15 @@ export function AIStudioView() {
 					)}
 				</div>
 				<div className="flex items-center gap-1">
+					<Button
+						variant={mode === "direct" ? "secondary" : "ghost"}
+						size="sm"
+						className="h-6 text-[10px] px-2 gap-1"
+						onClick={() => setMode("direct")}
+					>
+						<HugeiconsIcon icon={FilmRoll01Icon} className="size-3" />
+						Direct
+					</Button>
 					{(mode === "chat" || mode === "transcript") && messages.length > 0 && (
 						<Button
 							variant="ghost"
@@ -630,6 +744,92 @@ export function AIStudioView() {
 				</div>
 			)}
 
+			{/* ── Direct Mode (orchestrator) ── */}
+			{mode === "direct" && (
+				<div className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-4">
+					<div className="space-y-1">
+						<p className="text-xs font-medium">Direct the reel</p>
+						<p className="text-[10px] text-muted-foreground leading-relaxed">
+							Storyboard a shot list into generative slots, then generate
+							every slot at once. Each shot becomes a slot on the timeline;
+							takes drop in as they finish.
+						</p>
+					</div>
+
+					{/* Reel status */}
+					<div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+						<span>{reel?.slots.length ?? 0} slots</span>
+						{(reel?.slots.filter((s) => s.status === "ready").length ?? 0) > 0 && (
+							<span>
+								· {reel?.slots.filter((s) => s.status === "ready").length} ready
+							</span>
+						)}
+						{(reel?.slots.filter((s) => s.status === "generating").length ?? 0) > 0 && (
+							<span>
+								· {reel?.slots.filter((s) => s.status === "generating").length}{" "}
+								generating
+							</span>
+						)}
+					</div>
+
+					{/* Storyboard → slots */}
+					<div className="space-y-1.5">
+						<span className="text-[11px] font-medium">Storyboard</span>
+						<textarea
+							value={shotText}
+							onChange={(e) => setShotText(e.target.value)}
+							rows={5}
+							placeholder={"One shot per line — optional | seconds:\nwide shot of a city at dusk\nclose-up of the hero | 4"}
+							className="w-full resize-none rounded-md border bg-transparent px-2.5 py-2 text-xs outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50"
+						/>
+						<Button
+							size="sm"
+							variant="outline"
+							className="w-full text-[11px]"
+							onClick={handleStoryboard}
+						>
+							Reserve slots from shot list
+						</Button>
+					</div>
+
+					{/* Generate all */}
+					<div className="flex items-center gap-2 border-t pt-3">
+						<span className="text-[10px] text-muted-foreground">Takes ×</span>
+						<div className="flex gap-1">
+							{[1, 2, 3, 4].map((n) => (
+								<button
+									key={n}
+									type="button"
+									onClick={() => setAlternatives(n)}
+									className={cn(
+										"size-6 rounded border text-[11px] transition-colors",
+										alternatives === n
+											? "border-primary bg-primary text-primary-foreground"
+											: "border-border text-muted-foreground hover:border-foreground",
+									)}
+								>
+									{n}
+								</button>
+							))}
+						</div>
+						<Button
+							size="sm"
+							className="ml-auto h-7 text-[11px]"
+							disabled={directing || (reel?.slots.length ?? 0) === 0}
+							onClick={handleGenerateAll}
+						>
+							{directing ? "Generating…" : "Generate all"}
+						</Button>
+					</div>
+
+					<p className="text-[10px] text-muted-foreground leading-relaxed">
+						Drives the reel via the Director API. Natural-language control
+						plugs into these same verbs when the AI backend is connected — use
+						Chat to brainstorm the shot list first.
+					</p>
+				</div>
+			)}
+
 			{/* ── Chat / Transcript Mode ── */}
 			{(mode === "chat" || mode === "transcript") && (
 				<>
@@ -686,11 +886,11 @@ export function AIStudioView() {
 										className="size-8 text-muted-foreground/30 mx-auto mb-2"
 									/>
 									<p className="text-xs font-medium">
-										Brainstorm with AI
+										Direct with AI
 									</p>
 									<p className="text-[10px] text-muted-foreground mt-0.5">
-										Plan your video, write scripts, generate
-										ideas
+										Brainstorm scripts and ideas, or tell me to
+										storyboard and generate the reel for you
 									</p>
 								</div>
 

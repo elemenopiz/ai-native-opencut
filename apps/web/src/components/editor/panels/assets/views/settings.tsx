@@ -450,7 +450,7 @@ import {
 	MEMORY_BUDGETS,
 } from "@/constants/turboquant-constants";
 
-const CONFIG_STORAGE_KEY = "opencut-ai-config";
+const CONFIG_STORAGE_KEY = "byorn-ai-config";
 
 function loadSavedConfig(): Record<string, string | number> {
 	try {
@@ -947,8 +947,8 @@ const API_KEY_FIELDS = [
 		label: "Sarvam AI API Key",
 		placeholder: "sk_...",
 		description: "Indian language transcription, translation & TTS",
-		envVar: "OPENCUTAI_SARVAM_API_KEY",
-		envValue: process.env.NEXT_PUBLIC_SARVAM_API_KEY || process.env.OPENCUTAI_SARVAM_API_KEY || "",
+		envVar: "BYORN_SARVAM_API_KEY",
+		envValue: process.env.NEXT_PUBLIC_SARVAM_API_KEY || process.env.BYORN_SARVAM_API_KEY || "",
 		info: "Enables transcription, translation, and text-to-speech for 22 Indian regional languages (Hindi, Bengali, Tamil, Telugu, etc.) via Sarvam AI. Get your key at dashboard.sarvam.ai — free credits on signup.",
 		required: false,
 	},
@@ -957,8 +957,8 @@ const API_KEY_FIELDS = [
 		label: "Smallest AI API Key",
 		placeholder: "Your Smallest AI key",
 		description: "Lightning TTS (15 languages, 80+ voices) & Pulse STT (39 languages)",
-		envVar: "OPENCUTAI_SMALLEST_API_KEY",
-		envValue: process.env.NEXT_PUBLIC_SMALLEST_API_KEY || process.env.OPENCUTAI_SMALLEST_API_KEY || "",
+		envVar: "BYORN_SMALLEST_API_KEY",
+		envValue: process.env.NEXT_PUBLIC_SMALLEST_API_KEY || process.env.BYORN_SMALLEST_API_KEY || "",
 		info: "Enables ultra-low-latency text-to-speech with 80+ natural voices across 15 languages, and speech-to-text supporting 39 languages with speaker diarization and emotion detection. Get your key at app.smallest.ai.",
 		required: false,
 	},
@@ -977,8 +977,8 @@ const API_KEY_FIELDS = [
 		label: "Seedance API Key (PiAPI)",
 		placeholder: "Your PiAPI key for Seedance 2.0",
 		description: "Text-to-video generation via Seedance 2.0 (ByteDance)",
-		envVar: "OPENCUTAI_SEEDANCE_API_KEY",
-		envValue: process.env.NEXT_PUBLIC_SEEDANCE_API_KEY || process.env.OPENCUTAI_SEEDANCE_API_KEY || "",
+		envVar: "BYORN_SEEDANCE_API_KEY",
+		envValue: process.env.NEXT_PUBLIC_SEEDANCE_API_KEY || process.env.BYORN_SEEDANCE_API_KEY || "",
 		info: "Enables AI video generation from text prompts using Seedance 2.0 by ByteDance. Access via PiAPI — get your key at piapi.ai. Supports text-to-video in 16:9, 9:16, 1:1, and more. You can also use local generation without this key.",
 		required: false,
 	},
@@ -1018,7 +1018,7 @@ function APIKeysSection() {
 	const [keys, setKeys] = useState<Record<string, string>>(() => {
 		if (typeof window === "undefined") return {};
 		try {
-			const stored = localStorage.getItem("opencut-api-keys");
+			const stored = localStorage.getItem("byorn-api-keys");
 			return stored ? JSON.parse(stored) : {};
 		} catch {
 			return {};
@@ -1042,7 +1042,7 @@ function APIKeysSection() {
 		setKeys((prev) => {
 			const next = { ...prev, [key]: value };
 			try {
-				localStorage.setItem("opencut-api-keys", JSON.stringify(next));
+				localStorage.setItem("byorn-api-keys", JSON.stringify(next));
 			} catch {}
 			return next;
 		});
@@ -1053,7 +1053,7 @@ function APIKeysSection() {
 			const next = { ...prev };
 			delete next[key];
 			try {
-				localStorage.setItem("opencut-api-keys", JSON.stringify(next));
+				localStorage.setItem("byorn-api-keys", JSON.stringify(next));
 			} catch {}
 			return next;
 		});

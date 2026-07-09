@@ -20,13 +20,17 @@ export async function addItemsToProjectMedia({
 	editor,
 	projectId,
 	items,
+	source,
 }: {
 	editor: EditorCore;
 	projectId: string;
 	items: StudioMediaItem[];
-}): Promise<{ added: number; failed: number }> {
+	/** Tags the resulting assets (e.g. "ai" for Studio-generated media). */
+	source?: "ai";
+}): Promise<{ added: number; failed: number; mediaIds: string[] }> {
 	let added = 0;
 	let failed = 0;
+	const mediaIds: string[] = [];
 
 	for (const item of items) {
 		try {
@@ -52,7 +56,11 @@ export async function addItemsToProjectMedia({
 			const [processed] = await processMediaAssets({ files: [file] });
 			if (!processed) throw new Error("processing produced no asset");
 
-			await editor.media.addMediaAsset({ projectId, asset: processed });
+			const mediaId = await editor.media.addMediaAsset({
+				projectId,
+				asset: source ? { ...processed, source } : processed,
+			});
+			if (mediaId) mediaIds.push(mediaId);
 			added++;
 		} catch (err) {
 			console.error("Failed to add studio item to project media:", item.url, err);
@@ -60,7 +68,7 @@ export async function addItemsToProjectMedia({
 		}
 	}
 
-	return { added, failed };
+	return { added, failed, mediaIds };
 }
 
 /**
@@ -110,7 +118,7 @@ export async function addClipsToEditor({
 
 			const mediaId = await editor.media.addMediaAsset({
 				projectId,
-				asset: processed,
+				asset: { ...processed, source: "ai" },
 			});
 
 			const duration =

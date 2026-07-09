@@ -4,14 +4,14 @@ import { BasePage } from "@/app/base-page";
 import { SITE_URL } from "@/constants/site-constants";
 
 export const metadata: Metadata = {
-	title: "OpenCut AI vs Competitors — Compare Video Editors",
+	title: "Byorn vs Competitors — Compare Video Editors",
 	description:
-		"Compare OpenCut AI with Descript, CapCut, and DaVinci Resolve. See why OpenCut AI is the best privacy-first, open-source, AI-powered video editor.",
+		"Compare Byorn with Descript, CapCut, and DaVinci Resolve. See why Byorn is the best privacy-first, open-source, AI-powered video editor.",
 	alternates: {
 		canonical: `${SITE_URL}/compare`,
 	},
 	openGraph: {
-		title: "OpenCut AI vs Competitors",
+		title: "Byorn vs Competitors",
 		description:
 			"Side-by-side comparison with Descript, CapCut, and DaVinci Resolve. Privacy-first, open source, AI-powered.",
 		url: `${SITE_URL}/compare`,
@@ -64,11 +64,11 @@ export default function ComparePage() {
 			<div className="flex flex-col gap-12">
 				<header className="text-center flex flex-col gap-6">
 					<h1 className="text-4xl md:text-5xl font-bold tracking-tight">
-						OpenCut AI vs The Competition
+						Byorn vs The Competition
 					</h1>
 					<p className="text-lg text-muted-foreground max-w-2xl mx-auto">
 						The only privacy-first, open-source, self-hosted, AI-powered video editor.
-						See how OpenCut AI compares to Descript, CapCut, and DaVinci Resolve.
+						See how Byorn compares to Descript, CapCut, and DaVinci Resolve.
 					</p>
 				</header>
 
@@ -102,7 +102,7 @@ export default function ComparePage() {
 				</div>
 
 				<section className="rounded-lg border bg-muted/30 p-6 md:p-8 space-y-4">
-					<h2 className="text-2xl font-bold">What makes OpenCut AI different?</h2>
+					<h2 className="text-2xl font-bold">What makes Byorn different?</h2>
 					<div className="grid md:grid-cols-4 gap-6 text-sm">
 						<div>
 							<h3 className="font-semibold mb-1">Privacy-first</h3>

@@ -10,7 +10,7 @@
  *     public base for production so URLs don't rot.
  */
 
-import { webEnv } from "@opencut-ai/env/web";
+import { webEnv } from "@byorn/env/web";
 import {
 	computeHash,
 	uploadMedia,

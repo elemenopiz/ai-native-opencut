@@ -1,0 +1,244 @@
+- generic [active] [ref=e1]:
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e12] [cursor=pointer]:
+    - img [ref=e13]
+  - alert [ref=e16]
+  - generic [ref=e63]:
+    - banner [ref=e64]:
+      - generic [ref=e65]:
+        - button "Byorn" [ref=e66] [cursor=pointer]:
+          - img "Byorn" [ref=e67]
+        - textbox [ref=e68] [cursor=pointer]: New project
+      - generic [ref=e18]:
+        - button "main" [ref=e69]:
+          - img [ref=e20]
+          - text: main
+          - img [ref=e22]
+        - generic [ref=e24]: Clean
+        - button "History" [ref=e70]:
+          - img [ref=e26]
+          - text: History
+      - navigation [ref=e71]:
+        - button "AI backend disconnected" [ref=e72] [cursor=pointer]:
+          - generic [ref=e75]: AI Off
+        - button "Virality Score" [ref=e76] [cursor=pointer]:
+          - img
+          - text: Virality Score
+        - button "Board" [ref=e77] [cursor=pointer]:
+          - img
+          - text: Board
+        - button "Export" [ref=e78] [cursor=pointer]:
+          - generic [ref=e79]:
+            - img [ref=e80]
+            - generic [ref=e84]: Export
+        - button "Dark" [ref=e87] [cursor=pointer]:
+          - img
+          - generic [ref=e88]: Dark
+    - generic [ref=e90]:
+      - generic [ref=e92]:
+        - generic [ref=e94]:
+          - generic [ref=e95]:
+            - button "Scroll up for more tabs" [ref=e96]:
+              - img [ref=e97]
+            - generic [ref=e99]:
+              - button "Media" [ref=e100] [cursor=pointer]:
+                - img
+              - button "Director" [ref=e101] [cursor=pointer]:
+                - img
+              - button "Takes" [ref=e102] [cursor=pointer]:
+                - img
+              - button "Text" [ref=e103] [cursor=pointer]:
+                - img
+              - button "Captions" [ref=e104] [cursor=pointer]:
+                - img
+              - button "Audio" [ref=e105] [cursor=pointer]:
+                - img
+              - button "Elements" [ref=e106] [cursor=pointer]:
+                - img
+              - button "Visuals" [ref=e107] [cursor=pointer]:
+                - img
+              - button "Search" [ref=e108] [cursor=pointer]:
+                - img
+              - button "Brand Kit" [ref=e109] [cursor=pointer]:
+                - img
+              - button "Settings" [ref=e110] [cursor=pointer]:
+                - img
+            - button "Scroll down for more tabs" [ref=e112]:
+              - img [ref=e113]
+          - generic [ref=e116]:
+            - generic [ref=e117]:
+              - generic [ref=e118]: Assets
+              - generic [ref=e119]:
+                - button [ref=e120] [cursor=pointer]:
+                  - img
+                - button [ref=e121] [cursor=pointer]:
+                  - img
+                - button "Import" [ref=e122] [cursor=pointer]:
+                  - img
+                  - text: Import
+            - button "Drag and drop videos, photos, and audio files here" [ref=e125]:
+              - img [ref=e127]
+              - paragraph [ref=e131]: Drag and drop videos, photos, and audio files here
+        - separator [ref=e132]
+        - generic [ref=e134]:
+          - generic [ref=e136]:
+            - button "16:9" [ref=e137]:
+              - img [ref=e138]
+              - generic [ref=e140]: 16:9
+            - button "9:16" [ref=e141]:
+              - img [ref=e142]
+              - generic [ref=e144]: 9:16
+            - button "1:1" [ref=e145]:
+              - img [ref=e146]
+              - generic [ref=e148]: 1:1
+            - button "4:3" [ref=e149]:
+              - img [ref=e150]
+              - generic [ref=e152]: 4:3
+          - generic [ref=e158]:
+            - generic [ref=e159]:
+              - button "00:00:00:00" [ref=e160] [cursor=pointer]
+              - generic [ref=e161]: /
+              - generic [ref=e162]: 00:00:00:00
+            - button [ref=e163] [cursor=pointer]:
+              - img
+            - generic [ref=e164]:
+              - button "Social media" [ref=e165] [cursor=pointer]:
+                - img "Social media"
+              - button "Enter fullscreen" [ref=e166] [cursor=pointer]:
+                - img
+        - separator [ref=e167]
+        - generic [ref=e169]:
+          - generic [ref=e170]:
+            - heading "Get started" [level=3] [ref=e171]
+            - paragraph [ref=e172]: Edit video by editing text
+          - generic [ref=e173]:
+            - generic [ref=e174]:
+              - generic [ref=e176]: "1"
+              - generic [ref=e177]:
+                - paragraph [ref=e178]: Import a video
+                - paragraph [ref=e179]: Drag a file here or use the media panel on the left
+            - generic [ref=e180]:
+              - generic [ref=e182]: "2"
+              - generic [ref=e183]:
+                - paragraph [ref=e184]: Transcribe it
+                - paragraph [ref=e185]: Click the mic button to convert speech to editable text
+            - generic [ref=e186]:
+              - generic [ref=e188]: "3"
+              - generic [ref=e189]:
+                - paragraph [ref=e190]: Edit the transcript
+                - paragraph [ref=e191]: Delete sentences, remove filler words, reorder sections
+            - generic [ref=e192]:
+              - generic [ref=e194]: "4"
+              - generic [ref=e195]:
+                - paragraph [ref=e196]: Export your video
+                - paragraph [ref=e197]: Choose a platform preset and export with one click
+          - paragraph [ref=e199]: Press Ctrl+K for AI commands
+          - button "Okay, I've read this" [ref=e200] [cursor=pointer]
+      - separator [ref=e201]
+      - region "Timeline" [ref=e203]:
+        - generic [ref=e205]:
+          - generic [ref=e207]:
+            - button [ref=e208] [cursor=pointer]:
+              - img
+            - button [ref=e209] [cursor=pointer]:
+              - img
+            - button [ref=e210] [cursor=pointer]:
+              - img
+            - button [ref=e211] [cursor=pointer]:
+              - img
+            - button [ref=e212] [cursor=pointer]:
+              - img
+            - button [ref=e213] [cursor=pointer]:
+              - img
+            - button [ref=e214] [cursor=pointer]:
+              - img
+            - button [ref=e216] [cursor=pointer]:
+              - img
+            - button [ref=e218]:
+              - img
+            - button [ref=e219]:
+              - img
+          - generic [ref=e221]:
+            - button "Main scene" [ref=e222]:
+              - generic [ref=e223]: Main scene
+            - button [ref=e224] [cursor=pointer]:
+              - img
+          - generic [ref=e226]:
+            - button [ref=e227] [cursor=pointer]:
+              - img
+            - button [ref=e228] [cursor=pointer]:
+              - img
+            - generic [ref=e230]:
+              - button [ref=e231] [cursor=pointer]:
+                - img
+              - slider [ref=e235]
+              - button [ref=e236] [cursor=pointer]:
+                - img
+        - generic [ref=e238]:
+          - generic [ref=e239]:
+            - generic [ref=e241]: .
+            - generic [ref=e243]: .
+            - generic [ref=e247]:
+              - img [ref=e248]
+              - img "Video" [ref=e253]
+              - button "Main Track" [ref=e256]
+              - generic [ref=e257]:
+                - img [ref=e258] [cursor=pointer]
+                - img [ref=e262] [cursor=pointer]
+          - generic [ref=e267]:
+            - generic [ref=e268]:
+              - slider "Timeline ruler" [ref=e269]:
+                - generic [ref=e270]: 00:00
+                - generic [ref=e275]: 15f
+                - generic [ref=e280]: 00:01
+                - generic [ref=e285]: 15f
+                - generic [ref=e290]: 00:02
+                - generic [ref=e295]: 15f
+                - generic [ref=e300]: 00:03
+                - generic [ref=e305]: 15f
+                - generic [ref=e310]: 00:04
+              - button "Timeline ruler" [ref=e312]
+            - slider "Timeline playhead":
+              - button "Drag playhead" [ref=e313]
+            - button [ref=e316]
+        - button "Show Mixer" [ref=e319]
+    - generic [ref=e321]:
+      - img [ref=e323]
+      - generic [ref=e326]:
+        - paragraph [ref=e327]: AI features are not available
+        - paragraph [ref=e328]: The AI backend is not running. Start it to enable transcription, AI commands, and more.
+      - generic [ref=e329]:
+        - button "Setup guide" [ref=e330] [cursor=pointer]
+        - button [ref=e331] [cursor=pointer]:
+          - img
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - img
+            - generic: AI Studio
+            - generic: Beta
+          - generic:
+            - generic: ⌘K
+            - button "Close AI panel":
+              - img
+        - generic:
+          - generic:
+            - generic:
+              - img
+              - paragraph: AI Studio
+              - paragraph: Brainstorm ideas, plan your video, or run AI commands.
+            - generic:
+              - button "Remove filler words"
+              - button "Add subtitles"
+              - button "Remove silences"
+              - button "Improve audio"
+              - button "Generate thumbnail"
+              - button "Auto color grade"
+        - generic:
+          - generic:
+            - generic:
+              - textbox "Ask anything..."
+            - button "Send message" [disabled]:
+              - img
+          - paragraph: Press Enter to send · Save responses as ideas

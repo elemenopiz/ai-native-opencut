@@ -3,7 +3,7 @@ alwaysApply: false
 ---
 # AI Frontend Component Guidelines
 
-When building AI-related UI components for OpenCut AI, follow these patterns.
+When building AI-related UI components for Byorn, follow these patterns.
 
 ## Component Location
 
@@ -13,7 +13,7 @@ All AI components go in `apps/web/src/components/editor/ai/` and are re-exported
 
 - **Distinctive, not generic** — avoid cookie-cutter AI aesthetics (purple gradients, Inter font, generic card layouts)
 - **Production-grade** — real working code with polished micro-interactions
-- **Cohesive** — match OpenCut's existing dark editor theme
+- **Cohesive** — match Byorn's existing dark editor theme
 - **Accessible** — keyboard navigation, focus states, screen reader support
 - Use **shadcn/ui** primitives (Dialog, ScrollArea, Tooltip, ContextMenu, etc.)
 - Use **cn()** for all className composition — never template literals

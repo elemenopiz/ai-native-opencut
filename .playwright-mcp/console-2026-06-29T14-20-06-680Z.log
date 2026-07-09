@@ -1,0 +1,13 @@
+[     303ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/a5e25_next_dist_7323f808._.js:2297
+[     500ms] [LOG] [Fast Refresh] done in 300ms @ http://localhost:3000/_next/static/chunks/a5e25_next_dist_7323f808._.js:2297
+[    1012ms] [LOG] %c[·] %cReact Scan font-weight:bold;color:#7a68e8;font-size:20px; font-weight:bold;font-size:14px; @ http://unpkg.com/react-scan/dist/auto.global.js:1
+[    1088ms] [LOG] [HMR] connected @ http://localhost:3000/_next/static/chunks/a5e25_next_dist_7323f808._.js:2297
+[    1279ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/a5e25_next_dist_7323f808._.js:2297
+[    1279ms] [WARNING] [React Scan] react-grab v0.1.32 is outdated (latest: v0.1.47). Update react-scan to pick up the newer react-grab. @ http://localhost:3000/_next/static/chunks/a5e25_next_dist_7323f808._.js:2297
+[    1286ms] [LOG] [Fast Refresh] done in 160ms @ http://localhost:3000/_next/static/chunks/a5e25_next_dist_7323f808._.js:2297
+[   86048ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/a5e25_next_dist_7323f808._.js:2297
+[   86501ms] [LOG] [Fast Refresh] done in 558ms @ http://localhost:3000/_next/static/chunks/a5e25_next_dist_7323f808._.js:2297
+[   88382ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/a5e25_next_dist_7323f808._.js:2297
+[   89585ms] [LOG] [Fast Refresh] done in 1304ms @ http://localhost:3000/_next/static/chunks/a5e25_next_dist_7323f808._.js:2297
+[   99560ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/a5e25_next_dist_7323f808._.js:2297
+[   99715ms] [LOG] [Fast Refresh] done in 256ms @ http://localhost:3000/_next/static/chunks/a5e25_next_dist_7323f808._.js:2297

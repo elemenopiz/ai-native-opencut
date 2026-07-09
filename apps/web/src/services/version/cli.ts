@@ -8,8 +8,8 @@
  *   npx tsx apps/web/src/services/version/cli.ts diff --repo <repoId> --a <commitA> --b <commitB>
  */
 
-const API_BASE = process.env.OPENCUT_API_URL || "http://localhost:3000/api/version-control";
-const API_TOKEN = process.env.OPENCUT_API_TOKEN || "";
+const API_BASE = process.env.BYORN_API_URL || "http://localhost:3000/api/version-control";
+const API_TOKEN = process.env.BYORN_API_TOKEN || "";
 
 interface CLIOptions {
 	command: string;
@@ -117,7 +117,7 @@ async function commandTags(opts: CLIOptions): Promise<void> {
 
 function printHelp(): void {
 	console.log(`
-opencut-vcs — CLI for OpenCut-AI version control
+byorn-vcs — CLI for Byorn version control
 
 Commands:
   log       Show commit history        --repo <id> [--limit N] [--format json]
@@ -126,8 +126,8 @@ Commands:
   help      Show this help
 
 Environment:
-  OPENCUT_API_URL    API base URL (default: http://localhost:3000/api/version-control)
-  OPENCUT_API_TOKEN  Authentication token
+  BYORN_API_URL    API base URL (default: http://localhost:3000/api/version-control)
+  BYORN_API_TOKEN  Authentication token
 `);
 }
 

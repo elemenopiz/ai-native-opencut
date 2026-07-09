@@ -1,6 +1,6 @@
 # Create Zustand Store
 
-Create a new Zustand store for the OpenCutAI editor.
+Create a new Zustand store for the Byorn editor.
 
 ## Instructions
 

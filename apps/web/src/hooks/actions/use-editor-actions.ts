@@ -656,7 +656,7 @@ export function useEditorActions() {
 		"version-history-toggle",
 		() => {
 			// Dispatch a custom event the header listens for to toggle the drawer
-			window.dispatchEvent(new CustomEvent("opencut:toggle-vc-drawer"));
+			window.dispatchEvent(new CustomEvent("byorn:toggle-vc-drawer"));
 		},
 		undefined,
 	);
@@ -665,7 +665,7 @@ export function useEditorActions() {
 		"version-diff-working",
 		() => {
 			// Open drawer to the diff tab
-			window.dispatchEvent(new CustomEvent("opencut:toggle-vc-drawer", { detail: { tab: "diff" } }));
+			window.dispatchEvent(new CustomEvent("byorn:toggle-vc-drawer", { detail: { tab: "diff" } }));
 		},
 		undefined,
 	);
@@ -674,7 +674,7 @@ export function useEditorActions() {
 		"version-branch-switcher",
 		() => {
 			// Open drawer (branch switcher is in the header bar, but drawer gives full access)
-			window.dispatchEvent(new CustomEvent("opencut:toggle-vc-drawer"));
+			window.dispatchEvent(new CustomEvent("byorn:toggle-vc-drawer"));
 		},
 		undefined,
 	);

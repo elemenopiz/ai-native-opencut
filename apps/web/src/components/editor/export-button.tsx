@@ -298,7 +298,7 @@ function ExportPopover({
 												/>
 												<div className="flex flex-col gap-0.5">
 													<Label htmlFor="include-watermark">
-														Include OpenCut AI watermark
+														Include Byorn watermark
 													</Label>
 													<p className="text-[10px] text-muted-foreground leading-relaxed">
 														This is open-source software. Including the watermark helps spread the word and support the project.

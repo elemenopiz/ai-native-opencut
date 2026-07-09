@@ -71,27 +71,27 @@ services:
     ports:
       - "8420:8420"
     environment:
-      - OPENCUTAI_OLLAMA_URL=http://ollama:11434
-      - OPENCUTAI_PORT=8420
-      - OPENCUTAI_CORS_ORIGINS=["http://localhost:3000","http://localhost:3100","http://localhost:5173"]
+      - BYORN_OLLAMA_URL=http://ollama:11434
+      - BYORN_PORT=8420
+      - BYORN_CORS_ORIGINS=["http://localhost:3000","http://localhost:3100","http://localhost:5173"]
       # LLM model for Ollama. Kimi K2 options:
       #   kimi-k2:latest (Q3, ~1.4GB), kimi-k2:q4_K_M (Q4, ~3GB), kimi-k2:q5_K_M (Q5, ~7GB)
-      - OPENCUTAI_OLLAMA_DEFAULT_MODEL=${OLLAMA_DEFAULT_MODEL:-llama3.2:1b}
-      - OPENCUTAI_OLLAMA_TIMEOUT=300
-      - OPENCUTAI_WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-base}
-      - OPENCUTAI_WHISPER_DEVICE=cpu
-      - OPENCUTAI_WHISPER_SERVICE_URL=http://whisper-service:8421
-      - OPENCUTAI_TTS_SERVICE_URL=http://tts-service:8422
-      - OPENCUTAI_IMAGE_SERVICE_URL=http://image-service:8423
-      - OPENCUTAI_SPEAKER_SERVICE_URL=http://speaker-service:8424
-      - OPENCUTAI_FACE_SERVICE_URL=http://face-service:8425
-      - OPENCUTAI_TURBOQUANT_SERVICE_URL=http://turboquant-service:8430
-      - OPENCUTAI_CLIP_SERVICE_URL=http://clip-service:8426
-      - OPENCUTAI_AI_MEMORY_BUDGET=${AI_MEMORY_BUDGET:-auto}
-      - OPENCUTAI_AI_MODEL_TIER=${AI_MODEL_TIER:-auto}
-      - OPENCUTAI_KV_CACHE_BITS=${KV_CACHE_BITS:-4}
-      - OPENCUTAI_AI_LLM_BACKEND=${AI_LLM_BACKEND:-auto}
-      - OPENCUTAI_SARVAM_API_KEY=${SARVAM_API_KEY:-}
+      - BYORN_OLLAMA_DEFAULT_MODEL=${OLLAMA_DEFAULT_MODEL:-llama3.2:1b}
+      - BYORN_OLLAMA_TIMEOUT=300
+      - BYORN_WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-base}
+      - BYORN_WHISPER_DEVICE=cpu
+      - BYORN_WHISPER_SERVICE_URL=http://whisper-service:8421
+      - BYORN_TTS_SERVICE_URL=http://tts-service:8422
+      - BYORN_IMAGE_SERVICE_URL=http://image-service:8423
+      - BYORN_SPEAKER_SERVICE_URL=http://speaker-service:8424
+      - BYORN_FACE_SERVICE_URL=http://face-service:8425
+      - BYORN_TURBOQUANT_SERVICE_URL=http://turboquant-service:8430
+      - BYORN_CLIP_SERVICE_URL=http://clip-service:8426
+      - BYORN_AI_MEMORY_BUDGET=${AI_MEMORY_BUDGET:-auto}
+      - BYORN_AI_MODEL_TIER=${AI_MODEL_TIER:-auto}
+      - BYORN_KV_CACHE_BITS=${KV_CACHE_BITS:-4}
+      - BYORN_AI_LLM_BACKEND=${AI_LLM_BACKEND:-auto}
+      - BYORN_SARVAM_API_KEY=${SARVAM_API_KEY:-}
     volumes:
       - ai_models:/app/models
       - ai_generated:/app/generated
@@ -210,7 +210,7 @@ services:
       # (e.g. CLIP_MODEL_NAME=ViT-L-14, CLIP_PRETRAINED=laion2b_s32b_b82k).
       - CLIP_MODEL_NAME=${CLIP_MODEL_NAME:-ViT-B-32}
       - CLIP_PRETRAINED=${CLIP_PRETRAINED:-laion2b_s34b_b79k}
-      - DEVICE=${OPENCUTAI_AI_COMPUTE_MODE:-auto}
+      - DEVICE=${BYORN_AI_COMPUTE_MODE:-auto}
     volumes:
       - clip_models:/root/.cache
     healthcheck:
@@ -236,9 +236,9 @@ services:
       - KV_CACHE_BITS=${KV_CACHE_BITS:-4}
       - MAX_CONTEXT_LENGTH=8192
       # Compute mode is driven by the user-facing toggle in Settings → AI Optimization.
-      # The ai-backend writes OPENCUTAI_AI_COMPUTE_MODE to .env; this line pulls it
+      # The ai-backend writes BYORN_AI_COMPUTE_MODE to .env; this line pulls it
       # through so `auto | cpu | cuda` reaches the turboquant-service at container start.
-      - DEVICE=${OPENCUTAI_AI_COMPUTE_MODE:-auto}
+      - DEVICE=${BYORN_AI_COMPUTE_MODE:-auto}
     volumes:
       - turboquant_models:/app/models
     deploy:
@@ -280,7 +280,7 @@ services:
       - CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID:-placeholder}
       - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID:-placeholder}
       - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY:-placeholder}
-      - R2_BUCKET_NAME=${R2_BUCKET_NAME:-opencut-transcription}
+      - R2_BUCKET_NAME=${R2_BUCKET_NAME:-byorn-media}
       - MODAL_TRANSCRIPTION_URL=${MODAL_TRANSCRIPTION_URL:-http://localhost:0}
       - NEXT_PUBLIC_WHISPER_SERVICE_URL=http://localhost:8421
       - NEXT_PUBLIC_TTS_SERVICE_URL=http://localhost:8422
@@ -315,7 +315,7 @@ volumes:
 
 networks:
   default:
-    name: opencut-network
+    name: byorn-network
     driver: bridge
     ipam:
       config:

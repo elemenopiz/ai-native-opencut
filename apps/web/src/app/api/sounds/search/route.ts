@@ -1,4 +1,4 @@
-import { webEnv } from "@opencut-ai/env/web";
+import { webEnv } from "@byorn/env/web";
 import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { checkRateLimit } from "@/lib/rate-limit";

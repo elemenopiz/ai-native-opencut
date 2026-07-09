@@ -6,14 +6,10 @@ import { motion } from "motion/react";
 import { Button } from "./ui/button";
 import { ArrowRight } from "lucide-react";
 import { ThemeToggle } from "./theme-toggle";
-import {
-	GithubIcon,
-	Menu02Icon,
-} from "@hugeicons/core-free-icons";
+import { Menu02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { cn } from "@/utils/ui";
-import { SOCIAL_LINKS } from "@/constants/site-constants";
-import { OpenCutAILogo } from "./footer";
+import { ByornLogo } from "./footer";
 
 export function Header() {
 	const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -35,9 +31,9 @@ export function Header() {
 			<div className="relative flex w-full items-center justify-between px-6 pt-4">
 				<div className="relative z-10 flex items-center gap-6">
 					<Link href="/" className="flex items-center gap-3">
-						<OpenCutAILogo size={36} />
+						<ByornLogo size={36} />
 						<span className="text-base font-bold tracking-tight hidden sm:inline">
-							OpenCut AI
+							Byorn
 						</span>
 					</Link>
 
@@ -64,12 +60,6 @@ export function Header() {
 						</Button>
 					</div>
 					<div className="hidden items-center gap-3 md:flex">
-						<Link href={SOCIAL_LINKS.github}>
-							<Button className="bg-background text-sm" variant="outline">
-								<HugeiconsIcon icon={GithubIcon} className="size-4" />
-								GitHub
-							</Button>
-						</Link>
 						<Link href="/projects">
 							<Button className="text-sm">
 								Start editing

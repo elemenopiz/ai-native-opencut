@@ -16,11 +16,13 @@ import { AddTrackCommand, InsertElementCommand } from "@/lib/commands/timeline";
 import { BatchCommand } from "@/lib/commands";
 import { computeDropTarget } from "@/lib/timeline/drop-utils";
 import { getDragData, hasDragData } from "@/lib/drag-data";
+import { addItemsToProjectMedia } from "@/lib/studio/add-to-editor";
 import type { TrackType, DropTarget, ElementType } from "@/types/timeline";
 import type {
 	MediaDragData,
 	StickerDragData,
 	EffectDragData,
+	StudioTakeDragData,
 } from "@/types/drag";
 
 interface UseTimelineDragDropProps {
@@ -319,6 +321,69 @@ export function useTimelineDragDrop({
 		[editor.command, editor.timeline, mediaAssets, tracks],
 	);
 
+	// A generated take dragged from the Takes bin doesn't reference a library
+	// asset yet — import its remote URL into project media, then place the new
+	// clip at the drop target (mirrors executeMediaDrop's placement logic).
+	const executeStudioTakeDrop = useCallback(
+		async ({
+			target,
+			dragData,
+		}: {
+			target: DropTarget;
+			dragData: StudioTakeDragData;
+		}) => {
+			if (target.targetElement) {
+				toast.info("Replace media source is coming soon!");
+				return;
+			}
+
+			const { mediaIds } = await addItemsToProjectMedia({
+				editor,
+				projectId: activeProject.metadata.id,
+				items: [
+					{ url: dragData.url, name: dragData.name, kind: dragData.kind },
+				],
+				source: "ai",
+			});
+			const mediaId = mediaIds[0];
+			if (!mediaId) {
+				toast.error("Failed to import take");
+				return;
+			}
+
+			const mediaAsset = editor.media.getAssets().find((m) => m.id === mediaId);
+			const duration =
+				mediaAsset?.duration ?? TIMELINE_CONSTANTS.DEFAULT_ELEMENT_DURATION;
+			const element = buildElementFromMedia({
+				mediaId,
+				mediaType: dragData.kind,
+				name: dragData.name,
+				duration,
+				startTime: target.xPosition,
+			});
+
+			if (target.isNewTrack) {
+				const addTrackCmd = new AddTrackCommand("video", target.trackIndex);
+				const insertCmd = new InsertElementCommand({
+					element,
+					placement: { mode: "explicit", trackId: addTrackCmd.getTrackId() },
+				});
+				editor.command.execute({
+					command: new BatchCommand([addTrackCmd, insertCmd]),
+				});
+				return;
+			}
+
+			const track = editor.timeline.getTracks()[target.trackIndex];
+			if (!track) return;
+			editor.timeline.insertElement({
+				placement: { mode: "explicit", trackId: track.id },
+				element,
+			});
+		},
+		[editor, activeProject.metadata.id],
+	);
+
 	const executeEffectDrop = useCallback(
 		({
 			target,
@@ -478,8 +543,13 @@ export function useTimelineDragDrop({
 							target: currentTarget,
 							dragData: dragData as EffectDragData,
 						});
-					} else {
+					} else if (dragData.type === "media") {
 						executeMediaDrop({ target: currentTarget, dragData });
+					} else if (dragData.type === "studio-take") {
+						await executeStudioTakeDrop({
+							target: currentTarget,
+							dragData,
+						});
 					}
 				} else if (hasFiles) {
 					const scrollContainer = tracksScrollRef?.current;
@@ -510,6 +580,7 @@ export function useTimelineDragDrop({
 			executeTextDrop,
 			executeStickerDrop,
 			executeMediaDrop,
+			executeStudioTakeDrop,
 			executeEffectDrop,
 			executeFileDrop,
 			containerRef,

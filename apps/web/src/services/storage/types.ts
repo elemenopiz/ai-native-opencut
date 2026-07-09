@@ -50,6 +50,9 @@ export interface MediaAssetData {
 	thumbnailUrl?: string;
 	/** User-defined label for organising assets (e.g. "Drone shot", "Person A cam") */
 	label?: string;
+	/** Where the asset came from. "ai" marks Studio-generated images/videos so
+	 *  they can be filtered in the Assets panel. Undefined ⇒ uploaded/imported. */
+	source?: "ai";
 	proxy?: ProxyInfo;
 	needsProxy?: boolean;
 }

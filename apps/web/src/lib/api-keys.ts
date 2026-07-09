@@ -1,11 +1,11 @@
 /**
  * Client-side API key helpers.
  *
- * Keys are stored in localStorage by the Settings panel under "opencut-api-keys"
+ * Keys are stored in localStorage by the Settings panel under "byorn-api-keys"
  * as a JSON object, and sent as custom headers to Next.js API routes.
  */
 
-const STORAGE_KEY = "opencut-api-keys";
+const STORAGE_KEY = "byorn-api-keys";
 
 function getStoredKeys(): Record<string, string> {
 	if (typeof window === "undefined") return {};

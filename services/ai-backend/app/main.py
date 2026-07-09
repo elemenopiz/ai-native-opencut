@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan: startup and shutdown."""
-    logger.info("OpenCut AI Backend starting on %s:%d", settings.HOST, settings.PORT)
+    logger.info("Byorn Backend starting on %s:%d", settings.HOST, settings.PORT)
     logger.info(
         "Microservice URLs: whisper=%s  tts=%s  image=%s  ollama=%s",
         settings.WHISPER_SERVICE_URL,
@@ -57,8 +57,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="OpenCut AI Backend",
-    description="AI-powered backend for the OpenCut AI video editor",
+    title="Byorn Backend",
+    description="AI-powered backend for the Byorn video editor",
     version="0.1.0",
     lifespan=lifespan,
 )

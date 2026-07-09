@@ -460,15 +460,20 @@ export function useElementInteraction({
 		} else {
 			const targetTrack = tracks[dropTarget.trackIndex];
 			if (targetTrack) {
-				editor.timeline.moveElement({
-					sourceTrackId: dragState.trackId,
-					targetTrackId: targetTrack.id,
-					elementId: dragState.elementId,
-					newStartTime: snappedTime,
-					rippleEnabled: rippleEditingEnabled,
-				});
-				if (targetTrack.id !== dragState.trackId) {
-					selectElement({ trackId: targetTrack.id, elementId: dragState.elementId });
+				const isNoOpDrop =
+					targetTrack.id === dragState.trackId &&
+					snappedTime === dragState.startElementTime;
+				if (!isNoOpDrop) {
+					editor.timeline.moveElement({
+						sourceTrackId: dragState.trackId,
+						targetTrackId: targetTrack.id,
+						elementId: dragState.elementId,
+						newStartTime: snappedTime,
+						rippleEnabled: rippleEditingEnabled,
+					});
+					if (targetTrack.id !== dragState.trackId) {
+						selectElement({ trackId: targetTrack.id, elementId: dragState.elementId });
+					}
 				}
 			}
 		}

@@ -5,13 +5,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/utils/ui";
 
 export const metadata: Metadata = {
-	title: "Models - OpenCut AI",
+	title: "Models - Byorn",
 	description:
-		"Open-source AI models powering OpenCut AI. Transcription, image generation, voice synthesis, speaker detection, and more — all running locally.",
+		"Open-source AI models powering Byorn. Transcription, image generation, voice synthesis, speaker detection, and more — all running locally.",
 	openGraph: {
-		title: "Models - OpenCut AI",
+		title: "Models - Byorn",
 		description:
-			"Open-source AI models powering OpenCut AI. Transcription, image generation, voice synthesis, speaker detection, and more — all running locally.",
+			"Open-source AI models powering Byorn. Transcription, image generation, voice synthesis, speaker detection, and more — all running locally.",
 		type: "website",
 	},
 };
@@ -184,7 +184,7 @@ const models: AIModel[] = [
 	},
 	{
 		name: "TurboQuant",
-		provider: "OpenCut AI",
+		provider: "Byorn",
 		category: "Model Optimization",
 		description:
 			"KV cache compression using Google Research's PolarQuant + QJL. Achieves 6x memory reduction at 3-bit with 0.9953 cosine similarity. Makes 7B models run on 8 GB RAM. One-click setup in Settings.",
@@ -242,7 +242,7 @@ export default function ModelsPage() {
 					Models
 				</h1>
 				<p className="text-muted-foreground mx-auto max-w-2xl text-xl leading-relaxed text-pretty">
-					Every AI model in OpenCut AI is open source and runs locally on
+					Every AI model in Byorn is open source and runs locally on
 					your machine. Cloud APIs available for Indian and multilingual content.
 				</p>
 			</div>

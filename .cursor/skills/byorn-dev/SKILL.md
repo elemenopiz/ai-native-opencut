@@ -1,9 +1,9 @@
 ---
-name: opencut-ai-dev
-description: Full project context for OpenCut AI — architecture, conventions, store shapes, API patterns, and coding standards. Use when working on any OpenCut AI feature to get instant project context.
+name: byorn-dev
+description: Full project context for Byorn — architecture, conventions, store shapes, API patterns, and coding standards. Use when working on any Byorn feature to get instant project context.
 ---
 
-This skill provides complete context for the OpenCut AI project — an AI-enhanced fork of the OpenCut video editor that adds text-based editing, transcription, image generation, voiceover, and natural language commands.
+This skill provides complete context for the Byorn project — an AI-native video editor (built on OpenCut) that adds text-based editing, transcription, image generation, voiceover, and natural language commands.
 
 ## Tech Stack
 
@@ -98,7 +98,6 @@ Key types:
 - Config via Pydantic BaseSettings
 - Clean error responses (400/500, no stack traces)
 
-## Issue Tracker
+## Development Phases
 
-Full 31-issue tracker: `opencut-ai-issues-with-skills.md` (repo root)
-Phases: Foundation → Transcription → Text Editing → LLM + Image → Audio AI → Polish
+Foundation → Transcription → Text Editing → LLM + Image → Audio AI → Polish

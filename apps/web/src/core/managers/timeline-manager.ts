@@ -66,9 +66,13 @@ export class TimelineManager {
 		this.editor.command.execute({ command });
 	}
 
-	insertElement({ element, placement }: InsertElementParams): void {
+	/** Insert an element onto the timeline. Returns the new element's id (see
+	 *  `InsertElementCommand.getElementId()`) so callers that need it (e.g. the
+	 *  Director API's `addText`) don't have to re-scan tracks afterward. */
+	insertElement({ element, placement }: InsertElementParams): string {
 		const command = new InsertElementCommand({ element, placement });
 		this.editor.command.execute({ command });
+		return command.getElementId();
 	}
 
 	updateElementTrim({
@@ -369,8 +373,24 @@ export class TimelineManager {
 		const takes = this.getElementTakes(found.element).map((take) =>
 			take.id === takeId ? { ...take, ...patch } : take,
 		);
+		// Keep the clip's mirrored media in sync. If the take that was just patched
+		// is the active one and it gained a mediaId (e.g. it finished generating),
+		// mirror that onto the element too — otherwise the clip keeps rendering the
+		// previously-active take's media until the user reselects.
+		const activeTakeId = this.getActiveTakeId(found.element);
 		this.updateElements({
-			updates: [{ trackId: found.trackId, elementId, updates: { takes } }],
+			updates: [
+				{
+					trackId: found.trackId,
+					elementId,
+					updates: {
+						takes,
+						...(takeId === activeTakeId && patch.mediaId
+							? { mediaId: patch.mediaId }
+							: {}),
+					},
+				},
+			],
 		});
 	}
 
@@ -395,7 +415,11 @@ export class TimelineManager {
 					elementId,
 					updates: {
 						activeTakeId: takeId,
-						...(take.mediaId ? { mediaId: take.mediaId } : {}),
+						// Always mirror the take's media — including the empty-slot
+						// sentinel ("") when the selected take is still generating — so
+						// the clip never shows a *different* take's frames than the one
+						// marked active. updateTake() re-mirrors once the take lands.
+						mediaId: take.mediaId ?? "",
 					},
 				},
 			],
@@ -443,13 +467,17 @@ export class TimelineManager {
 	}
 
 	private getElementTakes(element: TimelineElement): Take[] {
-		return "takes" in element && Array.isArray(element.takes)
-			? element.takes
+		// Narrow on the element type so the generative fields are read through the
+		// static union (a rename becomes a compile error, not silent data loss).
+		return element.type === "video" || element.type === "image"
+			? (element.takes ?? [])
 			: [];
 	}
 
 	private getActiveTakeId(element: TimelineElement): string | undefined {
-		return "activeTakeId" in element ? element.activeTakeId : undefined;
+		return element.type === "video" || element.type === "image"
+			? element.activeTakeId
+			: undefined;
 	}
 
 	addClipEffect({

@@ -14,13 +14,33 @@ export function formatUsd(n: number): string {
 	return n < 1 ? `${(n * 100).toFixed(0)}¢` : `$${n.toFixed(2)}`;
 }
 
-/** Live, dynamic cost estimate for the current settings. */
+/**
+ * Whether a generation renders a fresh per-shot still (the +1 GPT Image cost).
+ * Single source of truth so the three cost-estimate call sites can't drift on
+ * what counts toward cost.
+ */
+export function addsPerShotStill(
+	hasPersona: boolean,
+	consistencyMode: "high" | "fast" | undefined,
+): boolean {
+	return hasPersona && consistencyMode === "high";
+}
+
+/**
+ * Live, dynamic cost estimate for the current settings. `count` variations share
+ * a single per-shot still (it's rendered once for the whole batch), so the still
+ * cost is added ONCE while the per-second video cost scales with count.
+ */
 export function estimateCost(
 	resolution: VideoResolution,
 	duration: number,
-	addsPerShotStill: boolean,
+	rendersStill: boolean,
+	count = 1,
 ): { low: number; high: number } {
 	const [lo, hi] = RATE_PER_SEC[resolution];
-	const still = addsPerShotStill ? PER_SHOT_STILL_COST : 0;
-	return { low: lo * duration + still, high: hi * duration + still };
+	const still = rendersStill ? PER_SHOT_STILL_COST : 0;
+	return {
+		low: lo * duration * count + still,
+		high: hi * duration * count + still,
+	};
 }

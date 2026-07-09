@@ -54,8 +54,8 @@ const LANGUAGE_OPTIONS = [
 	{ value: "ar", label: "Arabic" },
 ];
 
-const STORAGE_KEY = "opencut-template-job";
-const RESULT_STORAGE_KEY = "opencut-template-result";
+const STORAGE_KEY = "byorn-template-job";
+const RESULT_STORAGE_KEY = "byorn-template-result";
 const POLL_INTERVAL = 2500;
 
 async function searchFreesound(query: string, pageSize = 5): Promise<SoundEffect[]> {

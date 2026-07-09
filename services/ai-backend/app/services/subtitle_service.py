@@ -113,7 +113,7 @@ def segments_to_ass(segments: list[dict], style: dict | None = None) -> str:
 
     header = (
         "[Script Info]\n"
-        "Title: OpenCut AI Subtitles\n"
+        "Title: Byorn Subtitles\n"
         "ScriptType: v4.00+\n"
         "WrapStyle: 0\n"
         "PlayResX: 1920\n"

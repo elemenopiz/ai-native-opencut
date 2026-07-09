@@ -29,6 +29,8 @@ import { TIMELINE_CONSTANTS } from "@/constants/timeline-constants";
 import { useEditor } from "@/hooks/use-editor";
 import { useFileUpload } from "@/hooks/use-file-upload";
 import { useRevealItem } from "@/hooks/use-reveal-item";
+import { getDragData } from "@/lib/drag-data";
+import { addItemsToProjectMedia } from "@/lib/studio/add-to-editor";
 import { processMediaAssets } from "@/lib/media/processing";
 import { buildElementFromMedia } from "@/lib/timeline/element-utils";
 import {
@@ -49,6 +51,7 @@ import {
 	Image02Icon,
 	MusicNote03Icon,
 	Video01Icon,
+	SparklesIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 
@@ -113,6 +116,66 @@ export function MediaView() {
 			onFilesSelected: (files) => processFiles({ files }),
 		});
 
+	// Dragging a generated take from the Takes panel onto Assets saves it into
+	// the project library. `useFileUpload`'s handlers ignore this drag (its
+	// `containsFiles` guard is false whenever drag-data is present), so we layer
+	// our own handlers on top and delegate OS-file drags back to `dragProps`.
+	const [isTakeDragOver, setIsTakeDragOver] = useState(false);
+
+	const isTakeDrag = (e: React.DragEvent) =>
+		getDragData({ dataTransfer: e.dataTransfer })?.type === "studio-take";
+
+	const handlePanelDragEnter = (e: React.DragEvent) => {
+		if (isTakeDrag(e)) {
+			e.preventDefault();
+			setIsTakeDragOver(true);
+			return;
+		}
+		dragProps.onDragEnter(e);
+	};
+
+	const handlePanelDragOver = (e: React.DragEvent) => {
+		if (isTakeDrag(e)) {
+			e.preventDefault();
+			e.dataTransfer.dropEffect = "copy";
+			setIsTakeDragOver(true);
+			return;
+		}
+		dragProps.onDragOver(e);
+	};
+
+	const handlePanelDragLeave = (e: React.DragEvent) => {
+		if (isTakeDrag(e)) {
+			setIsTakeDragOver(false);
+			return;
+		}
+		dragProps.onDragLeave(e);
+	};
+
+	const handlePanelDrop = async (e: React.DragEvent) => {
+		const dragData = getDragData({ dataTransfer: e.dataTransfer });
+		if (dragData?.type === "studio-take") {
+			e.preventDefault();
+			setIsTakeDragOver(false);
+			if (!activeProject) {
+				toast.error("No active project");
+				return;
+			}
+			const { added } = await addItemsToProjectMedia({
+				editor,
+				projectId: activeProject.metadata.id,
+				items: [
+					{ url: dragData.url, name: dragData.name, kind: dragData.kind },
+				],
+				source: "ai",
+			});
+			if (added > 0) toast.success("Saved to assets.");
+			else toast.error("Could not save to assets.");
+			return;
+		}
+		dragProps.onDrop(e);
+	};
+
 	const handleRemove = async ({
 		event,
 		id,
@@ -147,20 +210,24 @@ export function MediaView() {
 	);
 
 	const typeCounts = useMemo(() => {
-		const counts = { all: 0, video: 0, image: 0, audio: 0 };
+		const counts = { all: 0, video: 0, image: 0, audio: 0, ai: 0 };
 		for (const item of nonEphemeralMedia) {
 			counts.all++;
 			if (item.type === "video") counts.video++;
 			else if (item.type === "image") counts.image++;
 			else if (item.type === "audio") counts.audio++;
+			if (item.source === "ai") counts.ai++;
 		}
 		return counts;
 	}, [nonEphemeralMedia]);
 
 	const filteredMediaItems = useMemo(() => {
-		const filtered = mediaTypeFilter === "all"
-			? nonEphemeralMedia
-			: nonEphemeralMedia.filter((item) => item.type === mediaTypeFilter);
+		const filtered =
+			mediaTypeFilter === "all"
+				? nonEphemeralMedia
+				: mediaTypeFilter === "ai"
+					? nonEphemeralMedia.filter((item) => item.source === "ai")
+					: nonEphemeralMedia.filter((item) => item.type === mediaTypeFilter);
 
 		const sorted = [...filtered];
 		sorted.sort((a, b) => {
@@ -213,8 +280,14 @@ export function MediaView() {
 						onImport={openFilePicker}
 					/>
 				}
-				className={cn(isDragOver && "bg-accent/30")}
-				{...dragProps}
+				className={cn(
+					isDragOver && "bg-accent/30",
+					isTakeDragOver && "bg-primary/10 ring-2 ring-inset ring-primary",
+				)}
+				onDragEnter={handlePanelDragEnter}
+				onDragOver={handlePanelDragOver}
+				onDragLeave={handlePanelDragLeave}
+				onDrop={handlePanelDrop}
 			>
 				{/* Type filter tabs */}
 				{nonEphemeralMedia.length > 0 && !isDragOver && (
@@ -261,6 +334,13 @@ function MediaAssetDraggable({
 }) {
 	const editor = useEditor();
 
+	// Render the thumbnail at the media's true aspect ratio so portrait clips
+	// preview as portrait instead of being letterbox-cropped into 16:9. Clamp to
+	// a sane range so an extreme panorama can't blow out the grid row height.
+	const naturalRatio =
+		item.width && item.height ? item.width / item.height : 16 / 9;
+	const previewRatio = Math.min(Math.max(naturalRatio, 0.5), 2);
+
 	const addElementAtTime = ({
 		asset,
 		startTime,
@@ -303,6 +383,12 @@ function MediaAssetDraggable({
 			variant={variant}
 			isRounded={isRounded}
 			isHighlighted={isHighlighted}
+			// Grid cards fill the column width and take their height from the
+			// media's own ratio; the compact (list) variant ignores both.
+			{...(variant === "card" && {
+				aspectRatio: previewRatio,
+				containerClassName: "w-full",
+			})}
 		/>
 	);
 }
@@ -399,7 +485,7 @@ function MediaItemList({
 		<div
 			className={cn(isGrid ? "grid gap-2" : "flex flex-col gap-1")}
 			style={
-				isGrid ? { gridTemplateColumns: "repeat(auto-fill, 160px)" } : undefined
+				isGrid ? { gridTemplateColumns: "repeat(auto-fill, 110px)" } : undefined
 			}
 		>
 			{items.map((item) => (
@@ -575,6 +661,7 @@ function MediaPreview({
 	variant?: "grid" | "compact";
 }) {
 	const shouldShowDurationBadge = variant === "grid";
+	const showAiBadge = shouldShowDurationBadge && item.source === "ai";
 
 	if (item.type === "image") {
 		return (
@@ -591,6 +678,7 @@ function MediaPreview({
 				{shouldShowDurationBadge && (
 					<MediaTypeBadge type="image" />
 				)}
+				{showAiBadge && <AiBadge />}
 			</div>
 		);
 	}
@@ -614,6 +702,7 @@ function MediaPreview({
 							<MediaDurationBadge duration={item.duration} />
 						</>
 					)}
+					{showAiBadge && <AiBadge />}
 				</div>
 			);
 		}
@@ -786,6 +875,15 @@ const TYPE_BADGE_STYLES: Record<string, string> = {
 	audio: "bg-amber-500/80",
 };
 
+function AiBadge() {
+	return (
+		<div className="absolute right-1 top-1 flex items-center gap-0.5 rounded bg-violet-500/85 px-1 py-0.5 text-[9px] font-medium uppercase leading-none text-white">
+			<HugeiconsIcon icon={SparklesIcon} className="size-2.5" />
+			AI
+		</div>
+	);
+}
+
 function MediaTypeBadge({ type }: { type: string }) {
 	return (
 		<div
@@ -804,6 +902,7 @@ const FILTER_TABS: { key: MediaTypeFilter; label: string; icon: IconSvgElement }
 	{ key: "video", label: "Videos", icon: Video01Icon },
 	{ key: "image", label: "Images", icon: Image02Icon },
 	{ key: "audio", label: "Audio", icon: MusicNote03Icon },
+	{ key: "ai", label: "AI", icon: SparklesIcon },
 ];
 
 function MediaTypeFilterBar({

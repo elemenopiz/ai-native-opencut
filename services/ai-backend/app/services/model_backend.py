@@ -1,6 +1,6 @@
 """Unified LLM backend abstraction — routes requests to Ollama or TurboQuant.
 
-This module provides a single interface for all LLM inference in OpenCut-AI.
+This module provides a single interface for all LLM inference in Byorn.
 When TurboQuant is enabled (and its service is reachable), requests are routed
 through the TurboQuant inference service for KV cache compression. Otherwise,
 they fall back to Ollama.

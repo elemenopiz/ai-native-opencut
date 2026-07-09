@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/utils/ui";
+import { clearDragData, setDragData } from "@/lib/drag-data";
 import type { StudioTake } from "@/hooks/use-studio-generation";
 
 interface TakeCardProps {
@@ -12,21 +13,65 @@ interface TakeCardProps {
 	onPromote: (takeId: string) => void;
 	onPin: (takeId: string) => void;
 	onAddToTimeline?: (videoUrl: string) => void;
+	/**
+	 * Promote this take into the project's Assets library. When provided, the
+	 * corner star triggers this (and marks the take saved); otherwise the star
+	 * falls back to toggling the persisted starred flag.
+	 */
+	onSaveToAssets?: (take: StudioTake) => void;
 	selected?: boolean;
 	onToggleSelect?: (takeId: string) => void;
 }
 
-export function TakeCard({ take, onStar, onPromote, onPin, onAddToTimeline, selected, onToggleSelect }: TakeCardProps) {
+// Initial aspect ratio from the take's declared orientation, so a 9:16 clip
+// renders portrait immediately instead of being letterboxed into 16:9. Refined
+// to the video's true ratio once its metadata loads.
+const RATIO_BY_ORIENTATION: Record<string, number> = {
+	portrait: 9 / 16,
+	landscape: 16 / 9,
+	square: 1,
+};
+
+export function TakeCard({ take, onStar, onPromote, onPin, onAddToTimeline, onSaveToAssets, selected, onToggleSelect }: TakeCardProps) {
 	const [hovered, setHovered] = useState(false);
+	const [aspectRatio, setAspectRatio] = useState<number>(
+		take.orientation ? RATIO_BY_ORIENTATION[take.orientation] ?? 16 / 9 : 16 / 9,
+	);
 	const isPolling = take.status === "polling" || take.status === "submitting";
 	const isDone = take.status === "done";
 	const isError = take.status === "error";
+	const canDrag = isDone && !!take.videoUrl;
+
+	const handleStarClick = () => {
+		if (onSaveToAssets) onSaveToAssets(take);
+		else onStar(take.takeId, !take.starred);
+	};
+
+	const handleDragStart = (e: React.DragEvent) => {
+		if (!take.videoUrl) return;
+		setDragData({
+			dataTransfer: e.dataTransfer,
+			dragData: {
+				type: "studio-take",
+				id: take.takeId,
+				takeId: take.takeId,
+				name: take.prompt || "Generated take",
+				url: take.videoUrl,
+				kind: "video",
+			},
+		});
+		e.dataTransfer.effectAllowed = "copy";
+	};
 
 	return (
 		<div
+			draggable={canDrag}
+			onDragStart={canDrag ? handleDragStart : undefined}
+			onDragEnd={canDrag ? clearDragData : undefined}
 			className={cn(
 				"relative rounded-lg border bg-card overflow-hidden transition-all",
 				isDone && "border-border hover:border-primary/50",
+				canDrag && "cursor-grab active:cursor-grabbing",
 				isPolling && "border-border/50 animate-pulse",
 				isError && "border-destructive/50",
 				selected && "ring-2 ring-primary border-primary",
@@ -52,16 +97,56 @@ export function TakeCard({ take, onStar, onPromote, onPin, onAddToTimeline, sele
 					</svg>
 				</button>
 			)}
-			{/* Video / placeholder */}
-			<div className="aspect-video bg-muted flex items-center justify-center">
+			{/* Save-to-assets star — persistent corner icon. Filled = already saved. */}
+			{isDone && (
+				<button
+					type="button"
+					onClick={handleStarClick}
+					aria-label={take.starred ? "Remove from assets" : "Save to assets"}
+					title={take.starred ? "Saved — click to remove from assets" : "Save to assets"}
+					className={cn(
+						"absolute top-2 right-2 z-10 size-6 rounded-full flex items-center justify-center transition-colors",
+						take.starred
+							? "bg-black/40 text-amber-400"
+							: "bg-black/50 text-white/70 hover:text-white",
+					)}
+				>
+					<svg
+						className="size-3.5"
+						viewBox="0 0 20 20"
+						fill={take.starred ? "currentColor" : "none"}
+						stroke="currentColor"
+						strokeWidth="1.5"
+					>
+						<path
+							strokeLinejoin="round"
+							d="M10 2.5l2.35 4.76 5.25.76-3.8 3.7.9 5.23L10 14.98l-4.7 2.47.9-5.23-3.8-3.7 5.25-.76L10 2.5z"
+						/>
+					</svg>
+				</button>
+			)}
+
+			{/* Video / placeholder. The container takes the clip's own aspect ratio so
+			    portrait (9:16) takes preview portrait instead of being cropped to 16:9. */}
+			<div
+				className="bg-muted flex items-center justify-center"
+				style={{ aspectRatio }}
+			>
 				{isDone && take.videoUrl ? (
 					<video
 						src={take.videoUrl}
-						className="w-full h-full object-cover"
+						className="w-full h-full object-contain"
 						loop
 						muted
 						autoPlay={hovered}
 						playsInline
+						preload="metadata"
+						onLoadedMetadata={(e) => {
+							const v = e.currentTarget;
+							if (v.videoWidth && v.videoHeight) {
+								setAspectRatio(v.videoWidth / v.videoHeight);
+							}
+						}}
 					/>
 				) : isPolling ? (
 					<div className="flex flex-col items-center gap-2 text-muted-foreground">
@@ -95,14 +180,6 @@ export function TakeCard({ take, onStar, onPromote, onPin, onAddToTimeline, sele
 			{isDone && hovered && (
 				<div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-2 p-3">
 					<div className="flex gap-2 flex-wrap justify-center">
-						<Button
-							size="sm"
-							variant="secondary"
-							className="text-xs h-7"
-							onClick={() => onStar(take.takeId, !take.starred)}
-						>
-							{take.starred ? "★ Starred" : "☆ Star"}
-						</Button>
 						<Button
 							size="sm"
 							variant="secondary"

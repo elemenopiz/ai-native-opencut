@@ -1,19 +1,25 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Badge } from "@/components/ui/badge";
 import { PanelView } from "./base-view";
 import { GenerationForm } from "@/components/studio/generation-form";
 import { ImagePanel } from "@/components/studio/image-panel";
 import { PersonaManager } from "@/components/studio/persona-manager";
-import { TakeCard } from "@/components/studio/take-card";
 import { Button } from "@/components/ui/button";
 import { useStudioGeneration } from "@/hooks/use-studio-generation";
-import { useStudioSettingsStore } from "@/stores/studio-settings-store";
+import { useSlotGeneration } from "@/hooks/use-slot-generation";
 import { useEditor } from "@/hooks/use-editor";
-import { addClipsToEditor } from "@/lib/studio/add-to-editor";
+import {
+	generateMultiframe,
+	type MultiframeBase,
+} from "@/lib/studio/multiframe";
+import { addsPerShotStill, estimateCost, formatUsd } from "@/lib/studio/cost";
+import { useTakesNotificationStore } from "@/stores/takes-notification-store";
+import { cn } from "@/utils/ui";
+import { TakeReview } from "@/components/editor/take-review";
+import type { GenerationSpec } from "@/types/timeline";
 
 /**
  * The single, consolidated AI generation surface — lives inside the editor so
@@ -23,57 +29,108 @@ import { addClipsToEditor } from "@/lib/studio/add-to-editor";
  * current project's timeline.
  */
 export function GenerateView() {
-	const {
-		status,
-		activeTakes,
-		error,
-		generate,
-		promoteTo1080p,
-		starTake,
-		pinToBoard,
-		loadHistory,
-		clearError,
-	} = useStudioGeneration();
+	const { status, error, generate, clearError } = useStudioGeneration();
 
 	const editor = useEditor();
-	const settings = useStudioSettingsStore();
 	const [section, setSection] = useState("generate");
-	const [referenceImageUrl, setReferenceImageUrl] = useState("");
 
 	const busy = status === "submitting" || status === "polling";
 
-	// Reserve an empty generative slot on the timeline — the storyboard primitive.
-	// You lay out the reel's shape first; prompts and takes fill the slots later.
-	const reserveSlot = useCallback(() => {
-		try {
-			editor.timeline.addGenerativeSlot({
-				spec: {
-					prompt: "",
-					mode: settings.mode,
-					resolution: settings.resolution,
-					orientation: settings.orientation,
-					duration: settings.duration,
-					cameraPreset: settings.cameraPreset ?? undefined,
-					seedLocked: settings.seedLocked,
-					consistencyMode: settings.consistencyMode,
-				},
-				duration: settings.duration,
-			});
-			toast.success("Reserved an empty slot on the timeline.");
-		} catch {
-			toast.error("No active project to add a slot to.");
-		}
-	}, [editor, settings]);
+	// Slots are created via the Director's storyboard (humans) or the
+	// director-api `reserveSlot`/`storyboard` verbs (AI). This panel just
+	// renders + batch-generates whatever slots already exist on the timeline.
 
-	// Hydrate the takes list from persisted history on first mount.
+	// ── Batch generation (Phase 4) ────────────────────────────────────────────
+	const { generateAllSlots } = useSlotGeneration();
+	const [alternatives, setAlternatives] = useState(1);
+	const [batchBusy, setBatchBusy] = useState(false);
+	const [reviewOpen, setReviewOpen] = useState(false);
+	const [slots, setSlots] = useState<
+		{ elementId: string; spec: GenerationSpec; hasPrompt: boolean }[]
+	>([]);
+
+	// Track generative slots on the timeline so the batch bar stays in sync.
 	useEffect(() => {
-		void loadHistory();
-	}, [loadHistory]);
+		const refresh = () => {
+			const out: {
+				elementId: string;
+				spec: GenerationSpec;
+				hasPrompt: boolean;
+			}[] = [];
+			for (const track of editor.timeline.getTracks()) {
+				for (const el of track.elements) {
+					if ((el.type === "video" || el.type === "image") && el.generation) {
+						out.push({
+							elementId: el.id,
+							spec: el.generation,
+							hasPrompt: !!el.generation.prompt?.trim(),
+						});
+					}
+				}
+			}
+			setSlots(out);
+		};
+		refresh();
+		return editor.timeline.subscribe(refresh);
+	}, [editor]);
 
-	// Drop a finished take onto the current project's timeline. We're already
-	// inside the editor, so the target project is simply the active one.
-	const handleAddToTimeline = useCallback(
-		async (videoUrl: string, name = "Generated clip") => {
+	const promptedSlots = slots.filter((s) => s.hasPrompt);
+	const batchCost = promptedSlots.reduce(
+		(acc, s) => {
+			// `alternatives` takes per slot share a single per-shot still, so the
+			// still is counted once (inside estimateCost) and the video cost scales
+			// with the alternatives count.
+			const rendersStill = addsPerShotStill(
+				!!s.spec.personaId,
+				s.spec.consistencyMode,
+			);
+			const c = estimateCost(
+				s.spec.resolution,
+				s.spec.duration,
+				rendersStill,
+				alternatives,
+			);
+			return {
+				low: acc.low + c.low,
+				high: acc.high + c.high,
+			};
+		},
+		{ low: 0, high: 0 },
+	);
+
+	const runBatch = useCallback(async () => {
+		setBatchBusy(true);
+		try {
+			const r = await generateAllSlots({ alternatives });
+			if (r.slots === 0) {
+				toast.error("No slots with prompts to generate.");
+			} else {
+				toast.success(
+					`Generated ${r.ok} take${r.ok === 1 ? "" : "s"} across ${r.slots} slot${r.slots === 1 ? "" : "s"}${r.failed ? ` (${r.failed} failed)` : ""}.`,
+				);
+			}
+		} finally {
+			setBatchBusy(false);
+		}
+	}, [alternatives, generateAllSlots]);
+
+	// Drive the Takes tab icon (left rail): fill it blue while a generation is in
+	// flight, keep it blue once done so the user knows takes are waiting there.
+	// Covers both single-shot (`busy`) and batch (`batchBusy`) generation.
+	const setGenerating = useTakesNotificationStore((s) => s.setGenerating);
+	const setReady = useTakesNotificationStore((s) => s.setReady);
+	const anyBusy = busy || batchBusy;
+	const wasBusy = useRef(false);
+	useEffect(() => {
+		if (anyBusy && !wasBusy.current) setGenerating();
+		else if (!anyBusy && wasBusy.current) setReady();
+		wasBusy.current = anyBusy;
+	}, [anyBusy, setGenerating, setReady]);
+
+	// Multiframe: generate N-1 flf2v segments across the keyframes and lay them
+	// end-to-end on the active project's timeline.
+	const handleGenerateMultiframe = useCallback(
+		async (keyframes: string[], base: MultiframeBase) => {
 			let projectId: string | null = null;
 			try {
 				projectId = editor.project.getActive().metadata.id;
@@ -84,34 +141,29 @@ export function GenerateView() {
 				toast.error("No active project to add to.");
 				return;
 			}
-			const { added } = await addClipsToEditor({
+			const segs = keyframes.length - 1;
+			toast.info(`Generating ${segs} segment${segs === 1 ? "" : "s"}…`);
+			const { placed, segments } = await generateMultiframe({
 				editor,
 				projectId,
-				clips: [{ id: crypto.randomUUID(), videoUrl, name }],
+				keyframes,
+				base,
 			});
-			if (added > 0) toast.success("Added to the timeline.");
-			else toast.error("Could not add to the timeline.");
+			if (placed > 0) {
+				toast.success(
+					`Placed ${placed}/${segments} segment${segments === 1 ? "" : "s"} on the timeline.`,
+				);
+			} else {
+				toast.error("Multiframe generation failed.");
+			}
 		},
 		[editor],
 	);
 
-	// GPT Image reference-still generation (kept from the studio flow).
-	async function handleImageGenerate(prompt: string) {
-		const res = await fetch("/api/studio/image", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ prompt, n: 1 }),
-		});
-		if (res.ok) {
-			const data = (await res.json()) as { images: Array<{ imageUrl: string }> };
-			if (data.images[0]) setReferenceImageUrl(data.images[0].imageUrl);
-		}
-	}
-
 	return (
 		<PanelView title="Generate" hideHeader>
 			<Tabs value={section} onValueChange={setSection} className="space-y-3">
-				<TabsList className="w-full grid grid-cols-4 h-8">
+				<TabsList className="w-full grid grid-cols-3 h-8">
 					<TabsTrigger value="generate" className="text-xs">
 						Shot
 					</TabsTrigger>
@@ -121,73 +173,88 @@ export function GenerateView() {
 					<TabsTrigger value="personas" className="text-xs">
 						Personas
 					</TabsTrigger>
-					<TabsTrigger value="takes" className="text-xs">
-						Takes
-						{activeTakes.length > 0 && (
-							<Badge
-								variant="secondary"
-								className="ml-1 text-[10px] px-1 py-0 h-4"
-							>
-								{activeTakes.length}
-							</Badge>
-						)}
-					</TabsTrigger>
 				</TabsList>
 
 				<TabsContent value="generate" className="mt-0 space-y-3">
-					<Button
-						type="button"
-						variant="outline"
-						size="sm"
-						className="w-full text-xs"
-						onClick={reserveSlot}
-					>
-						+ Reserve empty slot on timeline
-					</Button>
-					<p className="text-[10px] text-muted-foreground -mt-1.5">
-						Lay out your reel first — drop empty slots, then fill each with a
-						prompt and takes.
-					</p>
+					{/* Batch bar — storyboard then generate the whole reel in one go */}
+					{slots.length > 0 && (
+						<div className="rounded-md border border-border bg-muted/40 p-2.5 space-y-2">
+							<div className="flex items-center justify-between">
+								<span className="text-xs font-medium">
+									{slots.length} slot{slots.length === 1 ? "" : "s"} reserved
+									{promptedSlots.length < slots.length && (
+										<span className="font-normal text-muted-foreground">
+											{" "}
+											· {promptedSlots.length} ready
+										</span>
+									)}
+								</span>
+								{promptedSlots.length > 0 && (
+									<span className="text-xs font-semibold tabular-nums">
+										{formatUsd(batchCost.low)}–{formatUsd(batchCost.high)}
+									</span>
+								)}
+							</div>
+							<div className="flex items-center gap-2">
+								<span className="text-[10px] text-muted-foreground">
+									Alternatives
+								</span>
+								<div className="flex gap-1">
+									{[1, 2, 3, 4].map((n) => (
+										<button
+											key={n}
+											type="button"
+											onClick={() => setAlternatives(n)}
+											className={cn(
+												"size-6 rounded border text-[11px] transition-colors",
+												alternatives === n
+													? "border-primary bg-primary text-primary-foreground"
+													: "border-border text-muted-foreground hover:border-foreground",
+											)}
+										>
+											{n}
+										</button>
+									))}
+								</div>
+								<Button
+									size="sm"
+									variant="outline"
+									className="ml-auto h-7 text-xs"
+									onClick={() => setReviewOpen(true)}
+								>
+									Review
+								</Button>
+								<Button
+									size="sm"
+									className="h-7 text-xs"
+									disabled={batchBusy || promptedSlots.length === 0}
+									onClick={runBatch}
+								>
+									{batchBusy ? "Generating…" : "Generate all"}
+								</Button>
+							</div>
+							{promptedSlots.length === 0 && (
+								<p className="text-[10px] text-muted-foreground">
+									Select a slot on the timeline and add a prompt to enable batch
+									generation.
+								</p>
+							)}
+						</div>
+					)}
+
 					<GenerationForm
 						onGenerate={generate}
-						onImageGenerate={handleImageGenerate}
+						onGenerateMultiframe={handleGenerateMultiframe}
 						busy={busy}
 					/>
 				</TabsContent>
 
 				<TabsContent value="image" className="mt-0">
-					<ImagePanel onSelectImage={setReferenceImageUrl} />
+					<ImagePanel />
 				</TabsContent>
 
 				<TabsContent value="personas" className="mt-0">
 					<PersonaManager />
-				</TabsContent>
-
-				<TabsContent value="takes" className="mt-0">
-					{activeTakes.length === 0 ? (
-						<div className="flex flex-col items-center justify-center py-12 gap-2 text-center">
-							<p className="text-sm font-medium">No takes yet</p>
-							<p className="text-xs text-muted-foreground">
-								Generate a shot to see takes here, then add the winner to your
-								timeline.
-							</p>
-						</div>
-					) : (
-						<div className="grid grid-cols-1 gap-3 pb-4">
-							{activeTakes.map((take) => (
-								<TakeCard
-									key={take.takeId}
-									take={take}
-									onStar={starTake}
-									onPromote={promoteTo1080p}
-									onPin={pinToBoard}
-									onAddToTimeline={(url) =>
-										handleAddToTimeline(url, take.prompt || "Generated clip")
-									}
-								/>
-							))}
-						</div>
-					)}
 				</TabsContent>
 			</Tabs>
 
@@ -202,6 +269,8 @@ export function GenerateView() {
 					</button>
 				</div>
 			)}
+
+			<TakeReview open={reviewOpen} onOpenChange={setReviewOpen} />
 		</PanelView>
 	);
 }

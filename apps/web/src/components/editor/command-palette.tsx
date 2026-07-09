@@ -116,12 +116,12 @@ function buildCommands(
 	// 4. Features / info commands
 	commands.push(
 		{
-			id: "feature-ai-studio",
-			label: "AI Studio",
-			description: "AI-powered video editing tools",
+			id: "feature-director",
+			label: "Director",
+			description: "AI orchestrator — storyboard, brainstorm, and direct the reel",
 			category: "Features",
-			keywords: ["ai", "studio", "smart", "auto", "generate", "magic"],
-			action: () => setActiveTab("ai"),
+			keywords: ["director", "ai", "studio", "agent", "storyboard", "brainstorm", "generate", "magic"],
+			action: () => setActiveTab("director"),
 		},
 		{
 			id: "feature-captions",

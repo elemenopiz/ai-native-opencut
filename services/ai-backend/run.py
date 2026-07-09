@@ -1,4 +1,4 @@
-"""Entry point for the OpenCut AI Backend service."""
+"""Entry point for the Byorn Backend service."""
 
 import uvicorn
 

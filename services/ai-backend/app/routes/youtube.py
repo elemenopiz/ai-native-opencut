@@ -446,7 +446,7 @@ async def download_clips_zip(job_id: str):
     return StreamingResponse(
         buffer,
         media_type="application/zip",
-        headers={"Content-Disposition": f"attachment; filename=opencut_reels_{job_id}.zip"},
+        headers={"Content-Disposition": f"attachment; filename=byorn_reels_{job_id}.zip"},
     )
 
 

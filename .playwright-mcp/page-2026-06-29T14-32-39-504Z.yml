@@ -1,0 +1,300 @@
+- generic:
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e255] [cursor=pointer]:
+    - img [ref=e256]
+  - alert
+  - generic:
+    - banner:
+      - generic:
+        - button:
+          - img
+        - textbox: New project
+      - navigation:
+        - button:
+          - generic: AI Off
+        - button:
+          - img
+          - text: Virality Score
+        - button:
+          - img
+          - text: Board
+        - button:
+          - generic:
+            - img
+            - generic: Export
+        - button:
+          - img
+          - generic: Dark
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - button:
+                    - img
+                  - generic:
+                    - button:
+                      - img
+                    - button:
+                      - img
+                    - button:
+                      - img
+                    - button:
+                      - img
+                    - button:
+                      - img
+                    - button:
+                      - img
+                    - button:
+                      - img
+                    - button:
+                      - img
+                    - button:
+                      - img
+                    - button:
+                      - img
+                    - button:
+                      - img
+                  - button:
+                    - img
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic: Assets
+                      - generic:
+                        - button:
+                          - img
+                        - button:
+                          - img
+                        - button:
+                          - img
+                          - text: Import
+                    - generic:
+                      - generic:
+                        - button:
+                          - generic:
+                            - img
+                          - generic:
+                            - paragraph: Drag and drop videos, photos, and audio files here
+            - separator
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - button:
+                      - img
+                      - generic: 16:9
+                    - button:
+                      - img
+                      - generic: 9:16
+                    - button:
+                      - img
+                      - generic: 1:1
+                    - button:
+                      - img
+                      - generic: 4:3
+                - generic:
+                  - generic:
+                    - button: 00:00:00:00
+                    - generic: /
+                    - generic: 00:00:00:00
+                  - button:
+                    - img
+                  - generic:
+                    - button:
+                      - img
+                    - button:
+                      - img
+            - separator
+            - generic:
+              - generic:
+                - generic:
+                  - heading [level=3]: Get started
+                  - paragraph: Edit video by editing text
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic: "1"
+                    - generic:
+                      - paragraph: Import a video
+                      - paragraph: Drag a file here or use the media panel on the left
+                  - generic:
+                    - generic:
+                      - generic: "2"
+                    - generic:
+                      - paragraph: Transcribe it
+                      - paragraph: Click the mic button to convert speech to editable text
+                  - generic:
+                    - generic:
+                      - generic: "3"
+                    - generic:
+                      - paragraph: Edit the transcript
+                      - paragraph: Delete sentences, remove filler words, reorder sections
+                  - generic:
+                    - generic:
+                      - generic: "4"
+                    - generic:
+                      - paragraph: Export your video
+                      - paragraph: Choose a platform preset and export with one click
+                - generic:
+                  - paragraph: Press Ctrl+K for AI commands
+                - button: Okay, I've read this
+        - separator
+        - generic:
+          - region:
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - button:
+                      - img
+                    - button:
+                      - img
+                    - button:
+                      - img
+                    - button:
+                      - img
+                    - button:
+                      - img
+                    - button:
+                      - img
+                    - button:
+                      - img
+                    - button:
+                      - img
+                    - button:
+                      - img
+                    - button:
+                      - img
+                - generic:
+                  - generic:
+                    - button:
+                      - generic: Main scene
+                    - button:
+                      - img
+                - generic:
+                  - generic:
+                    - button:
+                      - img
+                    - button:
+                      - img
+                    - generic:
+                      - button:
+                        - img
+                      - generic:
+                        - generic:
+                          - slider
+                      - button:
+                        - img
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - generic: .
+                  - generic:
+                    - generic: .
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - img
+                          - generic:
+                            - img
+                          - button: Main Track
+                          - generic:
+                            - img
+                            - img
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic:
+                        - slider:
+                          - generic: 00:00
+                          - generic: 15f
+                          - generic: 00:01
+                          - generic: 15f
+                          - generic: 00:02
+                          - generic: 15f
+                          - generic: 00:03
+                          - generic: 15f
+                          - generic: 00:04
+                        - generic:
+                          - button
+                      - slider:
+                        - button [ref=e260]
+                      - generic:
+                        - generic:
+                          - button
+            - button: Show Mixer
+    - generic:
+      - generic:
+        - generic:
+          - img
+        - generic:
+          - paragraph: AI features are not available
+          - paragraph: The AI backend is not running. Start it to enable transcription, AI commands, and more.
+        - generic:
+          - button: Setup guide
+          - button:
+            - img
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - img
+            - generic: AI Studio
+            - generic: Beta
+          - generic:
+            - generic: ⌘K
+            - button:
+              - img
+        - generic:
+          - generic:
+            - generic:
+              - img
+              - paragraph: AI Studio
+              - paragraph: Brainstorm ideas, plan your video, or run AI commands.
+            - generic:
+              - button: Remove filler words
+              - button: Add subtitles
+              - button: Remove silences
+              - button: Improve audio
+              - button: Generate thumbnail
+              - button: Auto color grade
+        - generic:
+          - generic:
+            - generic:
+              - textbox:
+                - /placeholder: Ask anything...
+            - button [disabled]:
+              - img
+          - paragraph: Press Enter to send · Save responses as ideas
+  - dialog "Welcome to Byorn" [ref=e262]:
+    - heading "Welcome to Byorn" [level=2]:
+      - generic [ref=e263]: Welcome to Byorn
+    - generic [ref=e265]:
+      - generic [ref=e266]:
+        - heading "Welcome to Byorn" [level=2] [ref=e267]
+        - paragraph [ref=e268]: Edit video by text, generate visuals, clone voices, and command the timeline — install locally and everything runs on your machine.
+      - generic [ref=e269]:
+        - generic [ref=e270]:
+          - generic [ref=e271]: "1"
+          - generic [ref=e272]:
+            - paragraph [ref=e273]: Import your video
+            - paragraph [ref=e274]: Drag a video file into the editor or use the media panel
+        - generic [ref=e275]:
+          - generic [ref=e276]: "2"
+          - generic [ref=e277]:
+            - paragraph [ref=e278]: Transcribe it
+            - paragraph [ref=e279]: Click the microphone button to convert speech to text
+        - generic [ref=e280]:
+          - generic [ref=e281]: "3"
+          - generic [ref=e282]:
+            - paragraph [ref=e283]: Edit the text
+            - paragraph [ref=e284]: Delete words, remove filler, reorder sections — the video follows
+      - button "Next" [active] [ref=e285] [cursor=pointer]
+    - button "Close" [ref=e286] [cursor=pointer]:
+      - img [ref=e287]
+      - generic [ref=e290]: Close

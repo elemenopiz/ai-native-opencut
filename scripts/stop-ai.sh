@@ -16,7 +16,7 @@ if ! command -v docker &>/dev/null; then
     exit 1
 fi
 
-log_info "Stopping all OpenCutAI services..."
+log_info "Stopping all Byorn services..."
 cd "$PROJECT_ROOT"
 
 docker compose down

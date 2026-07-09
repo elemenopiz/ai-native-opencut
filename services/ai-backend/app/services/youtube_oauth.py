@@ -7,9 +7,9 @@ Requires a Google Cloud project with the YouTube Data API v3 enabled
 and OAuth 2.0 credentials configured.
 
 Environment variables:
-  OPENCUTAI_GOOGLE_CLIENT_ID     — OAuth client ID
-  OPENCUTAI_GOOGLE_CLIENT_SECRET — OAuth client secret
-  OPENCUTAI_GOOGLE_REDIRECT_URI  — Redirect URI after OAuth flow
+  BYORN_GOOGLE_CLIENT_ID     — OAuth client ID
+  BYORN_GOOGLE_CLIENT_SECRET — OAuth client secret
+  BYORN_GOOGLE_REDIRECT_URI  — Redirect URI after OAuth flow
 """
 
 import logging

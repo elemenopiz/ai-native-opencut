@@ -176,10 +176,10 @@ async def apply_tier(
     return {
         "tier": tier,
         "configuration": {
-            "OPENCUTAI_OLLAMA_DEFAULT_MODEL": model.ollama_tag,
-            "OPENCUTAI_WHISPER_MODEL_SIZE": whisper["model_size"],
-            "OPENCUTAI_WHISPER_COMPUTE_TYPE": whisper["compute_type"],
-            "OPENCUTAI_KV_CACHE_BITS": settings.KV_CACHE_BITS,
+            "BYORN_OLLAMA_DEFAULT_MODEL": model.ollama_tag,
+            "BYORN_WHISPER_MODEL_SIZE": whisper["model_size"],
+            "BYORN_WHISPER_COMPUTE_TYPE": whisper["compute_type"],
+            "BYORN_KV_CACHE_BITS": settings.KV_CACHE_BITS,
         },
         "model": {
             "name": model.name,

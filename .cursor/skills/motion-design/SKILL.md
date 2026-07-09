@@ -1,6 +1,6 @@
 ---
 name: motion-design
-description: Create animations, transitions, and micro-interactions for the OpenCutAI editor UI and video overlays. Covers Motion (framer-motion) for React components, CSS keyframes for video templates, and animation timing best practices.
+description: Create animations, transitions, and micro-interactions for the Byorn editor UI and video overlays. Covers Motion (framer-motion) for React components, CSS keyframes for video templates, and animation timing best practices.
 ---
 
 This skill guides animation and motion design for both the editor UI (React components) and video overlay templates (CSS keyframes).

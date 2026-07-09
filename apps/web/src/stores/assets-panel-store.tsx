@@ -11,15 +11,15 @@ import {
 	SparklesIcon,
 	Happy01Icon,
 	CrownIcon,
-	VideoReplayIcon,
 	Search01Icon,
+	StarIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 
 export const TAB_KEYS = [
 	"media",
-	"generate",
-	"ai",
+	"director",
+	"starred",
 	"text",
 	"captions",
 	"audio",
@@ -43,13 +43,13 @@ export const tabs = {
 		icon: createHugeiconsIcon({ icon: Folder03Icon }),
 		label: "Media",
 	},
-	generate: {
-		icon: createHugeiconsIcon({ icon: VideoReplayIcon }),
-		label: "Generate",
-	},
-	ai: {
+	director: {
 		icon: createHugeiconsIcon({ icon: SparklesIcon }),
-		label: "AI Studio",
+		label: "Director",
+	},
+	starred: {
+		icon: createHugeiconsIcon({ icon: StarIcon }),
+		label: "Takes",
 	},
 	text: {
 		icon: createHugeiconsIcon({ icon: TextIcon }),
@@ -91,7 +91,7 @@ export const tabs = {
 export type MediaViewMode = "grid" | "list";
 export type MediaSortKey = "name" | "type" | "duration" | "size";
 export type MediaSortOrder = "asc" | "desc";
-export type MediaTypeFilter = "all" | "video" | "image" | "audio";
+export type MediaTypeFilter = "all" | "video" | "image" | "audio" | "ai";
 
 interface AssetsPanelStore {
 	activeTab: Tab;

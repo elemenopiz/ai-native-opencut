@@ -27,7 +27,7 @@ services:
       args:
         TURBOQUANT_EXTRAS: gpu
     environment:
-      - DEVICE=${OPENCUTAI_AI_COMPUTE_MODE:-cuda}
+      - DEVICE=${BYORN_AI_COMPUTE_MODE:-cuda}
     deploy:
       resources:
         reservations:

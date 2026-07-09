@@ -23,8 +23,11 @@ import { ImageLightbox } from "@/components/studio/image-lightbox";
 import {
 	STUDIO_IMAGE_DND_TYPE,
 	type StudioImageDrag,
-} from "@/components/studio/visionboard";
+} from "@/lib/studio/dnd";
 import { useStudioSettingsStore } from "@/stores/studio-settings-store";
+import { useEditor } from "@/hooks/use-editor";
+import { addItemsToProjectMedia } from "@/lib/studio/add-to-editor";
+import { toast } from "sonner";
 
 /** OpenAI returns up to a handful per call; fan out for big batches. */
 const BATCH_CHUNK = 4;
@@ -57,6 +60,7 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 	// Sticky size/quality — last choice persists as the default.
 	const { imageSize: size, imageQuality: quality, set: setSettings } =
 		useStudioSettingsStore();
+	const editor = useEditor();
 	const [presetId, setPresetId] = useState<ImagePresetId>("freeform");
 	const [prompt, setPrompt] = useState("");
 	const [n, setN] = useState(4);
@@ -68,6 +72,35 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 	const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
 	const preset = IMAGE_PRESETS[presetId];
+
+	// Push freshly generated stills into the project's Assets so they live
+	// alongside uploaded media — taggable as "AI", draggable back into Generate
+	// as a reference. Best-effort: the stills grid here still works regardless.
+	async function importStillsToAssets(images: GeneratedStill[]) {
+		if (images.length === 0) return;
+		let projectId: string | null = null;
+		try {
+			projectId = editor.project.getActive().metadata.id;
+		} catch {
+			projectId = null;
+		}
+		if (!projectId) return;
+
+		const baseName = prompt.trim().slice(0, 32) || "AI image";
+		const { added } = await addItemsToProjectMedia({
+			editor,
+			projectId,
+			source: "ai",
+			items: images.map((img, i) => ({
+				url: img.imageUrl,
+				name: images.length > 1 ? `${baseName} ${i + 1}` : baseName,
+				kind: "image" as const,
+			})),
+		});
+		if (added > 0) {
+			toast.success(`Added ${added} image${added === 1 ? "" : "s"} to Assets.`);
+		}
+	}
 
 	function selectPreset(id: ImagePresetId) {
 		setPresetId(id);
@@ -107,6 +140,8 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 						setStills((prev) => [...data.images, ...prev]);
 						received += data.images.length;
 						setProgress({ done: received, total });
+						// Drop them into Assets as they arrive (fire-and-forget).
+						void importStillsToAssets(data.images);
 					} catch (err) {
 						setError(err instanceof Error ? err.message : "Generation failed");
 					}

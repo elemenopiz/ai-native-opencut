@@ -3,7 +3,7 @@
 import { Separator } from "@/components/ui/separator";
 import { type Tab, useAssetsPanelStore } from "@/stores/assets-panel-store";
 import { TabBar } from "./tabbar";
-import { AIStudioView } from "./views/ai-studio";
+import { DirectorView } from "./views/director";
 import { Captions } from "./views/captions";
 import { MediaView } from "./views/assets";
 import { SettingsView } from "./views/settings";
@@ -12,7 +12,7 @@ import { AudioCombinedView } from "./views/audio-combined";
 import { ElementsCombinedView } from "./views/elements-combined";
 import { VisualsCombinedView } from "./views/visuals-combined";
 import { BrandKitView } from "./views/brand-kit";
-import { GenerateView } from "./views/generate";
+import { StarredTakesView } from "./views/starred-takes";
 import { VisualSearchView } from "./views/visual-search";
 
 export function AssetsPanel() {
@@ -20,8 +20,8 @@ export function AssetsPanel() {
 
 	const viewMap: Record<Tab, React.ReactNode> = {
 		media: <MediaView />,
-		generate: <GenerateView />,
-		ai: <AIStudioView />,
+		director: <DirectorView />,
+		starred: <StarredTakesView />,
 		text: <TextView />,
 		captions: <Captions />,
 		audio: <AudioCombinedView />,

@@ -16,13 +16,12 @@ import { useRouter } from "next/navigation";
 
 import { ExportButton } from "./export-button";
 import { ThemeToggle } from "../theme-toggle";
-import { SOCIAL_LINKS } from "@/constants/site-constants";
 import { toast } from "sonner";
 import { useEditor } from "@/hooks/use-editor";
-import { CommandIcon, Logout05Icon, Search01Icon, SparklesIcon } from "@hugeicons/core-free-icons";
+import { CommandIcon, GridViewIcon, Logout05Icon, Search01Icon, SparklesIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ShortcutsDialog } from "./dialogs/shortcuts-dialog";
-import { OpenCutAILogo } from "@/components/footer";
+import { ByornLogo } from "@/components/footer";
 import { cn } from "@/utils/ui";
 import { AIStatusIndicator, type AIStatusInfo } from "@/components/editor/ai/ai-status-indicator";
 import { ViralityScoreModal } from "@/components/editor/virality-score-modal";
@@ -42,8 +41,10 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { useAssetsPanelStore } from "@/stores/assets-panel-store";
+import { useBoardStore } from "@/stores/board-store";
 
 export function EditorHeader() {
+	const toggleBoard = useBoardStore((s) => s.toggle);
 	const { isConnected, backendStatus, error, errorType, refresh } = useAIStatus();
 	const toggleSetupGuide = useAIStore((s) => s.toggleSetupGuide);
 	const [vcDrawerOpen, setVcDrawerOpen] = useState(false);
@@ -52,8 +53,8 @@ export function EditorHeader() {
 	// Listen for keyboard shortcut events to toggle VC drawer
 	useEffect(() => {
 		const handler = () => setVcDrawerOpen((prev) => !prev);
-		window.addEventListener("opencut:toggle-vc-drawer", handler);
-		return () => window.removeEventListener("opencut:toggle-vc-drawer", handler);
+		window.addEventListener("byorn:toggle-vc-drawer", handler);
+		return () => window.removeEventListener("byorn:toggle-vc-drawer", handler);
 	}, []);
 
 	const memoryStatus: MemoryStatusInfo = useMemo(
@@ -81,14 +82,17 @@ export function EditorHeader() {
 	);
 
 	return (
-		<header className="bg-background flex h-[3.4rem] items-center justify-between px-3 pt-0.5">
+		<header className="bg-background relative flex h-[3.4rem] items-center justify-between px-3 pt-0.5">
 			<div className="flex items-center gap-1">
 				<ProjectDropdown />
 				<EditableProjectName />
 				<SaveStatus className="ml-2" />
 			</div>
-			<div className="flex items-center gap-2">
-				<VersionControlBar onOpenDrawer={() => setVcDrawerOpen(true)} />
+			{/* Absolutely centered so the wide right-hand nav can't pull it off-center. */}
+			<div className="pointer-events-none absolute inset-y-0 left-1/2 flex -translate-x-1/2 items-center">
+				<div className="pointer-events-auto">
+					<VersionControlBar onOpenDrawer={() => setVcDrawerOpen(true)} />
+				</div>
 			</div>
 			<nav className="flex items-center gap-2">
 				{isConnected && <MemoryStatusBar status={memoryStatus} />}
@@ -105,6 +109,16 @@ export function EditorHeader() {
 				>
 					<HugeiconsIcon icon={SparklesIcon} className="size-3.5" />
 					Virality Score
+				</Button>
+				<Button
+					variant="outline"
+					size="sm"
+					className="h-8 gap-1.5 text-xs"
+					onClick={toggleBoard}
+					title="Zoom out to the reel board"
+				>
+					<HugeiconsIcon icon={GridViewIcon} className="size-3.5" />
+					Board
 				</Button>
 				<ExportButton />
 				<ThemeToggle />
@@ -184,7 +198,7 @@ function ProjectDropdown() {
 			<DropdownMenu>
 				<DropdownMenuTrigger asChild>
 					<Button variant="ghost" className="p-0 rounded-sm size-10 [&_svg]:!size-auto">
-						<OpenCutAILogo size={36} />
+						<ByornLogo size={36} />
 					</Button>
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align="start" className="z-100 w-44">
@@ -272,7 +286,7 @@ function FeaturesDialog({
 	const { setActiveTab } = useAssetsPanelStore();
 
 	const features = [
-		{ name: "AI Studio", desc: "AI-powered editing: remove silences, filler words, auto-caption", tab: "ai" as const, shortcut: "Ctrl+K" },
+		{ name: "Director", desc: "AI orchestrator — storyboard the reel, brainstorm, scripts, templates", tab: "director" as const, shortcut: "Ctrl+K" },
 		{ name: "Version History", desc: "Git-like commits, branches, merging, and diff for video — always in the header bar", shortcut: "Ctrl+Shift+S" },
 		{ name: "Media", desc: "Import and manage video, audio, and image files", tab: "media" as const },
 		{ name: "Text", desc: "Add and style text overlays on your video", tab: "text" as const },

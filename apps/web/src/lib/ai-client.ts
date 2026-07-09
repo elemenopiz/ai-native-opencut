@@ -123,7 +123,7 @@ function classifyError(error: unknown): { message: string; errorType: AIErrorTyp
 function getStoredApiKey(key: string): string {
 	if (typeof window === "undefined") return "";
 	try {
-		const stored = localStorage.getItem("opencut-api-keys");
+		const stored = localStorage.getItem("byorn-api-keys");
 		if (!stored) return "";
 		const keys = JSON.parse(stored) as Record<string, string>;
 		return keys[key]?.trim() || "";

@@ -35,7 +35,7 @@ def _get_smallest_api_key(request: Request | None = None) -> str:
 
     Priority:
     1. X-Smallest-Api-Key header (passed from the frontend / Settings page)
-    2. OPENCUTAI_SMALLEST_API_KEY environment variable
+    2. BYORN_SMALLEST_API_KEY environment variable
     """
     if request is not None:
         header_key = request.headers.get("x-smallest-api-key", "").strip()
@@ -51,7 +51,7 @@ def _smallest_headers(request: Request | None = None) -> dict:
         raise HTTPException(
             status_code=503,
             detail="Smallest AI API key is not configured. "
-            "Add your key in Settings > API Keys, or set OPENCUTAI_SMALLEST_API_KEY in your environment.",
+            "Add your key in Settings > API Keys, or set BYORN_SMALLEST_API_KEY in your environment.",
         )
     return {"Authorization": f"Bearer {api_key}"}
 
@@ -230,7 +230,7 @@ async def smallest_transcribe(
     Accepts audio/video files. For video files, audio is extracted first.
     For files longer than 60 seconds, audio is chunked.
 
-    Returns a transcription result compatible with the OpenCut format.
+    Returns a transcription result compatible with the Byorn format.
     """
     headers = _smallest_headers(request)
 
@@ -384,7 +384,7 @@ async def smallest_transcribe(
             except httpx.ConnectError:
                 raise HTTPException(status_code=503, detail="Cannot connect to Smallest AI API.")
 
-    # Build OpenCut-compatible response
+    # Build Byorn-compatible response
     import re
 
     segments = []

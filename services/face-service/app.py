@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="OpenCut Face Detection Service", version="0.1.0")
+app = FastAPI(title="Byorn Face Detection Service", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,

@@ -3,7 +3,7 @@
  * Generates character/scene/product stills that feed into Seedance image-to-video.
  */
 
-import { webEnv } from "@opencut-ai/env/web";
+import { webEnv } from "@byorn/env/web";
 
 export type ImageSize = "1024x1024" | "1536x1024" | "1024x1536";
 export type ImageQuality = "low" | "medium" | "high";

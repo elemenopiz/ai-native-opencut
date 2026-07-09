@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { db } from "@/lib/db";
 import { personas } from "@/lib/db/schema-studio";
@@ -64,16 +64,16 @@ export async function GET(req: Request) {
 		const { searchParams } = new URL(req.url);
 		const userId = searchParams.get("userId");
 
-		const rows = userId
-			? await db.query.personas.findMany({
-					where: eq(personas.userId, userId),
-					orderBy: [desc(personas.createdAt)],
-					limit: 100,
-				})
-			: await db.query.personas.findMany({
-					orderBy: [desc(personas.createdAt)],
-					limit: 100,
-				});
+		// Scope to the requested user, or — when no userId is supplied — to the
+		// anonymous bucket (userId IS NULL). Never fall through to an unscoped
+		// query: that would return every user's personas to a no-userId caller.
+		const rows = await db.query.personas.findMany({
+			where: userId
+				? eq(personas.userId, userId)
+				: isNull(personas.userId),
+			orderBy: [desc(personas.createdAt)],
+			limit: 100,
+		});
 
 		return NextResponse.json({ personas: rows.map(serialize) });
 	} catch (err) {

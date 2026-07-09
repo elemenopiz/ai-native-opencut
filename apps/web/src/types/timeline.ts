@@ -1,6 +1,15 @@
 import type { ElementAnimations } from "./animation";
 import type { Effect, EffectParamValues } from "./effects";
 import type { BlendMode, Transform, CropRect, MaskShape } from "./rendering";
+// Sourced from the provider adapter so there is a single source of truth for
+// these unions (the adapter owns them; cost/route code imports them from there).
+// Imported for local use in this file *and* re-exported below for existing
+// consumers that pull these from "@/types/timeline".
+import type {
+	VideoResolution,
+	VideoOrientation,
+	VideoMode,
+} from "@/lib/studio/provider-adapter";
 
 export interface TransitionData {
 	type: string;
@@ -138,9 +147,8 @@ interface BaseTimelineElement {
 // take's media is mirrored onto the element's `mediaId`, so once a take is chosen
 // the clip behaves exactly like any other element — no special-casing downstream.
 
-export type VideoResolution = "480p" | "720p" | "1080p";
-export type VideoOrientation = "portrait" | "landscape" | "square";
-export type VideoMode = "text-to-video" | "image-to-video";
+// Re-exported for existing consumers that import these from "@/types/timeline".
+export type { VideoResolution, VideoOrientation, VideoMode };
 
 /** The recipe that produces a take — the consolidated studio + videogen params. */
 export interface GenerationSpec {
@@ -149,6 +157,9 @@ export interface GenerationSpec {
 	model?: string;
 	mode: VideoMode;
 	referenceImageUrl?: string;
+	/** Seedance omni-reference media (URLs) — extra subject/style/scene refs. */
+	referenceImages?: string[];
+	referenceVideos?: string[];
 	personaId?: string;
 	consistencyMode?: "high" | "fast";
 	cameraPreset?: string;
@@ -359,17 +370,4 @@ export interface ClipboardItem {
 	trackId: string;
 	trackType: TrackType;
 	element: CreateTimelineElement;
-}
-
-export interface CompoundClip extends BaseTimelineElement {
-	type: "compound";
-	innerTracks: TimelineTrack[];
-	name: string;
-	transform: Transform;
-	opacity: number;
-	blendMode?: BlendMode;
-	effects?: Effect[];
-	transitionOut?: TransitionData;
-	crop?: CropRect;
-	mask?: MaskShape;
 }

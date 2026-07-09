@@ -1,7 +1,7 @@
 /**
  * IndexedDB-backed store for CLIP embeddings.
  *
- * Opens its own database (`opencut-embeddings`) so it doesn't collide with
+ * Opens its own database (`byorn-embeddings`) so it doesn't collide with
  * the project storage adapter or the git-like version store. Vectors are kept
  * locally only — never synced, never uploaded — preserving the privacy-first
  * promise.
@@ -16,7 +16,7 @@ import type {
 	MediaEmbedding,
 } from "@/lib/search/embedding-types";
 
-const DB_NAME = "opencut-embeddings";
+const DB_NAME = "byorn-embeddings";
 const DB_VERSION = 1;
 const EMBEDDINGS_STORE = "embeddings";
 const STATUS_STORE = "status";

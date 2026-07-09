@@ -1,6 +1,6 @@
 {
-	"name": "OpenCut AI",
-	"short_name": "OpenCut AI",
+	"name": "Byorn",
+	"short_name": "Byorn",
 	"description": "Open-source AI video editor. Transcribe, edit by text, clone voices, and generate visuals. Runs locally on your machine.",
 	"display": "standalone",
 	"start_url": "/",

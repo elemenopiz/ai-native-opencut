@@ -1,6 +1,6 @@
 import type { Config } from "drizzle-kit";
 import * as dotenv from "dotenv";
-import { webEnv } from "@opencut-ai/env/web";
+import { webEnv } from "@byorn/env/web";
 
 // Load the right env file based on environment
 if (webEnv.NODE_ENV === "production") {

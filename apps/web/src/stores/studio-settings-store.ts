@@ -8,6 +8,15 @@ import type {
 import type { ImageSize, ImageQuality } from "@/lib/studio/image-generator";
 
 /**
+ * How attached media is interpreted:
+ *  - "omni": references condition the shot (r2v); none is a fixed frame. @mention them.
+ *  - "first-last": a first frame (i2v) and optional last frame (flf2v) to move between.
+ *  - "multiframe": N keyframes → N-1 flf2v segments stitched onto the timeline. Built
+ *    client-side on the verified flf2v mode (Seedance itself caps at 2 frames/call).
+ */
+export type GenMode = "omni" | "first-last" | "multiframe";
+
+/**
  * Sticky Studio settings. Whatever the user last picked becomes the default
  * next time, until they change it again — persisted to localStorage so it
  * survives reloads and route changes.
@@ -15,6 +24,8 @@ import type { ImageSize, ImageQuality } from "@/lib/studio/image-generator";
 interface StudioSettingsState {
 	// Video generation
 	mode: VideoMode;
+	/** Reference-handling mode (Omni / First & last frame / Multiframe). */
+	genMode: GenMode;
 	orientation: VideoOrientation;
 	resolution: VideoResolution;
 	duration: number;
@@ -35,6 +46,7 @@ export const useStudioSettingsStore = create<StudioSettingsState>()(
 	persist(
 		(set) => ({
 			mode: "text-to-video",
+			genMode: "omni",
 			orientation: "portrait",
 			resolution: "720p",
 			duration: 5,

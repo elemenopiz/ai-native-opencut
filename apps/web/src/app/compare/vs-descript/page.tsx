@@ -4,22 +4,22 @@ import { BasePage } from "@/app/base-page";
 import { SITE_URL } from "@/constants/site-constants";
 
 export const metadata: Metadata = {
-	title: "OpenCut AI vs Descript — Privacy-First Open Source Alternative",
+	title: "Byorn vs Descript — Privacy-First Open Source Alternative",
 	description:
-		"OpenCut AI is the free, open-source, self-hosted alternative to Descript. Compare features: AI transcription, text-based editing, filler word removal, voice cloning, multi-speaker detection, and 22 Indian languages. No cloud. No subscription. No data leaves your machine.",
+		"Byorn is the free, open-source, self-hosted alternative to Descript. Compare features: AI transcription, text-based editing, filler word removal, voice cloning, multi-speaker detection, and 22 Indian languages. No cloud. No subscription. No data leaves your machine.",
 	alternates: {
 		canonical: `${SITE_URL}/compare/vs-descript`,
 	},
 	openGraph: {
-		title: "OpenCut AI vs Descript — Privacy-First Open Source Alternative",
+		title: "Byorn vs Descript — Privacy-First Open Source Alternative",
 		description:
-			"Descript charges $24–65/mo and sends your media to the cloud. OpenCut AI is free, self-hosted, open source, and runs 100% locally.",
+			"Descript charges $24–65/mo and sends your media to the cloud. Byorn is free, self-hosted, open source, and runs 100% locally.",
 		url: `${SITE_URL}/compare/vs-descript`,
 		type: "website",
 	},
 	twitter: {
 		card: "summary_large_image",
-		title: "OpenCut AI vs Descript",
+		title: "Byorn vs Descript",
 		description:
 			"Free, open-source, self-hosted alternative to Descript. 100% local. No subscription.",
 	},
@@ -29,56 +29,56 @@ const FEATURES = [
 	{
 		category: "Core Editing",
 		rows: [
-			{ feature: "Text-based editing", opencut: "Yes", descript: "Yes" },
-			{ feature: "Timeline-based editing", opencut: "Yes", descript: "Yes" },
-			{ feature: "Multi-track support", opencut: "Yes", descript: "Yes" },
-			{ feature: "Transitions library", opencut: "7 types", descript: "Limited" },
-			{ feature: "Speed ramping", opencut: "Yes", descript: "Basic" },
-			{ feature: "Audio mixer with meters", opencut: "Yes", descript: "Yes" },
-			{ feature: "Proxy editing (4K+)", opencut: "Yes", descript: "Yes" },
+			{ feature: "Text-based editing", byorn: "Yes", descript: "Yes" },
+			{ feature: "Timeline-based editing", byorn: "Yes", descript: "Yes" },
+			{ feature: "Multi-track support", byorn: "Yes", descript: "Yes" },
+			{ feature: "Transitions library", byorn: "7 types", descript: "Limited" },
+			{ feature: "Speed ramping", byorn: "Yes", descript: "Basic" },
+			{ feature: "Audio mixer with meters", byorn: "Yes", descript: "Yes" },
+			{ feature: "Proxy editing (4K+)", byorn: "Yes", descript: "Yes" },
 		],
 	},
 	{
 		category: "AI Features",
 		rows: [
-			{ feature: "AI transcription", opencut: "Whisper (local)", descript: "Cloud-based" },
-			{ feature: "Filler word removal", opencut: "Yes", descript: "Yes" },
-			{ feature: "Silence detection", opencut: "Yes", descript: "Yes" },
-			{ feature: "Smart Cut (one-click)", opencut: "Yes", descript: "No" },
-			{ feature: "AI voice cloning", opencut: "XTTS v2 (local)", descript: "Overdub (cloud)" },
-			{ feature: "AI dubbing / translation", opencut: "22 Indian langs + 15 more", descript: "Limited" },
-			{ feature: "Auto-chapters", opencut: "Yes", descript: "Yes" },
-			{ feature: "B-roll generation", opencut: "Image + Video AI", descript: "No" },
-			{ feature: "AI text-to-speech", opencut: "Local + cloud options", descript: "Cloud only" },
+			{ feature: "AI transcription", byorn: "Whisper (local)", descript: "Cloud-based" },
+			{ feature: "Filler word removal", byorn: "Yes", descript: "Yes" },
+			{ feature: "Silence detection", byorn: "Yes", descript: "Yes" },
+			{ feature: "Smart Cut (one-click)", byorn: "Yes", descript: "No" },
+			{ feature: "AI voice cloning", byorn: "XTTS v2 (local)", descript: "Overdub (cloud)" },
+			{ feature: "AI dubbing / translation", byorn: "22 Indian langs + 15 more", descript: "Limited" },
+			{ feature: "Auto-chapters", byorn: "Yes", descript: "Yes" },
+			{ feature: "B-roll generation", byorn: "Image + Video AI", descript: "No" },
+			{ feature: "AI text-to-speech", byorn: "Local + cloud options", descript: "Cloud only" },
 		],
 	},
 	{
 		category: "Privacy & Deployment",
 		rows: [
-			{ feature: "Runs 100% locally", opencut: "Yes", descript: "No" },
-			{ feature: "Self-hosted option", opencut: "Yes", descript: "No" },
-			{ feature: "Open source", opencut: "Yes (MIT)", descript: "No" },
-			{ feature: "Data stays on your machine", opencut: "Always", descript: "No" },
-			{ feature: "No internet required", opencut: "Yes", descript: "No" },
-			{ feature: "Enterprise data sovereignty", opencut: "Built-in", descript: "Enterprise plan" },
+			{ feature: "Runs 100% locally", byorn: "Yes", descript: "No" },
+			{ feature: "Self-hosted option", byorn: "Yes", descript: "No" },
+			{ feature: "Open source", byorn: "Yes (MIT)", descript: "No" },
+			{ feature: "Data stays on your machine", byorn: "Always", descript: "No" },
+			{ feature: "No internet required", byorn: "Yes", descript: "No" },
+			{ feature: "Enterprise data sovereignty", byorn: "Built-in", descript: "Enterprise plan" },
 		],
 	},
 	{
 		category: "Pricing",
 		rows: [
-			{ feature: "Free tier", opencut: "Unlimited, full features", descript: "1 hr/mo, watermarked" },
-			{ feature: "Paid plan", opencut: "$0 forever", descript: "$24–65/mo" },
-			{ feature: "Annual cost", opencut: "$0", descript: "$288–780" },
+			{ feature: "Free tier", byorn: "Unlimited, full features", descript: "1 hr/mo, watermarked" },
+			{ feature: "Paid plan", byorn: "$0 forever", descript: "$24–65/mo" },
+			{ feature: "Annual cost", byorn: "$0", descript: "$288–780" },
 		],
 	},
 	{
 		category: "Subtitles & Accessibility",
 		rows: [
-			{ feature: "Karaoke subtitles", opencut: "Yes", descript: "No" },
-			{ feature: "Word-pop subtitles", opencut: "Yes", descript: "No" },
-			{ feature: "Multi-speaker subtitles", opencut: "Yes", descript: "Yes" },
-			{ feature: "Indian language support", opencut: "22 languages", descript: "None" },
-			{ feature: "Auto-reframe (9:16)", opencut: "Yes", descript: "Yes" },
+			{ feature: "Karaoke subtitles", byorn: "Yes", descript: "No" },
+			{ feature: "Word-pop subtitles", byorn: "Yes", descript: "No" },
+			{ feature: "Multi-speaker subtitles", byorn: "Yes", descript: "Yes" },
+			{ feature: "Indian language support", byorn: "22 languages", descript: "None" },
+			{ feature: "Auto-reframe (9:16)", byorn: "Yes", descript: "Yes" },
 		],
 	},
 ];
@@ -105,10 +105,10 @@ export default function VsDescriptPage() {
 			<div className="flex flex-col gap-12">
 				<header className="text-center flex flex-col gap-6">
 					<h1 className="text-4xl md:text-5xl font-bold tracking-tight">
-						OpenCut AI vs Descript
+						Byorn vs Descript
 					</h1>
 					<p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-						Descript pioneered text-based video editing. OpenCut AI takes it further — 
+						Descript pioneered text-based video editing. Byorn takes it further — 
 						with <strong>AI dubbing in 37 languages</strong>, <strong>B-roll generation</strong>, 
 						and <strong>100% local processing</strong>. Free, open-source, and self-hosted.
 					</p>
@@ -117,15 +117,7 @@ export default function VsDescriptPage() {
 							href="/editor"
 							className="inline-flex items-center justify-center rounded-md bg-primary px-6 py-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"
 						>
-							Try OpenCut AI Free
-						</Link>
-						<Link
-							href="https://github.com/Ekaanth/OpenCut-AI"
-							target="_blank"
-							rel="noopener noreferrer"
-							className="inline-flex items-center justify-center rounded-md border px-6 py-3 text-sm font-medium hover:bg-accent"
-						>
-							View on GitHub
+							Try Byorn Free
 						</Link>
 					</div>
 				</header>
@@ -140,7 +132,7 @@ export default function VsDescriptPage() {
 										<tr className="bg-muted/50">
 											<th className="text-left px-4 py-2.5 font-medium">Feature</th>
 											<th className="text-center px-4 py-2.5 font-medium text-primary">
-												OpenCut AI
+												Byorn
 											</th>
 											<th className="text-center px-4 py-2.5 font-medium text-muted-foreground">
 												Descript
@@ -154,7 +146,7 @@ export default function VsDescriptPage() {
 												className={i % 2 === 0 ? "bg-background" : "bg-muted/20"}
 											>
 												<td className="px-4 py-2.5">{row.feature}</td>
-												<td className="px-4 py-2.5 text-center">{row.opencut}</td>
+												<td className="px-4 py-2.5 text-center">{row.byorn}</td>
 												<td className="px-4 py-2.5 text-center text-muted-foreground">
 													{row.descript}
 												</td>
@@ -173,7 +165,7 @@ export default function VsDescriptPage() {
 						<div>
 							<h3 className="font-semibold mb-1">Privacy by default</h3>
 							<p className="text-sm text-muted-foreground">
-								Descript uploads every recording to their cloud. OpenCut AI processes everything 
+								Descript uploads every recording to their cloud. Byorn processes everything 
 								on your machine. No server, no API calls, no data leaves your device. Ideal for 
 								journalists, enterprises, and privacy-conscious creators.
 							</p>
@@ -181,14 +173,14 @@ export default function VsDescriptPage() {
 						<div>
 							<h3 className="font-semibold mb-1">Save $288–780/year</h3>
 							<p className="text-sm text-muted-foreground">
-								Descript&apos;s Hobby plan is $24/mo and Pro is $65/mo. OpenCut AI is free forever 
+								Descript&apos;s Hobby plan is $24/mo and Pro is $65/mo. Byorn is free forever 
 								with all features unlocked. No watermarks, no time limits, no credit system.
 							</p>
 						</div>
 						<div>
 							<h3 className="font-semibold mb-1">37 languages, 22 Indian</h3>
 							<p className="text-sm text-muted-foreground">
-								Via Sarvam AI and Smallest AI, OpenCut AI supports transcription, translation, 
+								Via Sarvam AI and Smallest AI, Byorn supports transcription, translation, 
 								and AI dubbing in 22 Indian languages + 15 international languages. Descript 
 								offers none of this.
 							</p>
@@ -200,20 +192,20 @@ export default function VsDescriptPage() {
 					<h2 className="text-2xl font-bold">Frequently Asked Questions</h2>
 					<div className="max-w-2xl mx-auto space-y-4 text-left">
 						<FAQ
-							question="Can I import my Descript projects into OpenCut AI?"
-							answer="Not directly, but you can import the same source media files. OpenCut AI supports all common video, audio, and image formats."
+							question="Can I import my Descript projects into Byorn?"
+							answer="Not directly, but you can import the same source media files. Byorn supports all common video, audio, and image formats."
 						/>
 						<FAQ
-							question="Does OpenCut AI have screen recording like Descript?"
-							answer="OpenCut AI focuses on editing rather than recording. You can bring in screen recordings from OBS or any other tool and edit them with all AI features."
+							question="Does Byorn have screen recording like Descript?"
+							answer="Byorn focuses on editing rather than recording. You can bring in screen recordings from OBS or any other tool and edit them with all AI features."
 						/>
 						<FAQ
 							question="Is the AI transcription as accurate as Descript?"
-							answer="OpenCut AI uses Faster Whisper (CTranslate2), which provides state-of-the-art accuracy matching or exceeding cloud-based services. It runs locally on your hardware."
+							answer="Byorn uses Faster Whisper (CTranslate2), which provides state-of-the-art accuracy matching or exceeding cloud-based services. It runs locally on your hardware."
 						/>
 						<FAQ
 							question="Can my team collaborate like we do in Descript?"
-							answer="OpenCut AI is designed for individual use right now. For team workflows, you can self-host and share projects via file sync. Multi-user collaboration is on the roadmap."
+							answer="Byorn is designed for individual use right now. For team workflows, you can self-host and share projects via file sync. Multi-user collaboration is on the roadmap."
 						/>
 					</div>
 				</section>

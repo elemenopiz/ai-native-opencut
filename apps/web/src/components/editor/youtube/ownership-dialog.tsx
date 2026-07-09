@@ -18,7 +18,7 @@ export function OwnershipDialog({ onConfirm, onCancel }: OwnershipDialogProps) {
 	const labels = [
 		"I own or have rights to this video",
 		"I am authorized to create derivative works",
-		"I understand OpenCutAI does not verify ownership",
+		"I understand Byorn does not verify ownership",
 	];
 
 	return (

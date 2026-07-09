@@ -1,0 +1,37 @@
+- generic [active] [ref=e1]:
+  - region "Notifications alt+T"
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]:
+          - navigation "breadcrumb" [ref=e6]:
+            - list [ref=e7]:
+              - listitem [ref=e8]:
+                - link "Home" [ref=e9] [cursor=pointer]:
+                  - /url: /
+              - listitem [ref=e10]:
+                - img [ref=e11]
+              - listitem [ref=e13]:
+                - generic [ref=e14]: All projects
+          - generic [ref=e15]:
+            - button "Grid view" [ref=e16] [cursor=pointer]:
+              - img
+            - button "List view" [ref=e17] [cursor=pointer]:
+              - img
+        - generic [ref=e18]:
+          - generic [ref=e19]:
+            - img
+            - textbox "Search..." [ref=e21]
+          - button "New project" [ref=e22] [cursor=pointer]:
+            - generic [ref=e23]: New project
+    - generic [ref=e25]:
+      - generic [ref=e26] [cursor=pointer]:
+        - checkbox "Select all" [ref=e27]
+        - checkbox
+        - generic [ref=e28]: Select all
+      - button "Modified" [ref=e30] [cursor=pointer]
+      - button "Sort descending" [ref=e31] [cursor=pointer]:
+        - img
+    - main [ref=e32]
+  - button "Open Next.js Dev Tools" [ref=e255] [cursor=pointer]:
+    - img [ref=e256]

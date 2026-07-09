@@ -188,7 +188,7 @@ export function VisualSearchView() {
 				{!hasIndex && inflightCount === 0 && (
 					<EmptyState
 						title="No media indexed yet"
-						body="Import a video or image to enable semantic search. OpenCut AI samples frames and embeds them locally — your footage never leaves the machine."
+						body="Import a video or image to enable semantic search. Byorn samples frames and embeds them locally — your footage never leaves the machine."
 					/>
 				)}
 

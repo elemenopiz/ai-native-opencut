@@ -1,8 +1,9 @@
 # .github/FUNDING.yml
-
-# Buy Me a Coffee
-buy_me_a_coffee: humblefool
-
-# PayPal
-custom:
-  - "https://paypal.me/humblefool06"
+# TODO: add Byorn's own funding handles here once they exist.
+# The previous entries were the upstream fork author's personal accounts and
+# have been removed. See https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/displaying-a-sponsor-button-in-your-repository
+#
+# Examples:
+# github: [your-org]
+# buy_me_a_coffee: your-handle
+# custom: ["https://your-donation-link"]
