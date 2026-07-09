@@ -10,6 +10,7 @@
 import { webEnv } from "@byorn/env/web";
 import { nanoid } from "nanoid";
 import { generateReferenceImage } from "@/lib/studio/image-generator";
+import { renderGptImageEdit } from "@/lib/studio/gpt-image-edit";
 import type {
 	BackendRequest,
 	CostEstimate,
@@ -53,6 +54,24 @@ export const openaiGptImageBackend: GenerationBackend = {
 
 	async submit(req: BackendRequest): Promise<SubmitResult> {
 		try {
+			// Reference-conditioned path (persona / character-still): carry identity
+			// from the supplied reference images via /images/edits. This is what
+			// `supportsReferenceEdits` promises — a plain text→image generation would
+			// silently drop the anchor photos.
+			const refs = [
+				req.referenceImageUrl,
+				...(req.referenceImages ?? []),
+			].filter((url): url is string => Boolean(url));
+
+			if (refs.length > 0) {
+				const { imageUrl } = await renderGptImageEdit({
+					prompt: req.prompt,
+					referenceImages: refs,
+					size: req.size,
+				});
+				return { jobId: nanoid(), status: "completed", mediaUrl: imageUrl };
+			}
+
 			const [image] = await generateReferenceImage({
 				prompt: req.prompt,
 				size: req.size,

@@ -14,7 +14,6 @@ import {
 	type BackendRequest,
 } from "@/lib/studio/backends";
 import { renderPersonaStill } from "@/lib/studio/persona-still";
-import { renderPersonaStillPhotoMaker } from "@/lib/studio/persona-still-photomaker";
 import { composePersonaVideoPrompt } from "@/lib/studio/personas";
 import { STILL_SIZE_BY_ORIENTATION } from "@/lib/studio/options";
 import { db } from "@/lib/db";
@@ -31,7 +30,7 @@ export async function POST(req: Request) {
 		// nothing to resolve to.
 		ensureBackendsRegistered();
 
-		const body = await req.json() as {
+		const body = (await req.json()) as {
 			prompt: string;
 			referenceImageUrl?: string;
 			referenceImages?: string[];
@@ -43,7 +42,7 @@ export async function POST(req: Request) {
 			duration?: number;
 			mode?: VideoMode;
 			personaId?: string;
-			consistencyMode?: "high" | "fast" | "durable";
+			consistencyMode?: "high" | "fast";
 			userId?: string;
 			/** Manual model pin → the router's `preferredBackendId` (a backend id).
 			 *  Absent ⇒ auto-route (defaults to Seedance for video). */
@@ -67,16 +66,19 @@ export async function POST(req: Request) {
 		} = body;
 
 		if (!prompt?.trim()) {
-			return NextResponse.json({ error: "prompt is required" }, { status: 400 });
+			return NextResponse.json(
+				{ error: "prompt is required" },
+				{ status: 400 },
+			);
 		}
 
 		// Persona orchestration (reference-conditioned consistency). When a persona
 		// is active we weave its locked descriptor into the prompt, force
 		// image-to-video, and supply the reference frame per tier: Balanced ("high")
-		// renders a fresh per-shot still via gpt-image-2 edits; Durable renders that
-		// still locally via PhotoMaker v1 on the image service ($0 API cost); Fast
-		// uses the persona's anchor image directly. All stored on the set so
-		// promote-to-1080p reproduces the exact same shot.
+		// renders a fresh per-shot reference still — routed across the image
+		// providers (GPT Image / Gemini / …) from the persona's anchor + uploaded
+		// photos; Fast uses the persona's anchor image directly. All stored on the
+		// set so promote-to-1080p reproduces the exact same shot.
 		let finalPrompt = prompt;
 		let finalReferenceImageUrl = referenceImageUrl;
 		let finalMode: VideoMode = mode;
@@ -86,7 +88,10 @@ export async function POST(req: Request) {
 				where: eq(personas.id, personaId),
 			});
 			if (!persona) {
-				return NextResponse.json({ error: "Persona not found" }, { status: 404 });
+				return NextResponse.json(
+					{ error: "Persona not found" },
+					{ status: 404 },
+				);
 			}
 
 			finalPrompt = composePersonaVideoPrompt(prompt, persona.descriptor);
@@ -105,13 +110,10 @@ export async function POST(req: Request) {
 				const refImageUrls = persona.refImageUrls
 					? (JSON.parse(persona.refImageUrls) as string[])
 					: undefined;
-				// Durable renders the still locally on the PhotoMaker image service
-				// (best durable likeness, $0 API cost); Balanced uses gpt-image-2.
-				const renderStill =
-					consistencyMode === "durable"
-						? renderPersonaStillPhotoMaker
-						: renderPersonaStill;
-				const still = await renderStill({
+				// Balanced ("high"): render a fresh per-shot reference still. This is
+				// routed through the multi-provider image backends (GPT Image / Gemini
+				// / …), feeding the persona's anchor + uploaded photos as references.
+				const still = await renderPersonaStill({
 					anchorImageUrl: persona.anchorImageUrl,
 					refImageUrls,
 					scenePrompt: prompt,

@@ -33,11 +33,11 @@ interface StudioSettingsState {
 	cameraPreset: string | null;
 	seedLocked: boolean;
 	// Persona consistency tier: "high" (Balanced) renders a per-shot reference
-	// still via gpt-image-2 edits (best identity match, +1 image call); "fast"
-	// uses the persona's anchor image directly (cheaper, quicker, loosest
-	// likeness); "durable" renders the still locally via PhotoMaker v1 on the
-	// image service (best durable likeness, $0 API cost, needs the service up).
-	consistencyMode: "high" | "fast" | "durable";
+	// still via a routed image provider (GPT Image / Gemini / …), feeding the
+	// persona's anchor + uploaded photos as references (best identity match, +1
+	// image call); "fast" uses the anchor image directly (cheaper, quicker,
+	// loosest likeness).
+	consistencyMode: "high" | "fast";
 	// GPT Image
 	imageSize: ImageSize;
 	imageQuality: ImageQuality;

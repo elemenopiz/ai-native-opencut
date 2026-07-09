@@ -29,7 +29,6 @@ import {
 } from "@/lib/studio/options";
 import { useStudioSettingsStore } from "@/stores/studio-settings-store";
 import { usePersonaStore } from "@/stores/persona-store";
-import { useServiceHealth } from "@/hooks/use-service-health";
 import { toast } from "sonner";
 
 interface GenerationFormProps {
@@ -45,7 +44,7 @@ interface GenerationFormProps {
 		duration: number;
 		mode: VideoMode;
 		personaId?: string;
-		consistencyMode?: "high" | "fast" | "durable";
+		consistencyMode?: "high" | "fast";
 	}) => void;
 	onGenerateMultiframe?: (
 		keyframes: string[],
@@ -74,7 +73,7 @@ const GEN_MODES: { value: GenMode; label: string; hint: string }[] = [
 ];
 
 const CONSISTENCY_OPTIONS: {
-	value: "high" | "fast" | "durable";
+	value: "high" | "fast";
 	label: string;
 	hint: string;
 }[] = [
@@ -86,12 +85,7 @@ const CONSISTENCY_OPTIONS: {
 	{
 		value: "high",
 		label: "Balanced",
-		hint: "Renders a fresh per-shot still via GPT Image — best all-round likeness (+1 image per shot).",
-	},
-	{
-		value: "durable",
-		label: "Durable (HD)",
-		hint: "Renders the still locally with PhotoMaker — best durable likeness, no API cost, needs the local image service.",
+		hint: "Renders a fresh per-shot reference still (GPT Image / Gemini) from the persona's photos — best all-round likeness (+1 image per shot).",
 	},
 ];
 
@@ -101,8 +95,8 @@ function OrientationGlyph({ value }: { value: VideoOrientation }) {
 		value === "portrait"
 			? { w: 10, h: 16 }
 			: value === "square"
-			? { w: 14, h: 14 }
-			: { w: 16, h: 10 };
+				? { w: 14, h: 14 }
+				: { w: 16, h: 10 };
 	return (
 		<span
 			className="rounded-[2px] border-2 border-current"
@@ -136,12 +130,6 @@ export function GenerationForm({
 		s.personas.find((p) => p.id === s.activePersonaId),
 	);
 	const clearPersona = usePersonaStore((s) => s.setActive);
-
-	// Durable (HD) consistency renders the persona still locally on the image
-	// service (PhotoMaker v1). Surface a hint when that service isn't up so the
-	// user knows the tier needs it — a warning, not a hard block.
-	const { services } = useServiceHealth();
-	const imageServiceDown = services.image.status !== "running";
 
 	// Transient per-generation inputs.
 	const [prompt, setPrompt] = useState("");
@@ -180,8 +168,7 @@ export function GenerationForm({
 		let vid = 0;
 		for (const r of refMedia) {
 			if (r.status !== "ready") continue;
-			const handle =
-				r.kind === "image" ? `@Image${++img}` : `@Video${++vid}`;
+			const handle = r.kind === "image" ? `@Image${++img}` : `@Video${++vid}`;
 			out.push({ id: r.id, handle, kind: r.kind, url: r.url, name: r.name });
 		}
 		return out;
@@ -198,9 +185,10 @@ export function GenerationForm({
 	// setMfBusy flushes; this ref blocks the second one immediately.
 	const inFlightRef = useRef(false);
 	// Open autocomplete state: the partial query after "@" and where "@" starts.
-	const [mention, setMention] = useState<{ query: string; start: number } | null>(
-		null,
-	);
+	const [mention, setMention] = useState<{
+		query: string;
+		start: number;
+	} | null>(null);
 	const [mentionHi, setMentionHi] = useState(0);
 
 	const mentionMatches = useMemo(() => {
@@ -250,7 +238,9 @@ export function GenerationForm({
 			setMentionHi((i) => (i + 1) % mentionMatches.length);
 		} else if (e.key === "ArrowUp") {
 			e.preventDefault();
-			setMentionHi((i) => (i - 1 + mentionMatches.length) % mentionMatches.length);
+			setMentionHi(
+				(i) => (i - 1 + mentionMatches.length) % mentionMatches.length,
+			);
 		} else if (e.key === "Enter" || e.key === "Tab") {
 			e.preventDefault();
 			insertMention(mentionMatches[mentionHi].handle);
@@ -346,9 +336,7 @@ export function GenerationForm({
 				personaStillUrl = data.imageUrl;
 			} catch (err) {
 				toast.error(
-					err instanceof Error
-						? err.message
-						: "Failed to render persona still",
+					err instanceof Error ? err.message : "Failed to render persona still",
 				);
 				return;
 			} finally {
@@ -359,8 +347,10 @@ export function GenerationForm({
 		// Map the active mode onto the provider's reference fields. Omni sends
 		// role:reference_image refs (@mentioned in the prompt); First-&-last sends
 		// a start frame (+ optional end frame) for i2v / flf2v.
-		const omniImages = isOmni || activePersona ? readyImages.map((r) => r.url) : [];
-		const omniVideos = isOmni || activePersona ? readyVideos.map((r) => r.url) : [];
+		const omniImages =
+			isOmni || activePersona ? readyImages.map((r) => r.url) : [];
+		const omniVideos =
+			isOmni || activePersona ? readyVideos.map((r) => r.url) : [];
 
 		const params = {
 			prompt: composePromptWithCamera(prompt, cameraPreset),
@@ -422,7 +412,9 @@ export function GenerationForm({
 
 					{/* Consistency toggle */}
 					<div className="space-y-1">
-						<span className="text-[10px] text-muted-foreground">Consistency</span>
+						<span className="text-[10px] text-muted-foreground">
+							Consistency
+						</span>
 						<div className="flex gap-1.5">
 							{CONSISTENCY_OPTIONS.map((opt) => (
 								<button
@@ -441,14 +433,11 @@ export function GenerationForm({
 							))}
 						</div>
 						<p className="text-[10px] text-muted-foreground">
-							{CONSISTENCY_OPTIONS.find((o) => o.value === consistencyMode)?.hint}
+							{
+								CONSISTENCY_OPTIONS.find((o) => o.value === consistencyMode)
+									?.hint
+							}
 						</p>
-						{consistencyMode === "durable" && imageServiceDown && (
-							<p className="text-[10px] text-amber-500">
-								Requires the local image service (port 8423) — start it
-								before generating.
-							</p>
-						)}
 					</div>
 				</div>
 			)}
@@ -649,8 +638,9 @@ export function GenerationForm({
 								<button
 									type="button"
 									onClick={() =>
-										setPrompt((p) =>
-											p + (p && !p.endsWith(" ") ? " " : "") + h.handle + " ",
+										setPrompt(
+											(p) =>
+												p + (p && !p.endsWith(" ") ? " " : "") + h.handle + " ",
 										)
 									}
 									className="rounded bg-muted px-1 font-mono text-foreground hover:bg-muted/70"
@@ -687,7 +677,9 @@ export function GenerationForm({
 									: "border-border text-muted-foreground hover:border-foreground",
 							)}
 						>
-							<span className="h-4 flex items-center"><OrientationGlyph value={o.value} /></span>
+							<span className="h-4 flex items-center">
+								<OrientationGlyph value={o.value} />
+							</span>
 							<span>{o.label}</span>
 							<span className="opacity-70">{o.ratio}</span>
 						</button>
@@ -720,7 +712,8 @@ export function GenerationForm({
 					className="h-8 text-xs"
 				/>
 				<p className="text-xs text-muted-foreground">
-					Every take stores its seed, so you can promote any winner to 1080p — no upscaling.
+					Every take stores its seed, so you can promote any winner to 1080p —
+					no upscaling.
 				</p>
 			</div>
 
@@ -825,25 +818,27 @@ export function GenerationForm({
 
 			<Button
 				onClick={handleGenerate}
-				disabled={!prompt.trim() || needsReference || refUploading || generating}
+				disabled={
+					!prompt.trim() || needsReference || refUploading || generating
+				}
 				className="w-full"
 				size="sm"
 			>
 				{mfBusy
 					? "Generating segments…"
 					: busy
-					? "Generating…"
-					: needsReference
-					? isMultiframe
-						? "Add at least 2 keyframes"
-						: "Add a first frame"
-					: refUploading
-					? "Uploading…"
-					: isMultiframe
-					? `Generate ${Math.max(0, readyKeyframes.length - 1)} segments`
-					: count > 1
-					? `Generate ${count}`
-					: "Generate"}
+						? "Generating…"
+						: needsReference
+							? isMultiframe
+								? "Add at least 2 keyframes"
+								: "Add a first frame"
+							: refUploading
+								? "Uploading…"
+								: isMultiframe
+									? `Generate ${Math.max(0, readyKeyframes.length - 1)} segments`
+									: count > 1
+										? `Generate ${count}`
+										: "Generate"}
 			</Button>
 		</div>
 	);

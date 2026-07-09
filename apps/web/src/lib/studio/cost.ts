@@ -25,19 +25,18 @@ export function formatUsd(n: number): string {
  * GPT Image charge). Single source of truth so the cost-estimate call sites can't
  * drift on what counts toward cost.
  *
- * Only "high" (Balanced) bills for the still — it goes through gpt-image-2.
- * "fast" reuses the anchor (no still) and "durable" renders the still locally on
- * the PhotoMaker image service ($0 API cost), so neither adds to the estimate.
+ * Only "high" (Balanced) bills for the still — it renders a per-shot reference
+ * still via a routed image provider. "fast" reuses the anchor (no still), so it
+ * adds nothing to the estimate.
  */
 export function addsPerShotStill(
 	hasPersona: boolean,
-	consistencyMode: "high" | "fast" | "durable" | undefined,
+	consistencyMode: "high" | "fast" | undefined,
 ): boolean {
 	switch (consistencyMode) {
 		case "high":
 			return hasPersona;
 		case "fast":
-		case "durable":
 		case undefined:
 			return false;
 	}
@@ -71,7 +70,7 @@ export interface CostSpec {
 	resolution: VideoResolution;
 	duration: number;
 	personaId?: string;
-	consistencyMode?: "high" | "fast" | "durable";
+	consistencyMode?: "high" | "fast";
 }
 
 /** Cost of generating `count` takes of a single shot from its spec. */

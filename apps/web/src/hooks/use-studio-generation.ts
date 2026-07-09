@@ -1,10 +1,19 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import type { VideoResolution, VideoOrientation, VideoMode } from "@/lib/studio/provider-adapter";
+import type {
+	VideoResolution,
+	VideoOrientation,
+	VideoMode,
+} from "@/lib/studio/provider-adapter";
 import { waitForJobTerminal } from "@/stores/generation-status-store";
 
-export type GenerationStatus = "idle" | "submitting" | "polling" | "done" | "error";
+export type GenerationStatus =
+	| "idle"
+	| "submitting"
+	| "polling"
+	| "done"
+	| "error";
 
 export interface StudioTake {
 	takeId: string;
@@ -36,7 +45,7 @@ export interface UseStudioGenerationReturn {
 		duration: number;
 		mode: VideoMode;
 		personaId?: string;
-		consistencyMode?: "high" | "fast" | "durable";
+		consistencyMode?: "high" | "fast";
 	}) => Promise<void>;
 	promoteTo1080p: (takeId: string) => Promise<void>;
 	starTake: (takeId: string, starred: boolean) => Promise<void>;
@@ -60,7 +69,10 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 	// the same jobId (timeline slot badge, Takes grid) joins one deduped
 	// interval instead of stacking its own fetch loop.
 	const pollJobToCompletion = useCallback(
-		async (takeId: string, jobId: string): Promise<"done" | "error" | "cancelled"> => {
+		async (
+			takeId: string,
+			jobId: string,
+		): Promise<"done" | "error" | "cancelled"> => {
 			if (cancelRef.current) return "cancelled";
 
 			const outcome = await waitForJobTerminal(jobId, {
@@ -72,7 +84,9 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 			if (outcome === "timeout") {
 				setActiveTakes((prev) =>
 					prev.map((t) =>
-						t.takeId === takeId ? { ...t, status: "error", error: "Generation timed out" } : t,
+						t.takeId === takeId
+							? { ...t, status: "error", error: "Generation timed out" }
+							: t,
 					),
 				);
 				setError("Generation timed out");
@@ -83,7 +97,12 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 				setActiveTakes((prev) =>
 					prev.map((t) =>
 						t.takeId === takeId
-							? { ...t, status: "done", videoUrl: outcome.videoUrl, seed: outcome.seed ?? t.seed }
+							? {
+									...t,
+									status: "done",
+									videoUrl: outcome.videoUrl,
+									seed: outcome.seed ?? t.seed,
+								}
 							: t,
 					),
 				);
@@ -92,7 +111,9 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 
 			setActiveTakes((prev) =>
 				prev.map((t) =>
-					t.takeId === takeId ? { ...t, status: "error", error: outcome.error } : t,
+					t.takeId === takeId
+						? { ...t, status: "error", error: outcome.error }
+						: t,
 				),
 			);
 			setError(outcome.error ?? "Generation failed");
@@ -111,7 +132,7 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 			duration: number;
 			mode: VideoMode;
 			personaId?: string;
-			consistencyMode?: "high" | "fast" | "durable";
+			consistencyMode?: "high" | "fast";
 		}) => {
 			setStatus("submitting");
 			setError(null);
@@ -125,11 +146,11 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 				});
 
 				if (!res.ok) {
-					const data = await res.json() as { error?: string };
+					const data = (await res.json()) as { error?: string };
 					throw new Error(data.error ?? "Submission failed");
 				}
 
-				const data = await res.json() as {
+				const data = (await res.json()) as {
 					takeId: string;
 					setId: string;
 					jobId: string;
@@ -159,7 +180,9 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 
 				setStatus("polling");
 				const outcome = await pollJobToCompletion(data.takeId, data.jobId);
-				setStatus(outcome === "done" ? "done" : outcome === "error" ? "error" : "idle");
+				setStatus(
+					outcome === "done" ? "done" : outcome === "error" ? "error" : "idle",
+				);
 			} catch (err) {
 				setStatus("error");
 				setError(err instanceof Error ? err.message : "Generation failed");
@@ -168,30 +191,35 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 		[pollJobToCompletion],
 	);
 
-	const promoteTo1080p = useCallback(async (takeId: string) => {
-		const res = await fetch(`/api/studio/takes/${takeId}/promote`, { method: "POST" });
-		if (!res.ok) {
-			const data = await res.json() as { error?: string };
-			throw new Error(data.error ?? "Promote failed");
-		}
-		const data = await res.json() as { takeId: string; jobId: string };
+	const promoteTo1080p = useCallback(
+		async (takeId: string) => {
+			const res = await fetch(`/api/studio/takes/${takeId}/promote`, {
+				method: "POST",
+			});
+			if (!res.ok) {
+				const data = (await res.json()) as { error?: string };
+				throw new Error(data.error ?? "Promote failed");
+			}
+			const data = (await res.json()) as { takeId: string; jobId: string };
 
-		// Add a polling take for the promoted version, then actually poll it.
-		const source = activeTakes.find((t) => t.takeId === takeId);
-		const promoted: StudioTake = {
-			takeId: data.takeId,
-			setId: source?.setId ?? "",
-			jobId: data.jobId,
-			seed: source?.seed,
-			status: "polling",
-			resolution: "1080p",
-			orientation: source?.orientation,
-			prompt: source?.prompt ?? "",
-		};
-		setActiveTakes((prev) => [promoted, ...prev]);
+			// Add a polling take for the promoted version, then actually poll it.
+			const source = activeTakes.find((t) => t.takeId === takeId);
+			const promoted: StudioTake = {
+				takeId: data.takeId,
+				setId: source?.setId ?? "",
+				jobId: data.jobId,
+				seed: source?.seed,
+				status: "polling",
+				resolution: "1080p",
+				orientation: source?.orientation,
+				prompt: source?.prompt ?? "",
+			};
+			setActiveTakes((prev) => [promoted, ...prev]);
 
-		await pollJobToCompletion(data.takeId, data.jobId);
-	}, [activeTakes, pollJobToCompletion]);
+			await pollJobToCompletion(data.takeId, data.jobId);
+		},
+		[activeTakes, pollJobToCompletion],
+	);
 
 	const starTake = useCallback(async (takeId: string, starred: boolean) => {
 		await fetch(`/api/studio/takes/${takeId}`, {
@@ -211,7 +239,7 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 			body: JSON.stringify({ takeId, notes }),
 		});
 		if (!res.ok) {
-			const data = await res.json() as { error?: string };
+			const data = (await res.json()) as { error?: string };
 			throw new Error(data.error ?? "Failed to pin to board");
 		}
 	}, []);
@@ -223,7 +251,7 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 			const res = await fetch("/api/studio/sets");
 			if (!res.ok) return;
 
-			const data = await res.json() as {
+			const data = (await res.json()) as {
 				sets: Array<{
 					id: string;
 					prompt: string;
@@ -248,8 +276,8 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 					const status: GenerationStatus = take.videoUrl
 						? "done"
 						: take.errorMessage
-						? "error"
-						: "polling";
+							? "error"
+							: "polling";
 					loaded.push({
 						takeId: take.id,
 						setId: take.setId,

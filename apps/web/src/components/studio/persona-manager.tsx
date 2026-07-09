@@ -16,8 +16,8 @@ interface PersonaManagerProps {
 
 // Soul-ID-style multi-photo intake: gate for resolution client-side, upload
 // concurrently, let the user pick a primary anchor from the batch, and turn
-// everything else into refImageUrls[] for the gpt-image / PhotoMaker still
-// renderers (both already read persona.refImageUrls).
+// everything else into refImageUrls[] for the reference-still renderer (routed
+// across image providers — all read persona.anchorImageUrl + refImageUrls).
 const MIN_PHOTO_DIMENSION = 960;
 const MAX_PHOTOS = 80;
 const RECOMMENDED_PHOTOS = 20;
@@ -114,7 +114,9 @@ export function PersonaManager({ className }: PersonaManagerProps) {
 				const data = (await res.json()) as { error?: string };
 				throw new Error(data.error ?? "Generation failed");
 			}
-			const data = (await res.json()) as { images: Array<{ imageUrl: string }> };
+			const data = (await res.json()) as {
+				images: Array<{ imageUrl: string }>;
+			};
 			setCandidates(data.images.map((i) => i.imageUrl));
 		} catch (err) {
 			toast.error(
@@ -176,14 +178,16 @@ export function PersonaManager({ className }: PersonaManagerProps) {
 
 		if (accepted.length === 0) return;
 
-		const newPhotos: UploadedPhoto[] = accepted.map(({ file, width, height }) => ({
-			id: crypto.randomUUID(),
-			file,
-			previewUrl: URL.createObjectURL(file),
-			width,
-			height,
-			status: "uploading",
-		}));
+		const newPhotos: UploadedPhoto[] = accepted.map(
+			({ file, width, height }) => ({
+				id: crypto.randomUUID(),
+				file,
+				previewUrl: URL.createObjectURL(file),
+				width,
+				height,
+				status: "uploading",
+			}),
+		);
 
 		setPhotos((prev) => [...prev, ...newPhotos]);
 		void uploadPhotosWithPool(newPhotos);
@@ -408,8 +412,8 @@ export function PersonaManager({ className }: PersonaManagerProps) {
 				<div className="space-y-1.5">
 					<Label className="text-xs">Reference photos</Label>
 					<p className="text-xs text-muted-foreground">
-						20+ clear, well-lit photos, varied angles &amp; expressions,
-						≥{MIN_PHOTO_DIMENSION}px, recent — more photos → stronger likeness.
+						20+ clear, well-lit photos, varied angles &amp; expressions, ≥
+						{MIN_PHOTO_DIMENSION}px, recent — more photos → stronger likeness.
 					</p>
 
 					<input
@@ -438,7 +442,8 @@ export function PersonaManager({ className }: PersonaManagerProps) {
 							<p className="text-[10px] text-muted-foreground">
 								{readyPhotos.length} ready
 								{uploadingCount > 0 ? ` · ${uploadingCount} uploading` : ""}
-								{readyPhotos.length > 0 && readyPhotos.length < RECOMMENDED_PHOTOS
+								{readyPhotos.length > 0 &&
+								readyPhotos.length < RECOMMENDED_PHOTOS
 									? ` · ${RECOMMENDED_PHOTOS}+ recommended for best likeness`
 									: ""}
 							</p>
@@ -487,7 +492,9 @@ export function PersonaManager({ className }: PersonaManagerProps) {
 											{photo.status === "ready" && !isPrimary && (
 												<button
 													type="button"
-													onClick={() => setAnchorUrl(photo.remoteUrl as string)}
+													onClick={() =>
+														setAnchorUrl(photo.remoteUrl as string)
+													}
 													className="absolute inset-x-0 bottom-0 hidden bg-black/70 py-0.5 text-center text-[8px] text-white group-hover:block"
 												>
 													Make primary

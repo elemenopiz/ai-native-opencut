@@ -168,11 +168,11 @@ export interface GenerationSpec {
 	/**
 	 * Persona consistency tier:
 	 *  - "fast": use the persona anchor image directly (cheapest, loosest likeness).
-	 *  - "high": per-shot gpt-image-2 still (Balanced — current default).
-	 *  - "durable": local PhotoMaker v1 still via the image service (best durable
-	 *    likeness, $0 API cost, needs the local image service running).
+	 *  - "high": per-shot reference still (Balanced — default). Routed through the
+	 *    multi-provider image backends (GPT Image / Gemini / …), feeding the
+	 *    persona's anchor + uploaded photos as reference images.
 	 */
-	consistencyMode?: "high" | "fast" | "durable";
+	consistencyMode?: "high" | "fast";
 	cameraPreset?: string;
 	seed?: number;
 	seedLocked?: boolean;

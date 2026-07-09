@@ -1,4 +1,8 @@
-import type { Arrangement, ArrangementSlot, ArrangementText } from "@/types/arrangement";
+import type {
+	Arrangement,
+	ArrangementSlot,
+	ArrangementText,
+} from "@/types/arrangement";
 import { ARRANGEMENT_VERSION } from "@/types/arrangement";
 
 /**
@@ -19,7 +23,8 @@ function str(v: unknown, max = MAX_STR): string {
 }
 
 function num(v: unknown): number {
-	if (typeof v !== "number" || !Number.isFinite(v)) throw new Error("expected number");
+	if (typeof v !== "number" || !Number.isFinite(v))
+		throw new Error("expected number");
 	return v;
 }
 
@@ -28,7 +33,8 @@ function optNum(v: unknown): number | undefined {
 }
 
 function normalizeSlot(raw: unknown): ArrangementSlot {
-	if (typeof raw !== "object" || raw === null) throw new Error("slot must be an object");
+	if (typeof raw !== "object" || raw === null)
+		throw new Error("slot must be an object");
 	const s = raw as Record<string, unknown>;
 	const kind = s.kind === "image" ? "image" : "video";
 
@@ -47,14 +53,14 @@ function normalizeSlot(raw: unknown): ArrangementSlot {
 				? r.orientation
 				: "landscape") as "landscape" | "portrait" | "square",
 			duration: num(r.duration ?? s.duration ?? 5),
-			...(typeof r.provider === "string" ? { provider: str(r.provider, 100) } : {}),
+			...(typeof r.provider === "string"
+				? { provider: str(r.provider, 100) }
+				: {}),
 			...(typeof r.model === "string" ? { model: str(r.model, 100) } : {}),
 			...(typeof r.cameraPreset === "string"
 				? { cameraPreset: str(r.cameraPreset, 100) }
 				: {}),
-			...(r.consistencyMode === "high" ||
-			r.consistencyMode === "fast" ||
-			r.consistencyMode === "durable"
+			...(r.consistencyMode === "high" || r.consistencyMode === "fast"
 				? { consistencyMode: r.consistencyMode }
 				: {}),
 		};
@@ -71,18 +77,26 @@ function normalizeSlot(raw: unknown): ArrangementSlot {
 		...(s.transitionOut && typeof s.transitionOut === "object"
 			? {
 					transitionOut: {
-						type: str((s.transitionOut as Record<string, unknown>).type ?? "fade", 40),
-						duration: num((s.transitionOut as Record<string, unknown>).duration ?? 0.4),
+						type: str(
+							(s.transitionOut as Record<string, unknown>).type ?? "fade",
+							40,
+						),
+						duration: num(
+							(s.transitionOut as Record<string, unknown>).duration ?? 0.4,
+						),
 					},
 				}
 			: {}),
-		...(s.transform ? { transform: s.transform as ArrangementSlot["transform"] } : {}),
+		...(s.transform
+			? { transform: s.transform as ArrangementSlot["transform"] }
+			: {}),
 		...(s.opacity !== undefined ? { opacity: optNum(s.opacity) } : {}),
 	};
 }
 
 function normalizeOverlay(raw: unknown): ArrangementText {
-	if (typeof raw !== "object" || raw === null) throw new Error("overlay must be an object");
+	if (typeof raw !== "object" || raw === null)
+		throw new Error("overlay must be an object");
 	const o = raw as Record<string, unknown>;
 	return {
 		id: str(o.id ?? crypto.randomUUID(), 64),
@@ -98,8 +112,12 @@ function normalizeOverlay(raw: unknown): ArrangementText {
 			: "center") as "left" | "center" | "right",
 		fontWeight: o.fontWeight === "bold" ? "bold" : "normal",
 		fontStyle: o.fontStyle === "italic" ? "italic" : "normal",
-		...(o.background ? { background: o.background as ArrangementText["background"] } : {}),
-		...(o.transform ? { transform: o.transform as ArrangementText["transform"] } : {}),
+		...(o.background
+			? { background: o.background as ArrangementText["background"] }
+			: {}),
+		...(o.transform
+			? { transform: o.transform as ArrangementText["transform"] }
+			: {}),
 		...(o.opacity !== undefined ? { opacity: optNum(o.opacity) } : {}),
 	};
 }
@@ -127,7 +145,9 @@ export function validateArrangement(raw: unknown): Arrangement {
 	return {
 		version: ARRANGEMENT_VERSION,
 		name: str(a.name ?? "Untitled arrangement", 200),
-		...(typeof a.description === "string" ? { description: str(a.description) } : {}),
+		...(typeof a.description === "string"
+			? { description: str(a.description) }
+			: {}),
 		...(canvas ? { canvas } : {}),
 		...(a.fps !== undefined ? { fps: optNum(a.fps) } : {}),
 		totalDuration: num(a.totalDuration ?? total(slots)),
