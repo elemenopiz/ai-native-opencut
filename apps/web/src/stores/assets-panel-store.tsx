@@ -13,6 +13,7 @@ import {
 	CrownIcon,
 	Search01Icon,
 	StarIcon,
+	UserGroupIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 
@@ -22,6 +23,7 @@ export const TAB_KEYS = [
 	"starred",
 	"text",
 	"captions",
+	"speakers",
 	"audio",
 	"elements",
 	"visuals",
@@ -58,6 +60,10 @@ export const tabs = {
 	captions: {
 		icon: createHugeiconsIcon({ icon: ClosedCaptionIcon }),
 		label: "Captions",
+	},
+	speakers: {
+		icon: createHugeiconsIcon({ icon: UserGroupIcon }),
+		label: "Speakers",
 	},
 	audio: {
 		icon: createHugeiconsIcon({ icon: HeadphonesIcon }),

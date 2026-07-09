@@ -5,11 +5,15 @@ import type {
 	TimelineTrack,
 	TimelineElement,
 	ClipboardItem,
+	CreateUploadAudioElement,
 	CreateVideoElement,
 	GenerationSpec,
 	Take,
 } from "@/types/timeline";
-import { buildVideoElement } from "@/lib/timeline/element-utils";
+import {
+	buildUploadAudioElement,
+	buildVideoElement,
+} from "@/lib/timeline/element-utils";
 import { TIMELINE_CONSTANTS } from "@/constants/timeline-constants";
 import type {
 	AnimationInterpolation,
@@ -327,6 +331,44 @@ export class TimelineManager {
 		return command.getElementId();
 	}
 
+	/** Insert an empty voiceover slot — the audio twin of `addGenerativeSlot`:
+	 *  an upload-audio clip carrying a TTS `generation` recipe
+	 *  (`spec.kind === "voiceover"`, `prompt` = spoken text) but no media yet.
+	 *  TTS takes land on it via the same take bookkeeping below. Returns the
+	 *  new element id. */
+	addVoiceoverSlot({
+		spec,
+		duration,
+		startTime,
+		trackId,
+	}: {
+		spec?: GenerationSpec;
+		duration?: number;
+		startTime?: number;
+		trackId?: string;
+	}): string {
+		const slotDuration =
+			duration ?? spec?.duration ?? TIMELINE_CONSTANTS.DEFAULT_ELEMENT_DURATION;
+		const element: CreateUploadAudioElement = {
+			...buildUploadAudioElement({
+				mediaId: "",
+				name: spec?.prompt?.trim().slice(0, 40) || "Voiceover slot",
+				duration: slotDuration,
+				startTime: startTime ?? 0,
+			}),
+			generation: spec,
+			takes: [],
+		};
+		const command = new InsertElementCommand({
+			element,
+			placement: trackId
+				? { mode: "explicit", trackId }
+				: { mode: "auto", trackType: "audio" },
+		});
+		this.editor.command.execute({ command });
+		return command.getElementId();
+	}
+
 	/** Replace a slot's generation recipe. */
 	setSlotSpec({
 		elementId,
@@ -471,13 +513,19 @@ export class TimelineManager {
 	private getElementTakes(element: TimelineElement): Take[] {
 		// Narrow on the element type so the generative fields are read through the
 		// static union (a rename becomes a compile error, not silent data loss).
-		return element.type === "video" || element.type === "image"
+		// Audio is included because voiceover slots hold TTS takes (see
+		// `GenerativeFields` on `BaseAudioElement`).
+		return element.type === "video" ||
+			element.type === "image" ||
+			element.type === "audio"
 			? (element.takes ?? [])
 			: [];
 	}
 
 	private getActiveTakeId(element: TimelineElement): string | undefined {
-		return element.type === "video" || element.type === "image"
+		return element.type === "video" ||
+			element.type === "image" ||
+			element.type === "audio"
 			? element.activeTakeId
 			: undefined;
 	}

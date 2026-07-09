@@ -109,7 +109,11 @@ export type TimelineTrack =
 
 export type { Transform } from "./rendering";
 
-interface BaseAudioElement extends BaseTimelineElement {
+// Audio elements can also be generative slots: a voiceover slot is an audio
+// clip whose `generation.kind === "voiceover"`, holding TTS takes exactly the
+// way video/image slots hold visual takes (same `takes`/`activeTakeId`
+// bookkeeping in timeline-manager).
+interface BaseAudioElement extends BaseTimelineElement, GenerativeFields {
 	type: "audio";
 	volume: number;
 	muted?: boolean;
@@ -168,6 +172,26 @@ export interface GenerationSpec {
 	resolution: VideoResolution;
 	orientation: VideoOrientation;
 	duration: number;
+
+	// ── Voiceover (TTS) takes — additive; absent ⇒ visual generation ─────────
+	/** Discriminator: "voiceover" routes this spec through the TTS engine
+	 *  (`lib/studio/generate-voiceover-take.ts` → `aiClient.generateSpeech`)
+	 *  instead of `/api/studio/generate`. For voiceover specs `prompt` is the
+	 *  spoken text/dialogue, and the visual fields (`mode`/`resolution`/
+	 *  `orientation`) are carried but ignored. */
+	kind?: "video" | "voiceover";
+	/** Built-in TTS speaker/voice id (e.g. "male", "female"). */
+	voice?: string;
+	/** Cloned-voice reference — the server path returned by
+	 *  `aiClient.cloneVoice`; takes precedence over `voice` when both are set. */
+	voiceRef?: string;
+	/** TTS language code (voiceover takes; defaults to "en"). */
+	language?: string;
+	/** Serialized voice-lock fragment (`voiceLockFragment` in
+	 *  `lib/director/consistency-prompt.ts`) prepended to the dialogue at
+	 *  submission — the audio analog of visual seed-lock. Recorded here so the
+	 *  exact text sent to the provider is reproducible take-to-take. */
+	voiceLock?: string;
 }
 
 export type TakeStatus = "queued" | "generating" | "ready" | "failed";
@@ -188,7 +212,8 @@ export interface Take {
 	error?: string;
 }
 
-/** Mixed into Video/Image elements to make them AI-native generative slots. */
+/** Mixed into Video/Image elements (and audio elements, for TTS voiceover
+ *  slots — see `BaseAudioElement`) to make them AI-native generative slots. */
 export interface GenerativeFields {
 	/** Present ⇒ this clip is a generative slot. */
 	generation?: GenerationSpec;

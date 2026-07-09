@@ -56,6 +56,10 @@ export interface ConsistencyCharacter {
 	descriptor: string;
 	/** Set when this character is backed by a locked persona (identity + seed). */
 	personaId?: string;
+	/** This character's locked vocal identity, restated on every TTS beat via
+	 *  `voiceLockFragment` — the audio analog of `descriptor`. Settable through
+	 *  the Director's existing `setConsistencyContext` verb (`extraCharacters`). */
+	voice?: VoiceProfile;
 }
 
 /** The reusable STYLE + CHARACTERS + SETTING block, held once per reel/storyboard. */
@@ -170,20 +174,24 @@ export function storeConsistencyContext(
 	else contextByEditor.delete(editor);
 }
 
-// ── Voice-lock across beats (documented helper, not wired) ──────────────────
+// ── Voice-lock across beats ──────────────────────────────────────────────────
 //
 // sixsevenstudio has no audio/dialogue path, but the identical technique
-// applies the moment one exists: restate the character's voice profile in
-// every beat's TTS/dialogue prompt so pitch, tone, accent, and pace don't
-// drift take-to-take, exactly like restating CHARACTERS keeps faces from
-// drifting shot-to-shot.
+// applies to ours: restate the character's voice profile in every beat's
+// TTS/dialogue prompt so pitch, tone, accent, and pace don't drift
+// take-to-take, exactly like restating CHARACTERS keeps faces from drifting
+// shot-to-shot.
 //
-// WIRING TODO: this repo has no TTS/voiceover/dialogue pipeline yet (no
-// `tts`/`voiceover`/elevenlabs-style references anywhere under
-// `apps/web/src`) — there is nothing to wire this into today. Land it once an
-// audio-generation path exists (e.g. call this once per beat right before
-// whatever function submits that beat's voice/dialogue request), the same way
-// `withConsistencyContext` is applied per shot above.
+// WIRED: the TTS pipeline is `aiClient.generateSpeech`/`generateSpeechBlob`
+// (`@/lib/ai-client` → POST /api/tts/generate) plus `aiClient.cloneVoice` for
+// cloned-voice refs. Voice-lock is applied per beat in
+// `lib/studio/generate-voiceover-take.ts` — `runVoiceoverTake` resolves the
+// beat's `VoiceProfile` (spec override, else the consistency context's
+// character matching `spec.personaId` via `getVoiceProfileForPersona` below),
+// serializes it with `voiceLockFragment`, records it on the take's
+// `GenerationSpec.voiceLock` (provenance, next to seed-lock), and
+// `generateVoiceoverTakeMedia` prepends it to the dialogue before submitting —
+// the same shape as `withConsistencyContext` per shot above.
 
 /** A character's locked vocal identity, restated every beat. */
 export interface VoiceProfile {
@@ -203,4 +211,32 @@ export function voiceLockFragment(profile: VoiceProfile): string {
 	].filter((p): p is string => Boolean(p));
 	if (parts.length === 0) return "";
 	return `Voice consistency — ${parts.join(", ")}.`;
+}
+
+/**
+ * Prepend the voice-lock fragment ahead of a single beat's dialogue, mirroring
+ * `withConsistencyContext` for shots: each TTS beat is an independent provider
+ * call, so the vocal identity has to be restated per beat.
+ */
+export function withVoiceLock(
+	dialoguePrompt: string,
+	profile: VoiceProfile,
+): string {
+	const fragment = voiceLockFragment(profile);
+	const trimmed = dialoguePrompt.trim();
+	if (!fragment) return trimmed;
+	return `${fragment}\n\n${trimmed}`;
+}
+
+/**
+ * Resolve the locked voice for a persona-backed character from this editor's
+ * stored consistency context — the voiceover twin of how `withConsistencyContext`
+ * restates that same character's visual `descriptor` per shot.
+ */
+export function getVoiceProfileForPersona(
+	editor: EditorCore,
+	personaId: string,
+): VoiceProfile | undefined {
+	const context = contextByEditor.get(editor);
+	return context?.characters.find((c) => c.personaId === personaId)?.voice;
 }

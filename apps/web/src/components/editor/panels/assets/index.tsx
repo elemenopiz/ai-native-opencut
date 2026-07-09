@@ -5,6 +5,7 @@ import { type Tab, useAssetsPanelStore } from "@/stores/assets-panel-store";
 import { TabBar } from "./tabbar";
 import { DirectorView } from "./views/director";
 import { Captions } from "./views/captions";
+import { SpeakerCaptionsPanel } from "./views/speaker-captions";
 import { MediaView } from "./views/assets";
 import { SettingsView } from "./views/settings";
 import { TextView } from "./views/text";
@@ -24,6 +25,7 @@ export function AssetsPanel() {
 		starred: <StarredTakesView />,
 		text: <TextView />,
 		captions: <Captions />,
+		speakers: <SpeakerCaptionsPanel />,
 		audio: <AudioCombinedView />,
 		elements: <ElementsCombinedView />,
 		visuals: <VisualsCombinedView />,
