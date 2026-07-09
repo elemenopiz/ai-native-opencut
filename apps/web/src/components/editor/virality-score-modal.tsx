@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -12,6 +12,8 @@ import {
 } from "@/components/ui/dialog";
 import { aiClient } from "@/lib/ai-client";
 import type { EngagementScoreResult } from "@/lib/ai-client";
+import { deriveDiagnostics } from "@/lib/engagement-diagnostics";
+import { EngagementDiagnosticsView } from "@/components/editor/youtube/engagement-diagnostics";
 import { useTranscriptStore } from "@/stores/transcript-store";
 import { useEditor } from "@/hooks/use-editor";
 import { cn } from "@/utils/ui";
@@ -54,6 +56,13 @@ export function ViralityScoreModal({ open, onOpenChange }: ViralityScoreModalPro
 	const [score, setScore] = useState<EngagementScoreResult | null>(null);
 	const [isAnalyzing, setIsAnalyzing] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+
+	// Reframe the blended score into 3 actionable dimensions + attention heatmap.
+	const diagnostics = useMemo(() => {
+		if (!score) return null;
+		const duration = segments.length > 0 ? Math.max(...segments.map((s) => s.end)) : 30;
+		return deriveDiagnostics({ result: score, segments, duration });
+	}, [score, segments]);
 
 	const tracks = editor.timeline.getTracks();
 	const hasVideo = tracks.some((t) =>
@@ -100,7 +109,7 @@ export function ViralityScoreModal({ open, onOpenChange }: ViralityScoreModalPro
 
 	return (
 		<Dialog open={open} onOpenChange={handleOpenChange}>
-			<DialogContent className="max-w-md">
+			<DialogContent className="max-w-lg">
 				<DialogHeader>
 					<DialogTitle>Virality Score</DialogTitle>
 				</DialogHeader>
@@ -150,57 +159,56 @@ export function ViralityScoreModal({ open, onOpenChange }: ViralityScoreModalPro
 						</div>
 					)}
 
-					{/* Score result */}
-					{score && (
+					{/* Score result — diagnostic-first */}
+					{score && diagnostics && (
 						<div className="space-y-4">
-							{/* Grade hero */}
-							<div className={cn("rounded-xl border p-5 text-center", GRADE_BG[score.grade])}>
-								<div className={cn("text-5xl font-bold", GRADE_COLORS[score.grade])}>
-									{score.grade}
+							{/* Diagnostic dimensions + attention heatmap lead */}
+							<EngagementDiagnosticsView diagnostics={diagnostics} />
+
+							{/* Overall grade (demoted — the summary, not the headline) */}
+							<div className={cn("flex items-center justify-between rounded-lg border p-3", GRADE_BG[score.grade])}>
+								<div>
+									<p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Overall</p>
+									<p className="text-xs text-muted-foreground">{score.grade_label}</p>
 								</div>
-								<div className="text-2xl font-semibold mt-1">
-									{Math.round(score.composite)}<span className="text-sm text-muted-foreground">/100</span>
+								<div className="flex items-baseline gap-1.5">
+									<span className={cn("text-2xl font-bold", GRADE_COLORS[score.grade])}>{score.grade}</span>
+									<span className="text-sm font-semibold">
+										{Math.round(score.composite)}<span className="text-[10px] text-muted-foreground">/100</span>
+									</span>
 								</div>
-								<p className="text-xs text-muted-foreground mt-1">{score.grade_label}</p>
 							</div>
 
-							{/* Verdict */}
-							<div className="rounded-lg border p-3 text-center">
-								{score.composite >= 70 ? (
-									<p className="text-sm font-medium text-green-400">Ready to go viral!</p>
-								) : score.composite >= 50 ? (
-									<p className="text-sm font-medium text-yellow-400">Good potential, check suggestions below</p>
-								) : (
-									<p className="text-sm font-medium text-red-400">Needs improvement before publishing</p>
-								)}
-							</div>
+							{/* Raw signal breakdown (detail) */}
+							<details className="group rounded-lg border p-3">
+								<summary className="cursor-pointer list-none text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+									Signal breakdown
+								</summary>
+								<div className="mt-3 space-y-2">
+									{Object.entries(SCORE_LABELS).map(([key, label]) => {
+										const sub = score[key as keyof EngagementScoreResult];
+										const val = typeof sub === "object" && sub !== null && "composite" in sub
+											? (sub as { composite: number }).composite
+											: 0;
 
-							{/* Sub-scores */}
-							<div className="space-y-2">
-								<h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Breakdown</h4>
-								{Object.entries(SCORE_LABELS).map(([key, label]) => {
-									const sub = score[key as keyof EngagementScoreResult];
-									const val = typeof sub === "object" && sub !== null && "composite" in sub
-										? (sub as { composite: number }).composite
-										: 0;
-
-									return (
-										<div key={key} className="flex items-center gap-2">
-											<span className="text-xs text-muted-foreground w-24 flex-shrink-0">{label}</span>
-											<div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
-												<div
-													className={cn(
-														"h-full rounded-full transition-all",
-														val >= 70 ? "bg-green-500" : val >= 40 ? "bg-yellow-500" : "bg-red-500",
-													)}
-													style={{ width: `${val}%` }}
-												/>
+										return (
+											<div key={key} className="flex items-center gap-2">
+												<span className="text-xs text-muted-foreground w-24 flex-shrink-0">{label}</span>
+												<div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+													<div
+														className={cn(
+															"h-full rounded-full transition-all",
+															val >= 70 ? "bg-green-500" : val >= 40 ? "bg-yellow-500" : "bg-red-500",
+														)}
+														style={{ width: `${val}%` }}
+													/>
+												</div>
+												<span className="text-xs text-muted-foreground w-7 text-right">{Math.round(val)}</span>
 											</div>
-											<span className="text-xs text-muted-foreground w-7 text-right">{Math.round(val)}</span>
-										</div>
-									);
-								})}
-							</div>
+										);
+									})}
+								</div>
+							</details>
 
 							{/* Suggestions */}
 							{score.suggestions.length > 0 && (
