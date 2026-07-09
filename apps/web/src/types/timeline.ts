@@ -249,8 +249,12 @@ export interface TextElement extends BaseTimelineElement {
 	fontSize: number;
 	fontFamily: string;
 	color: string;
-	/** Color used to highlight words as they are spoken (karaoke-style) */
+	/** Color applied to words once they have been spoken (karaoke progressive fill) */
 	highlightColor?: string;
+	/** Color of the word currently being spoken. Falls back to highlightColor when unset. */
+	wordActiveColor?: string;
+	/** Rounded background box drawn behind the currently-spoken word (highlight-box style). */
+	wordActiveBackground?: string;
 	/** Word-level timing for karaoke-style highlighting */
 	wordTimings?: TextWordTiming[];
 	/** Scale multiplier for the currently-spoken word (pop effect). 1.0 = no pop, 1.3 = 30% larger. */

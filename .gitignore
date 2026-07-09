@@ -53,3 +53,5 @@ graphify-out/
 # per-machine Claude Code state (never share across machines/worktrees)
 .claude/settings.local.json
 .claude/worktrees/
+# generated TS build cache (was causing merge conflicts)
+apps/web/tsconfig.tsbuildinfo
