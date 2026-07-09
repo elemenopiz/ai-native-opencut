@@ -15,11 +15,16 @@ export async function GET(request: NextRequest) {
 	try {
 		const { searchParams } = new URL(request.url);
 		const query = searchParams.get("q") || "";
+		const perPageRaw = Number(searchParams.get("per_page") || "6");
 		const perPage = Math.min(
-			Math.max(Number(searchParams.get("per_page") || "6"), 1),
+			Math.max(Number.isFinite(perPageRaw) ? Math.floor(perPageRaw) : 6, 1),
 			30,
 		);
-		const page = Math.max(Number(searchParams.get("page") || "1"), 1);
+		const pageRaw = Number(searchParams.get("page") || "1");
+		const page = Math.max(
+			Number.isFinite(pageRaw) ? Math.floor(pageRaw) : 1,
+			1,
+		);
 		const orientation = searchParams.get("orientation") || "landscape";
 
 		if (!query.trim()) {
