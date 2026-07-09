@@ -71,7 +71,11 @@ function resolveClipPlaybackRate(element: {
 	return { playbackRate: baseRate, hasVariableRate: true };
 }
 
-export function createAudioContext({ sampleRate }: { sampleRate?: number } = {}): AudioContext {
+export function createAudioContext({
+	sampleRate,
+}: {
+	sampleRate?: number;
+} = {}): AudioContext {
 	const AudioContextConstructor =
 		window.AudioContext ||
 		(window as typeof window & { webkitAudioContext?: typeof AudioContext })
@@ -91,23 +95,29 @@ export async function decodeAudioToFloat32({
 	audioBlob: Blob;
 }): Promise<DecodedAudio> {
 	const audioContext = createAudioContext();
-	const arrayBuffer = await audioBlob.arrayBuffer();
-	const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+	try {
+		const arrayBuffer = await audioBlob.arrayBuffer();
+		const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
-	// mix down to mono
-	const numChannels = audioBuffer.numberOfChannels;
-	const length = audioBuffer.length;
-	const samples = new Float32Array(length);
+		// mix down to mono
+		const numChannels = audioBuffer.numberOfChannels;
+		const length = audioBuffer.length;
+		const samples = new Float32Array(length);
 
-	for (let i = 0; i < length; i++) {
-		let sum = 0;
-		for (let channel = 0; channel < numChannels; channel++) {
-			sum += audioBuffer.getChannelData(channel)[i];
+		for (let i = 0; i < length; i++) {
+			let sum = 0;
+			for (let channel = 0; channel < numChannels; channel++) {
+				sum += audioBuffer.getChannelData(channel)[i];
+			}
+			samples[i] = sum / numChannels;
 		}
-		samples[i] = sum / numChannels;
-	}
 
-	return { samples, sampleRate: audioBuffer.sampleRate };
+		return { samples, sampleRate: audioBuffer.sampleRate };
+	} finally {
+		// Release the decode-only context instead of leaking it toward the
+		// browser's concurrent-AudioContext limit.
+		audioContext.close().catch(() => {});
+	}
 }
 
 export async function collectAudioElements({
@@ -258,7 +268,10 @@ async function resolveAudioBufferForVideoElement({
 		if (chunks.length === 0) return null;
 
 		const nativeSampleRate = chunks[0].sampleRate;
-		const numChannels = Math.min(MAX_AUDIO_CHANNELS, chunks[0].numberOfChannels);
+		const numChannels = Math.min(
+			MAX_AUDIO_CHANNELS,
+			chunks[0].numberOfChannels,
+		);
 
 		const nativeChannels = Array.from(
 			{ length: numChannels },
@@ -267,17 +280,29 @@ async function resolveAudioBufferForVideoElement({
 		let offset = 0;
 		for (const chunk of chunks) {
 			for (let channel = 0; channel < numChannels; channel++) {
-				const sourceData = chunk.getChannelData(Math.min(channel, chunk.numberOfChannels - 1));
+				const sourceData = chunk.getChannelData(
+					Math.min(channel, chunk.numberOfChannels - 1),
+				);
 				nativeChannels[channel].set(sourceData, offset);
 			}
 			offset += chunk.length;
 		}
 
 		// use OfflineAudioContext for high-quality resampling to target rate
-		const outputSamples = Math.ceil(totalSamples * (targetSampleRate / nativeSampleRate));
-		const offlineContext = new OfflineAudioContext(numChannels, outputSamples, targetSampleRate);
+		const outputSamples = Math.ceil(
+			totalSamples * (targetSampleRate / nativeSampleRate),
+		);
+		const offlineContext = new OfflineAudioContext(
+			numChannels,
+			outputSamples,
+			targetSampleRate,
+		);
 
-		const nativeBuffer = audioContext.createBuffer(numChannels, totalSamples, nativeSampleRate);
+		const nativeBuffer = audioContext.createBuffer(
+			numChannels,
+			totalSamples,
+			nativeSampleRate,
+		);
 		for (let ch = 0; ch < numChannels; ch++) {
 			nativeBuffer.copyToChannel(nativeChannels[ch], ch);
 		}
@@ -405,7 +430,8 @@ function collectMediaAudioClip({
 	mediaAsset: MediaAsset;
 	muted: boolean;
 }): AudioClipSource {
-	const vol = "volume" in element ? (element as { volume?: number }).volume ?? 1 : 1;
+	const vol =
+		"volume" in element ? ((element as { volume?: number }).volume ?? 1) : 1;
 	return {
 		id: element.id,
 		sourceKey: mediaAsset.id,
@@ -552,36 +578,43 @@ export async function createTimelineAudioBuffer({
 	sampleRate?: number;
 	audioContext?: AudioContext;
 }): Promise<AudioBuffer | null> {
+	// Only close a context we allocated ourselves; a caller-supplied context is
+	// the caller's to manage.
+	const ownsContext = !audioContext;
 	const context = audioContext ?? createAudioContext({ sampleRate });
 
-	const audioElements = await collectAudioElements({
-		tracks,
-		mediaAssets,
-		audioContext: context,
-	});
+	try {
+		const audioElements = await collectAudioElements({
+			tracks,
+			mediaAssets,
+			audioContext: context,
+		});
 
-	if (audioElements.length === 0) return null;
+		if (audioElements.length === 0) return null;
 
-	const outputChannels = 2;
-	const outputLength = Math.ceil(duration * sampleRate);
-	const outputBuffer = context.createBuffer(
-		outputChannels,
-		outputLength,
-		sampleRate,
-	);
-
-	for (const element of audioElements) {
-		if (element.muted) continue;
-
-		mixAudioChannels({
-			element,
-			outputBuffer,
+		const outputChannels = 2;
+		const outputLength = Math.ceil(duration * sampleRate);
+		const outputBuffer = context.createBuffer(
+			outputChannels,
 			outputLength,
 			sampleRate,
-		});
-	}
+		);
 
-	return outputBuffer;
+		for (const element of audioElements) {
+			if (element.muted) continue;
+
+			mixAudioChannels({
+				element,
+				outputBuffer,
+				outputLength,
+				sampleRate,
+			});
+		}
+
+		return outputBuffer;
+	} finally {
+		if (ownsContext) context.close().catch(() => {});
+	}
 }
 
 export function mixAudioChannels({
