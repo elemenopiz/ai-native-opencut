@@ -22,6 +22,8 @@ import { useEditor } from "@/hooks/use-editor";
 import { CommandIcon, Logout05Icon, Search01Icon, SparklesIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ShortcutsDialog } from "./dialogs/shortcuts-dialog";
+import { McpConnectDialog } from "./dialogs/mcp-connect-dialog";
+import { Plug } from "lucide-react";
 import { OpenCutAILogo } from "@/components/footer";
 import { cn } from "@/utils/ui";
 import { AIStatusIndicator, type AIStatusInfo } from "@/components/editor/ai/ai-status-indicator";
@@ -117,7 +119,7 @@ export function EditorHeader() {
 
 function ProjectDropdown() {
 	const [openDialog, setOpenDialog] = useState<
-		"delete" | "rename" | "shortcuts" | "features" | null
+		"delete" | "rename" | "shortcuts" | "features" | "mcp" | null
 	>(null);
 	const [isExiting, setIsExiting] = useState(false);
 	const router = useRouter();
@@ -236,6 +238,13 @@ function ProjectDropdown() {
 
 					<DropdownMenuSeparator />
 
+					<DropdownMenuItem
+						onClick={() => setOpenDialog("mcp")}
+						icon={<Plug className="size-4" />}
+					>
+						Connect an AI agent (MCP)
+					</DropdownMenuItem>
+
 					</DropdownMenuContent>
 			</DropdownMenu>
 			<RenameProjectDialog
@@ -257,6 +266,10 @@ function ProjectDropdown() {
 			<FeaturesDialog
 				isOpen={openDialog === "features"}
 				onOpenChange={(isOpen) => setOpenDialog(isOpen ? "features" : null)}
+			/>
+			<McpConnectDialog
+				isOpen={openDialog === "mcp"}
+				onOpenChange={(isOpen) => setOpenDialog(isOpen ? "mcp" : null)}
 			/>
 		</>
 	);
