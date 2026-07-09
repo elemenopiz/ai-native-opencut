@@ -121,7 +121,11 @@ export function EngagementPanel({ className }: { className?: string }) {
 							)}
 						</div>
 
-						<ScoreBreakdown score={score} />
+						<ScoreBreakdown
+							score={score}
+							segments={segments}
+							duration={segments.length > 0 ? Math.max(...segments.map((s) => s.end)) : undefined}
+						/>
 
 						{lastAnalyzedAt && (
 							<p className="text-[10px] text-muted-foreground text-right">
