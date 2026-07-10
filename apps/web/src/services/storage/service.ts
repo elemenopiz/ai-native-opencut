@@ -68,6 +68,116 @@ function normalizeBookmarks({ raw }: { raw: unknown }): Bookmark[] {
 		.filter((b): b is Bookmark => b !== null);
 }
 
+/** Drop the decoded audio `buffer` from audio elements — re-derived on load, not persisted. */
+function stripAudioBuffers({
+	tracks,
+}: {
+	tracks: TimelineTrack[];
+}): TimelineTrack[] {
+	return tracks.map((track) => {
+		if (track.type !== "audio") return track;
+		return {
+			...track,
+			elements: track.elements.map((element) => {
+				const { buffer: _buffer, ...rest } = element;
+				return rest;
+			}),
+		};
+	});
+}
+
+/**
+ * Pure `TProject` → `SerializedProject` mapping (the durable on-disk shape):
+ * Dates → ISO strings, audio buffers stripped. The persistent `directorBrief`
+ * rides through here alongside `settings` — a plain, already-serializable object
+ * needing no transform (mirrors `timelineViewState`). Extracted from
+ * `saveProject` so the round-trip is unit-testable without a browser IndexedDB.
+ */
+export function serializeProject({
+	project,
+}: {
+	project: TProject;
+}): SerializedProject {
+	const duration =
+		project.metadata.duration ??
+		getProjectDurationFromScenes({ scenes: project.scenes });
+	const serializedScenes: SerializedScene[] = project.scenes.map((scene) => ({
+		id: scene.id,
+		name: scene.name,
+		isMain: scene.isMain,
+		tracks: stripAudioBuffers({ tracks: scene.tracks }),
+		bookmarks: scene.bookmarks,
+		markers: scene.markers,
+		createdAt: scene.createdAt.toISOString(),
+		updatedAt: scene.updatedAt.toISOString(),
+	}));
+
+	return {
+		metadata: {
+			id: project.metadata.id,
+			name: project.metadata.name,
+			thumbnail: project.metadata.thumbnail,
+			duration,
+			createdAt: project.metadata.createdAt.toISOString(),
+			updatedAt: project.metadata.updatedAt.toISOString(),
+		},
+		scenes: serializedScenes,
+		currentSceneId: project.currentSceneId,
+		settings: project.settings,
+		version: project.version,
+		timelineViewState: project.timelineViewState,
+		directorBrief: project.directorBrief,
+	};
+}
+
+/**
+ * Pure `SerializedProject` → `TProject` mapping: ISO strings → Dates, and the
+ * persistent `directorBrief` restored (absent on projects saved before the
+ * field existed ⇒ left `undefined`, so old projects load unchanged). Extracted
+ * from `loadProject`; the async orchestration (migrations, media, fonts) that
+ * wraps it stays in the method.
+ */
+export function deserializeProject({
+	serializedProject,
+}: {
+	serializedProject: SerializedProject;
+}): TProject {
+	const scenes =
+		serializedProject.scenes?.map((scene) => ({
+			id: scene.id,
+			name: scene.name,
+			isMain: scene.isMain,
+			tracks: (scene.tracks ?? []).map((track) =>
+				track.type === "video"
+					? { ...track, isMain: track.isMain ?? false }
+					: track,
+			),
+			bookmarks: normalizeBookmarks({ raw: scene.bookmarks }),
+			markers: scene.markers ?? [],
+			createdAt: new Date(scene.createdAt),
+			updatedAt: new Date(scene.updatedAt),
+		})) ?? [];
+
+	return {
+		metadata: {
+			id: serializedProject.metadata.id,
+			name: serializedProject.metadata.name,
+			thumbnail: serializedProject.metadata.thumbnail,
+			duration:
+				serializedProject.metadata.duration ??
+				getProjectDurationFromScenes({ scenes }),
+			createdAt: new Date(serializedProject.metadata.createdAt),
+			updatedAt: new Date(serializedProject.metadata.updatedAt),
+		},
+		scenes,
+		currentSceneId: serializedProject.currentSceneId || "",
+		settings: serializedProject.settings,
+		version: serializedProject.version,
+		timelineViewState: serializedProject.timelineViewState,
+		directorBrief: serializedProject.directorBrief,
+	};
+}
+
 class StorageService {
 	private projectsAdapter: IndexedDBAdapter<SerializedProject>;
 	private savedSoundsAdapter: IndexedDBAdapter<SavedSoundsData>;
@@ -119,54 +229,8 @@ class StorageService {
 		return { mediaMetadataAdapter, mediaAssetsAdapter };
 	}
 
-	private stripAudioBuffers({
-		tracks,
-	}: {
-		tracks: TimelineTrack[];
-	}): TimelineTrack[] {
-		return tracks.map((track) => {
-			if (track.type !== "audio") return track;
-			return {
-				...track,
-				elements: track.elements.map((element) => {
-					const { buffer: _buffer, ...rest } = element;
-					return rest;
-				}),
-			};
-		});
-	}
-
 	async saveProject({ project }: { project: TProject }): Promise<void> {
-		const duration =
-			project.metadata.duration ??
-			getProjectDurationFromScenes({ scenes: project.scenes });
-		const serializedScenes: SerializedScene[] = project.scenes.map((scene) => ({
-			id: scene.id,
-			name: scene.name,
-			isMain: scene.isMain,
-			tracks: this.stripAudioBuffers({ tracks: scene.tracks }),
-			bookmarks: scene.bookmarks,
-			markers: scene.markers,
-			createdAt: scene.createdAt.toISOString(),
-			updatedAt: scene.updatedAt.toISOString(),
-		}));
-
-		const serializedProject: SerializedProject = {
-			metadata: {
-				id: project.metadata.id,
-				name: project.metadata.name,
-				thumbnail: project.metadata.thumbnail,
-				duration,
-				createdAt: project.metadata.createdAt.toISOString(),
-				updatedAt: project.metadata.updatedAt.toISOString(),
-			},
-			scenes: serializedScenes,
-			currentSceneId: project.currentSceneId,
-			settings: project.settings,
-			version: project.version,
-			timelineViewState: project.timelineViewState,
-		};
-
+		const serializedProject = serializeProject({ project });
 		await this.projectsAdapter.set(project.metadata.id, serializedProject);
 	}
 
@@ -180,41 +244,7 @@ class StorageService {
 
 		if (!serializedProject) return null;
 
-		const scenes =
-			serializedProject.scenes?.map((scene) => ({
-				id: scene.id,
-				name: scene.name,
-				isMain: scene.isMain,
-				tracks: (scene.tracks ?? []).map((track) =>
-					track.type === "video"
-						? { ...track, isMain: track.isMain ?? false }
-						: track,
-				),
-				bookmarks: normalizeBookmarks({ raw: scene.bookmarks }),
-				markers: scene.markers ?? [],
-				createdAt: new Date(scene.createdAt),
-				updatedAt: new Date(scene.updatedAt),
-			})) ?? [];
-
-		const project: TProject = {
-			metadata: {
-				id: serializedProject.metadata.id,
-				name: serializedProject.metadata.name,
-				thumbnail: serializedProject.metadata.thumbnail,
-				duration:
-					serializedProject.metadata.duration ??
-					getProjectDurationFromScenes({ scenes }),
-				createdAt: new Date(serializedProject.metadata.createdAt),
-				updatedAt: new Date(serializedProject.metadata.updatedAt),
-			},
-			scenes,
-			currentSceneId: serializedProject.currentSceneId || "",
-			settings: serializedProject.settings,
-			version: serializedProject.version,
-			timelineViewState: serializedProject.timelineViewState,
-		};
-
-		return { project };
+		return { project: deserializeProject({ serializedProject }) };
 	}
 
 	async loadAllProjects(): Promise<TProject[]> {
@@ -318,7 +348,10 @@ class StorageService {
 					});
 
 		let url: string;
-		if (metadata.type === "image" && (!restoredFile.type || restoredFile.type === "")) {
+		if (
+			metadata.type === "image" &&
+			(!restoredFile.type || restoredFile.type === "")
+		) {
 			try {
 				const text = await restoredFile.text();
 				if (text.trim().startsWith("<svg")) {

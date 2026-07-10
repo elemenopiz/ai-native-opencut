@@ -42,6 +42,7 @@ function fakeDirector(): DirectorApi {
 	return {
 		getReel: () => ({ slots: [], totalDuration: 0 }),
 		getProjectInfo: () => ({ data: null }),
+		briefPromptBlock: () => "DIRECTOR BRIEF: (empty)",
 	} as unknown as DirectorApi;
 }
 

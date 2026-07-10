@@ -1,0 +1,152 @@
+import { describe, expect, it } from "bun:test";
+import {
+	appendBriefNote,
+	applyBriefPatch,
+	emptyBrief,
+	isBriefEmpty,
+	MAX_BRIEF_NOTES,
+	summarizeBrief,
+} from "./director-brief";
+import type { DirectorBrief, TProject } from "@/types/project";
+import {
+	deserializeProject,
+	serializeProject,
+} from "@/services/storage/service";
+
+// ── pure brief helpers ────────────────────────────────────────────────────────
+
+describe("director brief helpers", () => {
+	it("replaces scalars and appends dos/donts/notes (deduped, trimmed)", () => {
+		const b1 = applyBriefPatch(emptyBrief(), {
+			goal: "  sell shoes ",
+			tone: "warm, handheld",
+			dos: ["natural light", "natural light"],
+			notes: ["prefers warm tones"],
+		});
+		expect(b1.goal).toBe("sell shoes"); // trimmed
+		expect(b1.tone).toBe("warm, handheld");
+		expect(b1.dos).toEqual(["natural light"]); // deduped
+		expect(b1.notes).toEqual(["prefers warm tones"]);
+		expect(b1.updatedAt).toBeGreaterThan(0);
+
+		const b2 = applyBriefPatch(b1, {
+			tone: "cool, static",
+			dos: ["natural light", "wide shots"],
+			donts: ["no on-screen text"],
+		});
+		expect(b2.tone).toBe("cool, static"); // scalar REPLACED
+		expect(b2.dos).toEqual(["natural light", "wide shots"]); // APPENDED + deduped
+		expect(b2.donts).toEqual(["no on-screen text"]);
+		expect(b2.notes).toEqual(["prefers warm tones"]); // untouched
+	});
+
+	it("clears a scalar when handed an empty string (lets a preference be retracted)", () => {
+		const b = applyBriefPatch({ goal: "x", tone: "warm" }, { goal: "" });
+		expect(b.goal).toBeUndefined();
+		expect("goal" in b).toBe(false); // key dropped, stays compact
+		expect(b.tone).toBe("warm");
+	});
+
+	it("caps learned notes at MAX_BRIEF_NOTES, dropping the oldest", () => {
+		let b: DirectorBrief = {};
+		for (let i = 0; i < MAX_BRIEF_NOTES + 5; i++) {
+			b = appendBriefNote(b, `note ${i}`);
+		}
+		expect(b.notes).toHaveLength(MAX_BRIEF_NOTES);
+		expect(b.notes?.[0]).toBe("note 5"); // oldest 5 dropped
+		expect(b.notes?.at(-1)).toBe(`note ${MAX_BRIEF_NOTES + 4}`); // newest kept
+	});
+
+	it("summarizes only the set fields and nudges when empty", () => {
+		expect(isBriefEmpty({})).toBe(true);
+		expect(isBriefEmpty(undefined)).toBe(true);
+		expect(summarizeBrief({})).toMatch(/empty/i);
+
+		const s = summarizeBrief({
+			goal: "drive signups",
+			tone: "warm, handheld",
+			dos: ["natural light"],
+			notes: ["user prefers warm tones, handheld feel"],
+		});
+		expect(s).toContain("DIRECTOR BRIEF");
+		expect(s).toContain("GOAL: drive signups");
+		expect(s).toContain("TONE: warm, handheld");
+		expect(s).toContain("DO: natural light");
+		expect(s).toContain("user prefers warm tones, handheld feel");
+		expect(s).not.toContain("AUDIENCE"); // unset field omitted
+	});
+});
+
+// ── durable persistence: survives a save → reload cycle ───────────────────────
+
+function makeProject(overrides: Partial<TProject> = {}): TProject {
+	const now = new Date("2026-07-10T00:00:00.000Z");
+	return {
+		metadata: {
+			id: "proj_brief",
+			name: "Reel",
+			duration: 6,
+			createdAt: now,
+			updatedAt: now,
+		},
+		scenes: [
+			{
+				id: "scene_main",
+				name: "Main scene",
+				isMain: true,
+				tracks: [],
+				bookmarks: [],
+				markers: [],
+				createdAt: now,
+				updatedAt: now,
+			},
+		],
+		currentSceneId: "scene_main",
+		settings: {
+			fps: 30,
+			canvasSize: { width: 1080, height: 1920 },
+			background: { type: "color", color: "#000000" },
+		},
+		version: 1,
+		...overrides,
+	};
+}
+
+describe("director brief persistence (serialize → reload round-trip)", () => {
+	it("carries the brief through the durable project shape and back", () => {
+		const brief = applyBriefPatch(
+			{},
+			{
+				goal: "drive app signups",
+				audience: "Gen-Z creators",
+				tone: "warm, handheld",
+				styleBible: "golden-hour grade, quick cuts",
+				dos: ["natural light"],
+				donts: ["no stock-footage look"],
+				notes: ["user prefers warm tones, handheld feel"],
+			},
+		);
+		const project = makeProject({ directorBrief: brief });
+
+		const serialized = serializeProject({ project });
+		// The brief rides in the on-disk shape alongside settings.
+		expect(serialized.directorBrief).toEqual(brief);
+
+		// Reload: IndexedDB persists a structured clone; a JSON round-trip models
+		// that boundary, then deserializeProject rebuilds the live TProject.
+		const reloaded = deserializeProject({
+			serializedProject: JSON.parse(JSON.stringify(serialized)),
+		});
+		expect(reloaded.directorBrief).toEqual(brief);
+	});
+
+	it("loads a legacy project saved before the field existed as undefined", () => {
+		const serialized = serializeProject({ project: makeProject() });
+		// Simulate an older record with no directorBrief key at all.
+		const legacy = JSON.parse(JSON.stringify(serialized));
+		delete legacy.directorBrief;
+
+		const reloaded = deserializeProject({ serializedProject: legacy });
+		expect(reloaded.directorBrief).toBeUndefined();
+	});
+});

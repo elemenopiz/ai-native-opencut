@@ -34,6 +34,7 @@ import type { DirectorApi, SpecOverride } from "./director-api";
 import type { DirectorResult } from "./types";
 import type { ConsistencyCharacter } from "./consistency-prompt";
 import type { StyleBible } from "./storyboard-plan";
+import type { BriefPatch } from "./director-brief";
 
 // ── coercion helpers (moved here from agent.ts; the single arg-coercion site) ──
 
@@ -199,6 +200,36 @@ export function asExtraCharacters(
 		const obj = (c ?? {}) as Record<string, unknown>;
 		return { name: str(obj.name), descriptor: str(obj.descriptor) };
 	});
+}
+
+/** Coerce a loose array into a trimmed, non-empty string list; `undefined` if none. */
+function asStringList(v: unknown): string[] | undefined {
+	if (!Array.isArray(v)) return undefined;
+	const out = v.map((x) => (x == null ? "" : String(x)).trim()).filter(Boolean);
+	return out.length ? out : undefined;
+}
+
+/**
+ * Coerce a loose `updateBrief` arg bag into a {@link BriefPatch}. Scalars pass
+ * through as strings (present-but-empty clears the field); `dos`/`donts`/`notes`
+ * are trimmed string lists. Accepts a singular `note` as a convenience alias for
+ * a one-element `notes`.
+ */
+export function asBriefPatch(args: Record<string, unknown>): BriefPatch {
+	const patch: BriefPatch = {};
+	if (args.goal != null) patch.goal = str(args.goal);
+	if (args.audience != null) patch.audience = str(args.audience);
+	if (args.tone != null) patch.tone = str(args.tone);
+	if (args.styleBible != null) patch.styleBible = str(args.styleBible);
+	const dos = asStringList(args.dos);
+	if (dos) patch.dos = dos;
+	const donts = asStringList(args.donts);
+	if (donts) patch.donts = donts;
+	const notes =
+		asStringList(args.notes) ??
+		(args.note != null ? asStringList([args.note]) : undefined);
+	if (notes) patch.notes = notes;
+	return patch;
 }
 
 /**
@@ -369,9 +400,9 @@ const slotSpecSchema: JSONSchema = {
 
 /**
  * The Director verbs, one descriptor each — including `export` (maps to
- * `director-api.ts`'s `exportReel`) and the model-routing surface: `getBackends`
- * to read the catalog, `backendId` on generate/reroll, and `compareTake` to A/B
- * two backends.
+ * `director-api.ts`'s `exportReel`), the model-routing surface (`getBackends`
+ * to read the catalog, `backendId` on generate/reroll, `compareTake` to A/B two
+ * backends), and the durable-brief pair (`getBrief`/`updateBrief`).
  */
 export function toolCatalog(): ToolDescriptor[] {
 	return [
@@ -666,7 +697,8 @@ export function toolCatalog(): ToolDescriptor[] {
 		},
 		{
 			name: "chooseTake",
-			description: "pick the active take (by index or takeId).",
+			description:
+				"pick the active take (by index or takeId). Pass `rationale` to record WHY (e.g. 'user prefers the warmer, handheld take') — it's appended to the durable brief so future shots inherit the preference.",
 			mutating: true,
 			inputSchema: {
 				type: "object",
@@ -674,13 +706,79 @@ export function toolCatalog(): ToolDescriptor[] {
 					slotId: slotIdProp,
 					index: { type: "integer", description: "0-based take index." },
 					takeId: { type: "string", description: "short take id." },
+					rationale: {
+						type: "string",
+						description:
+							"Optional one-line reason for the choice, learned into the brief.",
+					},
 				},
 				required: ["slotId"],
 			},
-			handler: (d, a) =>
-				a.index != null
-					? d.chooseTake({ slotId: str(a.slotId), index: Number(a.index) })
-					: d.chooseTake({ slotId: str(a.slotId), takeId: str(a.takeId) }),
+			handler: (d, a) => {
+				const rationale = strOrUndefined(a.rationale);
+				return a.index != null
+					? d.chooseTake({
+							slotId: str(a.slotId),
+							index: Number(a.index),
+							rationale,
+						})
+					: d.chooseTake({
+							slotId: str(a.slotId),
+							takeId: str(a.takeId),
+							rationale,
+						});
+			},
+		},
+		// ── brief (durable creative intent) ─────────────────────────────────
+		{
+			name: "getBrief",
+			description:
+				"read the persistent DIRECTOR BRIEF (goal, audience, tone, style bible, do/don't, learned notes). It's already summarized in your system prompt — call this only to re-check the full brief mid-task.",
+			mutating: false,
+			inputSchema: EMPTY,
+			handler: (d) => d.getBrief(),
+		},
+		{
+			name: "updateBrief",
+			description:
+				"record the user's creative intent in the durable brief whenever they state a preference or you learn one (e.g. after chooseTake). Scalars (goal/audience/tone/styleBible) REPLACE; dos/donts APPEND; note/notes APPEND learned one-liners. Persisted per project so future turns and sessions inherit it.",
+			mutating: true,
+			inputSchema: {
+				type: "object",
+				properties: {
+					goal: { type: "string", description: "What the reel is for." },
+					audience: { type: "string", description: "Target viewer." },
+					tone: {
+						type: "string",
+						description: "Desired mood/voice (e.g. 'warm, playful, handheld').",
+					},
+					styleBible: {
+						type: "string",
+						description:
+							"Reusable visual/edit rules (color grade, pacing, framing).",
+					},
+					dos: {
+						type: "array",
+						items: { type: "string" },
+						description: "Constraints to ADD — things every shot should do.",
+					},
+					donts: {
+						type: "array",
+						items: { type: "string" },
+						description: "Constraints to ADD — things to avoid.",
+					},
+					note: {
+						type: "string",
+						description: "A single learned one-line preference to append.",
+					},
+					notes: {
+						type: "array",
+						items: { type: "string" },
+						description: "Several learned one-line preferences to append.",
+					},
+				},
+			},
+			handler: (d, a) => d.updateBrief(asBriefPatch(a)),
 		},
 		// ── consistency ─────────────────────────────────────────────────────
 		{

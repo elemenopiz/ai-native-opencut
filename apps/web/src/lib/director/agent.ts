@@ -382,6 +382,16 @@ function reelSummary(director: DirectorApi): string {
 	return `REEL (${reel.slots.length} slots, ${reel.totalDuration.toFixed(1)}s):\n${lines.join("\n")}${planBlock}`;
 }
 
+/**
+ * The DIRECTOR BRIEF block folded into the system prompt each turn — the
+ * summarized, durable creative intent (goal/audience/tone/style/do/don't +
+ * learned notes). The DirectorApi owns the summarization (`summarizeBrief`) so
+ * both brains and the future MCP surface render it identically.
+ */
+function briefBlock(director: DirectorApi): string {
+	return director.briefPromptBlock();
+}
+
 // ── shared tool execution ────────────────────────────────────────────────────
 
 /**
@@ -441,7 +451,8 @@ async function executeTool(
 			action === "searchMedia" ||
 			action === "getConsistencyContext" ||
 			action === "getProjectInfo" ||
-			action === "getBackends")
+			action === "getBackends" ||
+			action === "getBrief")
 	) {
 		observation = `${result.message} DATA:${JSON.stringify(result.data)}`;
 	} else {
@@ -745,8 +756,12 @@ function textOf(content: Anthropic.ContentBlock[]): string {
  * model call) so the prefix stays byte-stable across the loop for prompt
  * caching; the reel listing inside it is therefore a snapshot — live state
  * flows through tool-result deltas and `getReel`.
+ *
+ * Exported for testing: the DIRECTOR BRIEF block (see {@link briefBlock}) must
+ * demonstrably ride in the prompt so a preference stated on an earlier turn
+ * influences generation on a later one.
  */
-function buildFrontierSystemPrompt(director: DirectorApi): string {
+export function buildFrontierSystemPrompt(director: DirectorApi): string {
 	return [
 		"You are the Director — an AI that builds and edits a short video reel by calling tools.",
 		"A reel is an ordered list of generative SLOTS; each slot holds a prompt and one or more generated TAKES.",
@@ -763,6 +778,9 @@ function buildFrontierSystemPrompt(director: DirectorApi): string {
 		"",
 		"COST GATE: a generate/reroll/compareTake that would spend more than a small amount pauses for the user's approval — the run stops and asks them out-of-band. This is expected, not an error; do NOT retry the same action to force it through.",
 		MODEL_ROUTING_POLICY,
+		"",
+		"HONOR THE BRIEF: the DIRECTOR BRIEF below is the user's durable creative intent. Let it shape every prompt you write and every take you pick. When the user states a new preference — or a chosen take reveals one — call updateBrief so it persists for later turns.",
+		briefBlock(director),
 		"",
 		'If the user wants UGC/influencer-style, "looks like a real phone photo" imagery or video, follow these playbook conventions when writing prompts:',
 		PLAYBOOK_POINTER,
@@ -969,6 +987,9 @@ function buildLocalSystemPrompt(director: DirectorApi): string {
 		"PLAN FIRST for multi-shot briefs: if the brief implies more than one shot, use `storyboard` before generating — give each shot a prompt plus intent/camera/subject notes under one shared `bible` (palette, lensMood, setting, characters). It persists the PLAN (shown in the REEL below) and auto-seeds the consistency context, so later shots stay coherent without restating style. For a single quick clip, skip planning and just reserveSlot + generate.",
 		"COST GATE: a generate/reroll/compareTake that would spend more than a small amount pauses for the user's approval — the run stops and asks them. This is expected, not an error; never retry the same action to force it through.",
 		MODEL_ROUTING_POLICY,
+		"",
+		"HONOR THE BRIEF: the DIRECTOR BRIEF below is the user's durable creative intent — let it shape every prompt and take. Call updateBrief when the user states a new preference or a chosen take reveals one.",
+		briefBlock(director),
 		"",
 		buildContextBlock(director),
 		"",

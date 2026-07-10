@@ -1,5 +1,6 @@
 import type { EditorCore } from "@/core";
 import type {
+	DirectorBrief,
 	TProject,
 	TProjectMetadata,
 	TProjectSortKey,
@@ -583,6 +584,27 @@ export class ProjectManager {
 			...this.active,
 			timelineViewState: viewState ?? undefined,
 		};
+		this.editor.save.markDirty();
+	}
+
+	/**
+	 * The active project's persistent DIRECTOR BRIEF (creative intent the Director
+	 * agent reads/writes across turns). Returns an empty brief when unset or when
+	 * no project is active, so callers never branch on `undefined`.
+	 */
+	getDirectorBrief(): DirectorBrief {
+		return this.active?.directorBrief ?? {};
+	}
+
+	/**
+	 * Replace the active project's director brief with `brief` and mark the
+	 * project dirty so the SaveManager persists it (same durable path as
+	 * `setTimelineViewState`). Callers compute the next brief with the pure
+	 * helpers in `lib/director/director-brief.ts`. No-op without an active project.
+	 */
+	setDirectorBrief({ brief }: { brief: DirectorBrief }): void {
+		if (!this.active) return;
+		this.active = { ...this.active, directorBrief: brief };
 		this.editor.save.markDirty();
 	}
 

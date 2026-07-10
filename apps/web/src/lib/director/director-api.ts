@@ -54,6 +54,12 @@ import {
 	type StoryboardPlan,
 	type StyleBible,
 } from "./storyboard-plan";
+import {
+	applyBriefPatch,
+	summarizeBrief,
+	type BriefPatch,
+} from "./director-brief";
+import type { DirectorBrief } from "@/types/project";
 import { buildRemixSpec } from "@/lib/studio/remix";
 import { extractTakeLastFrame } from "@/lib/media/last-frame";
 import {
@@ -1365,10 +1371,16 @@ export function createDirectorApi(
 	}
 
 	/** Pick the active take for a slot, by take id or by index. */
+	/**
+	 * Pick the active take for a slot, and LEARN from the choice: a one-line note
+	 * is appended to the persistent brief so future shots inherit the preference.
+	 * Pass `rationale` ("user prefers the warmer, handheld take") to record the
+	 * WHY; without it a compact factual note is stored instead.
+	 */
 	function chooseTake(
 		input:
-			| { slotId: string; takeId: string }
-			| { slotId: string; index: number },
+			| { slotId: string; takeId: string; rationale?: string }
+			| { slotId: string; index: number; rationale?: string },
 	): DirectorResult<SlotSnapshot> {
 		const before = captureReel();
 		const located = findSlot(input.slotId);
@@ -1392,6 +1404,18 @@ export function createDirectorApi(
 		}
 
 		editor.timeline.selectTake({ elementId: input.slotId, takeId });
+
+		// Learned-preference capture (task item 3): fold a one-line rationale into
+		// the durable brief so the next shots inherit what this choice revealed.
+		const chosenIndex = takes.findIndex((t) => t.id === takeId);
+		const promptSnippet = briefSnippet(located.element.generation.prompt);
+		const note =
+			input.rationale?.trim() ||
+			`Chose take ${chosenIndex + 1}/${takes.length}` +
+				(promptSnippet ? ` for "${promptSnippet}"` : "") +
+				".";
+		persistBrief(applyBriefPatch(readBrief(), { notes: [note] }));
+
 		const updated = findSlot(input.slotId);
 		return withDelta(
 			before,
@@ -1400,6 +1424,53 @@ export function createDirectorApi(
 				updated ? toSnapshot(updated.element) : undefined,
 			),
 		);
+	}
+
+	// ---- BRIEF (durable creative intent) ----------------------------------
+	//
+	// The DIRECTOR BRIEF is the agent's persistent memory of the user's goal,
+	// audience, tone, style bible, do/don't constraints, and learned notes. Unlike
+	// the session-only consistency context above, it lives on the active `TProject`
+	// (via `editor.project.getDirectorBrief`/`setDirectorBrief`) and is serialized
+	// with the project, so a stated preference survives reloads and sessions. The
+	// agent folds a summary into its system prompt each turn (see `agent.ts`) and
+	// writes back through `updateBrief` / `chooseTake`.
+
+	/** Read the active project's brief (empty object when unset / no project). */
+	function readBrief(): DirectorBrief {
+		return editor.project.getDirectorBrief();
+	}
+
+	/** Persist a fully-computed brief on the active project; returns it for chaining. */
+	function persistBrief(next: DirectorBrief): DirectorBrief {
+		editor.project.setDirectorBrief({ brief: next });
+		return next;
+	}
+
+	/** First ~48 chars of a prompt, for compact learned notes. */
+	function briefSnippet(prompt: string | undefined): string {
+		const trimmed = (prompt ?? "").trim();
+		return trimmed.length > 48 ? `${trimmed.slice(0, 47)}…` : trimmed;
+	}
+
+	/** Read the current director brief (read-only). */
+	function getBrief(): DirectorResult<DirectorBrief> {
+		return ok("Director brief.", readBrief());
+	}
+
+	/**
+	 * Update the durable brief. Scalar fields (goal/audience/tone/styleBible)
+	 * REPLACE; `dos`/`donts` APPEND (deduped); `notes` append learned one-liners
+	 * (capped). An empty string clears a scalar. Returns the merged brief.
+	 */
+	function updateBrief(patch: BriefPatch): DirectorResult<DirectorBrief> {
+		const next = persistBrief(applyBriefPatch(readBrief(), patch));
+		return ok("Director brief updated.", next);
+	}
+
+	/** Serialize the brief as the compact prompt block (see `summarizeBrief`). */
+	function briefPromptBlock(): string {
+		return summarizeBrief(readBrief());
 	}
 
 	// ---- EDIT (delegate to timeline-manager) ------------------------------
@@ -1852,6 +1923,10 @@ export function createDirectorApi(
 		// consistency
 		getConsistencyContext,
 		setConsistencyContext,
+		// brief (durable creative intent)
+		getBrief,
+		updateBrief,
+		briefPromptBlock,
 		// edit
 		trim,
 		move,
