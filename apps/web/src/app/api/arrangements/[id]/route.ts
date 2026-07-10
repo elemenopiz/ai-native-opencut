@@ -39,8 +39,10 @@ export async function GET(
 			.catch(() => {});
 
 		return NextResponse.json({
+			// Reflect this remix in the returned count (the row was read before the
+			// increment above was applied).
+			remixCount: rows[0].remixCount + 1,
 			arrangement,
-			remixCount: rows[0].remixCount,
 		});
 	} catch (err) {
 		const message =
