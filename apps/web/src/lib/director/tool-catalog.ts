@@ -24,6 +24,12 @@
 
 import { getAllTransitions } from "@/lib/transitions";
 import { getAllEffects } from "@/lib/effects";
+import {
+	EXPORT_FORMAT_VALUES,
+	EXPORT_QUALITY_VALUES,
+	type ExportFormat,
+	type ExportQuality,
+} from "@/types/export";
 import type { DirectorApi, SpecOverride } from "./director-api";
 import type { DirectorResult } from "./types";
 import type { ConsistencyCharacter } from "./consistency-prompt";
@@ -59,6 +65,22 @@ export const str = (v: unknown): string => (v == null ? "" : String(v));
 /** Optional string arg: `undefined` when unset (vs. `str`, which coerces to `""`). */
 export const strOrUndefined = (v: unknown): string | undefined =>
 	v == null ? undefined : String(v);
+
+/** Optional boolean arg: only a REAL boolean survives; anything else → `undefined`. */
+export const boolOrUndefined = (v: unknown): boolean | undefined =>
+	typeof v === "boolean" ? v : undefined;
+
+/** Validate a loose `format` arg against the export-format enum; drops anything else. */
+export const asExportFormat = (v: unknown): ExportFormat | undefined => {
+	const s = v == null ? undefined : String(v);
+	return EXPORT_FORMAT_VALUES.find((f) => f === s);
+};
+
+/** Validate a loose `quality` arg against the export-quality enum; drops anything else. */
+export const asExportQuality = (v: unknown): ExportQuality | undefined => {
+	const s = v == null ? undefined : String(v);
+	return EXPORT_QUALITY_VALUES.find((q) => q === s);
+};
 
 /** Validate a loose `textAlign` arg against the literal union the API accepts; drops anything else. */
 export const textAlignOf = (
@@ -782,6 +804,50 @@ export function toolCatalog(): ToolDescriptor[] {
 			mutating: true,
 			inputSchema: EMPTY,
 			handler: (d) => d.redo(),
+		},
+		{
+			name: "export",
+			description:
+				"render the reel to a video file and download it. Delegates to the same export pipeline as the Export button (fps follows the project).",
+			// Renders output but does not change the reel/timeline → reel:read scope.
+			mutating: false,
+			inputSchema: {
+				type: "object",
+				properties: {
+					format: {
+						type: "string",
+						enum: EXPORT_FORMAT_VALUES,
+						description: "Container/codec. Defaults to mp4 (H.264).",
+					},
+					quality: {
+						type: "string",
+						enum: EXPORT_QUALITY_VALUES,
+						description: "Encode quality. Defaults to high.",
+					},
+					includeAudio: {
+						type: "boolean",
+						description: "Mux the timeline audio. Defaults to true.",
+					},
+					includeWatermark: {
+						type: "boolean",
+						description: "Burn in the Byorn watermark. Defaults to true.",
+					},
+					download: {
+						type: "boolean",
+						description:
+							"Trigger a browser download of the rendered file. Defaults to true.",
+					},
+				},
+				additionalProperties: false,
+			},
+			handler: (d, a) =>
+				d.export({
+					format: asExportFormat(a.format),
+					quality: asExportQuality(a.quality),
+					includeAudio: boolOrUndefined(a.includeAudio),
+					includeWatermark: boolOrUndefined(a.includeWatermark),
+					download: boolOrUndefined(a.download),
+				}),
 		},
 	];
 }
