@@ -2,10 +2,7 @@
 
 import { motion } from "motion/react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-	SparklesIcon,
-	Alert02Icon,
-} from "@hugeicons/core-free-icons";
+import { SparklesIcon, Alert02Icon } from "@hugeicons/core-free-icons";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/utils/ui";
 import type { ImageElement, VideoElement } from "@/types/timeline";
@@ -28,11 +25,17 @@ export function GenerativeSlotContent({
 		(t) => t.status === "generating" || t.status === "queued",
 	);
 	const isFailed =
-		!isGenerating && takes.length > 0 && takes.every((t) => t.status === "failed");
+		!isGenerating &&
+		takes.length > 0 &&
+		takes.every((t) => t.status === "failed");
 	const prompt = element.generation?.prompt?.trim() || element.name;
 
 	return (
 		<div
+			data-testid="generative-slot-content"
+			data-slot-state={
+				isGenerating ? "generating" : isFailed ? "failed" : "empty"
+			}
 			className={cn(
 				"absolute inset-0 flex items-center gap-1.5 overflow-hidden px-2",
 				// Diagonal hatching reads as a placeholder on any track color.
@@ -74,11 +77,7 @@ export function GenerativeSlotContent({
 					isFailed ? "text-red-300" : "text-white/90",
 				)}
 			>
-				{isGenerating
-					? "Generating…"
-					: isFailed
-						? "Generation failed"
-						: prompt}
+				{isGenerating ? "Generating…" : isFailed ? "Generation failed" : prompt}
 			</span>
 		</div>
 	);

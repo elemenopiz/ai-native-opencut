@@ -14,7 +14,11 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Progress } from "@/components/ui/progress";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/utils/ui";
-import { getExportMimeType, getExportFileExtension, downloadBuffer } from "@/lib/export";
+import {
+	getExportMimeType,
+	getExportFileExtension,
+	downloadBuffer,
+} from "@/lib/export";
 import { exportCapcutDraft } from "@/lib/export/capcut-export";
 import { Check, Clapperboard, Copy, Download, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
@@ -31,7 +35,10 @@ import {
 	SectionTitle,
 } from "@/components/editor/panels/properties/section";
 import { useEditor } from "@/hooks/use-editor";
-import { DEFAULT_EXPORT_OPTIONS, EXPORT_PRESETS } from "@/constants/export-constants";
+import {
+	DEFAULT_EXPORT_OPTIONS,
+	EXPORT_PRESETS,
+} from "@/constants/export-constants";
 
 function isExportFormat(value: string): value is ExportFormat {
 	return EXPORT_FORMAT_VALUES.some((formatValue) => formatValue === value);
@@ -56,10 +63,14 @@ export function ExportButton() {
 	};
 
 	return (
-		<Popover open={isExportPopoverOpen} onOpenChange={(open) => handlePopoverOpenChange({ open })}>
+		<Popover
+			open={isExportPopoverOpen}
+			onOpenChange={(open) => handlePopoverOpenChange({ open })}
+		>
 			<PopoverTrigger asChild>
 				<button
 					type="button"
+					data-testid="export-open"
 					className={cn(
 						"flex items-center gap-1.5 rounded-md bg-[#38BDF8] px-[0.12rem] py-[0.12rem] text-white",
 						hasProject ? "cursor-pointer" : "cursor-not-allowed opacity-50",
@@ -94,8 +105,11 @@ function ExportPopover({
 }) {
 	const editor = useEditor();
 	const activeProject = editor.project.getActive();
-	const { isExporting, progress, result: exportResult } =
-		editor.project.getExportState();
+	const {
+		isExporting,
+		progress,
+		result: exportResult,
+	} = editor.project.getExportState();
 	const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
 	const [format, setFormat] = useState<ExportFormat>(
 		DEFAULT_EXPORT_OPTIONS.format,
@@ -114,7 +128,8 @@ function ExportPopover({
 		if (!preset) return;
 		setSelectedPresetId(presetId);
 		if (isExportFormat(preset.options.format)) setFormat(preset.options.format);
-		if (isExportQuality(preset.options.quality)) setQuality(preset.options.quality);
+		if (isExportQuality(preset.options.quality))
+			setQuality(preset.options.quality);
 		setShouldIncludeAudio(preset.options.includeAudio ?? true);
 	};
 
@@ -125,11 +140,11 @@ function ExportPopover({
 
 		const result = await editor.project.export({
 			options: {
-			format,
-			quality,
-			fps: activeProject.settings.fps,
-			includeAudio: shouldIncludeAudio,
-			includeWatermark: shouldIncludeWatermark,
+				format,
+				quality,
+				fps: activeProject.settings.fps,
+				includeAudio: shouldIncludeAudio,
+				includeWatermark: shouldIncludeWatermark,
 			},
 		});
 
@@ -210,21 +225,23 @@ function ExportPopover({
 										Export for
 									</p>
 									<div className="flex flex-wrap gap-1.5">
-										{EXPORT_PRESETS.filter((p) => p.id !== "custom").map((preset) => (
-											<button
-												key={preset.id}
-												type="button"
-												className={cn(
-													"rounded-md px-2.5 py-1 text-[11px] border transition-colors",
-													selectedPresetId === preset.id
-														? "border-primary bg-primary/10 text-primary"
-														: "border-border hover:bg-accent text-muted-foreground",
-												)}
-												onClick={() => handlePresetSelect(preset.id)}
-											>
-												{preset.name}
-											</button>
-										))}
+										{EXPORT_PRESETS.filter((p) => p.id !== "custom").map(
+											(preset) => (
+												<button
+													key={preset.id}
+													type="button"
+													className={cn(
+														"rounded-md px-2.5 py-1 text-[11px] border transition-colors",
+														selectedPresetId === preset.id
+															? "border-primary bg-primary/10 text-primary"
+															: "border-border hover:bg-accent text-muted-foreground",
+													)}
+													onClick={() => handlePresetSelect(preset.id)}
+												>
+													{preset.name}
+												</button>
+											),
+										)}
 									</div>
 									{selectedPreset?.tip && (
 										<p className="text-[10px] text-muted-foreground mt-2 leading-relaxed">
@@ -234,7 +251,11 @@ function ExportPopover({
 								</div>
 
 								<div className="flex flex-col">
-									<Section collapsible defaultOpen={false} showTopBorder={false}>
+									<Section
+										collapsible
+										defaultOpen={false}
+										showTopBorder={false}
+									>
 										<SectionHeader>
 											<SectionTitle>Format</SectionTitle>
 										</SectionHeader>
@@ -306,10 +327,10 @@ function ExportPopover({
 											<div className="flex items-center space-x-2">
 												<Checkbox
 													id="include-audio"
-								checked={shouldIncludeAudio}
-												onCheckedChange={(checked) =>
-													setShouldIncludeAudio(!!checked)
-												}
+													checked={shouldIncludeAudio}
+													onCheckedChange={(checked) =>
+														setShouldIncludeAudio(!!checked)
+													}
 												/>
 												<Label htmlFor="include-audio">
 													Include audio in export
@@ -336,7 +357,9 @@ function ExportPopover({
 														Include Byorn watermark
 													</Label>
 													<p className="text-[10px] text-muted-foreground leading-relaxed">
-														This is open-source software. Including the watermark helps spread the word and support the project.
+														This is open-source software. Including the
+														watermark helps spread the word and support the
+														project.
 													</p>
 												</div>
 											</div>
@@ -345,7 +368,11 @@ function ExportPopover({
 								</div>
 
 								<div className="flex flex-col gap-2 p-3 pt-0">
-									<Button onClick={handleExport} className="w-full gap-2">
+									<Button
+										onClick={handleExport}
+										data-testid="export-run"
+										className="w-full gap-2"
+									>
 										<Download className="size-4" />
 										Export
 									</Button>
@@ -370,15 +397,15 @@ function ExportPopover({
 
 						{isExporting && (
 							<div className="space-y-4 p-3">
-							<div className="flex flex-col gap-2">
-								<div className="flex items-center justify-between text-center">
-									<p className="text-muted-foreground text-sm">
-										{Math.round(progress * 100)}%
-									</p>
-									<p className="text-muted-foreground text-sm">100%</p>
+								<div className="flex flex-col gap-2">
+									<div className="flex items-center justify-between text-center">
+										<p className="text-muted-foreground text-sm">
+											{Math.round(progress * 100)}%
+										</p>
+										<p className="text-muted-foreground text-sm">100%</p>
+									</div>
+									<Progress value={progress * 100} className="w-full" />
 								</div>
-								<Progress value={progress * 100} className="w-full" />
-							</div>
 
 								<Button
 									variant="outline"

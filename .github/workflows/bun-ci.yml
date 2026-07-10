@@ -67,3 +67,63 @@ jobs:
       - name: Run tests
         working-directory: apps/web
         run: bun test
+
+  e2e:
+    name: E2E happy path
+    runs-on: ubuntu-latest
+
+    env:
+      DATABASE_URL: "postgresql://opencut:opencut@localhost:5432/opencut"
+      BETTER_AUTH_SECRET: "supersecret"
+      NEXT_PUBLIC_SITE_URL: "http://localhost:3210"
+      UPSTASH_REDIS_REST_URL: "https://your-upstash-redis-url"
+      UPSTASH_REDIS_REST_TOKEN: "your-upstash-redis-token"
+      NEXT_PUBLIC_MARBLE_API_URL: "https://placeholder.example.com"
+      MARBLE_WORKSPACE_KEY: "placeholder"
+      FREESOUND_CLIENT_ID: "placeholder"
+      FREESOUND_API_KEY: "placeholder"
+      CLOUDFLARE_ACCOUNT_ID: "placeholder"
+      R2_ACCESS_KEY_ID: "placeholder"
+      R2_SECRET_ACCESS_KEY: "placeholder"
+      R2_BUCKET_NAME: "placeholder"
+      MODAL_TRANSCRIPTION_URL: "https://placeholder.example.com"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76
+        with:
+          bun-version: 1.2.18
+
+      - name: Cache Bun modules
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-1.2.18-${{ hashFiles('apps/web/bun.lock') }}
+
+      - name: Install dependencies
+        working-directory: apps/web
+        run: bun install
+
+      - name: Install Playwright Chromium (+ OS deps)
+        working-directory: apps/web
+        run: bunx playwright install --with-deps chromium
+
+      - name: Build (with E2E test seam)
+        working-directory: apps/web
+        run: bun run build:e2e
+
+      - name: Run E2E happy-path smoke
+        working-directory: apps/web
+        run: bun run test:e2e
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore

@@ -278,6 +278,9 @@ export function TimelineElement({
 		<ContextMenu>
 			<ContextMenuTrigger asChild>
 				<div
+					data-testid="timeline-element"
+					data-element-id={element.id}
+					data-element-type={element.type}
 					className="absolute top-0 h-full select-none"
 					style={{
 						left: `${elementLeft}px`,
@@ -684,45 +687,51 @@ function AudioVolumeLine({
 	const isDragging = useRef(false);
 	const startVolume = useRef(volume);
 
-	const calcVolume = useCallback((e: MouseEvent) => {
-		const container = containerRef.current;
-		if (!container) return volume;
-		const rect = container.getBoundingClientRect();
-		const y = e.clientY - rect.top;
-		const ratio = 1 - Math.max(0, Math.min(1, y / rect.height));
-		return Math.round(ratio * 100) / 100;
-	}, [volume]);
+	const calcVolume = useCallback(
+		(e: MouseEvent) => {
+			const container = containerRef.current;
+			if (!container) return volume;
+			const rect = container.getBoundingClientRect();
+			const y = e.clientY - rect.top;
+			const ratio = 1 - Math.max(0, Math.min(1, y / rect.height));
+			return Math.round(ratio * 100) / 100;
+		},
+		[volume],
+	);
 
-	const handleMouseDown = useCallback((e: React.MouseEvent) => {
-		// Only start volume drag if the click is near the volume line (within 6px)
-		const container = containerRef.current;
-		if (!container) return;
-		const rect = container.getBoundingClientRect();
-		const lineY = rect.top + rect.height * (1 - (volumePercent / 100));
-		const distanceFromLine = Math.abs(e.clientY - lineY);
-		if (distanceFromLine > 6) return;
+	const handleMouseDown = useCallback(
+		(e: React.MouseEvent) => {
+			// Only start volume drag if the click is near the volume line (within 6px)
+			const container = containerRef.current;
+			if (!container) return;
+			const rect = container.getBoundingClientRect();
+			const lineY = rect.top + rect.height * (1 - volumePercent / 100);
+			const distanceFromLine = Math.abs(e.clientY - lineY);
+			if (distanceFromLine > 6) return;
 
-		e.stopPropagation();
-		e.preventDefault();
-		isDragging.current = true;
-		startVolume.current = volume;
+			e.stopPropagation();
+			e.preventDefault();
+			isDragging.current = true;
+			startVolume.current = volume;
 
-		const handleMove = (ev: MouseEvent) => {
-			if (!isDragging.current) return;
-			onVolumeChange(calcVolume(ev));
-		};
+			const handleMove = (ev: MouseEvent) => {
+				if (!isDragging.current) return;
+				onVolumeChange(calcVolume(ev));
+			};
 
-		const handleUp = (ev: MouseEvent) => {
-			if (!isDragging.current) return;
-			isDragging.current = false;
-			onVolumeCommit(calcVolume(ev));
-			window.removeEventListener("mousemove", handleMove);
-			window.removeEventListener("mouseup", handleUp);
-		};
+			const handleUp = (ev: MouseEvent) => {
+				if (!isDragging.current) return;
+				isDragging.current = false;
+				onVolumeCommit(calcVolume(ev));
+				window.removeEventListener("mousemove", handleMove);
+				window.removeEventListener("mouseup", handleUp);
+			};
 
-		window.addEventListener("mousemove", handleMove);
-		window.addEventListener("mouseup", handleUp);
-	}, [volume, volumePercent, onVolumeChange, onVolumeCommit, calcVolume]);
+			window.addEventListener("mousemove", handleMove);
+			window.addEventListener("mouseup", handleUp);
+		},
+		[volume, volumePercent, onVolumeChange, onVolumeCommit, calcVolume],
+	);
 
 	return (
 		<div
@@ -836,21 +845,25 @@ const ELEMENT_CONTENT_RENDERERS: Record<
 					volumePercent={volumePercent}
 					onVolumeChange={(newVolume) => {
 						editor.timeline.updateElements({
-							updates: [{
-								trackId: track.id,
-								elementId: element.id,
-								updates: { volume: newVolume },
-							}],
+							updates: [
+								{
+									trackId: track.id,
+									elementId: element.id,
+									updates: { volume: newVolume },
+								},
+							],
 							pushHistory: false,
 						});
 					}}
 					onVolumeCommit={(newVolume) => {
 						editor.timeline.updateElements({
-							updates: [{
-								trackId: track.id,
-								elementId: element.id,
-								updates: { volume: newVolume },
-							}],
+							updates: [
+								{
+									trackId: track.id,
+									elementId: element.id,
+									updates: { volume: newVolume },
+								},
+							],
 							pushHistory: true,
 						});
 					}}
