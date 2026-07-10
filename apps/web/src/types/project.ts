@@ -134,6 +134,28 @@ export interface BibleDecision {
 }
 
 /**
+ * A human APPROVAL recorded at one of Flow D's gates (the moments that need
+ * judgment or carry liability). An append-only ledger on the bible — like
+ * {@link BibleDecision} it rides through checkpoints/reverts rather than being
+ * part of the revertable creative state, because an approval is a fact that
+ * happened, not a look to roll back. Downstream (manifest digest, proposals,
+ * consistency) can read the ledger to treat the referenced shot as the approved
+ * hero / the cut as approved.
+ */
+export interface BibleApproval {
+	/** Which gate produced this approval. */
+	kind: "hero-shot" | "final-cut";
+	/** Epoch ms the human approved. */
+	at: number;
+	/** The one-line rationale the human/Director gave (why this earned approval). */
+	rationale?: string;
+	/** hero-shot: the approved shot/take/asset the decision points at. */
+	ref?: { slotId?: string; takeId?: string; mediaId?: string };
+	/** final-cut: a short summary of what was approved (shot count, duration, …). */
+	summary?: string;
+}
+
+/**
  * The persistent, VERSIONED "Project Bible" — the Director's durable creative
  * memory for a reel, promoted out of the session-only WeakMaps (which are GC'd
  * on editor unmount) into the same durable project record the {@link DirectorBrief}
@@ -164,6 +186,12 @@ export interface ProjectBible extends ProjectBibleState {
 	history?: BibleCheckpoint[];
 	/** Bounded, newest-last running log of notable Director decisions. */
 	decisions?: BibleDecision[];
+	/**
+	 * Bounded, newest-last append-only ledger of human approvals at Flow D's gates
+	 * (hero-shot / final-cut). Rides through checkpoints and reverts like
+	 * {@link decisions} — an approval is a recorded fact, not revertable look.
+	 */
+	approvals?: BibleApproval[];
 	/**
 	 * ADDITIVE seam for the sibling "Asset Manifest" agent. Typed `unknown` so this
 	 * type never depends on that agent's code; it attaches its manifest here later.

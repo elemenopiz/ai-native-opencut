@@ -30,6 +30,7 @@ import {
 	getUnderstanding,
 	saveUnderstanding,
 } from "@/services/search/asset-understanding-store";
+import { cacheUnderstanding } from "@/lib/director/understanding-lookup";
 import {
 	getUserMediaMemory,
 	saveUserMediaMemory,
@@ -315,6 +316,9 @@ export async function understandAsset(
 				// into the per-project store so downstream consumers find it.
 				const rekeyed: AssetUnderstanding = { ...cached, mediaId: media.id };
 				await saveUnderstanding(rekeyed).catch(() => undefined);
+				// Refresh the live sync cache the manifest/proposals read each turn, so
+				// a reused understanding shows up without a reload (Flow-D follow-up A).
+				cacheUnderstanding(rekeyed);
 				return rekeyed;
 			}
 		}
@@ -348,6 +352,9 @@ export async function understandAsset(
 			? record
 			: degradedUnderstanding({ mediaId: media.id, modelName });
 	await saveUnderstanding(safe).catch(() => undefined);
+	// Refresh the live sync cache the manifest/proposals read each turn, so a
+	// freshly-understood asset shows up in the digest without a reload (follow-up A).
+	cacheUnderstanding(safe);
 
 	// FLOW E — cache a real understanding under its content identity so the NEXT
 	// project that references the same media reuses it (skips the paid pass). A

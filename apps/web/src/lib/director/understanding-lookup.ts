@@ -27,12 +27,16 @@
 import {
 	type AssetUnderstanding as CanonicalUnderstanding,
 	effectiveRole,
+	type StyleProbe,
 } from "@/lib/search/asset-understanding";
 import { getAllUnderstandings } from "@/services/search/asset-understanding-store";
 import type {
 	AssetUnderstanding as ManifestUnderstanding,
 	AssetUnderstandingLookup,
 } from "./asset-manifest";
+
+/** Synchronous per-asset style-probe lookup (palette / lens-mood / setting). */
+export type StyleProbeLookup = (mediaId: string) => StyleProbe | undefined;
 
 /**
  * Project a CANONICAL understanding record onto the Manifest's display-side
@@ -63,10 +67,22 @@ export function adaptUnderstandingForManifest(
 
 const cache = new Map<string, ManifestUnderstanding>();
 
+/**
+ * Parallel sync cache of the canonical {@link StyleProbe} per asset — the manifest
+ * shape drops it, but the Project Bible's styleBible seam (Flow-D follow-up B,
+ * `seedStyleBibleFromProbe`) needs it. Primed/updated/cleared in lockstep with
+ * {@link cache} so the two never drift.
+ */
+const probeCache = new Map<string, StyleProbe>();
+
 /** Synchronous per-asset lookup handed to `createDirectorApi({ understanding })`. */
 export const manifestUnderstandingLookup: AssetUnderstandingLookup = (
 	mediaId,
 ) => cache.get(mediaId);
+
+/** Synchronous per-asset style-probe lookup handed to `createDirectorApi({ styleProbe })`. */
+export const styleProbeLookup: StyleProbeLookup = (mediaId) =>
+	probeCache.get(mediaId);
 
 /**
  * Load every persisted understanding record into the sync cache. Called on
@@ -77,8 +93,11 @@ export async function primeUnderstandingCache(): Promise<void> {
 	try {
 		const rows = await getAllUnderstandings();
 		cache.clear();
-		for (const u of rows)
+		probeCache.clear();
+		for (const u of rows) {
 			cache.set(u.mediaId, adaptUnderstandingForManifest(u));
+			if (u.styleProbe) probeCache.set(u.mediaId, u.styleProbe);
+		}
 	} catch {
 		// no IndexedDB here — leave the cache empty; the manifest falls back.
 	}
@@ -92,9 +111,12 @@ export async function primeUnderstandingCache(): Promise<void> {
  */
 export function cacheUnderstanding(u: CanonicalUnderstanding): void {
 	cache.set(u.mediaId, adaptUnderstandingForManifest(u));
+	if (u.styleProbe) probeCache.set(u.mediaId, u.styleProbe);
+	else probeCache.delete(u.mediaId);
 }
 
 /** Drop everything from the cache (on editor unmount / project switch). */
 export function clearUnderstandingCache(): void {
 	cache.clear();
+	probeCache.clear();
 }

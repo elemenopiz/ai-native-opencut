@@ -29,18 +29,21 @@
 
 import type { EditorCore } from "@/core";
 import type {
+	BibleApproval,
 	BibleCheckpoint,
 	DirectorBrief,
 	PersonaRosterEntry,
 	ProjectBible,
 	ProjectBibleState,
 } from "@/types/project";
+import type { StyleProbe } from "@/lib/search/asset-understanding";
 import { isBriefEmpty } from "./director-brief";
 import {
 	getStoredConsistencyContext,
 	storeConsistencyContext,
 } from "./consistency-prompt";
 import { getStoredPlan, storePlan } from "./storyboard-plan";
+import type { StyleBible } from "./storyboard-plan";
 
 /**
  * Cap on the checkpoint history so the bible never grows without bound across a
@@ -51,6 +54,9 @@ export const MAX_BIBLE_HISTORY = 20;
 
 /** Cap on the running decision log (newest-last, oldest dropped). */
 export const MAX_BIBLE_DECISIONS = 30;
+
+/** Cap on the running approvals ledger (newest-last, oldest dropped). */
+export const MAX_BIBLE_APPROVALS = 30;
 
 /** A fresh, empty bible — version 0, nothing captured yet. */
 export function emptyProjectBible(now: number = Date.now()): ProjectBible {
@@ -124,6 +130,7 @@ export function pushCheckpoint(
 		updatedAt: now,
 		...(history.length ? { history: capHistory(history) } : {}),
 		...(decisions?.length ? { decisions } : {}),
+		...(bible.approvals?.length ? { approvals: bible.approvals } : {}),
 		...(bible.assetManifest !== undefined
 			? { assetManifest: bible.assetManifest }
 			: {}),
@@ -187,6 +194,7 @@ export function revertBible(
 			updatedAt: now,
 			history: nextHistory,
 			decisions,
+			...(bible.approvals?.length ? { approvals: bible.approvals } : {}),
 			...(bible.assetManifest !== undefined
 				? { assetManifest: bible.assetManifest }
 				: {}),
@@ -301,4 +309,137 @@ export function revertProjectBible(
 	editor.project.setDirectorBrief({ brief: result.bible.brief ?? {} });
 	hydrateDirectorStateFromBible(editor);
 	return result;
+}
+
+// ── Flow D: approval ledger ──────────────────────────────────────────────────
+//
+// The three human gates (voice-consent, hero-shot, final-cut) write their
+// rationale into the bible so decisions COMPOUND. Consent lives in its own
+// sensitive store; the two creative gates append to this bounded ledger AND
+// checkpoint the current creative state, so an approval is both a recorded fact
+// and a revertable point in the bible's history.
+
+/** Append a {@link BibleApproval} to a bible's ledger (pure), bounded newest-last. */
+export function appendApproval(
+	bible: ProjectBible,
+	approval: BibleApproval,
+): ProjectBible {
+	const approvals = [...(bible.approvals ?? []), approval].slice(
+		-MAX_BIBLE_APPROVALS,
+	);
+	return { ...bible, approvals };
+}
+
+/**
+ * Record a human approval on the persisted bible AND checkpoint the current
+ * creative state with a decision note — the durable write-through the hero-shot
+ * and final-cut gates use. Best-effort by contract: a persistence hiccup must
+ * never break the verb that triggered it (the caller wraps this in try/catch).
+ * Returns the new bible.
+ */
+export function recordBibleApproval(
+	editor: EditorCore,
+	approval: BibleApproval,
+	opts: {
+		label?: string;
+		note?: string;
+		personas?: PersonaRosterEntry[];
+		now?: number;
+	} = {},
+): ProjectBible {
+	const prev = editor.project.getProjectBible() ?? emptyProjectBible(opts.now);
+	// Attach the approval to the ledger first so the checkpoint below carries it
+	// through (pushCheckpoint passes `approvals` through untouched).
+	editor.project.setProjectBible({ bible: appendApproval(prev, approval) });
+	return syncProjectBible(editor, {
+		label: opts.label,
+		note: opts.note,
+		personas: opts.personas,
+		now: opts.now,
+	});
+}
+
+// ── Flow D follow-up B: Understanding style probe → styleBible seam ───────────
+
+/** Project a {@link StyleProbe} onto a {@link StyleBible} (pure); undefined when empty. */
+export function styleProbeToStyleBible(
+	probe: StyleProbe | undefined,
+): StyleBible | undefined {
+	if (!probe) return undefined;
+	const palette = probe.palette?.trim();
+	const lensMood = probe.lensMood?.trim();
+	const setting = probe.setting?.trim();
+	if (!palette && !lensMood && !setting) return undefined;
+	return {
+		...(palette ? { palette } : {}),
+		...(lensMood ? { lensMood } : {}),
+		...(setting ? { setting } : {}),
+	};
+}
+
+/** A compact one-line summary of a derived style bible, for the decision log. */
+function summarizeStyleBible(bible: StyleBible): string {
+	return (
+		[
+			bible.palette && `palette: ${bible.palette}`,
+			bible.lensMood && `lens/mood: ${bible.lensMood}`,
+			bible.setting && `setting: ${bible.setting}`,
+		]
+			.filter(Boolean)
+			.join("; ") || "(empty)"
+	);
+}
+
+/** Outcome of {@link seedStyleBibleFromProbe}. */
+export interface StyleProbeSeedResult {
+	/** True ⇒ the probe was applied as the bible's styleBible. */
+	seeded: boolean;
+	/** True ⇒ a human/existing styleBible was preserved; the read was logged as a note instead. */
+	noted?: boolean;
+	/** Why nothing was applied (when `seeded` is false and `noted` is false). */
+	reason?: "empty-probe";
+	/** The resulting persisted bible (undefined only when nothing was written). */
+	bible?: ProjectBible;
+}
+
+/**
+ * Route an Understanding-Pass {@link StyleProbe} into the Project Bible's
+ * `styleBible` seam — ADDITIVE and CHECKPOINTED, and NEVER silently clobbering a
+ * human-set look. When the bible has no `styleBible` yet (or `force` is set), the
+ * probe is applied and checkpointed. When a `styleBible` already exists and
+ * `force` is not set, the look is PRESERVED and the read is recorded as a decision
+ * note instead — so the human's intent wins and the observation still lands in
+ * the durable log. Best-effort; the caller wraps it.
+ */
+export function seedStyleBibleFromProbe(
+	editor: EditorCore,
+	probe: StyleProbe | undefined,
+	opts: { force?: boolean; now?: number } = {},
+): StyleProbeSeedResult {
+	const derived = styleProbeToStyleBible(probe);
+	if (!derived) return { seeded: false, reason: "empty-probe" };
+
+	const now = opts.now ?? Date.now();
+	const prev = editor.project.getProjectBible() ?? emptyProjectBible(now);
+	const summary = summarizeStyleBible(derived);
+
+	if (prev.styleBible && !opts.force) {
+		// Do NOT clobber a human/existing look — record the read as a note only.
+		const next = pushCheckpoint(prev, extractBibleState(prev), {
+			label: "styleProbe",
+			note: `Understanding style read available but styleBible already set — not applied: ${summary}`,
+			now,
+		});
+		editor.project.setProjectBible({ bible: next });
+		return { seeded: false, noted: true, bible: next };
+	}
+
+	const nextState = { ...extractBibleState(prev), styleBible: derived };
+	const next = pushCheckpoint(prev, nextState, {
+		label: "styleProbe",
+		note: `Seeded styleBible from understanding style read: ${summary}`,
+		now,
+	});
+	editor.project.setProjectBible({ bible: next });
+	return { seeded: true, bible: next };
 }

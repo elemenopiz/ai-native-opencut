@@ -5,6 +5,7 @@ import {
 	cacheUnderstanding,
 	clearUnderstandingCache,
 	manifestUnderstandingLookup,
+	styleProbeLookup,
 } from "./understanding-lookup";
 
 /** A complete canonical record with sensible defaults; override per test. */
@@ -78,5 +79,30 @@ describe("understanding cache", () => {
 
 		clearUnderstandingCache();
 		expect(manifestUnderstandingLookup("m1")).toBeUndefined();
+	});
+
+	// Follow-up A: `cacheUnderstanding` is the seam `saveUnderstanding` now calls,
+	// so a freshly-understood asset shows up in the live cache without a reload.
+	// Follow-up B: it also refreshes the parallel style-probe cache in lockstep.
+	it("cacheUnderstanding refreshes the style-probe cache in lockstep", () => {
+		clearUnderstandingCache();
+		expect(styleProbeLookup("m1")).toBeUndefined();
+
+		cacheUnderstanding(
+			canonical({
+				mediaId: "m1",
+				styleProbe: { palette: "warm amber", setting: "sunlit kitchen" },
+			}),
+		);
+		expect(styleProbeLookup("m1")).toEqual({
+			palette: "warm amber",
+			setting: "sunlit kitchen",
+		});
+
+		// An update with no probe drops the stale probe (never leaks a prior read).
+		cacheUnderstanding(canonical({ mediaId: "m1" }));
+		expect(styleProbeLookup("m1")).toBeUndefined();
+
+		clearUnderstandingCache();
 	});
 });
