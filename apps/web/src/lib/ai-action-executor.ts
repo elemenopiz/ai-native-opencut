@@ -188,7 +188,8 @@ export function executeAction(action: EditorAction): void {
 						for (const el of track.elements) {
 							if (time > el.startTime && time < el.startTime + el.duration) {
 								editor.timeline.splitElements({
-									elements: [{ trackId: track.id, elementId: el.id, time }],
+									elements: [{ trackId: track.id, elementId: el.id }],
+									splitTime: time,
 								});
 							}
 						}
