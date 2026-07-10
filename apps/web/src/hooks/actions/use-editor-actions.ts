@@ -233,7 +233,8 @@ export function useEditorActions() {
 				return;
 			}
 
-			const supportsTransaction = editor.command && typeof editor.command.beginTransaction === "function";
+			const supportsTransaction =
+				editor.command && typeof editor.command.beginTransaction === "function";
 			const transcriptBefore = captureTranscriptSnapshot();
 			if (supportsTransaction) editor.command.beginTransaction();
 
@@ -255,9 +256,15 @@ export function useEditorActions() {
 			}
 
 			const transcriptAfter = captureTranscriptSnapshot();
-			if (supportsTransaction && hasTranscriptChanged(transcriptBefore, transcriptAfter)) {
+			if (
+				supportsTransaction &&
+				hasTranscriptChanged(transcriptBefore, transcriptAfter)
+			) {
 				editor.command.push({
-					command: new TranscriptSnapshotCommand(transcriptBefore, transcriptAfter),
+					command: new TranscriptSnapshotCommand(
+						transcriptBefore,
+						transcriptAfter,
+					),
 				});
 			}
 
@@ -607,7 +614,7 @@ export function useEditorActions() {
 				toast.error("Select at least 2 clips to nest");
 				return;
 			}
-			toast.success("Clips nested into compound clip");
+			toast.info("Nesting clips isn't available yet");
 		},
 		undefined,
 	);
@@ -619,7 +626,7 @@ export function useEditorActions() {
 				toast.error("Select a compound clip to unnest");
 				return;
 			}
-			toast.success("Compound clip unnested");
+			toast.info("Unnesting clips isn't available yet");
 		},
 		undefined,
 	);
@@ -665,7 +672,9 @@ export function useEditorActions() {
 		"version-diff-working",
 		() => {
 			// Open drawer to the diff tab
-			window.dispatchEvent(new CustomEvent("byorn:toggle-vc-drawer", { detail: { tab: "diff" } }));
+			window.dispatchEvent(
+				new CustomEvent("byorn:toggle-vc-drawer", { detail: { tab: "diff" } }),
+			);
 		},
 		undefined,
 	);
