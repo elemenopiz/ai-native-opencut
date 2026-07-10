@@ -137,7 +137,11 @@ export async function POST(req: Request) {
 			process.env.DIRECTOR_MODEL?.trim() ||
 			(useKimi ? DEFAULT_KIMI_MODEL : DEFAULT_MODEL),
 		max_tokens: Math.min(
-			body.max_tokens ?? DEFAULT_MAX_TOKENS,
+			// Treat 0/negative/NaN as "unset" so a bad caller value can't be sent
+			// straight through to the provider as an invalid max_tokens.
+			body.max_tokens && body.max_tokens > 0
+				? body.max_tokens
+				: DEFAULT_MAX_TOKENS,
 			MAX_OUTPUT_TOKENS,
 		),
 		// Adaptive thinking + high effort are Opus-4.8 knobs (budget_tokens /
