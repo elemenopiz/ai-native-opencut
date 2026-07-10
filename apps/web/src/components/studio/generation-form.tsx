@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -27,6 +27,9 @@ import {
 	ORIENTATIONS,
 	STILL_SIZE_BY_ORIENTATION,
 } from "@/lib/studio/options";
+import { useBackends } from "@/hooks/use-backends";
+// Client-safe: registry.ts is pure data (a Map + type imports), no secret env.
+import { DEFAULT_BACKEND_ID } from "@/lib/studio/backends/registry";
 import { useStudioSettingsStore } from "@/stores/studio-settings-store";
 import { usePersonaStore } from "@/stores/persona-store";
 import { toast } from "sonner";
@@ -123,6 +126,70 @@ export function GenerationForm({
 		set: setSettings,
 	} = useStudioSettingsStore();
 
+	// ── Backend-aware controls ────────────────────────────────────────────────
+	// The catalog of configured video backends (BytePlus / Veo / Kling / …),
+	// fetched client-safe from GET /api/studio/backends. Each carries its real
+	// capability surface (resolutions / orientations / duration range / modes /
+	// seed-lock / omni-reference / last-frame) so the form offers only what the
+	// SELECTED backend actually supports instead of a flat option set.
+	const { backends } = useBackends("video");
+	const [backendId, setBackendId] = useState<string>("");
+	// Resolve the active backend: the user's pick, else the platform default,
+	// else the first configured one. `undefined` while the catalog is loading or
+	// when no provider is configured — in that case we fall back to the full
+	// option sets so the form never renders empty.
+	const selectedBackend = useMemo(() => {
+		if (backends.length === 0) return undefined;
+		return (
+			backends.find((b) => b.id === backendId) ??
+			backends.find((b) => b.id === DEFAULT_BACKEND_ID.video) ??
+			backends[0]
+		);
+	}, [backends, backendId]);
+
+	// Constrained option sets, derived from the selected backend's capabilities.
+	// Missing capability data (image-only backend, or still loading) ⇒ full set.
+	const availableResolutions = useMemo(
+		() =>
+			selectedBackend?.resolutions
+				? RESOLUTIONS.filter((r) =>
+						selectedBackend.resolutions?.includes(r.value),
+					)
+				: RESOLUTIONS,
+		[selectedBackend],
+	);
+	const availableOrientations = useMemo(
+		() =>
+			selectedBackend?.orientations
+				? ORIENTATIONS.filter((o) =>
+						selectedBackend.orientations?.includes(o.value),
+					)
+				: ORIENTATIONS,
+		[selectedBackend],
+	);
+	// First-&-last and multiframe both ride flf2v, so they need last-frame
+	// support; Omni is the base text-to-video mode and is always offered.
+	const availableModes = useMemo(
+		() =>
+			GEN_MODES.filter((m) => {
+				if (!selectedBackend) return true;
+				if (m.value === "first-last" || m.value === "multiframe")
+					return selectedBackend.supportsLastFrame;
+				return true;
+			}),
+		[selectedBackend],
+	);
+	const durationRange = selectedBackend?.durationRangeSec ?? {
+		min: 4,
+		max: 15,
+	};
+	const supportsSeedLock = selectedBackend
+		? selectedBackend.supportsSeedLock
+		: true;
+	const supportsOmniRef = selectedBackend
+		? selectedBackend.supportsOmniReference
+		: true;
+
 	// Active persona drives reference-conditioned character consistency. When set,
 	// generation is forced to image-to-video and the reference frame is supplied
 	// server-side (see /api/studio/generate), so the manual reference UI is hidden.
@@ -149,6 +216,44 @@ export function GenerationForm({
 	const isOmni = !activePersona && genMode === "omni";
 	const isMultiframe = !activePersona && genMode === "multiframe";
 	const readyKeyframes = keyframes.filter((k): k is string => !!k);
+	// Omni's reference uploader + @mentions only make sense when the selected
+	// backend actually conditions on omni references; otherwise Omni degrades to
+	// plain text-to-video and we hide the attach UI. Persona always uses refs.
+	const showOmniRefs = (isOmni && supportsOmniRef) || !!activePersona;
+
+	// Coerce sticky settings that the newly selected backend can't honor: an
+	// unsupported resolution/orientation, an out-of-range duration, a seed lock
+	// on a seedless model, or a mode the backend doesn't offer. Runs on backend
+	// switch (and initial load) so a stale localStorage choice never produces an
+	// invalid request or a highlighted-but-absent control.
+	// eslint-disable-next-line react-hooks/exhaustive-deps
+	useEffect(() => {
+		if (!selectedBackend) return;
+		const patch: Partial<Parameters<typeof setSettings>[0]> = {};
+		if (
+			selectedBackend.resolutions &&
+			!selectedBackend.resolutions.includes(resolution)
+		) {
+			patch.resolution = selectedBackend.resolutions.includes("720p")
+				? "720p"
+				: selectedBackend.resolutions[0];
+		}
+		if (
+			selectedBackend.orientations &&
+			!selectedBackend.orientations.includes(orientation)
+		) {
+			patch.orientation = selectedBackend.orientations[0];
+		}
+		const { min, max } = durationRange;
+		if (duration < min) patch.duration = min;
+		else if (duration > max) patch.duration = max;
+		if (!supportsSeedLock && seedLocked) patch.seedLocked = false;
+		if (!availableModes.some((m) => m.value === genMode)) {
+			// Omni is never filtered out, so availableModes is always non-empty.
+			patch.genMode = availableModes[0]?.value ?? "omni";
+		}
+		if (Object.keys(patch).length > 0) setSettings(patch);
+	}, [selectedBackend]);
 
 	// ── @mention referencing (Seedance omni-reference) ───────────────────────
 	// Each ready attachment gets an ordered handle — @Image1.., @Video1.. — that
@@ -156,7 +261,7 @@ export function GenerationForm({
 	// prompt resolves to the first reference image. Mirrors Dreamina/Higgsfield.
 	const referenceHandles = useMemo(() => {
 		// Only Omni (and persona, which also uses omni refs) exposes @mentions.
-		if (!isOmni && !activePersona) return [];
+		if (!showOmniRefs) return [];
 		const out: {
 			id: string;
 			handle: string;
@@ -172,7 +277,7 @@ export function GenerationForm({
 			out.push({ id: r.id, handle, kind: r.kind, url: r.url, name: r.name });
 		}
 		return out;
-	}, [refMedia, isOmni, activePersona]);
+	}, [refMedia, showOmniRefs]);
 
 	const handleMap = useMemo(
 		() => Object.fromEntries(referenceHandles.map((h) => [h.id, h.handle])),
@@ -384,6 +489,38 @@ export function GenerationForm({
 
 	return (
 		<div className={cn("flex flex-col gap-4", className)}>
+			{/* Model — pick which configured video backend to generate with. The
+			    controls below (resolution / orientation / duration / mode / seed)
+			    reshape to that backend's real capabilities. Hidden when only one
+			    backend is configured (nothing to switch between). */}
+			{backends.length > 1 && (
+				<div className="space-y-1.5">
+					<Label className="text-xs">Model</Label>
+					<div className="flex flex-wrap gap-2">
+						{backends.map((b) => (
+							<button
+								key={b.id}
+								onClick={() => setBackendId(b.id)}
+								title={`${b.vendor} · ${b.safetyTier}`}
+								className={cn(
+									"py-1.5 px-2.5 rounded-md text-xs font-medium border transition-colors",
+									selectedBackend?.id === b.id
+										? "bg-primary text-primary-foreground border-primary"
+										: "border-border text-muted-foreground hover:border-foreground",
+								)}
+							>
+								{b.label}
+							</button>
+						))}
+					</div>
+					{selectedBackend && (
+						<p className="text-[10px] text-muted-foreground">
+							{selectedBackend.vendor}
+						</p>
+					)}
+				</div>
+			)}
+
 			{/* Persona — when active, replaces mode selection and drives
 			    reference-conditioned character consistency. */}
 			{activePersona && (
@@ -448,7 +585,7 @@ export function GenerationForm({
 				<div className="space-y-1.5">
 					<Label className="text-xs">Mode</Label>
 					<div className="flex gap-2">
-						{GEN_MODES.map((m) => (
+						{availableModes.map((m) => (
 							<button
 								key={m.value}
 								onClick={() => setSettings({ genMode: m.value })}
@@ -469,8 +606,9 @@ export function GenerationForm({
 				</div>
 			)}
 
-			{/* Omni references — drag from Assets, drop, or browse; @mention them. */}
-			{(isOmni || activePersona) && (
+			{/* Omni references — drag from Assets, drop, or browse; @mention them.
+			    Hidden when the selected backend can't condition on omni refs. */}
+			{showOmniRefs && (
 				<div className="space-y-1.5">
 					<div className="flex items-center justify-between">
 						<Label className="text-xs">References</Label>
@@ -666,7 +804,7 @@ export function GenerationForm({
 			<div className="space-y-1.5">
 				<Label className="text-xs">Orientation</Label>
 				<div className="flex gap-2">
-					{ORIENTATIONS.map((o) => (
+					{availableOrientations.map((o) => (
 						<button
 							key={o.value}
 							onClick={() => setSettings({ orientation: o.value })}
@@ -687,41 +825,44 @@ export function GenerationForm({
 				</div>
 			</div>
 
-			{/* Seed */}
-			<div className="space-y-1.5">
-				<div className="flex items-center justify-between">
-					<Label className="text-xs">Seed</Label>
-					<button
-						onClick={() => setSettings({ seedLocked: !seedLocked })}
-						className={cn(
-							"text-xs px-2 py-0.5 rounded border transition-colors",
-							seedLocked
-								? "border-primary text-primary bg-primary/10"
-								: "border-border text-muted-foreground hover:border-foreground",
-						)}
-					>
-						{seedLocked ? "Locked" : "Random"}
-					</button>
+			{/* Seed — only shown for backends that accept a reproducible seed.
+			    Seedless models (e.g. Veo, Kling, Luma) hide this entirely. */}
+			{supportsSeedLock && (
+				<div className="space-y-1.5">
+					<div className="flex items-center justify-between">
+						<Label className="text-xs">Seed</Label>
+						<button
+							onClick={() => setSettings({ seedLocked: !seedLocked })}
+							className={cn(
+								"text-xs px-2 py-0.5 rounded border transition-colors",
+								seedLocked
+									? "border-primary text-primary bg-primary/10"
+									: "border-border text-muted-foreground hover:border-foreground",
+							)}
+						>
+							{seedLocked ? "Locked" : "Random"}
+						</button>
+					</div>
+					<Input
+						type="number"
+						placeholder="Leave blank for random"
+						value={seed}
+						disabled={!seedLocked}
+						onChange={(e) => setSeed(e.target.value)}
+						className="h-8 text-xs"
+					/>
+					<p className="text-xs text-muted-foreground">
+						Every take stores its seed, so you can promote any winner to 1080p —
+						no upscaling.
+					</p>
 				</div>
-				<Input
-					type="number"
-					placeholder="Leave blank for random"
-					value={seed}
-					disabled={!seedLocked}
-					onChange={(e) => setSeed(e.target.value)}
-					className="h-8 text-xs"
-				/>
-				<p className="text-xs text-muted-foreground">
-					Every take stores its seed, so you can promote any winner to 1080p —
-					no upscaling.
-				</p>
-			</div>
+			)}
 
 			{/* Resolution */}
 			<div className="space-y-1.5">
 				<Label className="text-xs">Resolution</Label>
 				<div className="flex gap-2">
-					{RESOLUTIONS.map((r) => (
+					{availableResolutions.map((r) => (
 						<button
 							key={r.value}
 							onClick={() => setSettings({ resolution: r.value })}
@@ -756,16 +897,16 @@ export function GenerationForm({
 					</span>
 				</div>
 				<Slider
-					min={4}
-					max={15}
+					min={durationRange.min}
+					max={durationRange.max}
 					step={1}
 					value={[duration]}
 					onValueChange={([v]) => setSettings({ duration: v })}
 				/>
 				{isMultiframe && (
 					<p className="text-[10px] text-muted-foreground">
-						Seedance caps a single clip at 15s — multiframe stitches segments,
-						so the full timeline runs much longer.
+						A single clip caps at {durationRange.max}s — multiframe stitches
+						segments, so the full timeline runs much longer.
 					</p>
 				)}
 			</div>

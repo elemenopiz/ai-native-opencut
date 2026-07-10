@@ -2,6 +2,11 @@
 
 import { useEffect, useState } from "react";
 import type { SafetyTier } from "@/types/timeline";
+import type {
+	VideoMode,
+	VideoOrientation,
+	VideoResolution,
+} from "@/lib/studio/provider-adapter";
 
 /**
  * Client-side view of an available generation backend, fetched from
@@ -15,6 +20,12 @@ export interface BackendInfo {
 	modality: "video" | "image";
 	safetyTier: SafetyTier;
 	intents: string[];
+	// Per-backend constraint surface (video backends). The generation form reads
+	// these to offer only what the selected backend actually supports.
+	resolutions?: VideoResolution[];
+	orientations?: VideoOrientation[];
+	durationRangeSec?: { min: number; max: number };
+	modes?: VideoMode[];
 	supportsSeedLock: boolean;
 	supportsOmniReference: boolean;
 	supportsLastFrame: boolean;
