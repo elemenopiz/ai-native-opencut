@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -521,7 +521,166 @@ function SavedSoundsView() {
 }
 
 function SongsView() {
-	return <div>Songs</div>;
+	const [query, setQuery] = useState("");
+	const [songs, setSongs] = useState<SoundEffect[]>([]);
+	const [page, setPage] = useState(1);
+	const [hasNext, setHasNext] = useState(false);
+	const [isLoading, setIsLoading] = useState(false);
+	const [isLoadingMore, setIsLoadingMore] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const [playingId, setPlayingId] = useState<number | null>(null);
+	const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(
+		null,
+	);
+
+	const fetchSongs = useCallback(
+		async ({
+			q,
+			pageNum,
+			append,
+		}: {
+			q: string;
+			pageNum: number;
+			append: boolean;
+		}) => {
+			const params = new URLSearchParams({
+				type: "songs",
+				page: pageNum.toString(),
+				page_size: "40",
+				sort: "downloads",
+			});
+			if (q.trim()) params.set("q", q.trim());
+
+			try {
+				if (append) setIsLoadingMore(true);
+				else setIsLoading(true);
+				setError(null);
+
+				const res = await fetch(`/api/sounds/search?${params.toString()}`, {
+					headers: getFreesoundHeaders(),
+				});
+				if (!res.ok) throw new Error(`Search failed: ${res.status}`);
+
+				const data = await res.json();
+				setSongs((prev) =>
+					append ? [...prev, ...data.results] : data.results,
+				);
+				setHasNext(!!data.next);
+				setPage(pageNum);
+			} catch (err) {
+				setError(err instanceof Error ? err.message : "Failed to load songs");
+			} finally {
+				if (append) setIsLoadingMore(false);
+				else setIsLoading(false);
+			}
+		},
+		[],
+	);
+
+	// Initial load (top songs) + debounced search on query change.
+	useEffect(() => {
+		const timeoutId = setTimeout(
+			() => {
+				void fetchSongs({ q: query, pageNum: 1, append: false });
+			},
+			query ? 300 : 0,
+		);
+		return () => clearTimeout(timeoutId);
+	}, [query, fetchSongs]);
+
+	const loadMore = useCallback(() => {
+		if (isLoadingMore || !hasNext) return;
+		void fetchSongs({ q: query, pageNum: page + 1, append: true });
+	}, [isLoadingMore, hasNext, query, page, fetchSongs]);
+
+	const { scrollAreaRef, handleScroll } = useInfiniteScroll({
+		onLoadMore: loadMore,
+		hasMore: hasNext,
+		isLoading: isLoadingMore || isLoading,
+	});
+
+	useEffect(() => {
+		return () => {
+			audioElement?.pause();
+		};
+	}, [audioElement]);
+
+	const playSound = ({ sound }: { sound: SoundEffect }) => {
+		if (playingId === sound.id) {
+			audioElement?.pause();
+			setPlayingId(null);
+			return;
+		}
+
+		audioElement?.pause();
+
+		if (sound.previewUrl) {
+			const audio = new Audio(sound.previewUrl);
+			audio.addEventListener("ended", () => setPlayingId(null));
+			audio.addEventListener("error", () => setPlayingId(null));
+			audio.play().catch((err) => {
+				console.error("Failed to play song preview:", err);
+				setPlayingId(null);
+			});
+			setAudioElement(audio);
+			setPlayingId(sound.id);
+		}
+	};
+
+	return (
+		<div className="mt-1 flex h-full flex-col gap-4">
+			<Input
+				placeholder="Search songs"
+				className="w-full"
+				containerClassName="w-full"
+				value={query}
+				onChange={({ currentTarget }) => setQuery(currentTarget.value)}
+				showClearIcon
+				onClear={() => setQuery("")}
+			/>
+			<p className="text-muted-foreground text-[10px] leading-relaxed">
+				Free, commercially-usable music from Freesound (CC0) and ccMixter
+				(CC-BY). Credit the artist when a track's license requires it.
+			</p>
+
+			<div className="relative h-full overflow-hidden">
+				<ScrollArea
+					className="h-full flex-1"
+					ref={scrollAreaRef}
+					onScrollCapture={handleScroll}
+				>
+					<div className="flex flex-col gap-4">
+						{isLoading && (
+							<div className="text-muted-foreground text-sm">
+								Loading songs...
+							</div>
+						)}
+						{error && !isLoading && (
+							<div className="text-destructive text-sm">{error}</div>
+						)}
+						{songs.map((sound) => (
+							<AudioItem
+								key={sound.id}
+								sound={sound}
+								isPlaying={playingId === sound.id}
+								onPlay={playSound}
+							/>
+						))}
+						{!isLoading && !error && songs.length === 0 && (
+							<div className="text-muted-foreground text-sm">
+								No songs found
+							</div>
+						)}
+						{isLoadingMore && (
+							<div className="text-muted-foreground py-4 text-center text-sm">
+								Loading more songs...
+							</div>
+						)}
+					</div>
+				</ScrollArea>
+			</div>
+		</div>
+	);
 }
 
 interface AudioItemProps {
