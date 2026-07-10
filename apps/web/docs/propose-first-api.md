@@ -208,12 +208,14 @@ Run: `bun test src/lib/director/ && bun run typecheck` from `apps/web`.
 
 ---
 
-## For Flow D (later)
+## Flow D (shipped)
 
-Flow D ("taste in the loop") gates package-approval moments — hero-shot selection,
-persona-lock + voice-consent, final cut — into this flow. The natural hooks:
-`acceptProposal` is the reel-level approval moment (it write-throughs to the
-Bible, which is how decisions compound), and a per-shot approval can wrap the
-`generate-to-match` / hero materialization path. The `CitationRepair` list and the
-`ReelProposal` draft are the surface a Flow-D gate reads to decide what needs human
-judgment.
+Flow D ("taste in the loop") is now shipped — see
+[`flow-d-gates.md`](flow-d-gates.md). It adds the three human APPROVE gates that
+write their rationale into the Bible so decisions compound: **voice-clone consent**
+(the liability fix — a clone is unusable until a consent phrase verifies),
+**`approveHeroShot`** (approve a take as the hero → Bible approvals ledger + brief
+note + take selection), and **`approveFinalCut`** (soft gate before export). The
+`acceptProposal` reel-level approval and the `CitationRepair` / `ReelProposal`
+surfaces described above remain the context a Flow-D gate reads to decide what needs
+human judgment.

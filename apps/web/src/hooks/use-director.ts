@@ -15,6 +15,7 @@ import {
 	clearUnderstandingCache,
 	manifestUnderstandingLookup,
 	primeUnderstandingCache,
+	styleProbeLookup,
 } from "@/lib/director/understanding-lookup";
 
 /**
@@ -63,6 +64,7 @@ export function useDirector(): DirectorApi {
 				executor: createStudioExecutor(editor),
 				backends: fetchBackendCatalog,
 				understanding: manifestUnderstandingLookup,
+				styleProbe: styleProbeLookup,
 				critic: createVisionTakeCritic({
 					relay: callVisionRelay,
 					extractFrames: ({ takeId, mediaId }) =>
