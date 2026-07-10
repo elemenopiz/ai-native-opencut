@@ -127,6 +127,9 @@ export function serializeProject({
 		version: project.version,
 		timelineViewState: project.timelineViewState,
 		directorBrief: project.directorBrief,
+		// Rides through alongside `directorBrief` — a plain, already-serializable
+		// object (the Director's durable, versioned Project Bible).
+		projectBible: project.projectBible,
 	};
 }
 
@@ -175,6 +178,9 @@ export function deserializeProject({
 		version: serializedProject.version,
 		timelineViewState: serializedProject.timelineViewState,
 		directorBrief: serializedProject.directorBrief,
+		// Restored verbatim (absent on projects saved before it existed ⇒ left
+		// `undefined`, so old projects load unchanged).
+		projectBible: serializedProject.projectBible,
 	};
 }
 

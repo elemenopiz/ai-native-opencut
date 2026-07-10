@@ -1,6 +1,7 @@
 import type { EditorCore } from "@/core";
 import type {
 	DirectorBrief,
+	ProjectBible,
 	TProject,
 	TProjectMetadata,
 	TProjectSortKey,
@@ -605,6 +606,28 @@ export class ProjectManager {
 	setDirectorBrief({ brief }: { brief: DirectorBrief }): void {
 		if (!this.active) return;
 		this.active = { ...this.active, directorBrief: brief };
+		this.editor.save.markDirty();
+	}
+
+	/**
+	 * The active project's persistent, versioned PROJECT BIBLE (the Director's
+	 * durable creative memory — style, cast, plan, decisions, checkpoint history).
+	 * Returns `undefined` when unset or when no project is active, so callers can
+	 * treat that as "no bible yet". See `lib/director/project-bible.ts`.
+	 */
+	getProjectBible(): ProjectBible | undefined {
+		return this.active?.projectBible;
+	}
+
+	/**
+	 * Replace the active project's bible with `bible` and mark the project dirty so
+	 * the SaveManager persists it (the same durable path as `setDirectorBrief`).
+	 * Callers compute the next bible with the pure helpers in
+	 * `lib/director/project-bible.ts`. No-op without an active project.
+	 */
+	setProjectBible({ bible }: { bible: ProjectBible }): void {
+		if (!this.active) return;
+		this.active = { ...this.active, projectBible: bible };
 		this.editor.save.markDirty();
 	}
 
