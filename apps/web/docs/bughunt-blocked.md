@@ -9,6 +9,24 @@ visual verification that the loop can't perform safely.
 All *fixed* bugs are in the branch's `fix: … (bughunt)` commits; this doc only
 tracks what remains open.
 
+## Status (updated after the follow-up fix pass)
+
+| Item | Status |
+|------|--------|
+| BLOCKED-1 — transitions render blank frames | ✅ **FIXED** — `fix: transitions rendered blank frames …` |
+| BLOCKED-2 — auto-review bypasses reel budget | ✅ **FIXED** — `fix: auto-review corrections now honor + record …` |
+| BLOCKED-4 — nest/unnest fake-success toast | ✅ **FIXED (honest message)** — real nesting is still a separate feature; the lie is gone |
+| BLOCKED-5 — shortcut recorder encoding | ✅ **FIXED** — `fix: custom shortcut recorder now encodes …` |
+| **BLOCKED-3 — same-track ripple drops shift** | 🚫 **OPEN** — deferred; needs a ripple-behavior spec |
+| **BLOCKED-6 — split-right never ripple-closes gap** | 🚫 **OPEN** — deferred; same ripple family as #3 |
+
+**Only the ripple pair (BLOCKED-3 + BLOCKED-6) remains.** They share one root
+cause — `SplitElementsCommand` implements the ripple-shift only for the
+`retainSide === "right"` path, and the same-track move branch skips it entirely.
+Fixing them well needs an agreed answer to *"what exactly should a same-track
+ripple do?"* (close the old gap + open one at the drop point) plus visual
+verification. Detail for all items retained below.
+
 ---
 
 ## 🚫 BLOCKED-1 — Transitions render blank frames (CRITICAL, live)
