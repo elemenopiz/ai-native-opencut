@@ -17,15 +17,16 @@ tracks what remains open.
 | BLOCKED-2 — auto-review bypasses reel budget | ✅ **FIXED** — `fix: auto-review corrections now honor + record …` |
 | BLOCKED-4 — nest/unnest fake-success toast | ✅ **FIXED (honest message)** — real nesting is still a separate feature; the lie is gone |
 | BLOCKED-5 — shortcut recorder encoding | ✅ **FIXED** — `fix: custom shortcut recorder now encodes …` |
-| **BLOCKED-3 — same-track ripple drops shift** | 🚫 **OPEN** — deferred; needs a ripple-behavior spec |
-| **BLOCKED-6 — split-right never ripple-closes gap** | 🚫 **OPEN** — deferred; same ripple family as #3 |
+| BLOCKED-3 — same-track ripple drops shift | ✅ **FIXED** — `fix: same-track ripple drag now reorders neighbors (close+push)` |
+| BLOCKED-6 — split-right never ripple-closes gap | ✅ **FIXED** — `fix: split-right now ripple-closes the discarded gap` |
 
-**Only the ripple pair (BLOCKED-3 + BLOCKED-6) remains.** They share one root
-cause — `SplitElementsCommand` implements the ripple-shift only for the
-`retainSide === "right"` path, and the same-track move branch skips it entirely.
-Fixing them well needs an agreed answer to *"what exactly should a same-track
-ripple do?"* (close the old gap + open one at the drop point) plus visual
-verification. Detail for all items retained below.
+**All six are now resolved.** The ripple pair was fixed to the agreed
+"close + push" reorder spec (BLOCKED-3: `MoveElementCommand` same-track branch
+now closes the vacated gap and opens one at the drop point via `rippleShiftElements`
+twice) and by mirroring the right-retain ripple onto the left-retain path
+(BLOCKED-6: `SplitElementsCommand` + the split-right handler now pass/honor
+`rippleEnabled`). Both landed with regression tests. Detail for all items
+retained below for history.
 
 ---
 
