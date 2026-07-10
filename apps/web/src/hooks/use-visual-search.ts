@@ -58,6 +58,9 @@ export function useVisualSearch() {
 	const [hasIndex, setHasIndex] = useState(false);
 	const embeddingsRef = useRef<MediaEmbedding[]>([]);
 	const lastQueryRef = useRef<string>("");
+	// Monotonic token so a slower search/findSimilar response can't overwrite the
+	// results of a newer one issued after it.
+	const searchSeqRef = useRef(0);
 
 	/** Refresh the cached embedding index from IndexedDB. */
 	const refreshIndex = useCallback(async () => {
@@ -81,6 +84,7 @@ export function useVisualSearch() {
 	/** Run a search query against the cached embedding index. */
 	const search = useCallback(
 		async (query: string, opts?: { limit?: number; threshold?: number }) => {
+			const seq = ++searchSeqRef.current;
 			const trimmed = query.trim();
 			if (trimmed.length < MIN_QUERY_LEN) {
 				setHits([]);
@@ -133,13 +137,15 @@ export function useVisualSearch() {
 					}
 				}
 				candidates.sort((a, b) => b.score - a.score);
+				if (seq !== searchSeqRef.current) return; // superseded by a newer search
 				setHits(candidates.slice(0, limit));
 				lastQueryRef.current = trimmed;
 			} catch (err) {
+				if (seq !== searchSeqRef.current) return;
 				setError(err instanceof Error ? err.message : "Search failed");
 				setHits([]);
 			} finally {
-				setIsSearching(false);
+				if (seq === searchSeqRef.current) setIsSearching(false);
 			}
 		},
 		[editor.media, refreshIndex],
@@ -157,6 +163,7 @@ export function useVisualSearch() {
 	/** "Find more like this": search by an existing media asset's frames. */
 	const findSimilar = useCallback(
 		async (mediaId: string, opts?: { limit?: number; threshold?: number }) => {
+			const seq = ++searchSeqRef.current;
 			setIsSearching(true);
 			setError(null);
 			try {
@@ -164,7 +171,7 @@ export function useVisualSearch() {
 				if (embeddingsRef.current.length !== liveCount) await refreshIndex();
 				const source = embeddingsRef.current.find((m) => m.mediaId === mediaId);
 				if (!source || source.frames.length === 0) {
-					setHits([]);
+					if (seq === searchSeqRef.current) setHits([]);
 					return;
 				}
 				// Average all source frames into a single query vector.
@@ -212,13 +219,15 @@ export function useVisualSearch() {
 					}
 				}
 				candidates.sort((a, b) => b.score - a.score);
+				if (seq !== searchSeqRef.current) return; // superseded by a newer query
 				setHits(candidates.slice(0, limit));
 				lastQueryRef.current = `similar:${mediaId}`;
 			} catch (err) {
+				if (seq !== searchSeqRef.current) return;
 				setError(err instanceof Error ? err.message : "Find similar failed");
 				setHits([]);
 			} finally {
-				setIsSearching(false);
+				if (seq === searchSeqRef.current) setIsSearching(false);
 			}
 		},
 		[editor.media, refreshIndex],
