@@ -92,6 +92,62 @@ it needs a product decision on the intended behavior + visual verification.
 
 ---
 
+## 🚫 BLOCKED-4 — nest-clips / unnest-clips report success but do nothing (HIGH)
+
+- **File:** `apps/web/src/hooks/actions/use-editor-actions.ts:603-625`
+
+**Defect.** Both action handlers validate the selection count and then call
+`toast.success("Clips nested into compound clip")` / the unnest equivalent —
+with **no call into `editor.timeline` or any command**. The timeline is
+unchanged; the user is told it worked. (Related to the deferred dead
+`NestClipsCommand`, which is itself buggy — see Deferred below.)
+
+**Why blocked.** Needs a product decision: either (a) wire the actions to a
+correct compound-clip command (the existing `NestClipsCommand` is buggy and
+must be fixed first), (b) show an honest "not yet available" message, or (c)
+remove the actions from the registry. Not a mechanical fix.
+
+---
+
+## 🚫 BLOCKED-5 — custom shortcut recorder encodes combos differently than the matcher (HIGH)
+
+- **Files:** recorder `apps/web/src/app/shortcuts/page.tsx:134-154` vs. matcher
+  `apps/web/src/stores/keybindings-store.ts:178-225`.
+
+**Defect.** The recorder builds the combo string as modifiers in order
+`ctrl, shift, alt` using raw `e.key.toLowerCase()`. The real keydown matcher
+(`getActiveModifier`/`getPressedKey`) builds modifiers in order `ctrl, alt,
+shift` and normalizes special keys (space, arrows, escape, tab, home/end,
+delete/backspace) to fixed tokens. So a recorded `alt+shift+x` is stored as
+`shift+alt+x` and never matches the canonical `alt+shift+x`; space/arrow/escape
+shortcuts store the wrong token. The just-recorded custom shortcut silently
+never fires.
+
+**Why blocked.** The correct fix is to make the recorder reuse the canonical
+`getActiveModifier`/`getPressedKey` encoding from `keybindings-store.ts` instead
+of duplicating it. That touches shared shortcut-encoding logic used across all
+custom bindings and needs verification against the full matcher (and possibly a
+migration for already-saved malformed bindings) — too broad to land blindly.
+
+---
+
+## 🚫 BLOCKED-6 — split-right never ripple-closes its gap (MED)
+
+- **Files:** `apps/web/src/hooks/actions/use-editor-actions.ts:201-222` +
+  `apps/web/src/lib/commands/timeline/element/split-elements.ts:84-116`.
+
+**Defect.** split-left passes `rippleEnabled` into `splitElements`; the symmetric
+split-right omits it (defaults `false`). Worse, `SplitElementsCommand` only
+implements the ripple-shift for the `retainSide === "right"` path — the
+`retainSide === "left"` path (used by split-right) never checks `rippleEnabled`
+at all. So with Ripple Editing on, split-right leaves a gap the mirror op closes.
+
+**Why blocked.** Same family as BLOCKED-3 (ripple semantics): the ripple-shift
+must be implemented for the left-retain path with the correct gap math, which is
+core timeline editing needing a spec + visual verification.
+
+---
+
 ## Deferred — dead code / unwired features (latent, zero blast radius today)
 
 These are real correctness issues but currently have **no caller**, so they can't
