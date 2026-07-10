@@ -258,6 +258,62 @@ export interface ReviewTakeData {
 }
 
 /**
+ * Coarse class of a generation failure, assigned at the executor boundary
+ * (`studio-executor.ts`). It drives the Director's SELF-CORRECTING recovery
+ * strategy (`director-api.ts`), so a stalled/failed slot is no longer a dead
+ * end the user has to notice:
+ *
+ *  - `"provider"`  — the backend errored. Retryable ones (5xx/429/network) are
+ *     retried with backoff; a non-retryable 4xx (bad request) is escalated.
+ *  - `"timeout"`   — the job/network timed out. Retried with backoff.
+ *  - `"safety"`    — content-moderation rejection. The prompt is AUTO-REPHRASED
+ *     and retried; the user is told why.
+ *  - `"empty"`     — the provider returned no media. One cautious retry.
+ *  - `"unknown"`   — unclassified. One cautious retry, then escalate.
+ *
+ * `retryable` is set by the classifier (not purely a function of `class`), so a
+ * 400-class `"provider"` error can be marked non-retryable while a 503 is not.
+ */
+export type FailureClass =
+	| "provider"
+	| "timeout"
+	| "safety"
+	| "empty"
+	| "unknown";
+
+/**
+ * Structured, self-describing reason a generation attempt failed — the
+ * replacement for the opaque error strings the Director used to bubble up. The
+ * `class` picks the recovery strategy; `message` is safe to show a user.
+ */
+export interface GenerationFailure {
+	class: FailureClass;
+	/** Human-readable, user-safe explanation of what went wrong. */
+	message: string;
+	/** Whether the boundary considers this retryable AS-IS (drives retry vs. escalate). */
+	retryable: boolean;
+	/** Provider/HTTP status code, when the boundary knew one. */
+	status?: number;
+	/** Raw provider error text, kept for logs (not shown verbatim to users). */
+	detail?: string;
+}
+
+/**
+ * The outcome of generating takes for ONE slot after self-correction: the takes
+ * created, any UNRECOVERED failures (structured, not opaque strings), and
+ * whether recovery (retry/rephrase) was needed to succeed. Carried in the
+ * `generate`/`reroll` result `data` so a UI or agent can escalate precisely.
+ */
+export interface SlotGenerationOutcome {
+	slotId: string;
+	takeIds: string[];
+	/** Present ⇒ at least one take could not be recovered; escalate to the user. */
+	failures?: GenerationFailure[];
+	/** True ⇒ a take needed an auto-rephrase (safety) or a retry before it landed. */
+	recovered?: boolean;
+}
+
+/**
  * Injectable boundary for the actual generation network calls.
  *
  * The Director API performs all *bookkeeping* (appending takes, flipping
@@ -270,7 +326,10 @@ export interface ReviewTakeData {
 export interface GenerateExecutor {
 	/**
 	 * Run a single generation. Implementations should resolve with the finished
-	 * take fields (status `ready` + mediaId, or `failed` + error).
+	 * take fields (status `ready` + mediaId, or `failed` + error) and — on
+	 * failure — a structured {@link GenerationFailure} classifying it, so the
+	 * Director can decide whether to retry, rephrase, or escalate. Executors that
+	 * omit `failure` fall back to the Director classifying the raw `error` string.
 	 */
 	run(input: {
 		slotId: string;
@@ -280,6 +339,6 @@ export interface GenerateExecutor {
 		Pick<
 			Take,
 			"status" | "mediaId" | "thumbnailUrl" | "seed" | "jobId" | "error"
-		>
+		> & { failure?: GenerationFailure }
 	>;
 }

@@ -8,6 +8,7 @@ import {
 	getStoredConsistencyContext,
 	withConsistencyContext,
 } from "./consistency-prompt";
+import { classifyFailure } from "./failure-classification";
 import type { GenerateExecutor } from "./types";
 
 /** Fallback frame rate when a project somehow has no fps set. */
@@ -58,7 +59,18 @@ export function createStudioExecutor(editor: EditorCore): GenerateExecutor {
 					spec: { ...spec, voiceLock },
 				});
 				if (result.status === "failed") {
-					return { status: "failed", error: result.error };
+					return {
+						status: "failed",
+						error: result.error,
+						failure: classifyFailure({ error: result.error }),
+					};
+				}
+				if (!result.mediaId) {
+					return {
+						status: "failed",
+						error: "Voiceover produced no audio.",
+						failure: classifyFailure({ empty: true }),
+					};
 				}
 				return { status: "ready", mediaId: result.mediaId, seed: result.seed };
 			}
@@ -76,7 +88,18 @@ export function createStudioExecutor(editor: EditorCore): GenerateExecutor {
 				spec: effectiveSpec,
 			});
 			if (result.status === "failed") {
-				return { status: "failed", error: result.error };
+				return {
+					status: "failed",
+					error: result.error,
+					failure: classifyFailure({ error: result.error }),
+				};
+			}
+			if (!result.mediaId) {
+				return {
+					status: "failed",
+					error: "Generation produced no media.",
+					failure: classifyFailure({ empty: true }),
+				};
 			}
 			return {
 				status: "ready",

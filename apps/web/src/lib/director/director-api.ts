@@ -74,7 +74,16 @@ import { createShortIdMap } from "./short-id";
 import { aiClient } from "@/lib/ai-client";
 import { getAllEmbeddings } from "@/services/search/embedding-store";
 import { DEFAULT_TEXT_ELEMENT } from "@/constants/text-constants";
-import { buildElementFromMedia } from "@/lib/timeline/element-utils";
+import {
+	buildElementFromMedia,
+	buildUploadAudioElement,
+} from "@/lib/timeline/element-utils";
+import {
+	importAudioAsset,
+	makeVoiceoverSpec,
+} from "@/lib/studio/generate-voiceover-take";
+import { getFreesoundHeaders } from "@/lib/api-keys";
+import { classifyFailure } from "./failure-classification";
 import { AddTransitionCommand } from "@/lib/commands/timeline/element/transitions/add-transition";
 import { getAllTransitions } from "@/lib/transitions";
 import { getAllEffects } from "@/lib/effects";
@@ -94,12 +103,14 @@ import type {
 	BackendCatalogEntry,
 	BackendCatalogProvider,
 	DirectorResult,
+	GenerationFailure,
 	MediaSearchHit,
 	MutationDelta,
 	ProjectInfo,
 	ReelSnapshot,
 	ReviewTakeData,
 	SlotChange,
+	SlotGenerationOutcome,
 	SlotSnapshot,
 	GenerateExecutor,
 	TakeCritic,
@@ -111,11 +122,13 @@ export type {
 	BackendCatalogProvider,
 	DirectorResult,
 	GenerateExecutor,
+	GenerationFailure,
 	GenerationSpec,
 	GenerativeFields,
 	MediaSearchHit,
 	ProjectInfo,
 	ReelSnapshot,
+	SlotGenerationOutcome,
 	SlotSnapshot,
 	Take,
 	TakeCritic,
@@ -138,6 +151,41 @@ interface LocatedSlot {
 	element: SlotElement;
 }
 
+/**
+ * A resolved music asset for {@link DirectorApi.addMusicBed}: the imported audio
+ * plus provenance for the result message. Returned by the injectable music
+ * resolver; `{ error }` reports a resolution failure the verb surfaces as a
+ * failed result.
+ */
+export type ResolvedMusic =
+	| {
+			mediaId: string;
+			name: string;
+			duration?: number;
+			license?: string;
+			sourceUrl?: string;
+	  }
+	| { error: string };
+
+/**
+ * Self-correction knobs for the generation recovery loop. All optional with
+ * production-sane defaults; tests inject a no-op `sleep` (so backoff is
+ * instant), a deterministic `rephrase`, and tight bounds. See
+ * `runTakeWithRecovery`.
+ */
+export interface RecoveryOptions {
+	/** Max retries for a retryable transient/timeout/empty failure (default 2). */
+	maxRetries?: number;
+	/** Max auto-rephrase attempts for a safety rejection (default 1). */
+	maxRephrases?: number;
+	/** Base backoff delay in ms; grows exponentially per retry (default 400). */
+	baseDelayMs?: number;
+	/** Sleep primitive (injectable so tests don't actually wait). */
+	sleep?: (ms: number) => Promise<void>;
+	/** Rephrase a prompt the safety filter rejected (injectable; deterministic default). */
+	rephrase?: (prompt: string, failure: GenerationFailure) => string;
+}
+
 export interface CreateDirectorApiOptions {
 	/**
 	 * Injectable boundary for real provider/network generation. If omitted,
@@ -158,6 +206,20 @@ export interface CreateDirectorApiOptions {
 	 * choose (graceful no-op until D1 is merged).
 	 */
 	critic?: TakeCritic;
+	/** Self-correcting-generation knobs (retry/backoff/rephrase). */
+	recovery?: RecoveryOptions;
+	/**
+	 * Audio orchestration seam. `resolveMusic` turns a search query into an
+	 * imported audio asset for `addMusicBed`; the default hits `/api/sounds/search`
+	 * (Freesound) + `importAudioAsset` and is therefore BROWSER-BOUND, so headless
+	 * tests inject a stub — the same pattern as `executor`/`exportReel`.
+	 */
+	audio?: {
+		resolveMusic?: (input: {
+			query: string;
+			commercialOnly: boolean;
+		}) => Promise<ResolvedMusic>;
+	};
 }
 
 const ok = <T>(message: string, data?: T): DirectorResult<T> => ({
@@ -170,6 +232,88 @@ const fail = <T = undefined>(message: string): DirectorResult<T> => ({
 	ok: false,
 	message,
 });
+
+// ── self-correcting-generation defaults ─────────────────────────────────────
+
+const DEFAULT_MAX_RETRIES = 2;
+const DEFAULT_MAX_REPHRASES = 1;
+const DEFAULT_BASE_DELAY_MS = 400;
+
+const realSleep = (ms: number): Promise<void> =>
+	new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Exponential backoff for the Nth (1-based) retry. */
+const backoffMs = (base: number, retry: number): number =>
+	base * 2 ** (retry - 1);
+
+const SAFE_PREFIX = "Tasteful, safe-for-work, non-graphic.";
+// Terms that commonly trip a moderation filter yet are usually incidental to
+// the shot; stripped on the automatic rephrase so a false-positive can clear.
+const FLAGGED_TERMS_RE =
+	/\b(nude|nudity|naked|nsfw|explicit|sexual|erotic|gore|gory|blood(?:y)?|graphic|violent|violence|weapon|gun|knife|kill(?:ing)?|drugs?)\b/gi;
+
+/**
+ * Deterministic, dependency-free safety rephrase: strip commonly-flagged terms
+ * and prepend a safe-for-work framing (once). Not a content model — it's a
+ * conservative, reproducible transform so the recovery loop is unit-testable and
+ * the executor still receives a real, cleaned prompt. Callers can inject a
+ * smarter (e.g. LLM-backed) rephrase via {@link RecoveryOptions.rephrase}.
+ */
+export function defaultSafetyRephrase(prompt: string): string {
+	const stripped = prompt
+		.replace(FLAGGED_TERMS_RE, "")
+		.replace(/\s{2,}/g, " ")
+		.trim();
+	if (stripped.toLowerCase().startsWith(SAFE_PREFIX.toLowerCase()))
+		return stripped;
+	return `${SAFE_PREFIX} ${stripped}`.trim();
+}
+
+/**
+ * Rough spoken-duration estimate for a script, used to size a voiceover slot
+ * when no explicit duration (or narrated shot) is given. ~150 words/min ≈ 2.5
+ * words/sec; floored at 1s so a short line still occupies real time.
+ */
+export function estimateSpeechSeconds(script: string): number {
+	const words = script.trim().split(/\s+/).filter(Boolean).length;
+	return Math.max(1, Math.round((words / 2.5) * 10) / 10);
+}
+
+/** Short, user-facing label per failure class (for result messages). */
+const FAILURE_LABEL: Record<GenerationFailure["class"], string> = {
+	provider: "provider error",
+	timeout: "timeout",
+	safety: "content-safety rejection",
+	empty: "empty result",
+	unknown: "unknown error",
+};
+
+/** Group failures into a compact "2× timeout, 1× content-safety rejection" phrase. */
+function summarizeFailures(failures: GenerationFailure[]): string {
+	const byClass = new Map<GenerationFailure["class"], number>();
+	for (const f of failures)
+		byClass.set(f.class, (byClass.get(f.class) ?? 0) + 1);
+	return [...byClass.entries()]
+		.map(([cls, n]) => `${n}× ${FAILURE_LABEL[cls]}`)
+		.join(", ");
+}
+
+/** Human-facing summary for one slot's self-correcting generation run. */
+function describeSlotGeneration(
+	count: number,
+	readyCount: number,
+	failures: GenerationFailure[],
+	recovered: boolean,
+): string {
+	if (failures.length === 0) {
+		return `Generated ${count} take(s)${recovered ? " (auto-recovered after a retry/rephrase)" : ""}.`;
+	}
+	const summary = summarizeFailures(failures);
+	if (readyCount > 0) {
+		return `Generated ${readyCount} of ${count} take(s)${recovered ? " (some auto-recovered)" : ""}; ${failures.length} could not be recovered (${summary}).`;
+	}
+	return `Could not generate this slot after self-correction (${summary}) — it needs your input.`;
+}
 
 /**
  * Sensible defaults for the REQUIRED fields of a `GenerationSpec`. The canonical
@@ -235,6 +379,17 @@ export function createDirectorApi(
 	options: CreateDirectorApiOptions = {},
 ) {
 	const { executor, backends: backendsProvider, critic } = options;
+
+	// Resolved self-correction config (defaults + injected overrides).
+	const recovery = {
+		maxRetries: options.recovery?.maxRetries ?? DEFAULT_MAX_RETRIES,
+		maxRephrases: options.recovery?.maxRephrases ?? DEFAULT_MAX_REPHRASES,
+		baseDelayMs: options.recovery?.baseDelayMs ?? DEFAULT_BASE_DELAY_MS,
+		sleep: options.recovery?.sleep ?? realSleep,
+		rephrase:
+			options.recovery?.rephrase ??
+			((prompt: string) => defaultSafetyRephrase(prompt)),
+	};
 
 	// ---- internal helpers -------------------------------------------------
 
@@ -903,18 +1058,156 @@ export function createDirectorApi(
 	}
 
 	// ---- GENERATE ---------------------------------------------------------
+	//
+	// SELF-CORRECTING GENERATION: a take no longer dies silently on the first
+	// provider hiccup. `runTakeWithRecovery` runs ONE take through the executor
+	// and, on failure, reads the boundary's structured {@link GenerationFailure}
+	// to decide what to do — retry transient/timeout/empty with backoff,
+	// auto-rephrase a safety rejection and retry, or give up and report a
+	// structured reason the caller can escalate. It works by `elementId` (not a
+	// located visual slot) so voiceover slots reuse the exact same loop.
+
+	/** Read any element's `activeTakeId` (generative fields live on the element). */
+	function activeTakeIdOf(elementId: string): string | undefined {
+		const located = findElement(elementId);
+		return (located?.element as { activeTakeId?: string } | undefined)
+			?.activeTakeId;
+	}
+
+	/** The recovered outcome of a single take: final status + structured reason. */
+	interface TakeRecoveryResult {
+		takeId: string;
+		status: Take["status"];
+		/** Present ⇒ the take could not be recovered; escalate. */
+		failure?: GenerationFailure;
+		/** True ⇒ the prompt was auto-rephrased for safety at least once. */
+		rephrased: boolean;
+		/** Executor invocations made (>1 ⇒ recovery kicked in). */
+		attempts: number;
+	}
 
 	/**
-	 * Append `count` queued takes to a slot and run them through the executor.
-	 * Bookkeeping (appending takes via `addTakeToElement`, patching status via
-	 * `updateTake`, selecting the first ready take via `selectTake`) is done
-	 * here; the network/provider work is delegated to `executor`.
+	 * Run one take through the executor with self-correction. Records the take
+	 * (`queued`→`generating`), then loops: on a retryable transient/timeout/empty
+	 * failure it backs off and retries; on a safety rejection it rephrases the
+	 * prompt and retries; on an unrecoverable failure (or once bounds are hit) it
+	 * marks the take `failed` and returns the structured reason. Auto-selects the
+	 * take when the element has no active one yet. Assumes `executor` is set.
+	 */
+	async function runTakeWithRecovery(input: {
+		elementId: string;
+		spec: GenerationSpec;
+		exec: GenerateExecutor;
+	}): Promise<TakeRecoveryResult> {
+		const { elementId, exec } = input;
+		const takeId = generateUUID();
+		editor.timeline.addTakeToElement({
+			elementId,
+			take: {
+				id: takeId,
+				status: "queued",
+				spec: { ...input.spec },
+				seed: input.spec.seed,
+				createdAt: Date.now(),
+			},
+		});
+
+		let attemptSpec: GenerationSpec = { ...input.spec };
+		let retries = 0;
+		let rephrases = 0;
+		let attempts = 0;
+		let lastFailure: GenerationFailure | undefined;
+
+		for (;;) {
+			attempts++;
+			editor.timeline.updateTake({
+				elementId,
+				takeId,
+				patch: {
+					status: "generating",
+					spec: { ...attemptSpec },
+					error: undefined,
+				},
+			});
+
+			let result: Awaited<ReturnType<GenerateExecutor["run"]>>;
+			try {
+				result = await exec.run({
+					slotId: elementId,
+					takeId,
+					spec: attemptSpec,
+				});
+			} catch (error) {
+				result = {
+					status: "failed",
+					error: error instanceof Error ? error.message : String(error),
+				};
+			}
+
+			// Success ⇒ commit the ready take and (maybe) auto-select it.
+			if (result.status === "ready" && result.mediaId) {
+				editor.timeline.updateTake({ elementId, takeId, patch: result });
+				if (!activeTakeIdOf(elementId)) {
+					editor.timeline.selectTake({ elementId, takeId });
+				}
+				return { takeId, status: "ready", rephrased: rephrases > 0, attempts };
+			}
+
+			// Failure (or a ready result with no media) ⇒ classify + recover.
+			const failure =
+				result.failure ??
+				classifyFailure({
+					error: result.error,
+					empty: result.status === "ready" && !result.mediaId,
+				});
+			lastFailure = failure;
+
+			if (failure.class === "safety" && rephrases < recovery.maxRephrases) {
+				rephrases++;
+				attemptSpec = {
+					...attemptSpec,
+					prompt: recovery.rephrase(attemptSpec.prompt, failure),
+				};
+				continue; // re-submit the cleaned prompt immediately
+			}
+
+			if (
+				failure.class !== "safety" &&
+				failure.retryable &&
+				retries < recovery.maxRetries
+			) {
+				retries++;
+				await recovery.sleep(backoffMs(recovery.baseDelayMs, retries));
+				continue;
+			}
+
+			// Exhausted / unrecoverable ⇒ mark failed with the structured reason.
+			editor.timeline.updateTake({
+				elementId,
+				takeId,
+				patch: { status: "failed", error: failure.message },
+			});
+			return {
+				takeId,
+				status: "failed",
+				failure: lastFailure,
+				rephrased: rephrases > 0,
+				attempts,
+			};
+		}
+	}
+
+	/**
+	 * Generate `count` takes for a located visual slot, each self-correcting via
+	 * {@link runTakeWithRecovery}. Returns a structured {@link SlotGenerationOutcome}
+	 * (takes made, unrecovered failures, whether recovery was needed) so callers
+	 * can escalate precisely instead of parsing an error string.
 	 */
 	async function runTakesForSlot(
 		slotId: string,
 		count: number,
 		backendId?: string,
-	): Promise<DirectorResult<{ slotId: string; takeIds: string[] }>> {
+	): Promise<DirectorResult<SlotGenerationOutcome>> {
 		const located = findSlot(slotId);
 		if (!located) return fail(`No slot with id "${slotId}".`);
 
@@ -931,79 +1224,55 @@ export function createDirectorApi(
 			? { ...baseSpec, model: backendId }
 			: { ...baseSpec };
 
-		const newTakes: Take[] = Array.from({ length: count }, () => ({
-			id: generateUUID(),
-			status: "queued" as const,
-			spec: { ...takeSpec },
-			seed: takeSpec.seed,
-			createdAt: Date.now(),
-		}));
-
-		// Record queued takes immediately so the UI/agent can observe them.
-		for (const take of newTakes) {
-			editor.timeline.addTakeToElement({ elementId: slotId, take });
-		}
-
-		const takeIds = newTakes.map((t) => t.id);
-
 		// TODO(generation-pipeline): the real provider/network call lives behind
-		// this injectable boundary. Wire a concrete `GenerateExecutor` (e.g. the
-		// studio generate route / provider adapter) when constructing the API.
+		// this injectable boundary. Without an executor, enqueue queued takes so
+		// the UI/agent can observe them, and report that nothing was rendered.
 		if (!executor) {
+			const takeIds: string[] = [];
+			for (let i = 0; i < count; i++) {
+				const take: Take = {
+					id: generateUUID(),
+					status: "queued",
+					spec: { ...takeSpec },
+					seed: takeSpec.seed,
+					createdAt: Date.now(),
+				};
+				editor.timeline.addTakeToElement({ elementId: slotId, take });
+				takeIds.push(take.id);
+			}
 			return ok(
 				`Queued ${count} take(s) for slot "${slotId}" (no generation executor configured — takes remain queued).`,
 				{ slotId, takeIds },
 			);
 		}
 
-		for (const take of newTakes) {
-			editor.timeline.updateTake({
+		const takeIds: string[] = [];
+		const failures: GenerationFailure[] = [];
+		let recovered = false;
+		for (let i = 0; i < count; i++) {
+			const r = await runTakeWithRecovery({
 				elementId: slotId,
-				takeId: take.id,
-				patch: { status: "generating" },
+				spec: takeSpec,
+				exec: executor,
 			});
-
-			let result: Pick<
-				Take,
-				"status" | "mediaId" | "thumbnailUrl" | "seed" | "jobId" | "error"
-			>;
-			try {
-				result = await executor.run({
-					slotId,
-					takeId: take.id,
-					spec: take.spec,
-				});
-			} catch (error) {
-				result = {
-					status: "failed",
-					error: error instanceof Error ? error.message : String(error),
-				};
-			}
-			editor.timeline.updateTake({
-				elementId: slotId,
-				takeId: take.id,
-				patch: result,
-			});
-		}
-
-		// Select the first ready take if none chosen yet.
-		const after = findSlot(slotId);
-		if (after && !after.element.activeTakeId) {
-			const firstReady = takesOf(after.element).find(
-				(t) => t.status === "ready",
-			);
-			if (firstReady) {
-				editor.timeline.selectTake({
-					elementId: slotId,
-					takeId: firstReady.id,
-				});
+			takeIds.push(r.takeId);
+			if (r.status === "failed" && r.failure) failures.push(r.failure);
+			if (r.rephrased || (r.status === "ready" && r.attempts > 1)) {
+				recovered = true;
 			}
 		}
 
-		return ok(`Generated ${count} take(s) for slot "${slotId}".`, {
+		const readyCount = count - failures.length;
+		const outcome: SlotGenerationOutcome = {
 			slotId,
 			takeIds,
-		});
+			...(failures.length ? { failures } : {}),
+			...(recovered ? { recovered: true } : {}),
+		};
+		return ok(
+			describeSlotGeneration(count, readyCount, failures, recovered),
+			outcome,
+		);
 	}
 
 	/** Resolve a `generate`-style target selector into the located slots it hits. */
@@ -1040,14 +1309,23 @@ export function createDirectorApi(
 
 	/**
 	 * Generate takes for one or more slots. `slotIds: "all"` targets every slot.
-	 * `alternatives` is how many takes to produce per slot (default 1).
+	 * `alternatives` is how many takes to produce per slot (default 1). Each take
+	 * self-corrects (retry/rephrase); slots that still can't be produced come back
+	 * as structured `failures` in the result data AND are called out in the
+	 * message so the caller escalates to the user only for genuine dead-ends.
 	 */
 	async function generate(input: {
 		slotIds?: string[] | "all";
 		alternatives?: number;
 		/** Optional model pin for THIS run (the router's `preferredBackendId`). */
 		backendId?: string;
-	}): Promise<DirectorResult<{ slotIds: string[] }>> {
+	}): Promise<
+		DirectorResult<{
+			slotIds: string[];
+			failures?: { slotId: string; failure: GenerationFailure }[];
+			recovered?: boolean;
+		}>
+	> {
 		const before = captureReel();
 		const count = Math.max(1, input.alternatives ?? 1);
 		const targets =
@@ -1059,26 +1337,60 @@ export function createDirectorApi(
 			return fail("No slots to generate (storyboard some shots first).");
 		}
 
-		const done: string[] = [];
-		const errors: string[] = [];
+		const done: string[] = []; // slots that produced ≥1 ready take
+		const setupErrors: string[] = []; // slots we couldn't even start (no prompt / missing)
+		const slotFailures: { slotId: string; failure: GenerationFailure }[] = [];
+		let anyRecovered = false;
+
 		for (const slotId of targets) {
 			const result = await runTakesForSlot(slotId, count, input.backendId);
-			if (result.ok) done.push(slotId);
-			else errors.push(`${slotId}: ${result.message}`);
+			if (!result.ok || !result.data) {
+				setupErrors.push(`${slotId}: ${result.message}`);
+				continue;
+			}
+			const data = result.data;
+			const readyCount = data.takeIds.length - (data.failures?.length ?? 0);
+			if (readyCount > 0) done.push(slotId);
+			if (data.recovered) anyRecovered = true;
+			for (const failure of data.failures ?? []) {
+				slotFailures.push({ slotId, failure });
+			}
 		}
 
+		// Nothing rendered anywhere ⇒ a hard failure the user must resolve.
 		if (done.length === 0) {
-			return fail(`Generation failed for all slots. ${errors.join("; ")}`);
+			const reasons = slotFailures.length
+				? summarizeFailures(slotFailures.map((f) => f.failure))
+				: setupErrors.join("; ");
+			return fail(
+				`Generation failed for all ${targets.length} slot(s) (${reasons}). This needs your input.`,
+			);
 		}
+
+		const parts = [`Generated ${count} take(s) for ${done.length} slot(s)`];
+		if (anyRecovered)
+			parts.push(" (some auto-recovered after a retry/rephrase)");
+		if (slotFailures.length) {
+			parts.push(
+				`; ${slotFailures.length} slot(s) still failed (${summarizeFailures(
+					slotFailures.map((f) => f.failure),
+				)}) and need your input`,
+			);
+		}
+		if (setupErrors.length) {
+			parts.push(
+				`; ${setupErrors.length} could not start (${setupErrors.join("; ")})`,
+			);
+		}
+		parts.push(".");
+
 		return withDelta(
 			before,
-			ok(
-				`Generated ${count} take(s) for ${done.length} slot(s)` +
-					(errors.length
-						? ` (${errors.length} failed: ${errors.join("; ")}).`
-						: "."),
-				{ slotIds: done },
-			),
+			ok(parts.join(""), {
+				slotIds: done,
+				...(slotFailures.length ? { failures: slotFailures } : {}),
+				...(anyRecovered ? { recovered: true } : {}),
+			}),
 		);
 	}
 
@@ -1088,7 +1400,7 @@ export function createDirectorApi(
 		alternatives?: number;
 		/** Optional model pin for THIS run (the router's `preferredBackendId`). */
 		backendId?: string;
-	}): Promise<DirectorResult<{ slotId: string; takeIds: string[] }>> {
+	}): Promise<DirectorResult<SlotGenerationOutcome>> {
 		const before = captureReel();
 		const count = Math.max(1, input.alternatives ?? 1);
 		return withDelta(
@@ -1568,6 +1880,248 @@ export function createDirectorApi(
 		);
 	}
 
+	// ---- AUDIO (voiceover + music bed) ------------------------------------
+	//
+	// The Director owns the whole soundtrack, not just silent video: `addVoiceover`
+	// turns a script into a TTS clip TIMED to the shot it narrates (reusing the
+	// same self-correcting take pipeline via the executor's voiceover route), and
+	// `addMusicBed` searches the sounds library and drops a quiet music track under
+	// the reel. Both produce plain audio timeline elements — like `addText`/
+	// `addClip`, they aren't generative *visual* slots, so they're invisible to
+	// `captureReel()` and carry no mutation `delta`; the id + message are the
+	// observation.
+
+	/**
+	 * Add a spoken voiceover from a script. When `slotId` is given, the VO is
+	 * placed at that shot's start and matched to its duration ("time VO to the
+	 * shot it narrates"); otherwise `startTime`/`duration` are used (duration
+	 * estimated from the script when omitted). The VO renders through the SAME
+	 * executor + recovery loop as visual takes (the executor routes
+	 * `kind: "voiceover"` specs to TTS), so a transient TTS hiccup self-corrects.
+	 */
+	async function addVoiceover(input: {
+		script: string;
+		slotId?: string;
+		startTime?: number;
+		duration?: number;
+		voice?: string;
+		voiceRef?: string;
+		personaId?: string;
+		language?: string;
+		trackId?: string;
+	}): Promise<
+		DirectorResult<{
+			slotId: string;
+			takeId?: string;
+			failure?: GenerationFailure;
+		}>
+	> {
+		const script = input.script?.trim();
+		if (!script) return fail("addVoiceover requires a non-empty script.");
+
+		// Timing: prefer syncing to a named shot; else use explicit/derived values.
+		let startTime = input.startTime;
+		let duration = input.duration;
+		if (input.slotId) {
+			const shot = findSlot(input.slotId);
+			if (!shot) {
+				return fail(
+					`No slot with id "${input.slotId}" to time the voiceover to.`,
+				);
+			}
+			startTime = startTime ?? shot.element.startTime;
+			duration = duration ?? shot.element.duration;
+		}
+		startTime = startTime ?? editor.timeline.getTotalDuration();
+		duration = duration ?? estimateSpeechSeconds(script);
+		if (duration <= 0) {
+			return fail("addVoiceover requires a positive duration.");
+		}
+		if (startTime < 0) return fail("addVoiceover requires startTime >= 0.");
+
+		const spec = makeVoiceoverSpec({
+			text: script,
+			voice: input.voice,
+			voiceRef: input.voiceRef,
+			personaId: input.personaId,
+			language: input.language,
+		});
+		const slotId = editor.timeline.addVoiceoverSlot({
+			spec,
+			duration,
+			startTime,
+			trackId: input.trackId,
+		});
+
+		if (!executor) {
+			return ok(
+				`Reserved voiceover slot "${slotId}" (${duration.toFixed(1)}s at ${startTime.toFixed(1)}s) — no generation executor configured, so audio was not rendered.`,
+				{ slotId },
+			);
+		}
+
+		const timedTo = input.slotId ? `, timed to shot "${input.slotId}"` : "";
+		const r = await runTakeWithRecovery({
+			elementId: slotId,
+			spec,
+			exec: executor,
+		});
+		if (r.status === "ready") {
+			return ok(
+				`Added voiceover "${slotId}" (${duration.toFixed(1)}s at ${startTime.toFixed(1)}s)${timedTo}.${
+					r.rephrased
+						? " Auto-rephrased a safety rejection to get it through."
+						: ""
+				}`,
+				{ slotId, takeId: r.takeId },
+			);
+		}
+		return {
+			...fail(
+				`Voiceover "${slotId}" failed to render (${r.failure ? FAILURE_LABEL[r.failure.class] : "unknown error"})${
+					r.failure && !r.failure.retryable ? " — it needs your input" : ""
+				}.`,
+			),
+			data: { slotId, takeId: r.takeId, failure: r.failure },
+		};
+	}
+
+	/** Browser-bound default: search the sounds library, download the top hit, and
+	 *  import it as a durable audio asset. Injectable via `options.audio.resolveMusic`
+	 *  so headless tests never touch the network / audio decoder. */
+	async function defaultResolveMusic(input: {
+		query: string;
+		commercialOnly: boolean;
+	}): Promise<ResolvedMusic> {
+		try {
+			const projectId = editor.project.getActive().metadata.id;
+			const params = new URLSearchParams({
+				q: input.query,
+				type: "effects",
+				page: "1",
+				commercial_only: String(input.commercialOnly),
+			});
+			const res = await fetch(`/api/sounds/search?${params.toString()}`, {
+				headers: getFreesoundHeaders(),
+			});
+			if (!res.ok) return { error: `sound search failed (${res.status})` };
+			const data = (await res.json()) as {
+				results?: {
+					name?: string;
+					duration?: number;
+					license?: string;
+					url?: string;
+					previewUrl?: string;
+					downloadUrl?: string;
+				}[];
+			};
+			const hit = data.results?.[0];
+			if (!hit) return { error: `no sounds matched "${input.query}"` };
+			const audioUrl = hit.downloadUrl || hit.previewUrl;
+			if (!audioUrl) {
+				return { error: `top sound "${hit.name}" has no downloadable audio` };
+			}
+			const audioRes = await fetch(audioUrl);
+			if (!audioRes.ok) {
+				return {
+					error: `failed to download "${hit.name}" (${audioRes.status})`,
+				};
+			}
+			const blob = await audioRes.blob();
+			const { mediaId } = await importAudioAsset(
+				editor,
+				projectId,
+				blob,
+				hit.name || input.query,
+			);
+			return {
+				mediaId,
+				name: hit.name || input.query,
+				duration: hit.duration,
+				license: hit.license,
+				sourceUrl: hit.url,
+			};
+		} catch (err) {
+			return {
+				error: err instanceof Error ? err.message : "music resolution failed",
+			};
+		}
+	}
+
+	const resolveMusic = options.audio?.resolveMusic ?? defaultResolveMusic;
+
+	/**
+	 * Search the sounds library for `query` and lay the top match under the reel
+	 * as a quiet music bed (default volume 0.3, so it sits below dialogue/VO).
+	 * Spans the whole timeline unless `startTime`/`duration` are given. Places a
+	 * plain audio clip (not a generative slot).
+	 */
+	async function addMusicBed(input: {
+		query: string;
+		startTime?: number;
+		duration?: number;
+		volume?: number;
+		commercialOnly?: boolean;
+		trackId?: string;
+	}): Promise<
+		DirectorResult<{
+			elementId: string;
+			mediaId: string;
+			name: string;
+			license?: string;
+			sourceUrl?: string;
+		}>
+	> {
+		const query = input.query?.trim();
+		if (!query) return fail("addMusicBed requires a non-empty query.");
+
+		const resolved = await resolveMusic({
+			query,
+			commercialOnly: input.commercialOnly ?? true,
+		});
+		if ("error" in resolved) return fail(`addMusicBed: ${resolved.error}`);
+
+		const startTime = input.startTime ?? 0;
+		if (startTime < 0) return fail("addMusicBed requires startTime >= 0.");
+		const duration =
+			input.duration ??
+			(editor.timeline.getTotalDuration() ||
+				resolved.duration ||
+				TIMELINE_CONSTANTS.DEFAULT_ELEMENT_DURATION);
+		if (duration <= 0) {
+			return fail(
+				"addMusicBed needs a positive duration — the timeline is empty, so pass an explicit duration.",
+			);
+		}
+
+		const volume = Math.min(1, Math.max(0, input.volume ?? 0.3));
+		const element = buildUploadAudioElement({
+			mediaId: resolved.mediaId,
+			name: resolved.name,
+			duration,
+			startTime,
+		});
+		element.volume = volume;
+
+		const elementId = editor.timeline.insertElement({
+			element,
+			placement: input.trackId
+				? { mode: "explicit", trackId: input.trackId }
+				: { mode: "auto", trackType: "audio" },
+		});
+
+		return ok(
+			`Added music bed "${resolved.name}" (${duration.toFixed(1)}s at ${startTime.toFixed(1)}s, volume ${volume}). Plain audio clip — not a reel slot, so it won't appear in REEL listings or deltas.`,
+			{
+				elementId,
+				mediaId: resolved.mediaId,
+				name: resolved.name,
+				license: resolved.license,
+				sourceUrl: resolved.sourceUrl,
+			},
+		);
+	}
+
 	// ---- EDIT (delegate to timeline-manager) ------------------------------
 	//
 	// UNIT CONVENTION: every numeric time/duration field on this API surface is
@@ -2016,6 +2570,9 @@ export function createDirectorApi(
 		remix,
 		chooseTake,
 		reviewTake,
+		// audio
+		addVoiceover,
+		addMusicBed,
 		// consistency
 		getConsistencyContext,
 		setConsistencyContext,

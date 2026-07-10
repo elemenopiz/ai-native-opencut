@@ -402,8 +402,9 @@ const slotSpecSchema: JSONSchema = {
  * The Director verbs, one descriptor each — including `export` (maps to
  * `director-api.ts`'s `exportReel`), the model-routing surface (`getBackends`
  * to read the catalog, `backendId` on generate/reroll, `compareTake` to A/B two
- * backends), the durable-brief pair (`getBrief`/`updateBrief`), and `reviewTake`
- * (decode a take's frames so the model can SEE and judge it).
+ * backends), the durable-brief pair (`getBrief`/`updateBrief`), `reviewTake`
+ * (decode a take's frames so the model can SEE and judge it), and the audio pair
+ * (`addVoiceover`/`addMusicBed`).
  */
 export function toolCatalog(): ToolDescriptor[] {
 	return [
@@ -812,6 +813,102 @@ export function toolCatalog(): ToolDescriptor[] {
 					slotId: str(a.slotId),
 					takeId: strOrUndefined(a.takeId),
 					frames: numOrUndefined(a.frames),
+				}),
+		},
+		// ── audio (VO + music bed) ──────────────────────────────────────────
+		{
+			name: "addVoiceover",
+			description:
+				"speak a script as a voiceover clip, TIMED to a shot. Pass slotId to place it at that shot's start and match its length; else pass startTime/duration. Returns a FULL audio element id (not a reel slot id).",
+			mutating: true,
+			inputSchema: {
+				type: "object",
+				properties: {
+					script: {
+						type: "string",
+						description: "The spoken narration text.",
+					},
+					slotId: {
+						type: "string",
+						description:
+							"Short id of the shot to narrate — the VO is timed to it. Omit to place by startTime/duration instead.",
+					},
+					startTime: secs(
+						"VO start (seconds); defaults to the narrated shot's start, else end of timeline",
+					),
+					duration: secs(
+						"VO duration (seconds); defaults to the shot's duration, else estimated from the script",
+					),
+					voice: {
+						type: "string",
+						description: "Built-in TTS speaker id (e.g. male/female).",
+					},
+					voiceRef: {
+						type: "string",
+						description: "Cloned-voice reference path (wins over voice).",
+					},
+					personaId: {
+						type: "string",
+						description: "Bind the VO's vocal identity to a persona.",
+					},
+					language: {
+						type: "string",
+						description: "TTS language code (default en).",
+					},
+				},
+				required: ["script"],
+			},
+			handler: (d, a) =>
+				d.addVoiceover({
+					script: str(a.script),
+					slotId: strOrUndefined(a.slotId),
+					startTime: numOrUndefined(a.startTime),
+					duration: numOrUndefined(a.duration),
+					voice: strOrUndefined(a.voice),
+					voiceRef: strOrUndefined(a.voiceRef),
+					personaId: strOrUndefined(a.personaId),
+					language: strOrUndefined(a.language),
+				}),
+		},
+		{
+			name: "addMusicBed",
+			description:
+				"search the sounds library and lay the top match under the reel as a quiet music bed (spans the whole timeline by default). Plain audio clip, not a reel slot.",
+			mutating: true,
+			inputSchema: {
+				type: "object",
+				properties: {
+					query: {
+						type: "string",
+						description:
+							"What music/ambience to search for (e.g. 'upbeat lofi').",
+					},
+					startTime: secs("bed start (seconds); defaults to 0"),
+					duration: secs(
+						"bed duration (seconds); defaults to the whole timeline",
+					),
+					volume: {
+						type: "number",
+						minimum: 0,
+						maximum: 1,
+						description:
+							"Bed level 0-1 (default 0.3 — sits under dialogue/VO).",
+					},
+					commercialOnly: {
+						type: "boolean",
+						description:
+							"Restrict to commercially-licensable results (default true).",
+					},
+				},
+				required: ["query"],
+			},
+			handler: (d, a) =>
+				d.addMusicBed({
+					query: str(a.query),
+					startTime: numOrUndefined(a.startTime),
+					duration: numOrUndefined(a.duration),
+					volume: numOrUndefined(a.volume),
+					commercialOnly: boolOrUndefined(a.commercialOnly),
 				}),
 		},
 		// ── consistency ─────────────────────────────────────────────────────
