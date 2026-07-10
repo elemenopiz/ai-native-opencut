@@ -74,6 +74,27 @@ const webEnvSchema = z.object({
 	OPENAI_API_KEY: z.string().default(""),
 	// Model name — defaults to gpt-image-2 (current GPT Image model id)
 	OPENAI_IMAGE_MODEL: z.string().default("gpt-image-2"),
+
+	// ── Payments: Polar (merchant-of-record) ──────────────────────────────
+	// Phase 2 of the credit system. Polar handles global tax/VAT as MoR. The
+	// whole payments surface stays INERT until POLAR_ACCESS_TOKEN and
+	// POLAR_WEBHOOK_SECRET are set (see `isPaymentsConfigured()`), mirroring the
+	// Studio provider adapters' inert-until-configured pattern.
+	//
+	// NOTE: kept as a self-contained block so a parallel change adding a
+	// CREDITS_ENFORCED flag elsewhere in this schema merges cleanly.
+	//
+	// Server-side API token (Organization Access Token from the Polar dashboard).
+	POLAR_ACCESS_TOKEN: z.string().default(""),
+	// Webhook signing secret (Polar → Organization Settings → Webhooks). Used to
+	// verify inbound webhook signatures; a request that fails verification is 401.
+	POLAR_WEBHOOK_SECRET: z.string().default(""),
+	// Organization id — optional for the SDK calls used here (the access token is
+	// already org-scoped), kept for completeness / future org-scoped listings.
+	POLAR_ORGANIZATION_ID: z.string().default(""),
+	// Which Polar environment to talk to. Defaults to the sandbox so a
+	// misconfiguration can never hit real money.
+	POLAR_SERVER: z.enum(["sandbox", "production"]).default("sandbox"),
 });
 
 export type WebEnv = z.infer<typeof webEnvSchema>;

@@ -35,3 +35,12 @@ try {
 	// No .env.local (e.g. CI without one) — tests that require it will fail with
 	// a clear env-validation error, which is the right signal.
 }
+
+// Payments (Phase 2) test fixtures. The webhook signature tests need a NON-empty
+// POLAR_WEBHOOK_SECRET so real signature verification runs (standardwebhooks
+// refuses an empty secret). We deliberately leave POLAR_ACCESS_TOKEN unset so
+// `isPaymentsConfigured()` stays false — the "unconfigured/inert" tests assert
+// that state. Only set when a real env hasn't already provided one.
+if (process.env.POLAR_WEBHOOK_SECRET === undefined) {
+	process.env.POLAR_WEBHOOK_SECRET = "whsec_test_secret_do_not_use_in_prod";
+}
