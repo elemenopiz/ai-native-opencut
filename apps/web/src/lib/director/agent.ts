@@ -476,7 +476,8 @@ async function executeTool(
 			action === "getConsistencyContext" ||
 			action === "getProjectInfo" ||
 			action === "getBackends" ||
-			action === "getBrief")
+			action === "getBrief" ||
+			action === "intakeReferences")
 	) {
 		observation = `${result.message} DATA:${JSON.stringify(result.data)}`;
 	} else {
@@ -1128,6 +1129,7 @@ export function buildFrontierSystemPrompt(director: DirectorApi): string {
 		"HONOR THE BRIEF: the DIRECTOR BRIEF below is the user's durable creative intent. Let it shape every prompt you write and every take you pick. When the user states a new preference — or a chosen take reveals one — call updateBrief so it persists for later turns.",
 		briefBlock(director),
 		"",
+		"EYES ON INPUT: when the user ATTACHES reference images — style refs (a moodboard, a film still, a product/location shot) and/or a character photo — do NOT plan from words alone. Call `intakeReferences` FIRST with those reference mediaIds (full media ids; see the recent assets in the project info): the model SEES the pixels and derives a StyleBible (palette/lens-mood/setting) that seeds the reel's consistency context, and — when a person is the subject — locks & activates a PERSONA so that character recurs across shots. Then pass the returned `bible` into `storyboard` and generate; every shot inherits the referenced look and cast without you restating it. Use it for a plain \"make it look like this\" / \"use this character\" ask, not for footage the user wants placed on the timeline (that's addClip).",
 		"VISION REVIEW: you cannot judge a generated clip from its prompt alone — you must SEE it. Call `reviewTake` to get a slot take's actual frames (first→mid→last) as images, then decide against the slot's prompt:",
 		"  · faithful → keep it (chooseTake if it isn't already active); do nothing more.",
 		"  · fundamentally wrong shot (wrong subject/scene, missing the point) → fix the prompt with `setPrompt`, then `reroll` for a fresh take.",
