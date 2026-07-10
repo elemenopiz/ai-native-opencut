@@ -48,6 +48,8 @@ import { createShortIdMap, type ShortIdMap } from "./short-id";
 import {
 	needsApproval,
 	formatCostRange,
+	estimateVoiceoverCost,
+	estimateMusicBedCost,
 	DEFAULT_APPROVAL_THRESHOLD_USD,
 	type CostRange,
 } from "@/lib/studio/cost";
@@ -508,9 +510,18 @@ async function executeTool(
 // runs the exact proposed action via `executeDirectorAction`. Fail-closed: the
 // agent cannot talk itself past the gate within a turn — the loop returns.
 
-/** Verbs gated behind the approval gate — they render takes and cost money.
- *  `compareTake` is included because A/B doubles the spend (one take per backend). */
-const REQUIRES_APPROVAL = new Set(["generate", "reroll", "compareTake"]);
+/** Verbs gated behind the approval gate — they hit a PAID backend and cost money.
+ *  `compareTake` is included because A/B doubles the spend (one take per backend);
+ *  `addVoiceover`/`addMusicBed` because they render TTS / pull a licensed track from
+ *  the paid sounds backend, so an audio spend must pause at the threshold just like
+ *  a visual `generate` does. */
+const REQUIRES_APPROVAL = new Set([
+	"generate",
+	"reroll",
+	"compareTake",
+	"addVoiceover",
+	"addMusicBed",
+]);
 
 /** The user-configured USD threshold, read live from the studio settings store. */
 function approvalThreshold(): number {
@@ -559,6 +570,17 @@ function estimateActionCost(
 				alternatives: Math.max(2, backendCount),
 			}).data ?? null
 		);
+	}
+	// Audio verbs bill a paid backend too, so they gate on a real estimate. TTS
+	// cost scales with the script length (always in the args); a music bed is a
+	// flat per-track fee. Both are pure functions of the args — no DirectorApi
+	// round-trip and no slot resolution — so `director` is intentionally unused.
+	if (action === "addVoiceover") {
+		const est = estimateVoiceoverCost(str(args.script));
+		return est.clips > 0 ? est : null;
+	}
+	if (action === "addMusicBed") {
+		return estimateMusicBedCost();
 	}
 	return null;
 }
@@ -1018,7 +1040,7 @@ export function buildFrontierSystemPrompt(director: DirectorApi): string {
 		"PLAN FIRST for multi-shot briefs: when the brief implies MORE THAN ONE shot (a sequence, story, ad, montage, or a 'make a video about X' that isn't a single clip), call `storyboard` BEFORE generating anything. Decompose the brief into ordered shots — each with its `prompt` PLUS creative `intent`/`camera`/`subject` notes — under one shared `bible` (palette, lensMood, setting, and any recurring `characters`). `storyboard` persists the plan (it appears as PLAN in the REEL below and via getReel) and auto-seeds the reel's consistency context from the bible, so every later `generate` inherits the same style and cast — do NOT restate style/characters shot by shot. Then generate against each shot's planned intent. If a PLAN already exists, build on it (setPrompt/reroll individual shots) rather than re-storyboarding from scratch.",
 		'SINGLE / QUICK requests stay fast: for a one-off clip ("make me one clip of X", "add a shot of Y"), skip planning — go straight to reserveSlot (or a one-shot storyboard) and generate. Don\'t force a storyboard or a style bible onto a single-shot ask.',
 		"",
-		"COST GATE: a generate/reroll/compareTake that would spend more than a small amount pauses for the user's approval — the run stops and asks them out-of-band. This is expected, not an error; do NOT retry the same action to force it through.",
+		"COST GATE: any paid action — generate/reroll/compareTake, or an audio add (addVoiceover/addMusicBed) — that would spend more than a small amount pauses for the user's approval; the run stops and asks them out-of-band. This is expected, not an error; do NOT retry the same action to force it through.",
 		MODEL_ROUTING_POLICY,
 		"",
 		"HONOR THE BRIEF: the DIRECTOR BRIEF below is the user's durable creative intent. Let it shape every prompt you write and every take you pick. When the user states a new preference — or a chosen take reveals one — call updateBrief so it persists for later turns.",
@@ -1260,7 +1282,7 @@ function buildLocalSystemPrompt(director: DirectorApi): string {
 		"Use actions ONLY when the user wants to build or change the reel. For questions, ideas, scripts, or advice, answer with a final message.",
 		"After each action you receive an OBSERVATION. When the task is done, send a final message summarizing what you did.",
 		"PLAN FIRST for multi-shot briefs: if the brief implies more than one shot, use `storyboard` before generating — give each shot a prompt plus intent/camera/subject notes under one shared `bible` (palette, lensMood, setting, characters). It persists the PLAN (shown in the REEL below) and auto-seeds the consistency context, so later shots stay coherent without restating style. For a single quick clip, skip planning and just reserveSlot + generate.",
-		"COST GATE: a generate/reroll/compareTake that would spend more than a small amount pauses for the user's approval — the run stops and asks them. This is expected, not an error; never retry the same action to force it through.",
+		"COST GATE: any paid action — generate/reroll/compareTake, or an audio add (addVoiceover/addMusicBed) — that would spend more than a small amount pauses for the user's approval; the run stops and asks them. This is expected, not an error; never retry the same action to force it through.",
 		MODEL_ROUTING_POLICY,
 		"",
 		"HONOR THE BRIEF: the DIRECTOR BRIEF below is the user's durable creative intent — let it shape every prompt and take. Call updateBrief when the user states a new preference or a chosen take reveals one.",

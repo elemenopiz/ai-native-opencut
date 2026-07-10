@@ -164,18 +164,39 @@ export async function POST(req: Request) {
 	// flushed can only be surfaced as an in-band `error` event.
 	if (body.stream) {
 		const encoder = new TextEncoder();
+
+		// Client-cancel → stop billing. When the browser aborts the request (the
+		// user hits Stop), the Anthropic stream would otherwise keep running to
+		// completion on OUR key — we'd pay for tokens nobody reads. Funnel every
+		// disconnect signal (the request's own AbortSignal AND the response
+		// stream's `cancel`) into one controller and abort the upstream request,
+		// so a Stop halts the server-side spend, not just the client's reading.
+		const upstream = new AbortController();
+		const onClientAbort = () => upstream.abort();
+		if (req.signal.aborted) upstream.abort();
+		else req.signal.addEventListener("abort", onClientAbort);
+
 		const rs = new ReadableStream<Uint8Array>({
 			start(controller) {
+				let closed = false;
 				const send = (event: string, data: unknown) => {
-					controller.enqueue(
-						encoder.encode(
-							`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`,
-						),
-					);
+					if (closed) return;
+					try {
+						controller.enqueue(
+							encoder.encode(
+								`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`,
+							),
+						);
+					} catch {
+						// Consumer already went away — stop trying to write.
+						closed = true;
+					}
 				};
 				void (async () => {
 					try {
-						const streamed = client.messages.stream(createParams);
+						const streamed = client.messages.stream(createParams, {
+							signal: upstream.signal,
+						});
 						streamed.on("text", (delta) =>
 							send("delta", { kind: "text", text: delta }),
 						);
@@ -191,6 +212,9 @@ export async function POST(req: Request) {
 						});
 						send("done", {});
 					} catch (error) {
+						// A client-initiated abort is not an error to report — the
+						// connection is gone, so there's nothing (and no one) to send to.
+						if (upstream.signal.aborted) return;
 						send("error", {
 							error:
 								error instanceof Anthropic.APIError
@@ -200,9 +224,19 @@ export async function POST(req: Request) {
 								error instanceof Error ? error.message : "Unknown relay error.",
 						});
 					} finally {
-						controller.close();
+						req.signal.removeEventListener("abort", onClientAbort);
+						closed = true;
+						try {
+							controller.close();
+						} catch {
+							// Already closed (e.g. the consumer cancelled) — ignore.
+						}
 					}
 				})();
+			},
+			// The consumer (client) tore down the response — abort upstream too.
+			cancel() {
+				upstream.abort();
 			},
 		});
 		return new Response(rs, {
