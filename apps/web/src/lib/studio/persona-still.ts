@@ -41,6 +41,9 @@ export interface RenderPersonaStillParams {
 
 export interface RenderPersonaStillResult {
 	imageUrl: string;
+	/** The image backend the router actually picked — lets the caller charge the
+	 *  EXACT per-backend credit cost instead of a default estimate. */
+	backendId: BackendId;
 }
 
 /** Ensure the still lands at a fetchable https URL. Providers that hand back a
@@ -116,5 +119,8 @@ export async function renderPersonaStill(
 		throw new Error(result.error ?? "Persona still generation failed");
 	}
 
-	return { imageUrl: await toFetchableUrl(result.mediaUrl) };
+	return {
+		imageUrl: await toFetchableUrl(result.mediaUrl),
+		backendId: route.backend.id,
+	};
 }

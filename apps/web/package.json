@@ -17,7 +17,8 @@
 		"db:migrate": "drizzle-kit migrate",
 		"db:push:local": "cross-env NODE_ENV=development drizzle-kit push",
 		"db:push:prod": "cross-env NODE_ENV=production drizzle-kit push",
-		"credits:grant": "bun scripts/grant-credits.ts"
+		"credits:grant": "bun scripts/grant-credits.ts",
+		"credits:sweep": "bun scripts/sweep-stale-holds.ts"
 	},
 	"dependencies": {
 		"@anthropic-ai/sdk": "^0.110.0",

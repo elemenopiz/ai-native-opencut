@@ -10,14 +10,12 @@ import { auth } from "@/lib/auth/server";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { DEFAULT_BACKEND_ID } from "@/lib/studio/backends/registry";
 import { costFor } from "@/lib/credits/cost-table";
-import {
-	InsufficientCredits,
-	release,
-	reserve,
-	settle,
-} from "@/lib/credits/ledger";
+import { InsufficientCredits } from "@/lib/credits/ledger";
 import {
 	insufficientCreditsResponse,
+	meteredRelease,
+	meteredReserve,
+	meteredSettle,
 	STUDIO_REF_TYPE,
 } from "@/lib/credits/metering";
 
@@ -74,18 +72,22 @@ export async function POST(
 			: undefined;
 
 		// Credits: rendering a persona still is a synchronous paid image call.
-		// Reserve the server-computed cost before dispatch, settle on success,
-		// release on failure. `renderPersonaStill` routes internally across the
-		// image backends; we price it at the default image backend's flat rate.
-		const imageBackendId = DEFAULT_BACKEND_ID.image;
-		const creditCost = costFor(imageBackendId, "image", { count: 1 });
+		// `renderPersonaStill` ROUTES across the image backends, so the exact
+		// provider (and its cost) isn't known until it returns. Reserve the default
+		// image backend's cost up front — it's the max of the image tiers, so the
+		// hold always covers the real charge — then settle the EXACT routed-backend
+		// cost and release any over-hold. Release fully on failure (never bill a
+		// failed call).
+		const reserveCost = costFor(DEFAULT_BACKEND_ID.image, "image", {
+			count: 1,
+		});
 		const chargeId = nanoid();
 		try {
-			await reserve(session.user.id, creditCost, {
+			await meteredReserve(session.user.id, reserveCost, {
 				refType: STUDIO_REF_TYPE,
 				refId: chargeId,
 				idempotencyKey: `${chargeId}:reserve`,
-				metadata: { backendId: imageBackendId, kind: "persona-still" },
+				metadata: { kind: "persona-still" },
 			});
 		} catch (err) {
 			if (err instanceof InsufficientCredits) {
@@ -95,8 +97,9 @@ export async function POST(
 		}
 
 		let imageUrl: string;
+		let usedBackendId: string;
 		try {
-			({ imageUrl } = await renderPersonaStill({
+			({ imageUrl, backendId: usedBackendId } = await renderPersonaStill({
 				anchorImageUrl: persona.anchorImageUrl,
 				refImageUrls,
 				scenePrompt,
@@ -104,7 +107,7 @@ export async function POST(
 				size,
 			}));
 		} catch (err) {
-			await release(session.user.id, creditCost, {
+			await meteredRelease(session.user.id, reserveCost, {
 				refType: STUDIO_REF_TYPE,
 				refId: chargeId,
 				idempotencyKey: `${chargeId}:release`,
@@ -112,13 +115,23 @@ export async function POST(
 			throw err;
 		}
 
-		if (creditCost > 0) {
-			await settle(session.user.id, creditCost, {
+		// Charge the exact cost of the backend the router actually used, then free
+		// any difference between the reservation and the real charge.
+		const actualCost = costFor(usedBackendId, "image", { count: 1 });
+		if (actualCost > 0) {
+			await meteredSettle(session.user.id, actualCost, {
 				refType: STUDIO_REF_TYPE,
 				refId: chargeId,
 				idempotencyKey: `${chargeId}:settle`,
-				metadata: { backendId: imageBackendId, kind: "persona-still" },
+				metadata: { backendId: usedBackendId, kind: "persona-still" },
 			});
+		}
+		if (reserveCost > actualCost) {
+			await meteredRelease(session.user.id, reserveCost - actualCost, {
+				refType: STUDIO_REF_TYPE,
+				refId: chargeId,
+				idempotencyKey: `${chargeId}:release-diff`,
+			}).catch(() => {});
 		}
 
 		return NextResponse.json({ imageUrl });
