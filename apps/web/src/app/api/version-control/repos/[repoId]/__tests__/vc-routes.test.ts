@@ -110,8 +110,19 @@ beforeEach(() => {
 });
 
 describe("commits GET — pagination NaN/negative guard", () => {
+	// checkRepoAccess() reads projectRepositories first; stub an OWNED row so the
+	// route passes the ownership gate and actually reaches the pagination clamp.
+	// commits returns [] — the clamp is exercised via the captured LIMIT/OFFSET,
+	// not the result rows.
+	beforeEach(() => {
+		state.rowsFor = (table: unknown) => {
+			if (table === projectRepositories) return [{ userId: "owner-1" }];
+			if (table === commits) return [];
+			return [];
+		};
+	});
+
 	it("falls back to limit=50, offset=0 on non-numeric params", async () => {
-		state.rowsFor = () => [];
 		await commitsGET(
 			urlRequest("http://localhost/c?limit=abc&offset=xyz"),
 			params("repo-1"),

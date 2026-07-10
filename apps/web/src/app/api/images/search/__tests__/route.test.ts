@@ -79,7 +79,7 @@ describe("Pexels search — per_page/page NaN guard", () => {
 	it("still rejects an empty query before hitting the guard/fetch", async () => {
 		globalThis.fetch = (async () => {
 			throw new Error("fetch should not be called for an empty query");
-		}) as typeof fetch;
+		}) as unknown as typeof fetch;
 		const res = await call("per_page=abc");
 		expect(res.status).toBe(400);
 	});
