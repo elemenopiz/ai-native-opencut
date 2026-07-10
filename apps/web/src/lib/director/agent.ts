@@ -998,23 +998,61 @@ export async function autoReviewSlot(opts: {
 		// 3. Keep it and stop.
 		if (verdict.verdict === "pass" || !verdict.revisedPrompt) return;
 
-		// 4. Cost gate: a corrective generation is a spend — never cross the
-		// approval threshold unsupervised. Pause and leave it for the user.
-		const est = director.estimateGenerateCost({
-			slotIds: [slotId],
+		// 4. Cost gate: a corrective generation is a spend. While a whole-reel
+		// budget is active it governs the decision (pause / down-route) AND the
+		// spend must be recorded against it (auto-review runs OUTSIDE the tool
+		// loop, which is where interactive spend is tallied); otherwise fall back
+		// to the flat approval threshold. Never spend unsupervised past either.
+		const action: "reroll" | "remix" =
+			verdict.verdict === "reroll-with-delta" ? "reroll" : "remix";
+		const budget = await evaluateBudgetGate(director, action, {
+			slotId,
 			alternatives: 1,
-		}).data;
-		if (est && needsApproval(est, threshold)) {
+		});
+		let pinnedBackendId: string | undefined;
+		if (budget.outcome === "pause") {
 			recordAutoStep(
 				steps,
 				onStep,
-				verdict.verdict === "reroll-with-delta" ? "reroll" : "remix",
-				`Auto-review paused on slot ${shortId} — a corrective ${verdict.verdict} (~${formatCostRange(
-					est,
-				)}) is over your approval threshold. Approve it to apply the fix.`,
+				action,
+				`Auto-review paused on slot ${shortId} — a corrective ${verdict.verdict} would push the reel over its remaining budget. Approve it to apply the fix.`,
 				false,
 			);
 			return;
+		}
+		if (budget.outcome === "downroute") {
+			if (action === "reroll") {
+				pinnedBackendId = budget.backendId;
+			} else {
+				// remix can't be retargeted to a cheaper backend, so honouring the
+				// reel budget means leaving it for the user rather than overspending.
+				recordAutoStep(
+					steps,
+					onStep,
+					action,
+					`Auto-review paused on slot ${shortId} — a corrective ${verdict.verdict} only fits the reel budget on a cheaper model, which remix can't retarget. Approve it to apply the fix.`,
+					false,
+				);
+				return;
+			}
+		}
+		if (budget.outcome === "inactive") {
+			const est = director.estimateGenerateCost({
+				slotIds: [slotId],
+				alternatives: 1,
+			}).data;
+			if (est && needsApproval(est, threshold)) {
+				recordAutoStep(
+					steps,
+					onStep,
+					action,
+					`Auto-review paused on slot ${shortId} — a corrective ${verdict.verdict} (~${formatCostRange(
+						est,
+					)}) is over your approval threshold. Approve it to apply the fix.`,
+					false,
+				);
+				return;
+			}
 		}
 
 		// 5. Apply the correction through the real verbs.
@@ -1028,7 +1066,11 @@ export async function autoReviewSlot(opts: {
 			// take is still the old one.
 			const originalPrompt = director.getSlot(slotId).data?.prompt;
 			director.setPrompt({ slotId, prompt: verdict.revisedPrompt });
-			const res = await director.reroll({ slotId, alternatives: 1 });
+			const res = await director.reroll({
+				slotId,
+				alternatives: 1,
+				backendId: pinnedBackendId,
+			});
 			correctedTakeId = res.data?.takeIds?.[0];
 			message = res.message;
 			corrected = res.ok;
@@ -1070,6 +1112,15 @@ export async function autoReviewSlot(opts: {
 			corrected,
 		);
 		if (!corrected) return;
+
+		// Record the corrective spend against the reel budget so the cap and the
+		// panel stay accurate (this path never reaches the tool loop's recordSpend).
+		if (
+			(budget.outcome === "proceed" || budget.outcome === "downroute") &&
+			budget.costUsd > 0
+		) {
+			director.recordSpend({ usd: budget.costUsd });
+		}
 
 		// 6. Select the corrected take so the reel (and the next review) uses it.
 		// Bail if it didn't come back ready — don't spiral on a failing slot.
