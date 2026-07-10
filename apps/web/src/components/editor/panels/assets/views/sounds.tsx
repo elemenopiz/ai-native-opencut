@@ -113,6 +113,13 @@ function SoundEffectsView() {
 		isLoading: isLoadingMore || isSearching,
 	});
 
+	// Stop preview playback if this view unmounts while a sound is playing.
+	useEffect(() => {
+		return () => {
+			audioElement?.pause();
+		};
+	}, [audioElement]);
+
 	useEffect(() => {
 		loadSavedSounds();
 	}, [loadSavedSounds]);
@@ -349,6 +356,13 @@ function SavedSoundsView() {
 
 	const [showClearDialog, setShowClearDialog] = useState(false);
 
+	// Stop preview playback if this view unmounts while a sound is playing.
+	useEffect(() => {
+		return () => {
+			audioElement?.pause();
+		};
+	}, [audioElement]);
+
 	useEffect(() => {
 		loadSavedSounds();
 	}, [loadSavedSounds]);
@@ -475,9 +489,7 @@ function SavedSoundsView() {
 							</Button>
 							<Button
 								variant="destructive"
-								onClick={async (
-									event: React.MouseEvent<HTMLButtonElement>,
-								) => {
+								onClick={async (event: React.MouseEvent<HTMLButtonElement>) => {
 									event.stopPropagation();
 									await clearSavedSounds();
 									setShowClearDialog(false);
@@ -528,9 +540,7 @@ function AudioItem({ sound, isPlaying, onPlay, onTagClick }: AudioItemProps) {
 		onPlay({ sound });
 	};
 
-	const handleSaveClick = (
-		event: React.MouseEvent<HTMLButtonElement>,
-	) => {
+	const handleSaveClick = (event: React.MouseEvent<HTMLButtonElement>) => {
 		event.stopPropagation();
 		toggleSavedSound({ soundEffect: sound });
 	};
@@ -543,9 +553,9 @@ function AudioItem({ sound, isPlaying, onPlay, onTagClick }: AudioItemProps) {
 	};
 
 	// Show up to 4 most useful tags (skip generic ones)
-	const displayTags = sound.tags
-		?.filter((t) => !HIDDEN_TAGS.has(t.toLowerCase()))
-		.slice(0, 4) ?? [];
+	const displayTags =
+		sound.tags?.filter((t) => !HIDDEN_TAGS.has(t.toLowerCase())).slice(0, 4) ??
+		[];
 
 	return (
 		<div className="group flex flex-col gap-1.5">
@@ -621,14 +631,42 @@ function AudioItem({ sound, isPlaying, onPlay, onTagClick }: AudioItemProps) {
 
 /** Tags that are too generic to display */
 const HIDDEN_TAGS = new Set([
-	"sound", "effect", "sound-effect", "sfx", "audio", "sample",
-	"wav", "mp3", "ogg", "flac", "mono", "stereo", "freesound",
-	"field-recording", "recording",
+	"sound",
+	"effect",
+	"sound-effect",
+	"sfx",
+	"audio",
+	"sample",
+	"wav",
+	"mp3",
+	"ogg",
+	"flac",
+	"mono",
+	"stereo",
+	"freesound",
+	"field-recording",
+	"recording",
 ]);
 
 const POPULAR_TAGS = [
-	"whoosh", "impact", "explosion", "ambient", "nature",
-	"footsteps", "rain", "wind", "click", "beep",
-	"sci-fi", "horror", "cinematic", "foley", "mechanical",
-	"water", "fire", "thunder", "alarm", "notification",
+	"whoosh",
+	"impact",
+	"explosion",
+	"ambient",
+	"nature",
+	"footsteps",
+	"rain",
+	"wind",
+	"click",
+	"beep",
+	"sci-fi",
+	"horror",
+	"cinematic",
+	"foley",
+	"mechanical",
+	"water",
+	"fire",
+	"thunder",
+	"alarm",
+	"notification",
 ];
