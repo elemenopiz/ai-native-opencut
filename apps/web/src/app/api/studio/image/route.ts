@@ -13,14 +13,12 @@ import { auth } from "@/lib/auth/server";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { DEFAULT_BACKEND_ID } from "@/lib/studio/backends/registry";
 import { costFor } from "@/lib/credits/cost-table";
-import {
-	InsufficientCredits,
-	release,
-	reserve,
-	settle,
-} from "@/lib/credits/ledger";
+import { InsufficientCredits } from "@/lib/credits/ledger";
 import {
 	insufficientCreditsResponse,
+	meteredRelease,
+	meteredReserve,
+	meteredSettle,
 	STUDIO_REF_TYPE,
 } from "@/lib/credits/metering";
 
@@ -64,7 +62,7 @@ export async function POST(req: Request) {
 		const creditCost = costFor(imageBackendId, "image", { count: n });
 		const chargeId = nanoid();
 		try {
-			await reserve(session.user.id, creditCost, {
+			await meteredReserve(session.user.id, creditCost, {
 				refType: STUDIO_REF_TYPE,
 				refId: chargeId,
 				idempotencyKey: `${chargeId}:reserve`,
@@ -81,7 +79,7 @@ export async function POST(req: Request) {
 		try {
 			results = await generateReferenceImage({ prompt, size, quality, n });
 		} catch (err) {
-			await release(session.user.id, creditCost, {
+			await meteredRelease(session.user.id, creditCost, {
 				refType: STUDIO_REF_TYPE,
 				refId: chargeId,
 				idempotencyKey: `${chargeId}:release`,
@@ -90,7 +88,7 @@ export async function POST(req: Request) {
 		}
 
 		if (creditCost > 0) {
-			await settle(session.user.id, creditCost, {
+			await meteredSettle(session.user.id, creditCost, {
 				refType: STUDIO_REF_TYPE,
 				refId: chargeId,
 				idempotencyKey: `${chargeId}:settle`,

@@ -22,14 +22,12 @@ import { db } from "@/lib/db";
 import { generationSets, personas, takes } from "@/lib/db/schema-studio";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { costFor } from "@/lib/credits/cost-table";
-import {
-	InsufficientCredits,
-	release,
-	reserve,
-	settle,
-} from "@/lib/credits/ledger";
+import { InsufficientCredits } from "@/lib/credits/ledger";
 import {
 	insufficientCreditsResponse,
+	meteredRelease,
+	meteredReserve,
+	meteredSettle,
 	STUDIO_REF_TYPE,
 } from "@/lib/credits/metering";
 import type { GenerationSpec, Provenance, TakeCost } from "@/types/timeline";
@@ -265,7 +263,7 @@ export async function POST(req: Request) {
 			seconds: duration,
 		});
 		try {
-			await reserve(session.user.id, creditCost, {
+			await meteredReserve(session.user.id, creditCost, {
 				refType: STUDIO_REF_TYPE,
 				refId: setId,
 				idempotencyKey: `${setId}:reserve`,
@@ -301,7 +299,7 @@ export async function POST(req: Request) {
 			// Sync backends finish inline — settle now. Async video (pending/
 			// processing) stays reserved; the poll route settles on completion.
 			if (result.status === "completed" && creditCost > 0) {
-				await settle(session.user.id, creditCost, {
+				await meteredSettle(session.user.id, creditCost, {
 					refType: STUDIO_REF_TYPE,
 					refId: setId,
 					idempotencyKey: `${setId}:settle`,
@@ -310,7 +308,7 @@ export async function POST(req: Request) {
 			}
 		} catch (err) {
 			// Never charge for a failed dispatch/persist — refund the hold.
-			await release(session.user.id, creditCost, {
+			await meteredRelease(session.user.id, creditCost, {
 				refType: STUDIO_REF_TYPE,
 				refId: setId,
 				idempotencyKey: `${setId}:release`,
