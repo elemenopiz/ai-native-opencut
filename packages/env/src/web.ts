@@ -21,6 +21,13 @@ const webEnvSchema = z.object({
 	UPSTASH_REDIS_REST_URL: z.url().default("http://localhost:8079"),
 	UPSTASH_REDIS_REST_TOKEN: z.string().default("example_token"),
 
+	// Transactional email (password reset + email verification). Optional —
+	// without RESEND_API_KEY the app logs the action link to the server console
+	// instead of sending (dev-friendly, never throws). EMAIL_FROM must be a
+	// verified sender on your Resend account in production.
+	RESEND_API_KEY: z.string().default(""),
+	EMAIL_FROM: z.string().default("Byorn <noreply@byorn.app>"),
+
 	// Analytics (optional)
 	NEXT_PUBLIC_GA_MEASUREMENT_ID: z.string().default(""),
 
