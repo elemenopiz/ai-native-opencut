@@ -87,12 +87,11 @@ export function SettingsView() {
 					</SectionHeader>
 					<SectionContent>
 						<APIKeysSection />
-						<StudioProviderKeysSection />
 					</SectionContent>
 				</Section>
 				{/* Fact Check renders its own PanelView header */}
 				<FactCheckView />
-				</div>
+			</div>
 		</PanelView>
 	);
 }
@@ -458,14 +457,21 @@ function loadSavedConfig(): Record<string, string | number> {
 	try {
 		const raw = localStorage.getItem(CONFIG_STORAGE_KEY);
 		return raw ? JSON.parse(raw) : {};
-	} catch { return {}; }
+	} catch {
+		return {};
+	}
 }
 
 function saveConfig(updates: Record<string, string | number>) {
 	try {
 		const existing = loadSavedConfig();
-		localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify({ ...existing, ...updates }));
-	} catch { /* ignore */ }
+		localStorage.setItem(
+			CONFIG_STORAGE_KEY,
+			JSON.stringify({ ...existing, ...updates }),
+		);
+	} catch {
+		/* ignore */
+	}
 }
 
 /** Merge user's saved preferences over backend status so selections persist across navigation. */
@@ -474,8 +480,10 @@ function mergeWithSavedConfig(data: TurboQuantStatus): TurboQuantStatus {
 	if (Object.keys(saved).length === 0) return data;
 	const merged = { ...data };
 	if ("AI_MODEL_TIER" in saved) merged.model_tier = String(saved.AI_MODEL_TIER);
-	if ("KV_CACHE_BITS" in saved) merged.kv_cache_bits = Number(saved.KV_CACHE_BITS);
-	if ("AI_MEMORY_BUDGET" in saved) merged.memory_budget = String(saved.AI_MEMORY_BUDGET);
+	if ("KV_CACHE_BITS" in saved)
+		merged.kv_cache_bits = Number(saved.KV_CACHE_BITS);
+	if ("AI_MEMORY_BUDGET" in saved)
+		merged.memory_budget = String(saved.AI_MEMORY_BUDGET);
 	if ("AI_COMPUTE_MODE" in saved) {
 		const raw = String(saved.AI_COMPUTE_MODE);
 		if (raw === "auto" || raw === "cpu" || raw === "cuda") {
@@ -494,51 +502,74 @@ function AIOptimizationSection() {
 		setLoading(true);
 		aiClient
 			.turboquantStatus()
-			.then((data) => { setStatus(mergeWithSavedConfig(data)); setError(null); })
-			.catch((err) => setError(err instanceof Error ? err.message : "Failed to load"))
+			.then((data) => {
+				setStatus(mergeWithSavedConfig(data));
+				setError(null);
+			})
+			.catch((err) =>
+				setError(err instanceof Error ? err.message : "Failed to load"),
+			)
 			.finally(() => setLoading(false));
 	}, []);
 
-	useEffect(() => { fetchStatus(); }, [fetchStatus]);
+	useEffect(() => {
+		fetchStatus();
+	}, [fetchStatus]);
 
 	// On mount, push any saved config to the backend
 	useEffect(() => {
 		const saved = loadSavedConfig();
 		if (Object.keys(saved).length === 0) return;
-		aiClient.updateConfig(saved)
+		aiClient
+			.updateConfig(saved)
 			.then(() => fetchStatus())
-			.catch(() => { /* backend not ready yet, config stays in localStorage */ });
+			.catch(() => {
+				/* backend not ready yet, config stays in localStorage */
+			});
 	}, [fetchStatus]);
 
-	const handleConfigUpdate = useCallback((updates: Record<string, string | number>, label: string) => {
-		// 1. Save to localStorage (persists across navigation)
-		saveConfig(updates);
+	const handleConfigUpdate = useCallback(
+		(updates: Record<string, string | number>, label: string) => {
+			// 1. Save to localStorage (persists across navigation)
+			saveConfig(updates);
 
-		// 2. Update UI immediately
-		setStatus((prev) => {
-			if (!prev) return prev;
-			const next = { ...prev };
-			if ("AI_MODEL_TIER" in updates) next.model_tier = String(updates.AI_MODEL_TIER);
-			if ("KV_CACHE_BITS" in updates) next.kv_cache_bits = Number(updates.KV_CACHE_BITS);
-			if ("AI_MEMORY_BUDGET" in updates) next.memory_budget = String(updates.AI_MEMORY_BUDGET);
-			if ("AI_COMPUTE_MODE" in updates) {
-				const raw = String(updates.AI_COMPUTE_MODE);
-				if (raw === "auto" || raw === "cpu" || raw === "cuda") {
-					next.compute_mode = raw;
+			// 2. Update UI immediately
+			setStatus((prev) => {
+				if (!prev) return prev;
+				const next = { ...prev };
+				if ("AI_MODEL_TIER" in updates)
+					next.model_tier = String(updates.AI_MODEL_TIER);
+				if ("KV_CACHE_BITS" in updates)
+					next.kv_cache_bits = Number(updates.KV_CACHE_BITS);
+				if ("AI_MEMORY_BUDGET" in updates)
+					next.memory_budget = String(updates.AI_MEMORY_BUDGET);
+				if ("AI_COMPUTE_MODE" in updates) {
+					const raw = String(updates.AI_COMPUTE_MODE);
+					if (raw === "auto" || raw === "cpu" || raw === "cuda") {
+						next.compute_mode = raw;
+					}
 				}
-			}
-			return next;
-		});
-		toast.success(`${label} applied`);
+				return next;
+			});
+			toast.success(`${label} applied`);
 
-		// 3. Push to backend in background
-		aiClient.updateConfig(updates)
-			.then(() => fetchStatus())
-			.catch(() => { /* stays in localStorage for next sync */ });
-	}, [fetchStatus]);
+			// 3. Push to backend in background
+			aiClient
+				.updateConfig(updates)
+				.then(() => fetchStatus())
+				.catch(() => {
+					/* stays in localStorage for next sync */
+				});
+		},
+		[fetchStatus],
+	);
 
 	if (loading) {
-		return <p className="text-[10px] text-muted-foreground">Loading optimization status...</p>;
+		return (
+			<p className="text-[10px] text-muted-foreground">
+				Loading optimization status...
+			</p>
+		);
 	}
 
 	if (error) {
@@ -553,18 +584,22 @@ function AIOptimizationSection() {
 
 	const hw = status.hardware;
 	const stack = status.stack_memory_estimate;
-	const savingsPercent = stack.total_without_turboquant_mb > 0
-		? Math.round((stack.savings_mb / stack.total_without_turboquant_mb) * 100)
-		: 0;
+	const savingsPercent =
+		stack.total_without_turboquant_mb > 0
+			? Math.round((stack.savings_mb / stack.total_without_turboquant_mb) * 100)
+			: 0;
 
 	// Compute recommendations based on system RAM
 	const ramGb = Math.round(hw.ram_total_mb / 1024);
-	const activeTier = status.model_tier === "auto" ? status.recommended_tier : status.model_tier;
+	const activeTier =
+		status.model_tier === "auto" ? status.recommended_tier : status.model_tier;
 	const recommendedTier = status.recommended_tier;
 	const recommendedKvBits = ramGb <= 8 ? 3 : 4;
-	const recommendedBudget = ramGb >= 32 ? "32GB" : ramGb >= 16 ? "16GB" : ramGb >= 8 ? "8GB" : "4GB";
+	const recommendedBudget =
+		ramGb >= 32 ? "32GB" : ramGb >= 16 ? "16GB" : ramGb >= 8 ? "8GB" : "4GB";
 	// Resolve "auto" budget to the actual best match
-	const activeBudget = status.memory_budget === "auto" ? recommendedBudget : status.memory_budget;
+	const activeBudget =
+		status.memory_budget === "auto" ? recommendedBudget : status.memory_budget;
 
 	return (
 		<div className="flex flex-col gap-3">
@@ -574,7 +609,9 @@ function AIOptimizationSection() {
 					<span
 						className={cn(
 							"size-1.5 rounded-full shrink-0",
-							status.inference_service.available ? "bg-green-500" : "bg-muted-foreground/30",
+							status.inference_service.available
+								? "bg-green-500"
+								: "bg-muted-foreground/30",
 						)}
 					/>
 					<span className="text-[10px] font-medium">
@@ -583,7 +620,8 @@ function AIOptimizationSection() {
 				</div>
 				<div className="flex items-center gap-1.5">
 					<Badge variant="secondary" className="text-[8px] px-1 py-0">
-						{Math.round(hw.ram_available_mb / 1024)} / {Math.round(hw.ram_total_mb / 1024)} GB
+						{Math.round(hw.ram_available_mb / 1024)} /{" "}
+						{Math.round(hw.ram_total_mb / 1024)} GB
 					</Badge>
 					{hw.gpu_available && (
 						<Badge variant="secondary" className="text-[8px] px-1 py-0">
@@ -599,21 +637,31 @@ function AIOptimizationSection() {
 				<div className="flex flex-col gap-1 rounded-md border border-green-500/20 bg-green-500/5 px-2.5 py-1.5">
 					<div className="flex items-center justify-between">
 						<span className="text-[10px]">
-							<span className="font-mono font-medium">{(stack.total_with_turboquant_mb / 1024).toFixed(1)} GB</span>
+							<span className="font-mono font-medium">
+								{(stack.total_with_turboquant_mb / 1024).toFixed(1)} GB
+							</span>
 							<span className="text-muted-foreground line-through ml-1.5 font-mono text-[9px]">
 								{(stack.total_without_turboquant_mb / 1024).toFixed(1)} GB
 							</span>
 						</span>
-						<Badge variant="outline" className="text-[8px] px-1.5 py-0 text-green-500 border-green-500/30">
+						<Badge
+							variant="outline"
+							className="text-[8px] px-1.5 py-0 text-green-500 border-green-500/30"
+						>
 							{savingsPercent}% saved
 						</Badge>
 					</div>
 					<div className="flex items-center justify-between text-[9px] text-muted-foreground">
 						<span>
-							{stack.kv_compression_ratio && `${stack.kv_compression_ratio.toFixed(1)}x KV compression`}
+							{stack.kv_compression_ratio &&
+								`${stack.kv_compression_ratio.toFixed(1)}x KV compression`}
 							{status.kv_cache_bits_effective && (
 								<span className="ml-1">
-									({status.kv_cache_bits_effective}-bit on {status.inference_service.compute_mode === "cuda" ? "GPU" : "CPU"})
+									({status.kv_cache_bits_effective}-bit on{" "}
+									{status.inference_service.compute_mode === "cuda"
+										? "GPU"
+										: "CPU"}
+									)
 								</span>
 							)}
 						</span>
@@ -625,9 +673,14 @@ function AIOptimizationSection() {
 					</div>
 					{status.kv_cache_bits_effective !== undefined &&
 						status.kv_cache_bits_requested !== undefined &&
-						status.kv_cache_bits_effective !== status.kv_cache_bits_requested && (
+						status.kv_cache_bits_effective !==
+							status.kv_cache_bits_requested && (
 							<div className="text-[9px] text-amber-500">
-								You selected {status.kv_cache_bits_requested}-bit, but {status.inference_service.compute_mode === "cuda" ? "GPU" : "CPU"} backend clamps to {status.kv_cache_bits_effective}-bit.
+								You selected {status.kv_cache_bits_requested}-bit, but{" "}
+								{status.inference_service.compute_mode === "cuda"
+									? "GPU"
+									: "CPU"}{" "}
+								backend clamps to {status.kv_cache_bits_effective}-bit.
 							</div>
 						)}
 				</div>
@@ -644,10 +697,12 @@ function AIOptimizationSection() {
 							<button
 								key={tier.name}
 								type="button"
-
 								onClick={() => {
 									if (isActive) return;
-									handleConfigUpdate({ AI_MODEL_TIER: tier.name }, `${tier.label} tier`);
+									handleConfigUpdate(
+										{ AI_MODEL_TIER: tier.name },
+										`${tier.label} tier`,
+									);
 								}}
 								className={cn(
 									"flex items-center justify-between rounded-md border px-2.5 py-1.5 text-left transition-colors",
@@ -660,19 +715,36 @@ function AIOptimizationSection() {
 							>
 								<div className="flex items-center gap-1.5">
 									{isActive ? (
-										<svg className="size-3 text-primary shrink-0" viewBox="0 0 16 16" fill="none">
-											<path d="M3 8.5L6.5 12L13 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+										<svg
+											className="size-3 text-primary shrink-0"
+											viewBox="0 0 16 16"
+											fill="none"
+										>
+											<path
+												d="M3 8.5L6.5 12L13 4"
+												stroke="currentColor"
+												strokeWidth="2"
+												strokeLinecap="round"
+												strokeLinejoin="round"
+											/>
 										</svg>
 									) : (
 										<span className="size-3 shrink-0" />
 									)}
 									<span className="text-[10px] font-medium">{tier.label}</span>
-									<span className="text-[9px] text-muted-foreground">{tier.ramRange}</span>
+									<span className="text-[9px] text-muted-foreground">
+										{tier.ramRange}
+									</span>
 									{isRecommended && (
-										<Badge variant="outline" className={cn(
-											"text-[7px] px-1 py-0",
-											isActive ? "text-primary border-primary/40" : "text-amber-500 border-amber-500/40",
-										)}>
+										<Badge
+											variant="outline"
+											className={cn(
+												"text-[7px] px-1 py-0",
+												isActive
+													? "text-primary border-primary/40"
+													: "text-amber-500 border-amber-500/40",
+											)}
+										>
 											Best for {ramGb} GB
 										</Badge>
 									)}
@@ -703,10 +775,12 @@ function AIOptimizationSection() {
 							<button
 								key={config.bits}
 								type="button"
-
 								onClick={() => {
 									if (isActive) return;
-									handleConfigUpdate({ KV_CACHE_BITS: config.bits }, `${config.bits}-bit compression`);
+									handleConfigUpdate(
+										{ KV_CACHE_BITS: config.bits },
+										`${config.bits}-bit compression`,
+									);
 								}}
 								className={cn(
 									"flex items-center justify-between rounded-md border px-2.5 py-1.5 text-left transition-colors",
@@ -719,21 +793,38 @@ function AIOptimizationSection() {
 							>
 								<div className="flex items-center gap-1.5">
 									{isActive ? (
-										<svg className="size-3 text-primary shrink-0" viewBox="0 0 16 16" fill="none">
-											<path d="M3 8.5L6.5 12L13 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+										<svg
+											className="size-3 text-primary shrink-0"
+											viewBox="0 0 16 16"
+											fill="none"
+										>
+											<path
+												d="M3 8.5L6.5 12L13 4"
+												stroke="currentColor"
+												strokeWidth="2"
+												strokeLinecap="round"
+												strokeLinejoin="round"
+											/>
 										</svg>
 									) : (
 										<span className="size-3 shrink-0" />
 									)}
-									<span className="text-[10px] font-medium">{config.bits}-bit</span>
+									<span className="text-[10px] font-medium">
+										{config.bits}-bit
+									</span>
 									<span className="text-[9px] text-muted-foreground">
 										{config.compressionRatio}x compression
 									</span>
 									{isRecommended && (
-										<Badge variant="outline" className={cn(
-											"text-[7px] px-1 py-0",
-											isActive ? "text-primary border-primary/40" : "text-amber-500 border-amber-500/40",
-										)}>
+										<Badge
+											variant="outline"
+											className={cn(
+												"text-[7px] px-1 py-0",
+												isActive
+													? "text-primary border-primary/40"
+													: "text-amber-500 border-amber-500/40",
+											)}
+										>
 											Recommended
 										</Badge>
 									)}
@@ -766,10 +857,12 @@ function AIOptimizationSection() {
 							<button
 								key={b.value}
 								type="button"
-
 								onClick={() => {
 									if (isActive) return;
-									handleConfigUpdate({ AI_MEMORY_BUDGET: b.value }, `${b.label} budget`);
+									handleConfigUpdate(
+										{ AI_MEMORY_BUDGET: b.value },
+										`${b.label} budget`,
+									);
 								}}
 								className={cn(
 									"flex items-center justify-between rounded-md border px-2.5 py-1.5 text-left transition-colors",
@@ -782,23 +875,40 @@ function AIOptimizationSection() {
 							>
 								<div className="flex items-center gap-1.5">
 									{isActive ? (
-										<svg className="size-3 text-primary shrink-0" viewBox="0 0 16 16" fill="none">
-											<path d="M3 8.5L6.5 12L13 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+										<svg
+											className="size-3 text-primary shrink-0"
+											viewBox="0 0 16 16"
+											fill="none"
+										>
+											<path
+												d="M3 8.5L6.5 12L13 4"
+												stroke="currentColor"
+												strokeWidth="2"
+												strokeLinecap="round"
+												strokeLinejoin="round"
+											/>
 										</svg>
 									) : (
 										<span className="size-3 shrink-0" />
 									)}
 									<span className="text-[10px] font-medium">{b.label}</span>
 									{isRecommended && (
-										<Badge variant="outline" className={cn(
-											"text-[7px] px-1 py-0",
-											isActive ? "text-primary border-primary/40" : "text-amber-500 border-amber-500/40",
-										)}>
+										<Badge
+											variant="outline"
+											className={cn(
+												"text-[7px] px-1 py-0",
+												isActive
+													? "text-primary border-primary/40"
+													: "text-amber-500 border-amber-500/40",
+											)}
+										>
 											Best match
 										</Badge>
 									)}
 								</div>
-								<span className="text-[9px] text-muted-foreground">{b.description}</span>
+								<span className="text-[9px] text-muted-foreground">
+									{b.description}
+								</span>
 							</button>
 						);
 					})}
@@ -860,7 +970,8 @@ function ComputeModeSelector({
 		<div className="flex flex-col gap-1.5">
 			<Label className="text-xs">Compute Mode</Label>
 			<p className="text-[9px] text-muted-foreground">
-				Choose where TurboQuant runs. Auto picks the fastest device on your machine.
+				Choose where TurboQuant runs. Auto picks the fastest device on your
+				machine.
 			</p>
 			<div className="flex flex-col gap-1">
 				{COMPUTE_MODES.map((mode) => {
@@ -876,9 +987,7 @@ function ComputeModeSelector({
 								onSelect(mode.value, `${mode.label} compute`);
 							}}
 							title={
-								disabled
-									? "No GPU detected on this host"
-									: mode.description
+								disabled ? "No GPU detected on this host" : mode.description
 							}
 							className={cn(
 								"flex items-center justify-between rounded-md border px-2.5 py-1.5 text-left transition-colors",
@@ -891,20 +1000,34 @@ function ComputeModeSelector({
 						>
 							<div className="flex items-center gap-1.5">
 								{isActive ? (
-									<svg className="size-3 text-primary shrink-0" viewBox="0 0 16 16" fill="none">
-										<path d="M3 8.5L6.5 12L13 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+									<svg
+										className="size-3 text-primary shrink-0"
+										viewBox="0 0 16 16"
+										fill="none"
+									>
+										<path
+											d="M3 8.5L6.5 12L13 4"
+											stroke="currentColor"
+											strokeWidth="2"
+											strokeLinecap="round"
+											strokeLinejoin="round"
+										/>
 									</svg>
 								) : (
 									<span className="size-3 shrink-0" />
 								)}
 								<span className="text-[10px] font-medium">{mode.label}</span>
-								{mode.value === "cuda" && gpuAvailable && status.hardware.gpu_name && (
-									<span className="text-[9px] text-muted-foreground">
-										{status.hardware.gpu_name}
-									</span>
-								)}
+								{mode.value === "cuda" &&
+									gpuAvailable &&
+									status.hardware.gpu_name && (
+										<span className="text-[9px] text-muted-foreground">
+											{status.hardware.gpu_name}
+										</span>
+									)}
 							</div>
-							<span className="text-[9px] text-muted-foreground">{mode.description}</span>
+							<span className="text-[9px] text-muted-foreground">
+								{mode.description}
+							</span>
 						</button>
 					);
 				})}
@@ -915,7 +1038,10 @@ function ComputeModeSelector({
 					{engineAvailable === false && " (engine unavailable)"}
 				</span>
 				{typeof ratio === "number" && ratio > 0 && (
-					<Badge variant="outline" className="text-[8px] px-1 py-0 text-green-500 border-green-500/30">
+					<Badge
+						variant="outline"
+						className="text-[8px] px-1 py-0 text-green-500 border-green-500/30"
+					>
 						{ratio.toFixed(1)}x KV compression
 					</Badge>
 				)}
@@ -953,7 +1079,10 @@ const API_KEY_FIELDS = [
 		placeholder: "sk_...",
 		description: "Indian language transcription, translation & TTS",
 		envVar: "BYORN_SARVAM_API_KEY",
-		envValue: process.env.NEXT_PUBLIC_SARVAM_API_KEY || process.env.BYORN_SARVAM_API_KEY || "",
+		envValue:
+			process.env.NEXT_PUBLIC_SARVAM_API_KEY ||
+			process.env.BYORN_SARVAM_API_KEY ||
+			"",
 		info: "Enables transcription, translation, and text-to-speech for 22 Indian regional languages (Hindi, Bengali, Tamil, Telugu, etc.) via Sarvam AI. Get your key at dashboard.sarvam.ai — free credits on signup.",
 		required: false,
 	},
@@ -961,9 +1090,13 @@ const API_KEY_FIELDS = [
 		key: "smallest",
 		label: "Smallest AI API Key",
 		placeholder: "Your Smallest AI key",
-		description: "Lightning TTS (15 languages, 80+ voices) & Pulse STT (39 languages)",
+		description:
+			"Lightning TTS (15 languages, 80+ voices) & Pulse STT (39 languages)",
 		envVar: "BYORN_SMALLEST_API_KEY",
-		envValue: process.env.NEXT_PUBLIC_SMALLEST_API_KEY || process.env.BYORN_SMALLEST_API_KEY || "",
+		envValue:
+			process.env.NEXT_PUBLIC_SMALLEST_API_KEY ||
+			process.env.BYORN_SMALLEST_API_KEY ||
+			"",
 		info: "Enables ultra-low-latency text-to-speech with 80+ natural voices across 15 languages, and speech-to-text supporting 39 languages with speaker diarization and emotion detection. Get your key at app.smallest.ai.",
 		required: false,
 	},
@@ -983,7 +1116,10 @@ const API_KEY_FIELDS = [
 		placeholder: "Your PiAPI key for Seedance 2.0",
 		description: "Text-to-video generation via Seedance 2.0 (ByteDance)",
 		envVar: "BYORN_SEEDANCE_API_KEY",
-		envValue: process.env.NEXT_PUBLIC_SEEDANCE_API_KEY || process.env.BYORN_SEEDANCE_API_KEY || "",
+		envValue:
+			process.env.NEXT_PUBLIC_SEEDANCE_API_KEY ||
+			process.env.BYORN_SEEDANCE_API_KEY ||
+			"",
 		info: "Enables AI video generation from text prompts using Seedance 2.0 by ByteDance. Access via PiAPI — get your key at piapi.ai. Supports text-to-video in 16:9, 9:16, 1:1, and more. You can also use local generation without this key.",
 		required: false,
 	},
@@ -991,7 +1127,8 @@ const API_KEY_FIELDS = [
 		key: "replicate",
 		label: "Replicate API Token",
 		placeholder: "r8_...",
-		description: "Access Runway Gen-3, Pika, Kling, MiniMax, Stable Video & 10+ more models",
+		description:
+			"Access Runway Gen-3, Pika, Kling, MiniMax, Stable Video & 10+ more models",
 		envVar: "NEXT_PUBLIC_REPLICATE_API_TOKEN",
 		envValue: process.env.NEXT_PUBLIC_REPLICATE_API_TOKEN || "",
 		info: "One API key for 10+ video generation models: Runway Gen-3 Alpha, Pika 1.0, Kling v1.6, MiniMax Video-01, Stable Video Diffusion, and more. Pay-per-use billing. Get your token at replicate.com — $5 free credits on signup.",
@@ -1067,7 +1204,12 @@ function APIKeysSection() {
 	return (
 		<div className="flex flex-col gap-3">
 			<p className="text-[11px] text-muted-foreground leading-relaxed">
-				Configure API keys for services. Keys are stored locally in your browser. You can also set them in <code className="text-[10px] font-mono bg-muted px-1 rounded">.env.local</code>.
+				Configure API keys for services. Keys are stored locally in your
+				browser. You can also set them in{" "}
+				<code className="text-[10px] font-mono bg-muted px-1 rounded">
+					.env.local
+				</code>
+				.
 			</p>
 
 			{API_KEY_FIELDS.map((field) => {
@@ -1083,7 +1225,11 @@ function APIKeysSection() {
 						key={field.key}
 						className={cn(
 							"flex flex-col gap-1.5 rounded-lg border p-2.5",
-							hasValue ? "border-green-500/20 bg-green-500/5" : field.required ? "border-yellow-500/20 bg-yellow-500/5" : "border-border",
+							hasValue
+								? "border-green-500/20 bg-green-500/5"
+								: field.required
+									? "border-yellow-500/20 bg-yellow-500/5"
+									: "border-border",
 						)}
 					>
 						<div className="flex items-center justify-between">
@@ -1091,12 +1237,19 @@ function APIKeysSection() {
 								<span
 									className={cn(
 										"size-1.5 rounded-full shrink-0",
-										hasValue ? "bg-green-500" : field.required ? "bg-yellow-500" : "bg-muted-foreground/30",
+										hasValue
+											? "bg-green-500"
+											: field.required
+												? "bg-yellow-500"
+												: "bg-muted-foreground/30",
 									)}
 								/>
 								<Label className="text-[11px]">{field.label}</Label>
 								{field.required && !hasValue && (
-									<Badge variant="outline" className="text-[8px] px-1 py-0 text-yellow-500 border-yellow-500/30">
+									<Badge
+										variant="outline"
+										className="text-[8px] px-1 py-0 text-yellow-500 border-yellow-500/30"
+									>
 										Required
 									</Badge>
 								)}
@@ -1117,7 +1270,11 @@ function APIKeysSection() {
 											i
 										</button>
 									</PopoverTrigger>
-									<PopoverContent side="left" align="start" className="w-64 p-3">
+									<PopoverContent
+										side="left"
+										align="start"
+										className="w-64 p-3"
+									>
 										<p className="text-xs leading-relaxed">{field.info}</p>
 										<p className="text-[10px] text-muted-foreground mt-2 font-mono">
 											env: {field.envVar}
@@ -1158,7 +1315,7 @@ function APIKeysSection() {
 							<input
 								type={isVisible ? "text" : "password"}
 								placeholder={field.placeholder}
-								value={isFromEnv ? envValue : (localValue || "")}
+								value={isFromEnv ? envValue : localValue || ""}
 								onChange={(e) => handleSave(field.key, e.target.value)}
 								disabled={isFromEnv}
 								className={cn(
@@ -1170,214 +1327,8 @@ function APIKeysSection() {
 							/>
 						)}
 
-						<p className="text-[10px] text-muted-foreground">{field.description}</p>
-					</div>
-				);
-			})}
-		</div>
-	);
-}
-
-
-// ----- Studio Generation Providers (server-configured keys) -----
-
-/**
- * Studio generation providers (inventory item D1).
- *
- * Unlike the keys above — which the browser stores and forwards to a Next.js
- * route as a header (e.g. Freesound) — the studio generation adapters
- * (`lib/studio/backends/{video,image}/*`) read their secrets SERVER-SIDE from
- * `process.env`. There is no request path that carries a browser-entered key
- * into those adapters, so an editable field here would persist a value that
- * silently never takes effect. Instead this section reports the REAL server
- * configuration state (from `GET /api/studio/provider-keys`, which returns
- * booleans only — never key values) and tells the user which env var to set in
- * `.env.local`. Honest status, not a dead input.
- */
-
-interface ProviderKeyStatus {
-	id: string;
-	label: string;
-	vendor: string;
-	modality: "video" | "image";
-	requiredEnv: string[];
-	configured: boolean;
-}
-
-/** Where to get each provider's key — shown in the info popover. */
-const PROVIDER_KEY_HELP: Record<string, string> = {
-	RUNWAY_API_KEY: "Runway Gen-4 / Aleph video. Get a key at dev.runwayml.com.",
-	KLING_ACCESS_KEY:
-		"Kling video needs both an access key and a secret key. Get them at klingai.com (API access).",
-	KLING_SECRET_KEY:
-		"Kling video needs both an access key and a secret key. Get them at klingai.com (API access).",
-	GEMINI_API_KEY:
-		"Google Gemini key — shared by Veo (video), Imagen and Nano-Banana (image). Get it at aistudio.google.com/apikey.",
-	FAL_KEY:
-		"fal.ai serverless models (Pika, etc.). Get a key at fal.ai/dashboard/keys.",
-	BFL_API_KEY:
-		"Black Forest Labs FLUX image models. Get a key at dashboard.bfl.ai.",
-	IDEOGRAM_API_KEY:
-		"Ideogram image generation. Get a key at ideogram.ai (developer/API).",
-	OPENAI_API_KEY:
-		"OpenAI GPT-Image generation. Get a key at platform.openai.com/api-keys.",
-	LUMA_API_KEY:
-		"Luma Dream Machine (studio pipeline). Get a key at lumalabs.ai/dream-machine/api.",
-	BYTEPLUS_API_KEY:
-		"BytePlus ModelArk / Seedance 2.0 — the default studio video backend. Get a key at console.byteplus.com.",
-};
-
-/** Group backends by their required-env set so shared keys (e.g. Gemini across
- *  Veo/Imagen/Nano-Banana) render once. */
-interface ProviderKeyGroup {
-	envKey: string;
-	requiredEnv: string[];
-	vendors: string[];
-	models: string[];
-	modalities: Set<"video" | "image">;
-	configured: boolean;
-}
-
-function groupProviders(providers: ProviderKeyStatus[]): ProviderKeyGroup[] {
-	const groups = new Map<string, ProviderKeyGroup>();
-	for (const p of providers) {
-		const envKey = [...p.requiredEnv].sort().join("+");
-		const existing = groups.get(envKey);
-		if (existing) {
-			if (!existing.vendors.includes(p.vendor)) existing.vendors.push(p.vendor);
-			existing.models.push(p.label);
-			existing.modalities.add(p.modality);
-			existing.configured = existing.configured && p.configured;
-		} else {
-			groups.set(envKey, {
-				envKey,
-				requiredEnv: p.requiredEnv,
-				vendors: [p.vendor],
-				models: [p.label],
-				modalities: new Set([p.modality]),
-				configured: p.configured,
-			});
-		}
-	}
-	return [...groups.values()];
-}
-
-function StudioProviderKeysSection() {
-	const [groups, setGroups] = useState<ProviderKeyGroup[] | null>(null);
-	const [error, setError] = useState(false);
-
-	useEffect(() => {
-		let cancelled = false;
-		fetch("/api/studio/provider-keys")
-			.then((res) => {
-				if (!res.ok) throw new Error(String(res.status));
-				return res.json() as Promise<{ providers: ProviderKeyStatus[] }>;
-			})
-			.then((data) => {
-				if (cancelled) return;
-				setGroups(groupProviders(data.providers ?? []));
-			})
-			.catch(() => {
-				if (!cancelled) setError(true);
-			});
-		return () => {
-			cancelled = true;
-		};
-	}, []);
-
-	if (error) {
-		return (
-			<div className="mt-4 flex flex-col gap-1.5">
-				<Label className="text-xs">Studio Generation Providers</Label>
-				<p className="text-[10px] text-muted-foreground">
-					Couldn&apos;t load provider status.
-				</p>
-			</div>
-		);
-	}
-
-	if (!groups) {
-		return (
-			<div className="mt-4 flex flex-col gap-1.5">
-				<Label className="text-xs">Studio Generation Providers</Label>
-				<p className="text-[10px] text-muted-foreground">Loading…</p>
-			</div>
-		);
-	}
-
-	return (
-		<div className="mt-4 flex flex-col gap-2 border-t pt-3">
-			<Label className="text-xs">Studio Generation Providers</Label>
-			<p className="text-[11px] text-muted-foreground leading-relaxed">
-				These video/image models read their keys from the{" "}
-				<span className="font-medium">server environment</span> — set them in{" "}
-				<code className="text-[10px] font-mono bg-muted px-1 rounded">
-					.env.local
-				</code>{" "}
-				(they can&apos;t be stored from the browser like the keys above). Status
-				below reflects the live server config.
-			</p>
-
-			{groups.map((group) => {
-				const models = Array.from(new Set(group.models)).join(", ");
-				const info =
-					PROVIDER_KEY_HELP[group.requiredEnv[0]] ??
-					`Required environment: ${group.requiredEnv.join(", ")}.`;
-				return (
-					<div
-						key={group.envKey}
-						className={cn(
-							"flex flex-col gap-1.5 rounded-lg border p-2.5",
-							group.configured
-								? "border-green-500/20 bg-green-500/5"
-								: "border-border",
-						)}
-					>
-						<div className="flex items-center justify-between">
-							<div className="flex items-center gap-1.5">
-								<span
-									className={cn(
-										"size-1.5 rounded-full shrink-0",
-										group.configured
-											? "bg-green-500"
-											: "bg-muted-foreground/30",
-									)}
-								/>
-								<Label className="text-[11px]">
-									{group.vendors.join(" / ")}
-								</Label>
-								<Badge
-									variant={group.configured ? "secondary" : "outline"}
-									className={cn(
-										"text-[8px] px-1 py-0",
-										group.configured
-											? "text-green-500 border-green-500/30"
-											: "text-muted-foreground",
-									)}
-								>
-									{group.configured ? "Configured" : "Not set"}
-								</Badge>
-							</div>
-							<Popover>
-								<PopoverTrigger asChild>
-									<button
-										type="button"
-										className="size-4 rounded-full border text-[9px] font-bold text-muted-foreground hover:text-foreground hover:bg-accent flex items-center justify-center"
-									>
-										i
-									</button>
-								</PopoverTrigger>
-								<PopoverContent side="left" align="start" className="w-64 p-3">
-									<p className="text-xs leading-relaxed">{info}</p>
-									<p className="text-[10px] text-muted-foreground mt-2 font-mono">
-										env: {group.requiredEnv.join(", ")}
-									</p>
-								</PopoverContent>
-							</Popover>
-						</div>
-						<p className="text-[10px] text-muted-foreground">Powers: {models}</p>
-						<p className="text-[10px] text-muted-foreground font-mono">
-							{group.requiredEnv.join(", ")}
+						<p className="text-[10px] text-muted-foreground">
+							{field.description}
 						</p>
 					</div>
 				);
