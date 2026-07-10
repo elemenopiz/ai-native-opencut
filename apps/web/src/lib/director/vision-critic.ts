@@ -226,13 +226,14 @@ export function parseVerdict(text: string): CriticVerdict {
 
 /**
  * Whether a user turn opted into automatic vision self-review after generation.
- * True when the studio setting is on, OR the message asks for quality in the
- * plain ways users phrase it ("make it good/great/perfect", "the best take",
- * "auto-review"). Deliberately narrow so an incidental "good" doesn't trigger a
- * spend loop.
+ * True only on a DELIBERATE quality request: an explicit "auto-review" /
+ * "self-review", an imperative "make it/them/this/these (look) good/great/
+ * perfect/right", a "best quality/take/version", or "high-quality". Bare
+ * incidental phrasing like "a park that looks good at sunset" must NOT match —
+ * a corrective generation is real spend, so the matcher stays narrow.
  */
 const AUTO_REVIEW_RE =
-	/\b(?:auto[- ]?review|self[- ]?review|make (?:it|them|this|these) (?:look )?(?:good|great|perfect|right)|looks? (?:good|right|perfect)|best (?:quality|takes?|version)|high[- ]quality)\b/i;
+	/\b(?:auto[- ]?review|self[- ]?review|make (?:it|them|this|these) (?:look )?(?:good|great|perfect|right)|best (?:quality|takes?|version)|high[- ]quality)\b/i;
 
 export function wantsAutoReview(
 	userMessage: string,

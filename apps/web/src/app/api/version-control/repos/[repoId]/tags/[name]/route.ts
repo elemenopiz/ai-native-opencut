@@ -4,7 +4,10 @@ import { tags } from "@/lib/db/schema-version-control";
 import { auth } from "@/lib/auth/server";
 import { headers } from "next/headers";
 import { eq, and } from "drizzle-orm";
-import { checkRepoAccess } from "@/lib/db/version-control-utils";
+import {
+	checkRepoAccess,
+	checkRepoOwner,
+} from "@/lib/db/version-control-utils";
 
 export async function DELETE(
 	_request: NextRequest,
@@ -17,8 +20,14 @@ export async function DELETE(
 		}
 
 		const { repoId, name } = await params;
-		if (!(await checkRepoAccess(repoId, session.user.id))) {
-			return NextResponse.json({ error: "Not found" }, { status: 404 });
+		// WRITE gate: only the repo owner may delete tags (no tag-permission
+		// concept exists in the schema).
+		if (!(await checkRepoOwner(repoId, session.user.id))) {
+			const visible = await checkRepoAccess(repoId, session.user.id);
+			return NextResponse.json(
+				{ error: visible ? "Forbidden" : "Not found" },
+				{ status: visible ? 403 : 404 },
+			);
 		}
 
 		await db

@@ -6,6 +6,11 @@
  * routes fall back to the caller IP. Two windows are enforced per rule — a
  * per-minute burst cap and a per-day volume cap — and BOTH must pass.
  *
+ * The DAY window is consumed only when the MINUTE window passes: a request that
+ * is already rejected by the burst cap must not also spend a day token (that
+ * would let a short burst exhaust the daily budget and lock a user out for the
+ * rest of the day).
+ *
  * One interface, two implementations, selected automatically (mirrors
  * `mcp/token-cache.ts`):
  *  - {@link RedisRateLimiter} — Upstash/Redis sliding windows when configured.
@@ -44,6 +49,10 @@ export interface RateLimitRule {
 export const RATE_LIMITS = {
 	"studio:generate": { perMinute: 12, perDay: 300 },
 	"studio:poll": { perMinute: 90, perDay: 5000 },
+	// Media proxy for importing finished takes. Generous like poll — a project
+	// can import many clips in quick succession — it exists to bound abuse of the
+	// (SSRF-guarded) relay, not to throttle normal imports.
+	"studio:proxy": { perMinute: 90, perDay: 5000 },
 	"studio:image": { perMinute: 12, perDay: 300 },
 	"studio:persona-still": { perMinute: 12, perDay: 300 },
 	"studio:promote": { perMinute: 6, perDay: 120 },
@@ -86,11 +95,14 @@ export class InMemoryRateLimiter implements RateLimiter {
 		key: string,
 	): Promise<RateLimitResult> {
 		if (this.store.size >= IN_MEMORY_MAX_ENTRIES) this.prune();
-		// Consume both windows independently (matches the two-limiter Redis path).
+		// Check the minute burst cap FIRST. If it fails, return without touching
+		// the day window — a request the burst cap already rejected must not also
+		// spend a day token (otherwise a burst could exhaust the daily budget and
+		// lock the user out for the rest of the day).
 		const okMinute = this.hit(`${bucket}:m:${key}`, rule.perMinute, MINUTE_MS);
+		if (!okMinute) return { success: false, limited: true };
 		const okDay = this.hit(`${bucket}:d:${key}`, rule.perDay, DAY_MS);
-		const success = okMinute && okDay;
-		return { success, limited: !success };
+		return { success: okDay, limited: !okDay };
 	}
 
 	/** Increment the fixed window for `bucketKey`; true while at/under `limit`. */
@@ -158,12 +170,16 @@ export class RedisRateLimiter implements RateLimiter {
 		key: string,
 	): Promise<RateLimitResult> {
 		try {
-			const [minute, day] = await Promise.all([
-				this.limiterFor(rule, bucket, "minute").limit(key),
-				this.limiterFor(rule, bucket, "day").limit(key),
-			]);
-			const success = minute.success && day.success;
-			return { success, limited: !success };
+			// Check the minute burst cap FIRST, and consume the day window only if
+			// it passes. A request the burst cap already rejected must not spend a
+			// day token too (that would let a short burst exhaust the daily budget
+			// and lock the user out for the rest of the day). This makes the day
+			// call conditional, so it can no longer run in parallel with the minute
+			// call — correctness wins over the lost parallelism.
+			const minute = await this.limiterFor(rule, bucket, "minute").limit(key);
+			if (!minute.success) return { success: false, limited: true };
+			const day = await this.limiterFor(rule, bucket, "day").limit(key);
+			return { success: day.success, limited: !day.success };
 		} catch (err) {
 			// Fail open: a limiter outage must not deny paying users. Auth still gates.
 			console.error("Rate limiter error (allowing request):", err);
@@ -211,10 +227,42 @@ export function getRateLimiter(): RateLimiter {
 	return globalStore.__byornRateLimiter;
 }
 
-/** First hop in `x-forwarded-for`, or "anonymous" when absent. */
+/**
+ * Client IP from `x-forwarded-for`, or "anonymous" when absent.
+ *
+ * `x-forwarded-for` is a comma-separated chain `client, proxy1, proxy2, ...`
+ * where entries are APPENDED as the request passes through each proxy. The
+ * LEFTMOST entry is fully attacker-controlled — a client can prefill the header
+ * with any value, so keying a limit on it lets an abuser rotate the header to
+ * mint unlimited distinct keys and bypass the limit entirely.
+ *
+ * Only the hops appended by infrastructure WE trust are reliable. Reading from
+ * the RIGHT, the last entry is the address our own edge proxy observed, the
+ * second-to-last is what the proxy in front of that saw, and so on. With
+ * `TRUSTED_PROXY_HOPS = N` trusted reverse proxies between us and the client,
+ * the real client address is the Nth entry from the end. We default to 1 to
+ * preserve the historical single-proxy behavior when the env is unset, and
+ * never hard-break: if the chain is shorter than expected we fall back to the
+ * leftmost available entry.
+ */
+function trustedProxyHops(): number {
+	const raw = Number.parseInt(process.env.TRUSTED_PROXY_HOPS ?? "", 10);
+	return Number.isInteger(raw) && raw >= 1 ? raw : 1;
+}
+
 function ipFrom(request: Request): string {
 	const xff = request.headers.get("x-forwarded-for");
-	return xff?.split(",")[0]?.trim() || "anonymous";
+	if (!xff) return "anonymous";
+	const hops = xff
+		.split(",")
+		.map((h) => h.trim())
+		.filter(Boolean);
+	if (hops.length === 0) return "anonymous";
+	// Select the Nth-from-last entry (the address the innermost trusted proxy
+	// actually saw). Clamp to the chain length so a shorter-than-expected chain
+	// degrades to the leftmost entry rather than throwing away the key.
+	const idx = Math.max(0, hops.length - trustedProxyHops());
+	return hops[idx] || "anonymous";
 }
 
 /**

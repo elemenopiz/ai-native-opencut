@@ -72,6 +72,34 @@ describe("InMemoryRateLimiter", () => {
 		}
 		expect((await limiter.check(dayRule, "bucket", "u")).success).toBe(false);
 	});
+
+	test("a request rejected by the minute cap does NOT consume the day budget", async () => {
+		const limiter = new InMemoryRateLimiter();
+		let clock = 1_000_000;
+		Date.now = () => clock;
+		// 2/min burst, 3/day volume. A 4-request burst in one minute would, if the
+		// day window were consumed even on minute-rejected requests, spend all 3
+		// day tokens after only 2 ever passed — locking the user out for the day.
+		const r: RateLimitRule = { perMinute: 2, perDay: 3 };
+
+		// First two pass (both windows consumed). The next two are rejected by the
+		// burst cap and must NOT touch the day window.
+		expect((await limiter.check(r, "bucket", "u")).success).toBe(true);
+		expect((await limiter.check(r, "bucket", "u")).success).toBe(true);
+		expect((await limiter.check(r, "bucket", "u")).success).toBe(false);
+		expect((await limiter.check(r, "bucket", "u")).success).toBe(false);
+
+		// Advance past the 1-minute window so the burst cap resets; the day window
+		// (24h) is still open with only 2 tokens spent (not 4). One more request
+		// must therefore pass — proving the rejected burst didn't drain the day
+		// budget. Under the old always-consume behavior this would already be over.
+		clock += 60_000 + 1;
+		expect((await limiter.check(r, "bucket", "u")).success).toBe(true);
+
+		// Now the day cap (3) is genuinely reached: the next request clears the
+		// fresh minute window but is rejected by the day window.
+		expect((await limiter.check(r, "bucket", "u")).success).toBe(false);
+	});
 });
 
 describe("enforceRateLimit", () => {

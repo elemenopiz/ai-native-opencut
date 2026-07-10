@@ -5,7 +5,10 @@ import { commits } from "@/lib/db/schema-version-control";
 import { auth } from "@/lib/auth/server";
 import { headers } from "next/headers";
 import { eq, desc } from "drizzle-orm";
-import { checkRepoAccess } from "@/lib/db/version-control-utils";
+import {
+	checkRepoAccess,
+	checkRepoWriteAccess,
+} from "@/lib/db/version-control-utils";
 
 const createCommitSchema = z.object({
 	id: z.string(),
@@ -37,8 +40,16 @@ export async function POST(
 		}
 
 		const { repoId } = await params;
-		if (!(await checkRepoAccess(repoId, session.user.id))) {
-			return NextResponse.json({ error: "Not found" }, { status: 404 });
+		// WRITE gate: pushing commits requires owner or repo write permission. The
+		// payload isn't branch-scoped, so we gate at the repo level (not per-branch
+		// push). checkRepoAccess is read-only and would let any signed-in user
+		// write to a public repo they don't own.
+		if (!(await checkRepoWriteAccess(repoId, session.user.id))) {
+			const visible = await checkRepoAccess(repoId, session.user.id);
+			return NextResponse.json(
+				{ error: visible ? "Forbidden" : "Not found" },
+				{ status: visible ? 403 : 404 },
+			);
 		}
 
 		const body = await request.json();

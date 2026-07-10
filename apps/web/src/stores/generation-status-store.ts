@@ -104,18 +104,47 @@ export const useGenerationStatusStore = create<GenerationStatusStore>()(
 	}),
 );
 
+/** Human-readable error for a terminal 4xx poll response, so the UI's error
+ *  state has something meaningful to show instead of a silent stuck spinner. */
+function terminalPollError(status: number): string {
+	if (status === 401 || status === 403) {
+		return "You no longer have access to this generation.";
+	}
+	if (status === 404) {
+		return "This generation could not be found.";
+	}
+	return `Generation could not be loaded (error ${status}).`;
+}
+
 /**
  * The canonical `pollFn` for jobs owned by our generate endpoint: one poll
  * cycle against `GET /api/studio/generate/[jobId]`, recorded into the shared
  * store. Pass to `startPolling` so every watcher of a job shares one fetch.
- * Transient failures (non-OK response, network hiccup) skip the tick and let
- * the next interval retry, matching the old per-component loops.
+ *
+ * Failure handling distinguishes two classes of non-OK response:
+ *  - **Transient** (5xx server error, network hiccup): skip this tick and let
+ *    the next interval retry, matching the old per-component loops.
+ *  - **Terminal** (4xx — esp. 401/403/404): the request won't ever succeed
+ *    (e.g. the job's set has a null/mismatched userId, so the auth-gated route
+ *    returns 404). Retrying forever leaves the slot spinning, so we mark the
+ *    job `failed` with a clear error. `setStatus` then stops the poll and the
+ *    UI resolves the spinner to its normal error state.
  */
 export function createJobStatusPollFn(jobId: string): () => Promise<void> {
 	return async () => {
 		try {
 			const res = await fetch(`/api/studio/generate/${jobId}`);
-			if (!res.ok) return;
+			if (!res.ok) {
+				// 4xx is a permanent client/permission error — terminate the poll so
+				// the spinner resolves to an error. 5xx / other codes stay transient.
+				if (res.status >= 400 && res.status < 500) {
+					useGenerationStatusStore.getState().setStatus(jobId, {
+						status: "failed",
+						error: terminalPollError(res.status),
+					});
+				}
+				return;
+			}
 			const poll = (await res.json()) as Partial<PollVideoResult>;
 			if (!poll.status) return;
 			useGenerationStatusStore.getState().setStatus(jobId, {

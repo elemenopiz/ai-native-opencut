@@ -91,7 +91,13 @@ export function createStudioExecutor(editor: EditorCore): GenerateExecutor {
 				return {
 					status: "failed",
 					error: result.error,
-					failure: classifyFailure({ error: result.error }),
+					// Thread the HTTP status captured at the fetch boundary so the
+					// classifier's reliable status branch runs (retry 5xx/429 vs.
+					// escalate 4xx) instead of relying on message regex alone.
+					failure: classifyFailure({
+						error: result.error,
+						status: result.errorStatus,
+					}),
 				};
 			}
 			if (!result.mediaId) {

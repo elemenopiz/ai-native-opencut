@@ -6,7 +6,10 @@ import { auth } from "@/lib/auth/server";
 import { headers } from "next/headers";
 import { eq } from "drizzle-orm";
 import { generateUUID } from "@/utils/id";
-import { checkRepoAccess } from "@/lib/db/version-control-utils";
+import {
+	checkRepoAccess,
+	checkRepoOwner,
+} from "@/lib/db/version-control-utils";
 
 const createTagSchema = z.object({
 	id: z.string().optional(),
@@ -27,8 +30,14 @@ export async function POST(
 		}
 
 		const { repoId } = await params;
-		if (!(await checkRepoAccess(repoId, session.user.id))) {
-			return NextResponse.json({ error: "Not found" }, { status: 404 });
+		// WRITE gate: tags aren't branch-scoped and there's no tag-permission
+		// concept in the schema, so only the repo owner may create them.
+		if (!(await checkRepoOwner(repoId, session.user.id))) {
+			const visible = await checkRepoAccess(repoId, session.user.id);
+			return NextResponse.json(
+				{ error: visible ? "Forbidden" : "Not found" },
+				{ status: visible ? 403 : 404 },
+			);
 		}
 
 		const body = await request.json();

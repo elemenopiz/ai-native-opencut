@@ -84,6 +84,7 @@ mock.module("next/headers", () => ({ headers: async () => new Headers() }));
 // Import the handlers only AFTER the mocks are registered.
 const { GET: commitsGET } = await import("../commits/route");
 const { POST: syncPOST } = await import("../sync/route");
+const { POST: tagsPOST } = await import("../tags/route");
 
 function jsonRequest(body: unknown, url = "http://localhost/x") {
 	return {
@@ -235,6 +236,54 @@ describe("sync POST — repo ownership (IDOR) enforcement", () => {
 		state.session = null;
 		const res = await syncPOST(
 			jsonRequest({ knownCommitIds: [] }),
+			params("any-repo"),
+		);
+		expect(res.status).toBe(401);
+		expect(state.inserts).toHaveLength(0);
+	});
+});
+
+describe("tags POST — write-authorization on a public repo (H1)", () => {
+	// A PUBLIC repo owned by owner-1. checkRepoOwner reads projectRepositories to
+	// compare ownership; checkRepoAccess reads it again to decide 403-vs-404.
+	function publicRepoOwnedBy(userId: string) {
+		return (table: unknown) => {
+			if (table === projectRepositories) {
+				return [{ userId, isPublic: true }];
+			}
+			return [];
+		};
+	}
+
+	it("403s and writes nothing when a NON-owner posts a tag to a public repo", async () => {
+		// This is the H1 regression: checkRepoAccess would return true for ANY
+		// public repo, letting a non-owner mutate it. The owner-only write gate
+		// must reject the attacker instead.
+		state.session = { user: { id: "attacker", name: "A", image: null } };
+		state.rowsFor = publicRepoOwnedBy("owner-1");
+		const res = await tagsPOST(
+			jsonRequest({ commitId: "c1", name: "v1" }),
+			params("victim-repo"),
+		);
+		expect(res.status).toBe(403);
+		expect(state.inserts).toHaveLength(0);
+	});
+
+	it("lets the repo owner create a tag", async () => {
+		state.session = { user: { id: "owner-1", name: "Owner", image: null } };
+		state.rowsFor = publicRepoOwnedBy("owner-1");
+		const res = await tagsPOST(
+			jsonRequest({ commitId: "c1", name: "v1" }),
+			params("owned-repo"),
+		);
+		expect(res.status).toBe(201);
+		expect(state.inserts.length).toBeGreaterThan(0);
+	});
+
+	it("401s before any db access when unauthenticated", async () => {
+		state.session = null;
+		const res = await tagsPOST(
+			jsonRequest({ commitId: "c1", name: "v1" }),
 			params("any-repo"),
 		);
 		expect(res.status).toBe(401);

@@ -5,7 +5,10 @@ import { branches } from "@/lib/db/schema-version-control";
 import { auth } from "@/lib/auth/server";
 import { headers } from "next/headers";
 import { eq, and } from "drizzle-orm";
-import { checkRepoAccess } from "@/lib/db/version-control-utils";
+import {
+	checkBranchPushPermission,
+	checkRepoAccess,
+} from "@/lib/db/version-control-utils";
 
 const updateBranchSchema = z.object({
 	headCommitId: z.string().optional(),
@@ -24,8 +27,18 @@ export async function PUT(
 		}
 
 		const { repoId, name } = await params;
-		if (!(await checkRepoAccess(repoId, session.user.id))) {
-			return NextResponse.json({ error: "Not found" }, { status: 404 });
+		// WRITE gate: require push permission on this branch (owner, or explicit
+		// branch write/admin). checkRepoAccess is read-only and would allow any
+		// signed-in user to mutate a public repo they don't own.
+		const push = await checkBranchPushPermission(repoId, name, session.user.id);
+		if (!push.allowed) {
+			// 403 when the repo is visible but the caller can't write; 404 when the
+			// repo isn't visible at all (don't leak its existence).
+			const visible = await checkRepoAccess(repoId, session.user.id);
+			return NextResponse.json(
+				{ error: visible ? "Forbidden" : "Not found" },
+				{ status: visible ? 403 : 404 },
+			);
 		}
 
 		const body = await request.json();
@@ -60,8 +73,14 @@ export async function DELETE(
 		}
 
 		const { repoId, name } = await params;
-		if (!(await checkRepoAccess(repoId, session.user.id))) {
-			return NextResponse.json({ error: "Not found" }, { status: 404 });
+		// WRITE gate: deleting a branch requires push permission on it.
+		const push = await checkBranchPushPermission(repoId, name, session.user.id);
+		if (!push.allowed) {
+			const visible = await checkRepoAccess(repoId, session.user.id);
+			return NextResponse.json(
+				{ error: visible ? "Forbidden" : "Not found" },
+				{ status: visible ? 403 : 404 },
+			);
 		}
 
 		if (name === "main") {

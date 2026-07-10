@@ -790,11 +790,21 @@ export async function autoReviewSlot(opts: {
 		let message: string;
 		let corrected: boolean;
 		if (verdict.verdict === "reroll-with-delta") {
+			// Capture the user's authored prompt BEFORE overwriting it, so a failed
+			// reroll can be rolled back — otherwise the critic's revision would
+			// persist on the slot even though it produced no take and the displayed
+			// take is still the old one.
+			const originalPrompt = director.getSlot(slotId).data?.prompt;
 			director.setPrompt({ slotId, prompt: verdict.revisedPrompt });
 			const res = await director.reroll({ slotId, alternatives: 1 });
 			correctedTakeId = res.data?.takeIds?.[0];
 			message = res.message;
 			corrected = res.ok;
+			// Reroll failed: the revised prompt never made a take. Restore the
+			// original so the user's authored prompt isn't silently lost.
+			if (!corrected && originalPrompt !== undefined) {
+				director.setPrompt({ slotId, prompt: originalPrompt });
+			}
 		} else {
 			const res = await director.remix({
 				slotId,
