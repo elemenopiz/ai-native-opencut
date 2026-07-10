@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cn } from "@/utils/ui";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -56,6 +56,14 @@ export function BackgroundRemovalDialog({
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const sliderContainerRef = useRef<HTMLDivElement>(null);
 
+	// Revoke the object URL created for an uploaded file when it is replaced or
+	// the dialog unmounts. Timeline-frame sources are plain URLs (not blobs) and
+	// must not be revoked.
+	useEffect(() => {
+		if (!sourcePreviewUrl?.startsWith("blob:")) return;
+		return () => URL.revokeObjectURL(sourcePreviewUrl);
+	}, [sourcePreviewUrl]);
+
 	const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
 		const file = e.target.files?.[0];
 		if (!file) return;
@@ -83,9 +91,7 @@ export function BackgroundRemovalDialog({
 			setResult(processed);
 		} catch (err) {
 			setError(
-				err instanceof Error
-					? err.message
-					: "Failed to remove background",
+				err instanceof Error ? err.message : "Failed to remove background",
 			);
 		} finally {
 			setIsProcessing(false);
@@ -138,10 +144,7 @@ export function BackgroundRemovalDialog({
 			<DialogContent className="max-w-lg">
 				<DialogHeader>
 					<DialogTitle className="flex items-center gap-2">
-						<HugeiconsIcon
-							icon={Image01Icon}
-							className="size-5 text-primary"
-						/>
+						<HugeiconsIcon icon={Image01Icon} className="size-5 text-primary" />
 						Remove Background
 					</DialogTitle>
 					<DialogDescription>
@@ -173,9 +176,7 @@ export function BackgroundRemovalDialog({
 										className="size-8 text-muted-foreground/50"
 									/>
 									<div className="text-center">
-										<p className="text-sm font-medium">
-											Upload Image
-										</p>
+										<p className="text-sm font-medium">Upload Image</p>
 										<p className="text-xs text-muted-foreground mt-1">
 											PNG, JPG, WEBP supported
 										</p>
@@ -186,17 +187,13 @@ export function BackgroundRemovalDialog({
 							{/* Timeline frames */}
 							{timelineFrames.length > 0 && (
 								<div>
-									<Label className="text-xs mb-2 block">
-										From Timeline
-									</Label>
+									<Label className="text-xs mb-2 block">From Timeline</Label>
 									<div className="grid grid-cols-4 gap-2">
 										{timelineFrames.map((frame) => (
 											<button
 												key={frame.id}
 												type="button"
-												onClick={() =>
-													handleTimelineSelect(frame.url)
-												}
+												onClick={() => handleTimelineSelect(frame.url)}
 												className="relative aspect-video rounded-md overflow-hidden border hover:ring-2 hover:ring-primary transition-all group"
 											>
 												<img
@@ -331,9 +328,7 @@ export function BackgroundRemovalDialog({
 							<Button variant="outline" onClick={handleReset}>
 								Try Another
 							</Button>
-							<Button onClick={handleAddToTimeline}>
-								Add to Timeline
-							</Button>
+							<Button onClick={handleAddToTimeline}>Add to Timeline</Button>
 						</>
 					) : (
 						<>
@@ -350,10 +345,7 @@ export function BackgroundRemovalDialog({
 								{source ? "Back" : "Cancel"}
 							</Button>
 							{source && (
-								<Button
-									onClick={handleProcess}
-									disabled={isProcessing}
-								>
+								<Button onClick={handleProcess} disabled={isProcessing}>
 									{isProcessing ? (
 										<>
 											<Spinner className="size-3 mr-1" />
