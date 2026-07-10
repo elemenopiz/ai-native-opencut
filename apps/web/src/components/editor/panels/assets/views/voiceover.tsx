@@ -171,15 +171,57 @@ export function VoiceoverView() {
 	// Smallest AI engine state
 	const [smallestVoice, setSmallestVoice] = useState(SMALLEST_DEFAULT_VOICE);
 	const [smallestSpeed, setSmallestSpeed] = useState(1.0);
+	// Live voice catalogue from the Smallest API. Null until fetched; stays null
+	// if the request fails so we fall back to the bundled static list.
+	const [liveSmallestVoices, setLiveSmallestVoices] = useState<
+		{ id: string; name: string; language: string; gender: string }[] | null
+	>(null);
 
 	const currentModel =
 		TTS_MODELS.find((m) => m.id === selectedModel) ?? TTS_MODELS[0];
 
-	// Available voices for the selected language (Smallest)
+	// Available voices for the selected language (Smallest, static fallback)
 	const smallestVoicesForLang = useMemo(
 		() => getSmallestVoicesForLanguage(language),
 		[language],
 	);
+
+	// Effective voice options: prefer the live API catalogue (filtered to the
+	// current language, else all live voices); fall back to the static list.
+	const smallestVoiceOptions = useMemo(() => {
+		if (liveSmallestVoices && liveSmallestVoices.length > 0) {
+			const forLang = liveSmallestVoices.filter((v) => v.language === language);
+			return forLang.length > 0 ? forLang : liveSmallestVoices;
+		}
+		return smallestVoicesForLang.length > 0
+			? smallestVoicesForLang
+			: SMALLEST_TTS_VOICES.filter((v) => v.language === "en");
+	}, [liveSmallestVoices, language, smallestVoicesForLang]);
+
+	// Fetch the live voice catalogue the first time the Smallest engine is used.
+	useEffect(() => {
+		if (engine !== "smallest" || liveSmallestVoices !== null) return;
+		let cancelled = false;
+		aiClient
+			.smallestVoices()
+			.then((res) => {
+				if (!cancelled) setLiveSmallestVoices(res.voices ?? []);
+			})
+			.catch(() => {
+				// Keep the static fallback — the picker still works offline.
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [engine, liveSmallestVoices]);
+
+	// Keep the selected voice valid whenever the option set changes.
+	useEffect(() => {
+		if (engine !== "smallest" || smallestVoiceOptions.length === 0) return;
+		if (!smallestVoiceOptions.some((v) => v.id === smallestVoice)) {
+			setSmallestVoice(smallestVoiceOptions[0].id);
+		}
+	}, [engine, smallestVoiceOptions, smallestVoice]);
 
 	// Reset language when switching engine
 	const handleEngineChange = (value: string) => {
@@ -751,10 +793,7 @@ export function VoiceoverView() {
 									<SelectValue />
 								</SelectTrigger>
 								<SelectContent>
-									{(smallestVoicesForLang.length > 0
-										? smallestVoicesForLang
-										: SMALLEST_TTS_VOICES.filter((v) => v.language === "en")
-									).map((v) => (
+									{smallestVoiceOptions.map((v) => (
 										<SelectItem key={v.id} value={v.id}>
 											{v.name} ({v.gender})
 										</SelectItem>

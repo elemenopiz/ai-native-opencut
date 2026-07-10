@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { PanelView } from "@/components/editor/panels/assets/views/base-view";
 import { MediaDragOverlay } from "@/components/editor/panels/assets/drag-overlay";
@@ -483,13 +483,30 @@ function MediaItemList({
 
 	return (
 		<div
-			className={cn(isGrid ? "grid gap-2" : "flex flex-col gap-1")}
+			className={cn(!isGrid && "flex flex-col gap-1")}
+			// Pinterest-style masonry on a 4-column grid. Landscape items span two
+			// columns; everything else spans one and simply runs taller. Each cell
+			// spans a computed number of thin rows (see MasonryCell) so items of any
+			// shape pack tightly with no leftover row-height gaps. `dense` flow lets
+			// narrow items backfill the holes a wide item leaves in a row.
 			style={
-				isGrid ? { gridTemplateColumns: "repeat(auto-fill, 110px)" } : undefined
+				isGrid
+					? {
+							display: "grid",
+							gridTemplateColumns: `repeat(${MASONRY_COLUMNS}, minmax(0, 1fr))`,
+							gridAutoRows: `${MASONRY_ROW_UNIT_PX}px`,
+							gridAutoFlow: "dense",
+							// Column gap comes from the grid; the vertical gap is added as
+							// exact padding inside each cell (see MasonryCell) so it can't
+							// stack with row-span rounding into an oversized gap.
+							columnGap: `${MASONRY_COLUMN_GAP_PX}px`,
+							rowGap: 0,
+						}
+					: undefined
 			}
 		>
-			{items.map((item) => (
-				<div key={item.id} ref={(element) => registerElement(item.id, element)}>
+			{items.map((item) => {
+				const content = (
 					<MediaItemWithContextMenu
 						item={item}
 						onRemove={onRemove}
@@ -521,8 +538,97 @@ function MediaItemList({
 							/>
 						</div>
 					</MediaItemWithContextMenu>
-				</div>
-			))}
+				);
+
+				if (!isGrid) {
+					return (
+						<div
+							key={item.id}
+							ref={(element) => registerElement(item.id, element)}
+						>
+							{content}
+						</div>
+					);
+				}
+
+				// Landscape (wider than tall) gets two columns; portrait/square one.
+				const ratio =
+					item.width && item.height ? item.width / item.height : 16 / 9;
+				const colSpan = ratio >= LANDSCAPE_RATIO_THRESHOLD ? 2 : 1;
+
+				return (
+					<MasonryCell
+						key={item.id}
+						colSpan={colSpan}
+						registerRef={(element) => registerElement(item.id, element)}
+					>
+						{content}
+					</MasonryCell>
+				);
+			})}
+		</div>
+	);
+}
+
+// Masonry tuning. Columns are separated by MASONRY_COLUMN_GAP_PX; the vertical
+// gap is padding inside each cell (grid row gap stays 0 so it can't compound
+// with row-span rounding). A 1px row unit removes rounding slack, and the
+// vertical gap is kept a touch under the column gap so it reads evenly.
+const MASONRY_COLUMNS = 4;
+const MASONRY_COLUMN_GAP_PX = 8;
+const MASONRY_ROW_GAP_PX = 6;
+const MASONRY_ROW_UNIT_PX = 1;
+const LANDSCAPE_RATIO_THRESHOLD = 1.2;
+
+// One masonry cell. It measures its own natural content height and spans however
+// many grid rows are needed to contain it, so the CSS grid packs like Pinterest
+// (mixed heights) instead of aligning every item in a row to a shared height.
+// A ResizeObserver re-measures when the column width — and thus the aspect-ratio
+// driven height — changes, keeping spans correct as the panel resizes.
+function MasonryCell({
+	colSpan,
+	registerRef,
+	children,
+}: {
+	colSpan: number;
+	registerRef: (element: HTMLElement | null) => void;
+	children: React.ReactNode;
+}) {
+	const innerRef = useRef<HTMLDivElement>(null);
+	const [rowSpan, setRowSpan] = useState(1);
+
+	// Measure before paint so the cell is never shown collapsed to one row
+	// (which would briefly stack items on top of each other).
+	useLayoutEffect(() => {
+		const element = innerRef.current;
+		if (!element) return;
+
+		const update = () => {
+			// Height includes the cell's bottom padding (the vertical gap), so the
+			// span covers content + gap with the row gap left at 0.
+			const height = element.getBoundingClientRect().height;
+			if (height <= 0) return;
+			const span = Math.ceil(height / MASONRY_ROW_UNIT_PX);
+			setRowSpan(Math.max(1, span));
+		};
+
+		update();
+		const observer = new ResizeObserver(update);
+		observer.observe(element);
+		return () => observer.disconnect();
+	}, []);
+
+	return (
+		<div
+			ref={registerRef}
+			style={{
+				gridColumn: `span ${colSpan}`,
+				gridRow: `span ${rowSpan}`,
+			}}
+		>
+			<div ref={innerRef} style={{ paddingBottom: `${MASONRY_ROW_GAP_PX}px` }}>
+				{children}
+			</div>
 		</div>
 	);
 }
@@ -585,21 +691,11 @@ function MediaLabelRow({
 		);
 	}
 
-	// In compact (list) view, hide the "add" button to keep it clean
-	if (compact) return null;
-
-	return (
-		<button
-			type="button"
-			onClick={(e) => {
-				e.stopPropagation();
-				onStartEdit();
-			}}
-			className="mt-0.5 w-full truncate rounded px-1 py-0.5 text-left text-[10px] text-muted-foreground/40 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-muted/40"
-		>
-			+ Add label
-		</button>
-	);
+	// No custom label: render nothing so the item reserves no extra vertical
+	// space (an always-present hover "+ Add label" button left a phantom gap
+	// that broke the masonry's even spacing). Labels are still added via the
+	// right-click context menu.
+	return null;
 }
 
 export function formatDuration({ duration }: { duration: number }) {
@@ -675,9 +771,7 @@ function MediaPreview({
 					loading="lazy"
 					unoptimized
 				/>
-				{shouldShowDurationBadge && (
-					<MediaTypeBadge type="image" />
-				)}
+				{shouldShowDurationBadge && <MediaTypeBadge type="image" />}
 				{showAiBadge && <AiBadge />}
 			</div>
 		);
@@ -897,7 +991,11 @@ function MediaTypeBadge({ type }: { type: string }) {
 	);
 }
 
-const FILTER_TABS: { key: MediaTypeFilter; label: string; icon: IconSvgElement }[] = [
+const FILTER_TABS: {
+	key: MediaTypeFilter;
+	label: string;
+	icon: IconSvgElement;
+}[] = [
 	{ key: "all", label: "All", icon: GridViewIcon },
 	{ key: "video", label: "Videos", icon: Video01Icon },
 	{ key: "image", label: "Images", icon: Image02Icon },
@@ -938,7 +1036,9 @@ function MediaTypeFilterBar({
 						<span
 							className={cn(
 								"ml-0.5 text-[9px] tabular-nums",
-								isActive ? "text-primary-foreground/70" : "text-muted-foreground/60",
+								isActive
+									? "text-primary-foreground/70"
+									: "text-muted-foreground/60",
 							)}
 						>
 							{count}

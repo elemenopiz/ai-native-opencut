@@ -17,6 +17,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { OcSocialIcon } from "@byorn/ui/icons";
 import { Separator } from "@/components/ui/separator";
 import { usePreviewStore } from "@/stores/preview-store";
+import { AIToolbar } from "@/components/editor/ai/ai-toolbar";
 
 const ZOOM_STEP = 1.25;
 
@@ -63,6 +64,8 @@ export function PreviewToolbar({
 			</Button>
 
 			<div className="justify-self-end flex items-center gap-2.5">
+				<AIToolbar />
+				<Separator orientation="vertical" className="h-4" />
 				<PreviewZoomControls />
 				<Separator orientation="vertical" className="h-4" />
 				<Button

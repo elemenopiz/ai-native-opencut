@@ -29,9 +29,7 @@ import { toast } from "sonner";
 
 const _suggestionCache = new Map<string, BRollSuggestion[]>();
 
-function hashSegments(
-	segments: { id: number; text: string }[],
-): string {
+function hashSegments(segments: { id: number; text: string }[]): string {
 	const raw = segments.map((s) => `${s.id}:${s.text}`).join("|");
 	let h = 0;
 	for (let i = 0; i < raw.length; i++) {
@@ -97,7 +95,16 @@ export function BRollSuggestionsPanel({
 	const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
 
 	// Per-card image generation state
-	const [imageStates, setImageStates] = useState<Record<number, CardImageState>>({});
+	const [imageStates, setImageStates] = useState<
+		Record<number, CardImageState>
+	>({});
+
+	// Per-card enhanced-prompt overrides (from aiClient.enhancePrompt). When set,
+	// they replace the suggestion's own imagePrompt for generation.
+	const [promptOverrides, setPromptOverrides] = useState<
+		Record<number, string>
+	>({});
+	const [enhancingPrompt, setEnhancingPrompt] = useState<number | null>(null);
 
 	// Batch state
 	const [isBatchGenerating, setIsBatchGenerating] = useState(false);
@@ -105,7 +112,9 @@ export function BRollSuggestionsPanel({
 	const batchCancelRef = useRef(false);
 
 	// Pexels search state
-	const [pexelsResults, setPexelsResults] = useState<Record<number, PexelsPhoto[]>>({});
+	const [pexelsResults, setPexelsResults] = useState<
+		Record<number, PexelsPhoto[]>
+	>({});
 	const [searchingStock, setSearchingStock] = useState<number | null>(null);
 	const [videoGenStates, setVideoGenStates] = useState<VideoGenMap>({});
 
@@ -219,6 +228,37 @@ export function BRollSuggestionsPanel({
 		[],
 	);
 
+	// The prompt actually used for generation — an enhanced override if the user
+	// ran "Enhance", otherwise the suggestion's own image prompt.
+	const getEffectivePrompt = useCallback(
+		(idx: number, suggestion: BRollSuggestion) =>
+			promptOverrides[idx] ?? suggestion.imagePrompt,
+		[promptOverrides],
+	);
+
+	// ── Enhance a suggestion's image prompt into a richer one ──
+
+	const handleEnhancePrompt = useCallback(
+		async (idx: number, suggestion: BRollSuggestion) => {
+			if (enhancingPrompt !== null) return;
+			setEnhancingPrompt(idx);
+			try {
+				const result = await aiClient.enhancePrompt(
+					getEffectivePrompt(idx, suggestion),
+				);
+				setPromptOverrides((prev) => ({ ...prev, [idx]: result.enhanced }));
+				toast.success("Prompt enhanced");
+			} catch (err) {
+				toast.error(
+					err instanceof Error ? err.message : "Prompt enhancement failed",
+				);
+			} finally {
+				setEnhancingPrompt(null);
+			}
+		},
+		[enhancingPrompt, getEffectivePrompt],
+	);
+
 	// ── Auto-insert image as overlay at the suggestion's timestamp ──
 
 	const handleInsertToTimeline = useCallback(
@@ -250,12 +290,15 @@ export function BRollSuggestionsPanel({
 
 	const handleGenerateAndInsert = useCallback(
 		async (idx: number, suggestion: BRollSuggestion) => {
-			const result = await handleGenerateImage(idx, suggestion.imagePrompt);
+			const result = await handleGenerateImage(
+				idx,
+				getEffectivePrompt(idx, suggestion),
+			);
 			if (result?.imageUrl) {
 				handleInsertToTimeline(idx, suggestion, result.imageUrl);
 			}
 		},
-		[handleGenerateImage, handleInsertToTimeline],
+		[handleGenerateImage, handleInsertToTimeline, getEffectivePrompt],
 	);
 
 	// ── Batch generate all high-priority suggestions ──
@@ -265,8 +308,7 @@ export function BRollSuggestionsPanel({
 			.map((s, i) => ({ suggestion: s, idx: i }))
 			.filter(
 				({ suggestion, idx }) =>
-					suggestion.priority === "high" &&
-					imageStates[idx]?.status !== "done",
+					suggestion.priority === "high" && imageStates[idx]?.status !== "done",
 			);
 
 		if (targets.length === 0) {
@@ -308,7 +350,9 @@ export function BRollSuggestionsPanel({
 		});
 
 		if (!batchCancelRef.current) {
-			toast.success(`${completed} B-roll images generated and added to timeline`);
+			toast.success(
+				`${completed} B-roll images generated and added to timeline`,
+			);
 		}
 	}, [suggestions, imageStates, bgTasks, handleGenerateAndInsert]);
 
@@ -331,10 +375,7 @@ export function BRollSuggestionsPanel({
 					width: 1920,
 					height: 1080,
 				};
-				const duration = Math.max(
-					suggestion.endTime - suggestion.startTime,
-					2,
-				);
+				const duration = Math.max(suggestion.endTime - suggestion.startTime, 2);
 
 				const result = await aiClient.generateVideo({
 					prompt: suggestion.imagePrompt,
@@ -374,9 +415,7 @@ export function BRollSuggestionsPanel({
 						}));
 						toast.success("Video B-roll generated");
 					} else {
-						throw new Error(
-							pollResult.error ?? "Video generation timed out",
-						);
+						throw new Error(pollResult.error ?? "Video generation timed out");
 					}
 				} else if (result.status === "completed" && result.videoUrl) {
 					setVideoGenStates((prev) => ({
@@ -444,7 +483,9 @@ export function BRollSuggestionsPanel({
 				placement: { mode: "auto" },
 			});
 
-			toast.success(`Stock image inserted at ${suggestion.startTime.toFixed(1)}s`);
+			toast.success(
+				`Stock image inserted at ${suggestion.startTime.toFixed(1)}s`,
+			);
 		},
 		[editor],
 	);
@@ -484,7 +525,10 @@ export function BRollSuggestionsPanel({
 								"Re-analyze"
 							) : (
 								<>
-									<HugeiconsIcon icon={SparklesIcon} className="size-3.5 mr-2" />
+									<HugeiconsIcon
+										icon={SparklesIcon}
+										className="size-3.5 mr-2"
+									/>
 									Suggest B-Roll
 								</>
 							)}
@@ -516,7 +560,10 @@ export function BRollSuggestionsPanel({
 									</>
 								) : (
 									<>
-										<HugeiconsIcon icon={ArrowDown01Icon} className="size-3.5 mr-2" />
+										<HugeiconsIcon
+											icon={ArrowDown01Icon}
+											className="size-3.5 mr-2"
+										/>
 										Apply All High Priority ({highPrioritySuggestions.length})
 									</>
 								)}
@@ -535,21 +582,24 @@ export function BRollSuggestionsPanel({
 						</div>
 					)}
 
-					{!isAnalyzing && suggestions.length === 0 && !error && hasTranscript && (
-						<div className="text-center py-8">
-							<HugeiconsIcon
-								icon={Image01Icon}
-								className="size-8 text-muted-foreground/40 mx-auto mb-2"
-							/>
-							<p className="text-sm text-muted-foreground">
-								AI will analyze your transcript
-							</p>
-							<p className="text-xs text-muted-foreground/60 mt-1">
-								and suggest visuals, stock footage keywords,
-								and image generation prompts for each segment
-							</p>
-						</div>
-					)}
+					{!isAnalyzing &&
+						suggestions.length === 0 &&
+						!error &&
+						hasTranscript && (
+							<div className="text-center py-8">
+								<HugeiconsIcon
+									icon={Image01Icon}
+									className="size-8 text-muted-foreground/40 mx-auto mb-2"
+								/>
+								<p className="text-sm text-muted-foreground">
+									AI will analyze your transcript
+								</p>
+								<p className="text-xs text-muted-foreground/60 mt-1">
+									and suggest visuals, stock footage keywords, and image
+									generation prompts for each segment
+								</p>
+							</div>
+						)}
 
 					{isAnalyzing && suggestions.length === 0 && (
 						<div className="text-center py-8">
@@ -566,12 +616,13 @@ export function BRollSuggestionsPanel({
 							idx={idx}
 							suggestion={suggestion}
 							isExpanded={expandedIdx === idx}
-							onToggle={() =>
-								setExpandedIdx(expandedIdx === idx ? null : idx)
-							}
+							onToggle={() => setExpandedIdx(expandedIdx === idx ? null : idx)}
 							imageState={imageStates[idx] ?? { status: "idle" }}
+							promptText={getEffectivePrompt(idx, suggestion)}
+							isEnhancingPrompt={enhancingPrompt === idx}
+							onEnhancePrompt={() => handleEnhancePrompt(idx, suggestion)}
 							onGenerateImage={() =>
-								handleGenerateImage(idx, suggestion.imagePrompt)
+								handleGenerateImage(idx, getEffectivePrompt(idx, suggestion))
 							}
 							onGenerateAndInsert={() =>
 								handleGenerateAndInsert(idx, suggestion)
@@ -589,9 +640,7 @@ export function BRollSuggestionsPanel({
 							}
 							onSeekTo={onSeekTo}
 							videoGenState={videoGenStates[idx] ?? { status: "idle" }}
-							onGenerateVideo={() =>
-								handleGenerateVideo(idx, suggestion)
-							}
+							onGenerateVideo={() => handleGenerateVideo(idx, suggestion)}
 						/>
 					))}
 				</div>
@@ -621,6 +670,9 @@ interface BRollCardProps {
 	isExpanded: boolean;
 	onToggle: () => void;
 	imageState: CardImageState;
+	promptText: string;
+	isEnhancingPrompt: boolean;
+	onEnhancePrompt: () => void;
 	onGenerateImage: () => void;
 	onGenerateAndInsert: () => void;
 	onInsertToTimeline: (imageUrl: string) => void;
@@ -638,6 +690,9 @@ function BRollCard({
 	isExpanded,
 	onToggle,
 	imageState,
+	promptText,
+	isEnhancingPrompt,
+	onEnhancePrompt,
 	onGenerateImage,
 	onGenerateAndInsert,
 	onInsertToTimeline,
@@ -709,7 +764,10 @@ function BRollCard({
 				)}
 				<Badge
 					variant="outline"
-					className={cn("text-[8px] px-1 py-0 shrink-0", PRIORITY_BADGE[suggestion.priority])}
+					className={cn(
+						"text-[8px] px-1 py-0 shrink-0",
+						PRIORITY_BADGE[suggestion.priority],
+					)}
 				>
 					{suggestion.priority}
 				</Badge>
@@ -736,7 +794,10 @@ function BRollCard({
 											onInsertToTimeline(imageState.imageUrl!);
 										}}
 									>
-										<HugeiconsIcon icon={ArrowDown01Icon} className="size-3 mr-1" />
+										<HugeiconsIcon
+											icon={ArrowDown01Icon}
+											className="size-3 mr-1"
+										/>
 										Insert at {suggestion.startTime.toFixed(1)}s
 									</Button>
 								</div>
@@ -753,7 +814,8 @@ function BRollCard({
 							&ldquo;{suggestion.segmentText}&rdquo;
 						</p>
 						<p className="text-[10px] text-muted-foreground mt-0.5">
-							{suggestion.startTime.toFixed(1)}s &ndash; {suggestion.endTime.toFixed(1)}s
+							{suggestion.startTime.toFixed(1)}s &ndash;{" "}
+							{suggestion.endTime.toFixed(1)}s
 						</p>
 					</div>
 
@@ -770,21 +832,46 @@ function BRollCard({
 
 					{/* Image prompt */}
 					<div>
-						<div className="flex items-center gap-1 mb-0.5">
-							<HugeiconsIcon icon={Image01Icon} className="size-3 text-muted-foreground" />
-							<p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-								Image Prompt
-							</p>
+						<div className="flex items-center justify-between gap-1 mb-0.5">
+							<div className="flex items-center gap-1">
+								<HugeiconsIcon
+									icon={Image01Icon}
+									className="size-3 text-muted-foreground"
+								/>
+								<p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+									Image Prompt
+								</p>
+							</div>
+							<button
+								type="button"
+								className="flex items-center gap-0.5 text-[9px] text-primary hover:underline disabled:opacity-50"
+								disabled={isEnhancingPrompt}
+								onClick={(e) => {
+									e.stopPropagation();
+									onEnhancePrompt();
+								}}
+								title="Rewrite the prompt with richer visual detail"
+							>
+								{isEnhancingPrompt ? (
+									<Spinner className="size-2.5" />
+								) : (
+									<HugeiconsIcon icon={SparklesIcon} className="size-2.5" />
+								)}
+								Enhance
+							</button>
 						</div>
 						<p className="text-xs text-muted-foreground font-mono bg-muted/30 rounded px-2 py-1">
-							{suggestion.imagePrompt}
+							{promptText}
 						</p>
 					</div>
 
 					{/* Stock keywords */}
 					<div>
 						<div className="flex items-center gap-1 mb-1">
-							<HugeiconsIcon icon={Search01Icon} className="size-3 text-muted-foreground" />
+							<HugeiconsIcon
+								icon={Search01Icon}
+								className="size-3 text-muted-foreground"
+							/>
 							<p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
 								Stock Footage
 							</p>
@@ -854,7 +941,10 @@ function BRollCard({
 										onInsertToTimeline(imageState.imageUrl!);
 									}}
 								>
-									<HugeiconsIcon icon={ArrowDown01Icon} className="size-3 mr-1" />
+									<HugeiconsIcon
+										icon={ArrowDown01Icon}
+										className="size-3 mr-1"
+									/>
 									Add to Timeline
 								</Button>
 							) : imageState.inserted ? (
@@ -885,7 +975,10 @@ function BRollCard({
 										</>
 									) : (
 										<>
-											<HugeiconsIcon icon={SparklesIcon} className="size-3 mr-1" />
+											<HugeiconsIcon
+												icon={SparklesIcon}
+												className="size-3 mr-1"
+											/>
 											Generate &amp; Insert
 										</>
 									)}
@@ -947,7 +1040,8 @@ function BRollCard({
 											onGenerateVideo();
 										}}
 									>
-										{videoGenState.status === "generating" || videoGenState.status === "polling" ? (
+										{videoGenState.status === "generating" ||
+										videoGenState.status === "polling" ? (
 											<>
 												<Spinner className="size-3 mr-1" />
 												{videoGenState.status === "polling"
@@ -958,7 +1052,10 @@ function BRollCard({
 											"Retry Video B-Roll"
 										) : (
 											<>
-												<HugeiconsIcon icon={SparklesIcon} className="size-3 mr-1" />
+												<HugeiconsIcon
+													icon={SparklesIcon}
+													className="size-3 mr-1"
+												/>
 												Generate Video B-Roll
 											</>
 										)}

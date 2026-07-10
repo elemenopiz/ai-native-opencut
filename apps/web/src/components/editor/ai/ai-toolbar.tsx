@@ -1,0 +1,152 @@
+"use client";
+
+import { useCallback, useState } from "react";
+import { toast } from "sonner";
+import { aiClient } from "@/lib/ai-client";
+import { useAIStatus } from "@/hooks/use-ai-status";
+import { useAIStore } from "@/stores/ai-store";
+import { useEditor } from "@/hooks/use-editor";
+import { useAssetsPanelStore } from "@/stores/assets-panel-store";
+import { addItemsToProjectMedia } from "@/lib/studio/add-to-editor";
+import { AIToolbarButtons } from "./ai-toolbar-buttons";
+import { BackgroundRemovalDialog } from "./background-removal-dialog";
+
+interface BackgroundRemovalResult {
+	originalUrl: string;
+	processedUrl: string;
+	width: number;
+	height: number;
+}
+
+/**
+ * Mounts the built-but-unmounted `AIToolbarButtons` in the preview toolbar and
+ * wires its handlers to the AI client. In particular this is the sole caller of
+ * `aiClient.generateInfographic` and `aiClient.removeBackground` (via the
+ * BackgroundRemovalDialog). The secondary actions route to the relevant Assets
+ * tab, which already hosts the full flow (Director for image gen, Audio for
+ * voiceover/clean, Captions for transcribe/subtitles).
+ */
+export function AIToolbar({ className }: { className?: string }) {
+	const { isConnected } = useAIStatus();
+	const toggleSetupGuide = useAIStore((s) => s.toggleSetupGuide);
+	const editor = useEditor();
+	const setActiveTab = useAssetsPanelStore((s) => s.setActiveTab);
+
+	const [isBgOpen, setIsBgOpen] = useState(false);
+	const [isGenerating, setIsGenerating] = useState(false);
+
+	const getActiveProjectId = useCallback((): string | null => {
+		try {
+			return editor.project.getActive().metadata.id;
+		} catch {
+			return null;
+		}
+	}, [editor]);
+
+	const handleGenerateInfographic = useCallback(async () => {
+		const topic = window.prompt("Infographic topic?");
+		if (!topic?.trim()) return;
+		setIsGenerating(true);
+		try {
+			const data = await aiClient.generateInfographic(topic.trim());
+			toast.success("Infographic generated", {
+				description: `Template: ${data.template}`,
+			});
+		} catch (error) {
+			toast.error("Infographic generation failed", {
+				description: error instanceof Error ? error.message : undefined,
+			});
+		} finally {
+			setIsGenerating(false);
+		}
+	}, []);
+
+	const handleRemoveBackground = useCallback(
+		async (source: File | string): Promise<BackgroundRemovalResult | null> => {
+			const originalUrl =
+				typeof source === "string" ? source : URL.createObjectURL(source);
+
+			// The client method takes a File; fetch remote/timeline sources first.
+			let file: File;
+			if (typeof source === "string") {
+				const res = await fetch(source);
+				const blob = await res.blob();
+				file = new File([blob], "frame.png", {
+					type: blob.type || "image/png",
+				});
+			} else {
+				file = source;
+			}
+
+			const { imageUrl } = await aiClient.removeBackground(file);
+
+			// Measure the processed image so callers get real dimensions.
+			const dims = await new Promise<{ width: number; height: number }>(
+				(resolve) => {
+					const img = new Image();
+					img.onload = () =>
+						resolve({ width: img.naturalWidth, height: img.naturalHeight });
+					img.onerror = () => resolve({ width: 0, height: 0 });
+					img.src = imageUrl;
+				},
+			);
+
+			return {
+				originalUrl,
+				processedUrl: imageUrl,
+				width: dims.width,
+				height: dims.height,
+			};
+		},
+		[],
+	);
+
+	const handleAddBgResultToTimeline = useCallback(
+		async (result: BackgroundRemovalResult) => {
+			const projectId = getActiveProjectId();
+			if (!projectId) {
+				toast.error("No active project to save to.");
+				return;
+			}
+			const { added } = await addItemsToProjectMedia({
+				editor,
+				projectId,
+				items: [
+					{
+						url: result.processedUrl,
+						name: "background-removed",
+						kind: "image",
+					},
+				],
+				source: "ai",
+			});
+			if (added > 0) toast.success("Added to assets.");
+			else toast.error("Could not add to assets.");
+		},
+		[editor, getActiveProjectId],
+	);
+
+	return (
+		<>
+			<AIToolbarButtons
+				className={className}
+				isConnected={isConnected}
+				isGenerating={isGenerating}
+				onSetupClick={toggleSetupGuide}
+				onGenerateInfographic={handleGenerateInfographic}
+				onRemoveBackground={() => setIsBgOpen(true)}
+				onGenerateImage={() => setActiveTab("director")}
+				onGenerateVoiceover={() => setActiveTab("audio")}
+				onCleanAudio={() => setActiveTab("audio")}
+				onTranscribe={() => setActiveTab("captions")}
+				onAddSubtitles={() => setActiveTab("captions")}
+			/>
+			<BackgroundRemovalDialog
+				isOpen={isBgOpen}
+				onOpenChange={setIsBgOpen}
+				onRemoveBackground={handleRemoveBackground}
+				onAddToTimeline={handleAddBgResultToTimeline}
+			/>
+		</>
+	);
+}

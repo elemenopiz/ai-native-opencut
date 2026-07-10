@@ -49,6 +49,10 @@ import { AutoChaptersPanel } from "@/components/editor/panels/assets/views/auto-
 import { SmartReframePanel } from "@/components/editor/panels/assets/views/smart-reframe";
 import { MotionTrackingPanel } from "@/components/editor/panels/assets/views/motion-tracking";
 import { ABTestingPanel } from "@/components/editor/panels/assets/views/ab-testing";
+import { ScriptToVideoPanel } from "@/components/editor/panels/assets/views/script-to-video";
+import { ShortsComposerPanel } from "@/components/editor/panels/assets/views/shorts-composer";
+import { SceneDetectionPanel } from "@/components/editor/panels/assets/views/scene-detection";
+import { ThumbnailGenPanel } from "@/components/editor/panels/assets/views/thumbnail-gen";
 
 // ----- Thinking Messages -----
 
@@ -119,7 +123,11 @@ type StudioMode =
 	| "chapters"
 	| "reframe"
 	| "tracking"
-	| "ab-testing";
+	| "ab-testing"
+	| "script-to-video"
+	| "shorts"
+	| "scenes"
+	| "thumbnail";
 
 // ----- Workflow Steps -----
 
@@ -960,6 +968,38 @@ export function DirectorView() {
 					>
 						A/B Test
 					</Button>
+					<Button
+						variant={mode === "script-to-video" ? "secondary" : "ghost"}
+						size="sm"
+						className="h-6 text-[10px] px-2"
+						onClick={() => setMode("script-to-video")}
+					>
+						Script→Video
+					</Button>
+					<Button
+						variant={mode === "shorts" ? "secondary" : "ghost"}
+						size="sm"
+						className="h-6 text-[10px] px-2"
+						onClick={() => setMode("shorts")}
+					>
+						Shorts
+					</Button>
+					<Button
+						variant={mode === "scenes" ? "secondary" : "ghost"}
+						size="sm"
+						className="h-6 text-[10px] px-2"
+						onClick={() => setMode("scenes")}
+					>
+						Scenes
+					</Button>
+					<Button
+						variant={mode === "thumbnail" ? "secondary" : "ghost"}
+						size="sm"
+						className="h-6 text-[10px] px-2"
+						onClick={() => setMode("thumbnail")}
+					>
+						Thumbnail
+					</Button>
 				</div>
 			</div>
 
@@ -1375,6 +1415,20 @@ export function DirectorView() {
 
 			{/* ── A/B Testing Mode ── */}
 			{mode === "ab-testing" && <ABTestingPanel className="flex-1 min-h-0" />}
+
+			{/* ── Script-to-Video Mode ── */}
+			{mode === "script-to-video" && (
+				<ScriptToVideoPanel className="flex-1 min-h-0" />
+			)}
+
+			{/* ── Shorts Composer Mode ── */}
+			{mode === "shorts" && <ShortsComposerPanel className="flex-1 min-h-0" />}
+
+			{/* ── Scene Detection Mode ── */}
+			{mode === "scenes" && <SceneDetectionPanel className="flex-1 min-h-0" />}
+
+			{/* ── Thumbnail Generator Mode ── */}
+			{mode === "thumbnail" && <ThumbnailGenPanel className="flex-1 min-h-0" />}
 
 			{/* ── Ideas Mode ── */}
 			{mode === "ideas" && (

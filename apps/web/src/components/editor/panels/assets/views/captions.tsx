@@ -21,7 +21,10 @@ import {
 	isSarvamSTTSupported,
 } from "@/constants/sarvam-constants";
 import { SMALLEST_STT_LANGUAGES } from "@/constants/smallest-constants";
-import type { TranscriptionLanguage, TranscriptionEngine } from "@/types/transcription";
+import type {
+	TranscriptionLanguage,
+	TranscriptionEngine,
+} from "@/types/transcription";
 
 import { Spinner } from "@/components/ui/spinner";
 import { Label } from "@/components/ui/label";
@@ -45,7 +48,8 @@ interface SubtitleTrackInfo {
 }
 
 export function Captions() {
-	const [selectedEngine, setSelectedEngine] = useState<TranscriptionEngine>("whisper");
+	const [selectedEngine, setSelectedEngine] =
+		useState<TranscriptionEngine>("whisper");
 	const [selectedLanguage, setSelectedLanguage] =
 		useState<TranscriptionLanguage>("auto");
 	const [isProcessing, setIsProcessing] = useState(false);
@@ -53,19 +57,24 @@ export function Captions() {
 	const [error, setError] = useState<string | null>(null);
 	const [subtitleTracks, setSubtitleTracks] = useState<SubtitleTrackInfo[]>([]);
 	const [translateLanguage, setTranslateLanguage] = useState("es");
-	const [captionPreset, setCaptionPreset] = useState<CaptionPresetId>("karaoke-pop");
+	const [captionPreset, setCaptionPreset] =
+		useState<CaptionPresetId>("karaoke-pop");
 	const [isTranslating, setIsTranslating] = useState(false);
 	const [translatingStep, setTranslatingStep] = useState("");
+	const [isExportingSubtitles, setIsExportingSubtitles] = useState<
+		"srt" | "vtt" | null
+	>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
 	const segments = useTranscriptStore((s) => s.segments);
 	const editor = useEditor();
 
 	// Determine which languages to show based on engine
-	const availableLanguages = selectedEngine === "sarvam"
-		? SARVAM_STT_LANGUAGES
-		: selectedEngine === "smallest"
-			? SMALLEST_STT_LANGUAGES
-			: WHISPER_LANGUAGES;
+	const availableLanguages =
+		selectedEngine === "sarvam"
+			? SARVAM_STT_LANGUAGES
+			: selectedEngine === "smallest"
+				? SMALLEST_STT_LANGUAGES
+				: WHISPER_LANGUAGES;
 
 	// Filter out tracks that no longer exist on the timeline (user may have deleted them)
 	const timelineTracks = editor.timeline.getTracks();
@@ -85,7 +94,11 @@ export function Captions() {
 		if (selectedEngine === "sarvam") return "sarvam";
 		if (selectedEngine === "smallest") return "smallest";
 		// Auto-switch to Sarvam if an Indian language is explicitly selected with Whisper
-		if (langCode !== "auto" && isSarvamSTTSupported(langCode) && !WHISPER_LANGUAGES.some(l => l.code === langCode)) {
+		if (
+			langCode !== "auto" &&
+			isSarvamSTTSupported(langCode) &&
+			!WHISPER_LANGUAGES.some((l) => l.code === langCode)
+		) {
 			return "sarvam";
 		}
 		return "whisper";
@@ -100,7 +113,12 @@ export function Captions() {
 			setError(null);
 
 			const engine = getEffectiveEngine(selectedLanguage);
-			const engineLabel = engine === "sarvam" ? "Sarvam AI" : engine === "smallest" ? "Smallest AI" : "Whisper";
+			const engineLabel =
+				engine === "sarvam"
+					? "Sarvam AI"
+					: engine === "smallest"
+						? "Smallest AI"
+						: "Whisper";
 
 			bgTasks.addTask({
 				id: taskId,
@@ -131,7 +149,8 @@ export function Captions() {
 						(track.type === "video" || track.type === "audio") &&
 						hasMediaId(element as TimelineElement)
 					) {
-						foundMediaId = (element as TimelineElement & { mediaId: string }).mediaId;
+						foundMediaId = (element as TimelineElement & { mediaId: string })
+							.mediaId;
 						break;
 					}
 				}
@@ -139,7 +158,9 @@ export function Captions() {
 			}
 
 			if (!foundMediaId) {
-				setError("No video or audio found on the timeline. Import a file first.");
+				setError(
+					"No video or audio found on the timeline. Import a file first.",
+				);
 				return;
 			}
 
@@ -154,7 +175,9 @@ export function Captions() {
 
 			// Send to appropriate transcription service
 			setProcessingStep(`Transcribing via ${engineLabel}...`);
-			bgTasks.updateTask(taskId, { progress: `Transcribing via ${engineLabel}...` });
+			bgTasks.updateTask(taskId, {
+				progress: `Transcribing via ${engineLabel}...`,
+			});
 
 			// Ensure the file has a proper extension — the backend rejects files without one
 			const mimeToExt: Record<string, string> = {
@@ -174,7 +197,8 @@ export function Captions() {
 
 			let file = mediaAsset.file;
 			const fileName = file.name || "";
-			const hasExtension = fileName.includes(".") && fileName.split(".").pop()!.length > 0;
+			const hasExtension =
+				fileName.includes(".") && fileName.split(".").pop()!.length > 0;
 
 			if (!hasExtension) {
 				const ext = mimeToExt[file.type] || ".mp4";
@@ -185,9 +209,10 @@ export function Captions() {
 			let result;
 			if (engine === "sarvam") {
 				// Use Sarvam AI for Indian languages
-				const sarvamLangCode = selectedLanguage === "auto"
-					? undefined
-					: SARVAM_LANGUAGE_MAP[selectedLanguage] || undefined;
+				const sarvamLangCode =
+					selectedLanguage === "auto"
+						? undefined
+						: SARVAM_LANGUAGE_MAP[selectedLanguage] || undefined;
 				result = await aiClient.sarvamTranscribe(file, sarvamLangCode);
 			} else if (engine === "smallest") {
 				// Use Smallest AI Pulse for multilingual STT
@@ -195,7 +220,8 @@ export function Captions() {
 				result = await aiClient.smallestTranscribe(file, language);
 			} else {
 				// Use Whisper (local)
-				const language = selectedLanguage === "auto" ? undefined : selectedLanguage;
+				const language =
+					selectedLanguage === "auto" ? undefined : selectedLanguage;
 				result = await aiClient.transcribe(file, language);
 			}
 
@@ -206,22 +232,31 @@ export function Captions() {
 
 			// Filter out hallucinated segments beyond the actual duration
 			// For Sarvam results, also allow Indic Unicode ranges through
-			const validSegments = result.segments.filter((seg) => {
-				if (seg.start >= timelineDuration) return false;
-				// Keep Latin, Cyrillic, CJK, Kana, Devanagari, Bengali, Gurmukhi, Gujarati,
-			// Oriya, Tamil, Telugu, Kannada, Malayalam, Sinhala, Arabic/Nastaliq (Urdu),
-			// Meitei (Manipuri), Ol Chiki (Santali)
-			const cleanText = seg.text.replace(/[^a-zA-Z0-9\u00C0-\u024F\u0400-\u04FF\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF\u0900-\u097F\u0980-\u09FF\u0A00-\u0A7F\u0A80-\u0AFF\u0B00-\u0B7F\u0B80-\u0BFF\u0C00-\u0C7F\u0C80-\u0CFF\u0D00-\u0D7F\u0D80-\u0DFF\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF\uABC0-\uABFF\u1C50-\u1C7F]/g, "").trim();
-				if (cleanText.length === 0) return false;
-				if (seg.end <= seg.start) return false;
-				return true;
-			}).map((seg) => ({
-				...seg,
-				end: Math.min(seg.end, timelineDuration),
-			}));
+			const validSegments = result.segments
+				.filter((seg) => {
+					if (seg.start >= timelineDuration) return false;
+					// Keep Latin, Cyrillic, CJK, Kana, Devanagari, Bengali, Gurmukhi, Gujarati,
+					// Oriya, Tamil, Telugu, Kannada, Malayalam, Sinhala, Arabic/Nastaliq (Urdu),
+					// Meitei (Manipuri), Ol Chiki (Santali)
+					const cleanText = seg.text
+						.replace(
+							/[^a-zA-Z0-9\u00C0-\u024F\u0400-\u04FF\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF\u0900-\u097F\u0980-\u09FF\u0A00-\u0A7F\u0A80-\u0AFF\u0B00-\u0B7F\u0B80-\u0BFF\u0C00-\u0C7F\u0C80-\u0CFF\u0D00-\u0D7F\u0D80-\u0DFF\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF\uABC0-\uABFF\u1C50-\u1C7F]/g,
+							"",
+						)
+						.trim();
+					if (cleanText.length === 0) return false;
+					if (seg.end <= seg.start) return false;
+					return true;
+				})
+				.map((seg) => ({
+					...seg,
+					end: Math.min(seg.end, timelineDuration),
+				}));
 
 			if (validSegments.length === 0) {
-				setError("No speech detected in the video. Try a different language or check that the video has audio.");
+				setError(
+					"No speech detected in the video. Try a different language or check that the video has audio.",
+				);
 				return;
 			}
 
@@ -231,23 +266,27 @@ export function Captions() {
 				text: seg.text,
 				start: seg.start,
 				end: seg.end,
-				words: seg.words && seg.words.length > 0
-					? seg.words.map((w) => ({
-						word: w.word,
-						start: w.start,
-						end: w.end,
-						confidence: w.confidence,
-					}))
-					: seg.text.trim().split(/\s+/).map((word, wordIndex, arr) => {
-						const segDuration = seg.end - seg.start;
-						const wordDuration = segDuration / arr.length;
-						return {
-							word,
-							start: seg.start + wordIndex * wordDuration,
-							end: seg.start + (wordIndex + 1) * wordDuration,
-							confidence: 0.9,
-						};
-					}),
+				words:
+					seg.words && seg.words.length > 0
+						? seg.words.map((w) => ({
+								word: w.word,
+								start: w.start,
+								end: w.end,
+								confidence: w.confidence,
+							}))
+						: seg.text
+								.trim()
+								.split(/\s+/)
+								.map((word, wordIndex, arr) => {
+									const segDuration = seg.end - seg.start;
+									const wordDuration = segDuration / arr.length;
+									return {
+										word,
+										start: seg.start + wordIndex * wordDuration,
+										end: seg.start + (wordIndex + 1) * wordDuration,
+										confidence: 0.9,
+									};
+								}),
 			}));
 
 			useTranscriptStore.getState().setSegments(transcriptSegments);
@@ -257,7 +296,9 @@ export function Captions() {
 			// Run both in parallel: speaker labels and emotion annotations.
 			let speakerChangeTimes: number[] = [];
 			setProcessingStep("Detecting speakers & emotions...");
-			bgTasks.updateTask(taskId, { progress: "Detecting speakers & emotions..." });
+			bgTasks.updateTask(taskId, {
+				progress: "Detecting speakers & emotions...",
+			});
 
 			const speakerPromise = aiClient.analyzeSpeakers(file).catch((err) => {
 				console.warn("Speaker diarization failed:", err);
@@ -268,10 +309,15 @@ export function Captions() {
 				return null;
 			});
 
-			const [speakerResult, emotionResult] = await Promise.all([speakerPromise, emotionPromise]);
+			const [speakerResult, emotionResult] = await Promise.all([
+				speakerPromise,
+				emotionPromise,
+			]);
 
 			if (speakerResult && speakerResult.segments.length > 0) {
-				useTranscriptStore.getState().applySpeakerDiarization(speakerResult.segments);
+				useTranscriptStore
+					.getState()
+					.applySpeakerDiarization(speakerResult.segments);
 
 				// Collect speaker change boundaries for auto-cuts
 				for (let i = 1; i < speakerResult.segments.length; i++) {
@@ -332,7 +378,8 @@ export function Captions() {
 
 					if (splitCount > 0) {
 						toast.success(`Video split into ${splitCount + 1} segments`, {
-							description: "Delete or reorder segments in the transcript panel to edit the video.",
+							description:
+								"Delete or reorder segments in the transcript panel to edit the video.",
 						});
 					}
 				} catch (splitError) {
@@ -345,16 +392,21 @@ export function Captions() {
 			for (const track of tracksAfterSplit) {
 				if (track.type !== "video") continue;
 				for (const el of track.elements) {
-					const videoEl = el as TimelineElement & { mediaId?: string; muted?: boolean };
+					const videoEl = el as TimelineElement & {
+						mediaId?: string;
+						muted?: boolean;
+					};
 					if (!videoEl.mediaId || videoEl.muted) continue;
 
 					// Mute the video element and create a matching audio element
 					editor.timeline.updateElements({
-						updates: [{
-							trackId: track.id,
-							elementId: el.id,
-							updates: { muted: true },
-						}],
+						updates: [
+							{
+								trackId: track.id,
+								elementId: el.id,
+								updates: { muted: true },
+							},
+						],
 					});
 
 					editor.timeline.insertElement({
@@ -388,13 +440,23 @@ export function Captions() {
 			});
 		} catch (err) {
 			console.error("Transcription failed:", err);
-			const message = err instanceof Error ? err.message : "An unexpected error occurred";
-			if (message.includes("Cannot connect") || message.includes("connection_refused")) {
-				setError("Cannot connect to AI backend. Make sure it is running (docker compose up -d).");
+			const message =
+				err instanceof Error ? err.message : "An unexpected error occurred";
+			if (
+				message.includes("Cannot connect") ||
+				message.includes("connection_refused")
+			) {
+				setError(
+					"Cannot connect to AI backend. Make sure it is running (docker compose up -d).",
+				);
 			} else if (message.includes("Sarvam API key")) {
-				setError("Sarvam API key is not configured. Add BYORN_SARVAM_API_KEY to your environment.");
+				setError(
+					"Sarvam API key is not configured. Add BYORN_SARVAM_API_KEY to your environment.",
+				);
 			} else if (message.includes("Smallest AI API key")) {
-				setError("Smallest AI API key is not configured. Add it in Settings > API Keys, or set BYORN_SMALLEST_API_KEY in your environment.");
+				setError(
+					"Smallest AI API key is not configured. Add it in Settings > API Keys, or set BYORN_SMALLEST_API_KEY in your environment.",
+				);
 			} else {
 				setError(message);
 			}
@@ -491,17 +553,65 @@ export function Captions() {
 		toast.success(`Subtitles added — ${preset.name} style`);
 	};
 
+	// Export the transcript as a downloadable subtitle file. Uses the backend
+	// /transcribe/subtitles formatter so line-wrapping and timestamp formatting
+	// match server-side output.
+	const handleExportSubtitles = async (format: "srt" | "vtt") => {
+		const currentSegments = useTranscriptStore.getState().segments;
+		if (currentSegments.length === 0) return;
+
+		setIsExportingSubtitles(format);
+		try {
+			const { content } = await aiClient.generateSubtitles(
+				currentSegments,
+				format,
+			);
+			const projectName =
+				editor.project.getActiveOrNull()?.metadata.name ?? "subtitles";
+			const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement("a");
+			a.href = url;
+			a.download = `${projectName}.${format}`;
+			document.body.appendChild(a);
+			a.click();
+			document.body.removeChild(a);
+			URL.revokeObjectURL(url);
+			toast.success(`Exported ${format.toUpperCase()}`);
+		} catch (err) {
+			const message =
+				err instanceof Error ? err.message : "Subtitle export failed";
+			if (
+				message.includes("Cannot connect") ||
+				message.includes("connection_refused")
+			) {
+				setError(
+					"Cannot connect to AI backend. Make sure it is running (docker compose up -d).",
+				);
+			} else {
+				setError(message);
+			}
+		} finally {
+			setIsExportingSubtitles(null);
+		}
+	};
+
 	/** Check if we should use Sarvam for translation (Indian language pair).
 	 *  Requires at least one side to be an Indian language (not just "en"),
 	 *  AND the other side must also be Sarvam-supported.
 	 */
-	const shouldUseSarvamTranslation = (sourceLang: string, targetLang: string): boolean => {
+	const shouldUseSarvamTranslation = (
+		sourceLang: string,
+		targetLang: string,
+	): boolean => {
 		const sourceIsSarvam = SARVAM_SUPPORTED_CODES.has(sourceLang);
 		const targetIsSarvam = SARVAM_SUPPORTED_CODES.has(targetLang);
 		// Both must be Sarvam-supported, and at least one must be a non-English Indian language
 		const sourceIsIndian = sourceIsSarvam && sourceLang !== "en";
 		const targetIsIndian = targetIsSarvam && targetLang !== "en";
-		return (sourceIsIndian || targetIsIndian) && sourceIsSarvam && targetIsSarvam;
+		return (
+			(sourceIsIndian || targetIsIndian) && sourceIsSarvam && targetIsSarvam
+		);
 	};
 
 	const handleTranslateAndAdd = async () => {
@@ -512,7 +622,10 @@ export function Captions() {
 		if (!targetLang) return;
 
 		const transcriptLang = useTranscriptStore.getState().language;
-		const useSarvam = shouldUseSarvamTranslation(transcriptLang, translateLanguage);
+		const useSarvam = shouldUseSarvamTranslation(
+			transcriptLang,
+			translateLanguage,
+		);
 
 		const taskId = `translation-${targetLang.code}-${Date.now()}`;
 		const bgTasks = useBackgroundTasksStore.getState();
@@ -530,12 +643,15 @@ export function Captions() {
 		});
 
 		try {
-			const translatedSegments: { text: string; start: number; end: number }[] = [];
+			const translatedSegments: { text: string; start: number; end: number }[] =
+				[];
 
 			if (useSarvam) {
 				// Use Sarvam translation API — translate segment by segment
-				const sourceSarvamCode = SARVAM_LANGUAGE_MAP[transcriptLang] || `${transcriptLang}-IN`;
-				const targetSarvamCode = SARVAM_LANGUAGE_MAP[translateLanguage] || `${translateLanguage}-IN`;
+				const sourceSarvamCode =
+					SARVAM_LANGUAGE_MAP[transcriptLang] || `${transcriptLang}-IN`;
+				const targetSarvamCode =
+					SARVAM_LANGUAGE_MAP[translateLanguage] || `${translateLanguage}-IN`;
 
 				for (let i = 0; i < currentSegments.length; i++) {
 					const seg = currentSegments[i];
@@ -555,7 +671,10 @@ export function Captions() {
 							end: seg.end,
 						});
 					} catch (translationErr) {
-						console.warn(`Sarvam translation failed for segment ${i}, using original:`, translationErr);
+						console.warn(
+							`Sarvam translation failed for segment ${i}, using original:`,
+							translationErr,
+						);
 						translatedSegments.push({
 							text: seg.text,
 							start: seg.start,
@@ -635,8 +754,7 @@ export function Captions() {
 			});
 		} catch (err) {
 			console.error("Translation failed:", err);
-			const message =
-				err instanceof Error ? err.message : "Translation failed";
+			const message = err instanceof Error ? err.message : "Translation failed";
 			if (
 				message.includes("Cannot connect") ||
 				message.includes("connection_refused")
@@ -645,9 +763,13 @@ export function Captions() {
 					"Cannot connect to AI backend. Make sure it is running and an LLM model is loaded.",
 				);
 			} else if (message.includes("Sarvam API key")) {
-				setError("Sarvam API key is not configured. Add BYORN_SARVAM_API_KEY to your environment.");
+				setError(
+					"Sarvam API key is not configured. Add BYORN_SARVAM_API_KEY to your environment.",
+				);
 			} else if (message.includes("Smallest AI API key")) {
-				setError("Smallest AI API key is not configured. Add it in Settings > API Keys, or set BYORN_SMALLEST_API_KEY in your environment.");
+				setError(
+					"Smallest AI API key is not configured. Add it in Settings > API Keys, or set BYORN_SMALLEST_API_KEY in your environment.",
+				);
 			} else {
 				setError(message);
 			}
@@ -703,7 +825,8 @@ export function Captions() {
 		<PanelView title="Transcript" ref={containerRef}>
 			<div className="flex flex-col gap-5">
 				<p className="text-xs text-muted-foreground leading-relaxed">
-					Transcribe your video to edit it like a document. Delete sections, remove filler words, or reorder segments.
+					Transcribe your video to edit it like a document. Delete sections,
+					remove filler words, or reorder segments.
 				</p>
 
 				{/* ── Engine Selector ── */}
@@ -714,9 +837,7 @@ export function Captions() {
 							<SelectValue />
 						</SelectTrigger>
 						<SelectContent>
-							<SelectItem value="whisper">
-								Whisper (Local)
-							</SelectItem>
+							<SelectItem value="whisper">Whisper (Local)</SelectItem>
 							<SelectItem value="sarvam">
 								Sarvam AI (Indian Languages)
 							</SelectItem>
@@ -752,19 +873,19 @@ export function Captions() {
 										<SelectLabel className="text-[10px] text-muted-foreground px-2">
 											Indian Regional Languages
 										</SelectLabel>
-										{SARVAM_STT_LANGUAGES.filter(l => l.code !== "en").map((language) => (
-											<SelectItem key={language.code} value={language.code}>
-												{language.name}
-											</SelectItem>
-										))}
+										{SARVAM_STT_LANGUAGES.filter((l) => l.code !== "en").map(
+											(language) => (
+												<SelectItem key={language.code} value={language.code}>
+													{language.name}
+												</SelectItem>
+											),
+										)}
 									</SelectGroup>
 									<SelectGroup>
 										<SelectLabel className="text-[10px] text-muted-foreground px-2">
 											English
 										</SelectLabel>
-										<SelectItem value="en">
-											English (Indian)
-										</SelectItem>
+										<SelectItem value="en">English (Indian)</SelectItem>
 									</SelectGroup>
 								</>
 							) : (
@@ -786,7 +907,8 @@ export function Captions() {
 
 				{segments.length > 0 && activeSubtitleTracks.length === 0 && (
 					<p className="text-[11px] text-muted-foreground leading-relaxed rounded-md bg-muted/50 px-3 py-2">
-						Transcript is ready. Add subtitles below, or re-transcribe if the video changed.
+						Transcript is ready. Add subtitles below, or re-transcribe if the
+						video changed.
 					</p>
 				)}
 
@@ -850,8 +972,8 @@ export function Captions() {
 										const langName =
 											track.language === "original"
 												? "Original"
-												: LANGUAGES.find((l) => l.code === track.language)
-														?.name ?? track.language;
+												: (LANGUAGES.find((l) => l.code === track.language)
+														?.name ?? track.language);
 										return (
 											<div
 												key={track.trackId}
@@ -867,9 +989,7 @@ export function Captions() {
 													variant="ghost"
 													size="sm"
 													className="h-6 px-2 text-xs text-muted-foreground hover:text-destructive"
-													onClick={() =>
-														handleRemoveSingleTrack(track.trackId)
-													}
+													onClick={() => handleRemoveSingleTrack(track.trackId)}
 												>
 													Remove
 												</Button>
@@ -894,6 +1014,39 @@ export function Captions() {
 									Add subtitles
 								</Button>
 							)}
+
+							{/* ── Export subtitle file ── */}
+							<div className="flex flex-col gap-1.5">
+								<Label className="text-[11px] text-muted-foreground">
+									Export subtitle file
+								</Label>
+								<div className="flex gap-2">
+									<Button
+										variant="outline"
+										size="sm"
+										className="flex-1"
+										onClick={() => handleExportSubtitles("srt")}
+										disabled={isExportingSubtitles !== null}
+									>
+										{isExportingSubtitles === "srt" && (
+											<Spinner className="mr-1" />
+										)}
+										Download .srt
+									</Button>
+									<Button
+										variant="outline"
+										size="sm"
+										className="flex-1"
+										onClick={() => handleExportSubtitles("vtt")}
+										disabled={isExportingSubtitles !== null}
+									>
+										{isExportingSubtitles === "vtt" && (
+											<Spinner className="mr-1" />
+										)}
+										Download .vtt
+									</Button>
+								</div>
+							</div>
 						</div>
 
 						{/* ── Add Language ── */}

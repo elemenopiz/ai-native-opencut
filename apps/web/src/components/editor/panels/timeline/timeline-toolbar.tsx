@@ -37,6 +37,8 @@ import {
 	ArrowTurnBackwardIcon,
 	ArrowTurnForwardIcon,
 	MusicNote01Icon,
+	ArrowLeft01Icon,
+	ArrowRight01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useBeatGridStore } from "@/stores/beat-grid-store";
@@ -170,6 +172,21 @@ function ToolbarLeftSection() {
 						}
 					/>
 				</Tooltip>
+
+				<ToolbarButton
+					icon={<HugeiconsIcon icon={ArrowLeft01Icon} />}
+					tooltip="Previous marker"
+					onClick={({ event }) =>
+						handleAction({ action: "previous-marker", event })
+					}
+				/>
+				<ToolbarButton
+					icon={<HugeiconsIcon icon={ArrowRight01Icon} />}
+					tooltip="Next marker"
+					onClick={({ event }) =>
+						handleAction({ action: "next-marker", event })
+					}
+				/>
 
 				<div className="bg-border mx-1 h-6 w-px" />
 
