@@ -79,6 +79,8 @@ export function ReferenceMediaUploader({
 						it.id === id ? { ...it, url: data.url!, status: "ready" } : it,
 					),
 				);
+				// Server URL is now in use; release the optimistic preview blob.
+				URL.revokeObjectURL(localUrl);
 			} catch (err) {
 				const message = err instanceof Error ? err.message : "Upload failed";
 				toast.error(`Couldn't add ${file.name}: ${message}`);
