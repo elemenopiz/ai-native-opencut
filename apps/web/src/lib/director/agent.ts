@@ -92,6 +92,59 @@ export interface AgentRunResult {
 	 * Present ⇒ nothing was spent; the proposed action is in `awaitingApproval`.
 	 */
 	awaitingApproval?: AgentApproval;
+	/**
+	 * Set when the run stopped early because the caller aborted it (cooperative
+	 * cancel). Completed tool steps are already applied to the editor — the reel
+	 * keeps whatever finished — the loop simply stopped requesting more work.
+	 */
+	cancelled?: boolean;
+}
+
+/**
+ * Live events streamed out of a Director run so the panel can render the agent's
+ * reasoning and per-tool progress AS IT HAPPENS instead of after the fact:
+ *  - `text_delta` / `thinking_delta`: incremental model output (frontier brain,
+ *    via the SSE relay). Concatenate a run of same-type events into one bubble.
+ *  - `tool_start`: a tool is about to run; `cost` is present for gated verbs
+ *    (generate/reroll) so the estimate shows BEFORE any spend.
+ *  - `tool_finish`: the tool's result (mirrors {@link AgentToolStep}).
+ *  - `awaiting_approval`: a gated verb crossed the threshold and the run paused.
+ *  - `cancelled`: the run was aborted; nothing more will run.
+ * `callId` correlates a `tool_start` with its `tool_finish` (tools run
+ * sequentially, so the pairing is 1:1 and in order).
+ */
+export type DirectorEvent =
+	| { type: "text_delta"; text: string }
+	| { type: "thinking_delta"; text: string }
+	| {
+			type: "tool_start";
+			callId: string;
+			action: string;
+			args: Record<string, unknown>;
+			cost?: CostRange & { clips: number };
+	  }
+	| { type: "tool_finish"; callId: string; step: AgentToolStep }
+	| { type: "awaiting_approval"; approval: AgentApproval }
+	| { type: "cancelled" };
+
+/** Sink the loops emit {@link DirectorEvent}s into (the panel's consumer). */
+export type DirectorEventSink = (event: DirectorEvent) => void;
+
+/** Thrown internally when the caller's AbortSignal fires; caught and turned into a cancelled result. */
+class DirectorAbortError extends Error {
+	constructor() {
+		super("Director run aborted by caller.");
+		this.name = "DirectorAbortError";
+	}
+}
+
+/** True when the caller's cancel has fired (signal aborted, or a fetch AbortError bubbled up). */
+function isAbort(signal: AbortSignal | undefined, err?: unknown): boolean {
+	if (signal?.aborted) return true;
+	return (
+		err instanceof DirectorAbortError ||
+		(err instanceof Error && err.name === "AbortError")
+	);
 }
 
 interface DirectorResultLike {
@@ -434,6 +487,29 @@ function estimateActionCost(
 	return null;
 }
 
+/**
+ * Cost estimate for a gated verb, for the `tool_start` preview — shown BEFORE
+ * the action runs. Returns `undefined` for non-gated verbs or when the estimate
+ * can't be formed (e.g. short-id expansion fails); the loop still runs the step.
+ * This is display-only: the fail-closed gate in {@link evaluateApprovalGate} is
+ * what actually pauses over-threshold spend.
+ */
+function previewToolCost(
+	director: DirectorApi,
+	action: string,
+	rawArgs: Record<string, unknown>,
+): (CostRange & { clips: number }) | undefined {
+	if (!REQUIRES_APPROVAL.has(action)) return undefined;
+	let expanded: Record<string, unknown>;
+	try {
+		expanded = expandIdArgs(rawArgs, reelShortIdMap(director));
+	} catch {
+		return undefined;
+	}
+	const est = estimateActionCost(director, action, expanded);
+	return est && est.clips > 0 ? est : undefined;
+}
+
 /** Human-facing copy for a paused, awaiting-approval action. */
 function approvalMessage(a: AgentApproval): string {
 	return (
@@ -509,40 +585,123 @@ interface AgentModelTurn {
 	usage?: unknown;
 }
 
+/** Live-delta callback: fires per text/thinking chunk while a turn streams. */
+type RelayDeltaFn = (kind: "text" | "thinking", text: string) => void;
+
 /**
  * One model round-trip through the stateless server relay. The relay holds the
- * API key and forwards exactly one `messages.create` — no loop, no tools run
+ * API key and forwards exactly one model turn — no loop, no tools run
  * server-side.
+ *
+ * Transport is SSE (`stream: true`): text/thinking deltas fire `onDelta` live so
+ * the panel renders reasoning as it's produced, and a single `final` event
+ * carries the complete assistant turn (same `{content, stop_reason, ...}` shape
+ * the JSON path returned), so the loop's block/tool handling is unchanged. The
+ * no-key 503 and other pre-stream failures still come back as JSON and are
+ * detected the same way. `signal` aborts the in-flight request.
  */
 async function callAgentRelay(request: {
 	messages: Anthropic.MessageParam[];
 	system: string;
 	tools: Anthropic.Tool[];
 	tool_choice?: Anthropic.ToolChoice;
+	signal?: AbortSignal;
+	onDelta?: RelayDeltaFn;
 }): Promise<AgentModelTurn> {
+	const { signal, onDelta, ...payload } = request;
 	const res = await fetch(AGENT_RELAY_URL, {
 		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify(request),
+		headers: {
+			"Content-Type": "application/json",
+			Accept: "text/event-stream",
+		},
+		body: JSON.stringify({ ...payload, stream: true }),
+		signal,
 	});
-	const body = (await res.json().catch(() => null)) as
-		| (Partial<AgentModelTurn> & { error?: string; message?: string })
-		| null;
 
-	if (!res.ok) {
-		if (body?.error === "anthropic_not_configured") {
-			throw new AnthropicKeyMissingError(
-				body.message ?? "ANTHROPIC_API_KEY is not configured on the server.",
+	// Non-OK (or a non-stream JSON body, e.g. the no-key 503) → parse as JSON and
+	// surface the same errors the JSON path did.
+	const contentType = res.headers.get("content-type") ?? "";
+	if (!res.ok || !contentType.includes("text/event-stream")) {
+		const body = (await res.json().catch(() => null)) as
+			| (Partial<AgentModelTurn> & { error?: string; message?: string })
+			| null;
+		if (!res.ok) {
+			if (body?.error === "anthropic_not_configured") {
+				throw new AnthropicKeyMissingError(
+					body.message ?? "ANTHROPIC_API_KEY is not configured on the server.",
+				);
+			}
+			throw new Error(
+				`Claude relay error (${res.status}): ${body?.message ?? body?.error ?? "unknown error"}`,
 			);
 		}
-		throw new Error(
-			`Claude relay error (${res.status}): ${body?.message ?? body?.error ?? "unknown error"}`,
-		);
+		if (!body || !Array.isArray(body.content)) {
+			throw new Error("Claude relay error: malformed response (no content).");
+		}
+		return body as AgentModelTurn;
 	}
-	if (!body || !Array.isArray(body.content)) {
-		throw new Error("Claude relay error: malformed response (no content).");
+
+	return await consumeAgentStream(res, onDelta);
+}
+
+/**
+ * Parse the relay's SSE body: forward `delta` events to `onDelta` and return the
+ * turn carried by the `final` event. An `error` event (a failure after headers
+ * flushed) is re-thrown so the loop's catch handles it like any relay error.
+ */
+async function consumeAgentStream(
+	res: Response,
+	onDelta?: RelayDeltaFn,
+): Promise<AgentModelTurn> {
+	if (!res.body) throw new Error("Claude relay error: empty stream body.");
+	const reader = res.body.getReader();
+	const decoder = new TextDecoder();
+	let buffer = "";
+	let final: AgentModelTurn | null = null;
+
+	// SSE frames are separated by a blank line; each frame is `event: <name>`
+	// followed by one `data: <json>` line.
+	const handleFrame = (frame: string) => {
+		let event = "message";
+		let data = "";
+		for (const line of frame.split("\n")) {
+			if (line.startsWith("event:")) event = line.slice(6).trim();
+			else if (line.startsWith("data:")) data += line.slice(5).trim();
+		}
+		if (!data) return;
+		const parsed = JSON.parse(data) as Record<string, unknown>;
+		if (event === "delta") {
+			onDelta?.(
+				parsed.kind === "thinking" ? "thinking" : "text",
+				String(parsed.text ?? ""),
+			);
+		} else if (event === "final") {
+			final = parsed as unknown as AgentModelTurn;
+		} else if (event === "error") {
+			throw new Error(
+				`Claude relay error: ${String(parsed.message ?? parsed.error ?? "stream error")}`,
+			);
+		}
+	};
+
+	for (;;) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		buffer += decoder.decode(value, { stream: true });
+		let sep: number;
+		while ((sep = buffer.indexOf("\n\n")) !== -1) {
+			const frame = buffer.slice(0, sep);
+			buffer = buffer.slice(sep + 2);
+			if (frame.trim()) handleFrame(frame);
+		}
 	}
-	return body as AgentModelTurn;
+	if (buffer.trim()) handleFrame(buffer);
+
+	if (!final || !Array.isArray((final as AgentModelTurn).content)) {
+		throw new Error("Claude relay error: stream ended without a final turn.");
+	}
+	return final;
 }
 
 /** Join a turn's text blocks into the user-facing message. */
@@ -595,8 +754,10 @@ async function runDirectorAgentFrontier(opts: {
 	director: DirectorApi;
 	userMessage: string;
 	onStep?: (step: AgentToolStep) => void;
+	onEvent?: DirectorEventSink;
+	signal?: AbortSignal;
 }): Promise<AgentRunResult> {
-	const { director, userMessage, onStep } = opts;
+	const { director, userMessage, onStep, onEvent, signal } = opts;
 	const steps: AgentToolStep[] = [];
 	const system = buildFrontierSystemPrompt(director);
 	const tools = anthropicToolDefs();
@@ -607,16 +768,50 @@ async function runDirectorAgentFrontier(opts: {
 	let toolCalls = 0;
 	let wrapUp = false; // set when the tool budget is spent → force a text-only close
 	let lastText = "";
+	let callCounter = 0; // seeds tool_start/tool_finish callIds
+
+	// Cooperative cancel: the loop checks the signal between model/tool calls. A
+	// completed run's tool steps have already mutated the editor, so returning
+	// early keeps that work — we just stop asking the model for more.
+	const cancelledResult = (): AgentRunResult => {
+		onEvent?.({ type: "cancelled" });
+		return {
+			finalMessage:
+				lastText ||
+				(steps.length
+					? `Stopped — ${steps.length} step(s) completed before you cancelled.`
+					: "Stopped."),
+			steps,
+			cancelled: true,
+		};
+	};
 
 	for (let call = 0; call < MAX_MODEL_CALLS; call++) {
-		const turn = await callAgentRelay({
-			messages,
-			system,
-			tools,
-			...(wrapUp
-				? { tool_choice: { type: "none" } as Anthropic.ToolChoice }
-				: {}),
-		});
+		if (isAbort(signal)) return cancelledResult();
+
+		let turn: AgentModelTurn;
+		try {
+			turn = await callAgentRelay({
+				messages,
+				system,
+				tools,
+				signal,
+				onDelta: (kind, text) =>
+					onEvent?.(
+						kind === "thinking"
+							? { type: "thinking_delta", text }
+							: { type: "text_delta", text },
+					),
+				...(wrapUp
+					? { tool_choice: { type: "none" } as Anthropic.ToolChoice }
+					: {}),
+			});
+		} catch (err) {
+			// A mid-flight abort surfaces as a fetch AbortError — treat it as a
+			// clean cancel that preserves completed steps, not a hard failure.
+			if (isAbort(signal, err)) return cancelledResult();
+			throw err;
+		}
 
 		// Check stop_reason BEFORE reading content: a refusal can carry an empty
 		// content array.
@@ -650,6 +845,7 @@ async function runDirectorAgentFrontier(opts: {
 		// object — never string-parse it.
 		const resultBlocks: Anthropic.ContentBlockParam[] = [];
 		for (const use of toolUses) {
+			if (isAbort(signal)) return cancelledResult();
 			const rawArgs = (use.input ?? {}) as Record<string, unknown>;
 
 			// Cost-preview approval gate: a gated verb whose estimate crosses the
@@ -668,8 +864,21 @@ async function runDirectorAgentFrontier(opts: {
 				};
 				steps.push(step);
 				onStep?.(step);
+				onEvent?.({ type: "awaiting_approval", approval });
 				return { finalMessage: message, steps, awaitingApproval: approval };
 			}
+
+			// Announce the step BEFORE it runs so the panel shows it live — with the
+			// cost estimate for gated (under-threshold) verbs, so spend is visible
+			// before it happens.
+			const callId = `c${callCounter++}`;
+			onEvent?.({
+				type: "tool_start",
+				callId,
+				action: use.name,
+				args: rawArgs,
+				cost: previewToolCost(director, use.name, rawArgs),
+			});
 
 			const { step, observation } = await executeTool(
 				director,
@@ -678,6 +887,7 @@ async function runDirectorAgentFrontier(opts: {
 			);
 			steps.push(step);
 			onStep?.(step);
+			onEvent?.({ type: "tool_finish", callId, step });
 			toolCalls++;
 			resultBlocks.push({
 				type: "tool_result",
@@ -809,12 +1019,30 @@ export async function runDirectorAgentLocal(opts: {
 	chat: AgentChatFn;
 	userMessage: string;
 	onStep?: (step: AgentToolStep) => void;
+	onEvent?: DirectorEventSink;
+	signal?: AbortSignal;
 }): Promise<AgentRunResult> {
-	const { director, chat, userMessage, onStep } = opts;
+	const { director, chat, userMessage, onStep, onEvent, signal } = opts;
 	const steps: AgentToolStep[] = [];
 	let scratchpad = `USER: ${userMessage}\n`;
+	let callCounter = 0;
+
+	// The local backend's chat call isn't itself abortable (AgentChatFn takes no
+	// signal), so cancel is cooperative: we check between steps. Completed steps
+	// have already mutated the reel, so an early return preserves them.
+	const cancelledResult = (): AgentRunResult => {
+		onEvent?.({ type: "cancelled" });
+		return {
+			finalMessage: steps.length
+				? `Stopped — ${steps.length} step(s) completed before you cancelled.`
+				: "Stopped.",
+			steps,
+			cancelled: true,
+		};
+	};
 
 	for (let i = 0; i < MAX_STEPS; i++) {
+		if (isAbort(signal)) return cancelledResult();
 		const reply = await chat(
 			`${scratchpad}\nRespond with the next JSON object now.`,
 			buildLocalSystemPrompt(director),
@@ -840,7 +1068,22 @@ export async function runDirectorAgentLocal(opts: {
 			};
 			steps.push(step);
 			onStep?.(step);
+			onEvent?.({ type: "awaiting_approval", approval });
 			return { finalMessage: message, steps, awaitingApproval: approval };
+		}
+
+		// Coarse per-step events (the local brain has no token stream): announce
+		// the step, run it, report the result.
+		const callId = `l${callCounter++}`;
+		const isKnown = Boolean(TOOLS[parsed.action]);
+		if (isKnown) {
+			onEvent?.({
+				type: "tool_start",
+				callId,
+				action: parsed.action,
+				args: parsed.args,
+				cost: previewToolCost(director, parsed.action, parsed.args),
+			});
 		}
 
 		const { step, observation } = await executeTool(
@@ -850,7 +1093,7 @@ export async function runDirectorAgentLocal(opts: {
 		);
 		// Unknown actions aren't real steps — feed the correction back without
 		// recording/streaming a step (mirrors the original loop's behavior).
-		if (!TOOLS[parsed.action]) {
+		if (!isKnown) {
 			scratchpad +=
 				`ASSISTANT: ${JSON.stringify({ action: parsed.action, args: parsed.args })}\n` +
 				`OBSERVATION: ${observation}\n`;
@@ -858,6 +1101,7 @@ export async function runDirectorAgentLocal(opts: {
 		}
 		steps.push(step);
 		onStep?.(step);
+		onEvent?.({ type: "tool_finish", callId, step });
 
 		scratchpad +=
 			`ASSISTANT: ${JSON.stringify({ action: parsed.action, args: parsed.args })}\n` +
@@ -895,6 +1139,10 @@ export async function runDirectorAgent(opts: {
 	chat: AgentChatFn;
 	userMessage: string;
 	onStep?: (step: AgentToolStep) => void;
+	/** Live progress sink — reasoning deltas + per-tool start/finish (see {@link DirectorEvent}). */
+	onEvent?: DirectorEventSink;
+	/** Cooperative cancel — checked between model/tool calls and aborts the in-flight relay fetch. */
+	signal?: AbortSignal;
 	brain?: "auto" | "frontier" | "local";
 }): Promise<AgentRunResult> {
 	const brain = opts.brain ?? "auto";

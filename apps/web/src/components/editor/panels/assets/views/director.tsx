@@ -17,6 +17,7 @@ import {
 	Bookmark01Icon,
 	Delete02Icon,
 	FilmRoll01Icon,
+	StopIcon,
 } from "@hugeicons/core-free-icons";
 import { aiClient } from "@/lib/ai-client";
 import { useAIStatus } from "@/hooks/use-ai-status";
@@ -28,9 +29,14 @@ import {
 	runDirectorAgent,
 	executeDirectorAction,
 	type AgentApproval,
+	type DirectorEvent,
 } from "@/lib/director/agent";
 import type { ReelSnapshot } from "@/lib/director/types";
-import { needsApproval, type CostRange } from "@/lib/studio/cost";
+import {
+	needsApproval,
+	formatCostRange,
+	type CostRange,
+} from "@/lib/studio/cost";
 import { useStudioSettingsStore } from "@/stores/studio-settings-store";
 import { CostApprovalDialog } from "@/components/studio/cost-approval-dialog";
 import { toast } from "sonner";
@@ -378,6 +384,14 @@ export function DirectorView() {
 	const [completedSteps, setCompletedSteps] = useState<Set<string>>(new Set());
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 	const scrollRef = useRef<HTMLDivElement>(null);
+	// Live agent run: the AbortController for the in-flight chat run, so the Stop
+	// button can cancel a long multi-step run cooperatively (completed steps keep
+	// their effect on the reel).
+	const abortRef = useRef<AbortController | null>(null);
+
+	const handleStopAgent = useCallback(() => {
+		abortRef.current?.abort();
+	}, []);
 
 	// ── Model name display ──
 	const [activeModel, setActiveModel] = useState("");
@@ -511,31 +525,128 @@ export function DirectorView() {
 		// default, with automatic fallback to the local Ollama text loop when no
 		// ANTHROPIC_API_KEY is configured server-side.
 		if (mode === "chat") {
+			// Live run: stream the agent's reasoning + per-tool progress into the
+			// transcript as it happens, and expose a cooperative cancel via the Stop
+			// button (abortRef). All per-run UI state is local to this call so
+			// concurrent renders can't cross wires.
+			const controller = new AbortController();
+			abortRef.current = controller;
+
+			// A "live" bubble whose content we grow in place as tokens arrive; a
+			// fresh one starts after each tool step. `thinkId`/`textId` are the two
+			// bubbles for the CURRENT turn (reasoning, then the answer text).
+			const live = { textId: "", textBuf: "", thinkId: "", thinkBuf: "" };
+			const commitLive = () => {
+				live.textId = "";
+				live.textBuf = "";
+				live.thinkId = "";
+				live.thinkBuf = "";
+			};
+			// callId → the message id of its "running…" chip, so tool_finish can
+			// update the same bubble in place.
+			const toolMsgIds = new Map<string, string>();
+			let streamedText = false;
+
+			const onEvent = (event: DirectorEvent) => {
+				switch (event.type) {
+					case "thinking_delta": {
+						live.thinkBuf += event.text;
+						const content = `> 💭 ${live.thinkBuf}`;
+						if (!live.thinkId) {
+							live.thinkId = crypto.randomUUID();
+							addMessage({ id: live.thinkId, role: "assistant", content });
+						} else {
+							updateMessage(live.thinkId, content);
+						}
+						break;
+					}
+					case "text_delta": {
+						streamedText = true;
+						// Once the answer text starts, this turn's reasoning is done.
+						live.thinkId = "";
+						live.textBuf += event.text;
+						if (!live.textId) {
+							live.textId = crypto.randomUUID();
+							addMessage({
+								id: live.textId,
+								role: "assistant",
+								content: live.textBuf,
+							});
+						} else {
+							updateMessage(live.textId, live.textBuf);
+						}
+						break;
+					}
+					case "tool_start": {
+						commitLive();
+						const id = crypto.randomUUID();
+						toolMsgIds.set(event.callId, id);
+						const cost = event.cost
+							? ` · est. ${formatCostRange(event.cost)} (${event.cost.clips} clip${
+									event.cost.clips === 1 ? "" : "s"
+								})`
+							: "";
+						addMessage({
+							id,
+							role: "assistant",
+							content: `⏳ \`${event.action}\`${cost} — running…`,
+						});
+						break;
+					}
+					case "tool_finish": {
+						const id = toolMsgIds.get(event.callId);
+						const content = `${event.step.ok ? "✅" : "⚠️"} \`${event.step.action}\` — ${event.step.message}`;
+						if (id) updateMessage(id, content);
+						else
+							addMessage({
+								id: crypto.randomUUID(),
+								role: "assistant",
+								content,
+							});
+						break;
+					}
+					case "awaiting_approval":
+					case "cancelled": {
+						// Approval is surfaced by the result's `awaitingApproval` (dialog);
+						// cancellation by the closing note below. Just seal the live bubble.
+						commitLive();
+						break;
+					}
+				}
+			};
+
 			try {
 				const result = await runDirectorAgent({
 					director,
 					chat: (message, system) =>
 						aiClient.chat(message, system).then((r) => r.response),
 					userMessage: trimmed,
-					onStep: (step) => {
-						addMessage({
-							id: crypto.randomUUID(),
-							role: "assistant",
-							content: `${step.ok ? "✅" : "⚠️"} \`${step.action}\` — ${step.message}`,
-						});
-					},
+					onEvent,
+					signal: controller.signal,
 				});
-				addMessage({
-					id: crypto.randomUUID(),
-					role: "assistant",
-					content: result.finalMessage || "Done.",
-				});
+				commitLive();
+				if (result.cancelled) {
+					addMessage({
+						id: crypto.randomUUID(),
+						role: "assistant",
+						content: `⏹ ${result.finalMessage || "Stopped."}`,
+					});
+				} else if (!streamedText && result.finalMessage) {
+					// Nothing streamed (local brain, or a text-less close) — add the
+					// final summary as its own bubble.
+					addMessage({
+						id: crypto.randomUUID(),
+						role: "assistant",
+						content: result.finalMessage,
+					});
+				}
 				// The run paused on a gated verb — surface the cost dialog so the
 				// user can approve (or dismiss) the exact proposed spend.
 				if (result.awaitingApproval) {
 					setChatApproval(result.awaitingApproval);
 				}
 			} catch (error) {
+				commitLive();
 				const detail = error instanceof Error ? error.message : "";
 				// Frontier (Claude relay) failures carry their own explanation;
 				// everything else is the local Ollama path.
@@ -552,6 +663,7 @@ export function DirectorView() {
 							: `Something went wrong: ${detail || "Unknown error"}. Make sure the AI backend and Ollama are running with a model loaded.`,
 				});
 			} finally {
+				abortRef.current = null;
 				setIsThinking(false);
 			}
 			return;
@@ -1165,23 +1277,37 @@ export function DirectorView() {
 									} as React.CSSProperties
 								}
 							/>
-							<Button
-								size="icon"
-								variant={inputValue.trim() ? "default" : "secondary"}
-								className="size-[36px] shrink-0"
-								onClick={handleSend}
-								disabled={
-									!inputValue.trim() ||
-									isThinking ||
-									(!isConnected && mode !== "chat")
-								}
-							>
-								{isThinking ? (
-									<Spinner className="size-3.5" />
-								) : (
-									<HugeiconsIcon icon={SentIcon} className="size-3.5" />
-								)}
-							</Button>
+							{isThinking && mode === "chat" ? (
+								// Active agent run → Stop button (cooperative cancel). Completed
+								// steps keep their effect; the run halts between calls.
+								<Button
+									size="icon"
+									variant="destructive"
+									className="size-[36px] shrink-0"
+									onClick={handleStopAgent}
+									title="Stop the Director"
+								>
+									<HugeiconsIcon icon={StopIcon} className="size-3.5" />
+								</Button>
+							) : (
+								<Button
+									size="icon"
+									variant={inputValue.trim() ? "default" : "secondary"}
+									className="size-[36px] shrink-0"
+									onClick={handleSend}
+									disabled={
+										!inputValue.trim() ||
+										isThinking ||
+										(!isConnected && mode !== "chat")
+									}
+								>
+									{isThinking ? (
+										<Spinner className="size-3.5" />
+									) : (
+										<HugeiconsIcon icon={SentIcon} className="size-3.5" />
+									)}
+								</Button>
+							)}
 						</div>
 						<p className="text-[9px] text-muted-foreground mt-1 text-center">
 							Enter to send &middot; Shift+Enter for new line

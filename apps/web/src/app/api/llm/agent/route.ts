@@ -56,6 +56,15 @@ interface AgentRelayRequest {
 	model?: string;
 	thinking?: Anthropic.ThinkingConfigParam;
 	max_tokens?: number;
+	/**
+	 * When true, the response is a `text/event-stream` (SSE) instead of one JSON
+	 * body: the relay forwards the model's text/thinking deltas live as `delta`
+	 * events, then a single authoritative `final` event carrying the same
+	 * `{ content, stop_reason, model, usage }` shape the non-streaming path
+	 * returns. This is what lets the Director panel render reasoning as it's
+	 * produced; the loop logic (message shapes, tool handling) is unchanged.
+	 */
+	stream?: boolean;
 }
 
 export async function POST(req: Request) {
@@ -118,31 +127,98 @@ export async function POST(req: Request) {
 		apiKey,
 		...(useKimi ? { baseURL: KIMI_BASE_URL } : {}),
 	});
-	try {
-		const response = await client.messages.create({
-			model:
-				body.model?.trim() ||
-				process.env.DIRECTOR_MODEL?.trim() ||
-				(useKimi ? DEFAULT_KIMI_MODEL : DEFAULT_MODEL),
-			max_tokens: Math.min(
-				body.max_tokens ?? DEFAULT_MAX_TOKENS,
-				MAX_OUTPUT_TOKENS,
-			),
-			// Adaptive thinking + high effort are Opus-4.8 knobs (budget_tokens /
-			// temperature / top_p / top_k all 400 there). Kimi's Anthropic-compatible
-			// endpoint is cleanest WITHOUT them — no thinking blocks to echo back
-			// through the multi-turn tool loop — so send them only for Anthropic.
-			...(useKimi
-				? {}
-				: {
-						thinking: body.thinking ?? { type: "adaptive" },
-						output_config: { effort: "high" },
-					}),
-			...(body.system ? { system: body.system } : {}),
-			messages: body.messages,
-			...(body.tools?.length ? { tools: body.tools } : {}),
-			...(body.tool_choice ? { tool_choice: body.tool_choice } : {}),
+
+	// The create params are identical for streaming and non-streaming — only the
+	// transport differs — so build them once and feed both `messages.create` and
+	// `messages.stream`.
+	const createParams: Anthropic.MessageCreateParamsNonStreaming = {
+		model:
+			body.model?.trim() ||
+			process.env.DIRECTOR_MODEL?.trim() ||
+			(useKimi ? DEFAULT_KIMI_MODEL : DEFAULT_MODEL),
+		max_tokens: Math.min(
+			body.max_tokens ?? DEFAULT_MAX_TOKENS,
+			MAX_OUTPUT_TOKENS,
+		),
+		// Adaptive thinking + high effort are Opus-4.8 knobs (budget_tokens /
+		// temperature / top_p / top_k all 400 there). Kimi's Anthropic-compatible
+		// endpoint is cleanest WITHOUT them — no thinking blocks to echo back
+		// through the multi-turn tool loop — so send them only for Anthropic.
+		...(useKimi
+			? {}
+			: {
+					thinking: body.thinking ?? { type: "adaptive" },
+					output_config: { effort: "high" },
+				}),
+		...(body.system ? { system: body.system } : {}),
+		messages: body.messages,
+		...(body.tools?.length ? { tools: body.tools } : {}),
+		...(body.tool_choice ? { tool_choice: body.tool_choice } : {}),
+	};
+
+	// ── Streaming transport (SSE) ────────────────────────────────────────────
+	// Forward the model's text/thinking deltas to the browser as they arrive so
+	// the Director panel can render reasoning live, then emit ONE `final` event
+	// with the complete assistant turn (same shape the JSON path returns) so the
+	// client's agent loop needs no block reconstruction. Errors after headers are
+	// flushed can only be surfaced as an in-band `error` event.
+	if (body.stream) {
+		const encoder = new TextEncoder();
+		const rs = new ReadableStream<Uint8Array>({
+			start(controller) {
+				const send = (event: string, data: unknown) => {
+					controller.enqueue(
+						encoder.encode(
+							`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`,
+						),
+					);
+				};
+				void (async () => {
+					try {
+						const streamed = client.messages.stream(createParams);
+						streamed.on("text", (delta) =>
+							send("delta", { kind: "text", text: delta }),
+						);
+						streamed.on("thinking", (delta) =>
+							send("delta", { kind: "thinking", text: delta }),
+						);
+						const final = await streamed.finalMessage();
+						send("final", {
+							content: final.content,
+							stop_reason: final.stop_reason,
+							model: final.model,
+							usage: final.usage,
+						});
+						send("done", {});
+					} catch (error) {
+						send("error", {
+							error:
+								error instanceof Anthropic.APIError
+									? "anthropic_api_error"
+									: "relay_error",
+							message:
+								error instanceof Error ? error.message : "Unknown relay error.",
+						});
+					} finally {
+						controller.close();
+					}
+				})();
+			},
 		});
+		return new Response(rs, {
+			headers: {
+				"Content-Type": "text/event-stream; charset=utf-8",
+				"Cache-Control": "no-cache, no-transform",
+				Connection: "keep-alive",
+				// Disable proxy buffering (nginx) so deltas flush immediately.
+				"X-Accel-Buffering": "no",
+			},
+		});
+	}
+
+	// ── Non-streaming transport (JSON) ───────────────────────────────────────
+	try {
+		const response = await client.messages.create(createParams);
 
 		return NextResponse.json({
 			content: response.content,
