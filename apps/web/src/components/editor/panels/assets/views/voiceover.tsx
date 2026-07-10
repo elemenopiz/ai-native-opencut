@@ -17,9 +17,11 @@ import { useEditor } from "@/hooks/use-editor";
 import { useTranscriptStore } from "@/stores/transcript-store";
 import { aiClient } from "@/lib/ai-client";
 import {
+	importAudioAsset,
 	makeVoiceoverSpec,
 	runVoiceoverTake,
 } from "@/lib/studio/generate-voiceover-take";
+import { buildUploadAudioElement } from "@/lib/timeline/element-utils";
 import { useBackgroundTasksStore } from "@/stores/background-tasks-store";
 import { cn } from "@/utils/ui";
 import { toast } from "sonner";
@@ -284,6 +286,77 @@ export function VoiceoverView() {
 		],
 	);
 
+	// Persist a generated voiceover blob as a durable project MediaAsset and drop
+	// it on the timeline as an `upload` audio clip — the same path the first-class
+	// per-segment Take pipeline uses, so it survives reload/export. Falls back to
+	// an in-session `library` clip only if there's no active project to attach
+	// media to. Returns the clip's resolved duration.
+	const landVoiceoverAudio = useCallback(
+		async ({
+			blob,
+			name,
+			startTime,
+			trackId,
+			fallbackDuration,
+		}: {
+			blob: Blob;
+			name: string;
+			startTime: number;
+			trackId: string;
+			fallbackDuration: number;
+		}): Promise<number> => {
+			const audioUrl = URL.createObjectURL(blob);
+			const duration = (await getAudioDuration(audioUrl)) || fallbackDuration;
+
+			const projectId = (() => {
+				try {
+					return editor.project.getActive().metadata.id;
+				} catch {
+					return null;
+				}
+			})();
+
+			if (projectId) {
+				const { mediaId } = await importAudioAsset(
+					editor,
+					projectId,
+					blob,
+					name,
+				);
+				URL.revokeObjectURL(audioUrl);
+				editor.timeline.insertElement({
+					placement: { mode: "explicit", trackId },
+					element: buildUploadAudioElement({
+						mediaId,
+						name,
+						duration,
+						startTime,
+					}),
+				});
+				return duration;
+			}
+
+			// No active project — fall back to an in-session library clip.
+			editor.timeline.insertElement({
+				placement: { mode: "explicit", trackId },
+				element: {
+					type: "audio",
+					sourceType: "library",
+					sourceUrl: audioUrl,
+					name,
+					startTime,
+					duration,
+					trimStart: 0,
+					trimEnd: 0,
+					sourceDuration: duration,
+					volume: 1,
+				},
+			});
+			return duration;
+		},
+		[editor],
+	);
+
 	// Generate full voiceover
 	const handleGenerate = useCallback(async () => {
 		if (!textToGenerate) {
@@ -408,29 +481,14 @@ export function VoiceoverView() {
 				}
 
 				// Cloud engines (Sarvam / Smallest) don't flow through the local
-				// TTS Take pipeline yet — insert their audio as a plain clip.
+				// TTS Take pipeline yet — persist their audio as a durable clip.
 				const blob = await generateSpeech(ttsText);
-
-				const file = new File([blob], `voiceover_seg_${i}.wav`, {
-					type: "audio/wav",
-				});
-				const audioUrl = URL.createObjectURL(file);
-				const duration = await getAudioDuration(audioUrl);
-
-				editor.timeline.insertElement({
-					placement: { mode: "explicit", trackId },
-					element: {
-						type: "audio",
-						sourceType: "library",
-						sourceUrl: audioUrl,
-						name: `Voice [${language}]: ${originalText.slice(0, 25)}...`,
-						startTime: seg.start,
-						duration: duration || seg.end - seg.start,
-						trimStart: 0,
-						trimEnd: 0,
-						sourceDuration: duration || seg.end - seg.start,
-						volume: 1,
-					},
+				await landVoiceoverAudio({
+					blob,
+					name: `Voice [${language}]: ${originalText.slice(0, 25)}...`,
+					startTime: seg.start,
+					trackId,
+					fallbackDuration: seg.end - seg.start,
 				});
 			}
 
@@ -460,6 +518,7 @@ export function VoiceoverView() {
 		clonedVoicePath,
 		translateForTTS,
 		generateSpeech,
+		landVoiceoverAudio,
 		addTask,
 		updateTask,
 	]);
@@ -468,33 +527,19 @@ export function VoiceoverView() {
 	const handleAddToTimeline = useCallback(async () => {
 		if (!generatedBlob) return;
 
-		const file = new File([generatedBlob], `voiceover_${Date.now()}.wav`, {
-			type: "audio/wav",
-		});
-		const audioUrl = URL.createObjectURL(file);
-		const duration = await getAudioDuration(audioUrl);
 		const currentTime = editor.playback.getCurrentTime();
-
 		const trackId = editor.timeline.addTrack({ type: "audio", index: 0 });
 
-		editor.timeline.insertElement({
-			placement: { mode: "explicit", trackId },
-			element: {
-				type: "audio",
-				sourceType: "library",
-				sourceUrl: audioUrl,
-				name: "Voiceover",
-				startTime: currentTime,
-				duration: duration || 5,
-				trimStart: 0,
-				trimEnd: 0,
-				sourceDuration: duration || 5,
-				volume: 1,
-			},
+		await landVoiceoverAudio({
+			blob: generatedBlob,
+			name: "Voiceover",
+			startTime: currentTime,
+			trackId,
+			fallbackDuration: 5,
 		});
 
 		toast.success("Voiceover added to timeline");
-	}, [editor, generatedBlob]);
+	}, [editor, generatedBlob, landVoiceoverAudio]);
 
 	// Upload voice sample for cloning (local engine only)
 	const handleUploadVoice = useCallback(async (file: File) => {

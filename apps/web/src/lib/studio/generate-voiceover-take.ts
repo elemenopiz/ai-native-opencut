@@ -104,8 +104,11 @@ export function resolveVoiceLock(
 }
 
 /** Import a finished voiceover's audio through the normal media pipeline and
- *  register it as a project asset. */
-async function importAudioAsset(
+ *  register it as a durable project MediaAsset. Exported so the Voiceover UI's
+ *  non-Take paths (full-voiceover "Add to timeline" and the cloud per-segment
+ *  branch) can land audio the same durable way as the first-class Take pipeline,
+ *  instead of an ephemeral `blob:` object URL that dies on reload/export. */
+export async function importAudioAsset(
 	editor: EditorCore,
 	projectId: string,
 	blob: Blob,
@@ -116,7 +119,10 @@ async function importAudioAsset(
 	const file = new File([blob], fileName, { type });
 	const [processed] = await processMediaAssets({ files: [file] });
 	if (!processed) throw new Error("processing produced no asset");
-	const mediaId = await editor.media.addMediaAsset({ projectId, asset: processed });
+	const mediaId = await editor.media.addMediaAsset({
+		projectId,
+		asset: processed,
+	});
 	return { mediaId };
 }
 
