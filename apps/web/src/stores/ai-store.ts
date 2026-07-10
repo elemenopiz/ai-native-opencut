@@ -61,12 +61,14 @@ export const useAIStore = create<AIState>()((set) => ({
 	studioMessages: [],
 
 	setBackendStatus: (status) =>
-		set({
+		set((state) => ({
 			backendStatus: status,
 			lastError: status?.error ?? null,
 			lastErrorType: status?.errorType ?? null,
-			consecutiveFailures: status?.available ? 0 : undefined,
-		}),
+			// Reset on a healthy status; otherwise preserve the count (never set
+			// undefined, which would make the next increment NaN forever).
+			consecutiveFailures: status?.available ? 0 : state.consecutiveFailures,
+		})),
 
 	setConnectionError: (error, errorType) =>
 		set((state) => ({
