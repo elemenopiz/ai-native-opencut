@@ -4,6 +4,8 @@ import { db } from "@/lib/db";
 import { personas } from "@/lib/db/schema-studio";
 import { renderPersonaStill } from "@/lib/studio/persona-still";
 import type { ImageSize } from "@/lib/studio/image-generator";
+import { headers } from "next/headers";
+import { auth } from "@/lib/auth/server";
 
 // POST — render a per-shot reference still of this persona in a new scene via
 // gpt-image-2 /images/edits. The returned imageUrl becomes the Seedance
@@ -13,6 +15,12 @@ export async function POST(
 	{ params }: { params: Promise<{ id: string }> },
 ) {
 	try {
+		// Paid still rendering (gpt-image-2) — bills our provider key.
+		const session = await auth.api.getSession({ headers: await headers() });
+		if (!session?.user) {
+			return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+		}
+
 		const { id } = await params;
 		const body = (await req.json()) as {
 			scenePrompt?: string;
@@ -31,6 +39,11 @@ export async function POST(
 			where: eq(personas.id, id),
 		});
 		if (!persona) {
+			return NextResponse.json({ error: "Persona not found" }, { status: 404 });
+		}
+		// Only the persona's owner may render paid stills from it (anonymously
+		// created personas — userId null — stay usable by any signed-in user).
+		if (persona.userId && persona.userId !== session.user.id) {
 			return NextResponse.json({ error: "Persona not found" }, { status: 404 });
 		}
 

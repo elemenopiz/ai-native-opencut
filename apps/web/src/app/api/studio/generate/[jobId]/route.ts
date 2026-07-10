@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { pollVideo } from "@/lib/studio/provider-adapter";
-import { canRehost, rehostToR2, isRehostedUrl, fetchBytes } from "@/lib/studio/media-storage";
+import {
+	canRehost,
+	rehostToR2,
+	isRehostedUrl,
+	fetchBytes,
+} from "@/lib/studio/media-storage";
 import { db } from "@/lib/db";
-import { takes } from "@/lib/db/schema-studio";
+import { takes, generationSets } from "@/lib/db/schema-studio";
+import { headers } from "next/headers";
+import { auth } from "@/lib/auth/server";
 
 export async function GET(
 	_req: Request,
@@ -11,6 +18,26 @@ export async function GET(
 ) {
 	try {
 		const { jobId } = await params;
+
+		// This job's take carries provider URLs and drives paid rehosting — require
+		// a signed-in user who owns the take before polling or mutating it.
+		const session = await auth.api.getSession({ headers: await headers() });
+		if (!session?.user) {
+			return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+		}
+		const ownTake = await db.query.takes.findFirst({
+			where: eq(takes.providerJobId, jobId),
+		});
+		if (!ownTake) {
+			return NextResponse.json({ error: "Not found" }, { status: 404 });
+		}
+		const parentSet = await db.query.generationSets.findFirst({
+			where: eq(generationSets.id, ownTake.setId),
+		});
+		if (!parentSet || parentSet.userId !== session.user.id) {
+			return NextResponse.json({ error: "Not found" }, { status: 404 });
+		}
+
 		const result = await pollVideo(jobId);
 
 		if (result.status === "completed" || result.status === "failed") {
@@ -21,11 +48,8 @@ export async function GET(
 			// already holds a rehosted URL. Best-effort — fall back to the provider
 			// URL (still valid for ~24h) if the copy fails.
 			if (result.status === "completed" && result.videoUrl && canRehost()) {
-				const existing = await db.query.takes.findFirst({
-					where: eq(takes.providerJobId, jobId),
-				});
-				if (existing?.videoUrl && isRehostedUrl(existing.videoUrl)) {
-					videoUrl = existing.videoUrl;
+				if (ownTake.videoUrl && isRehostedUrl(ownTake.videoUrl)) {
+					videoUrl = ownTake.videoUrl;
 				} else {
 					try {
 						const bytes = await fetchBytes(result.videoUrl);
@@ -50,7 +74,10 @@ export async function GET(
 				.where(eq(takes.providerJobId, jobId));
 
 			// Hand the durable URL back to the client too.
-			return NextResponse.json({ ...result, videoUrl: videoUrl ?? result.videoUrl });
+			return NextResponse.json({
+				...result,
+				videoUrl: videoUrl ?? result.videoUrl,
+			});
 		}
 
 		return NextResponse.json(result);

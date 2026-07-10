@@ -1,24 +1,38 @@
 import { NextResponse } from "next/server";
 import { nanoid } from "nanoid";
-import { generateReferenceImage, type ImageSize, type ImageQuality } from "@/lib/studio/image-generator";
+import {
+	generateReferenceImage,
+	type ImageSize,
+	type ImageQuality,
+} from "@/lib/studio/image-generator";
 import { canRehost, rehostToR2, fetchBytes } from "@/lib/studio/media-storage";
 import { db } from "@/lib/db";
 import { imageStills } from "@/lib/db/schema-studio";
+import { headers } from "next/headers";
+import { auth } from "@/lib/auth/server";
 
 export async function POST(req: Request) {
 	try {
-		const body = await req.json() as {
+		// Paid image generation — bills our provider key, so require a signed-in user.
+		const session = await auth.api.getSession({ headers: await headers() });
+		if (!session?.user) {
+			return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+		}
+
+		const body = (await req.json()) as {
 			prompt: string;
 			size?: ImageSize;
 			quality?: ImageQuality;
 			n?: number;
-			userId?: string;
 		};
 
-		const { prompt, size = "1024x1024", quality = "high", n = 1, userId } = body;
+		const { prompt, size = "1024x1024", quality = "high", n = 1 } = body;
 
 		if (!prompt?.trim()) {
-			return NextResponse.json({ error: "prompt is required" }, { status: 400 });
+			return NextResponse.json(
+				{ error: "prompt is required" },
+				{ status: 400 },
+			);
 		}
 
 		const results = await generateReferenceImage({ prompt, size, quality, n });
@@ -39,7 +53,7 @@ export async function POST(req: Request) {
 				}
 				return {
 					id: nanoid(),
-					userId: userId ?? null,
+					userId: session.user.id,
 					prompt,
 					imageUrl,
 					revisedPrompt: r.revisedPrompt ?? null,
@@ -51,13 +65,16 @@ export async function POST(req: Request) {
 
 		await db.insert(imageStills).values(records);
 
-		return NextResponse.json({ images: records.map((r) => ({
-			id: r.id,
-			imageUrl: r.imageUrl,
-			revisedPrompt: r.revisedPrompt,
-		})) });
+		return NextResponse.json({
+			images: records.map((r) => ({
+				id: r.id,
+				imageUrl: r.imageUrl,
+				revisedPrompt: r.revisedPrompt,
+			})),
+		});
 	} catch (err) {
-		const message = err instanceof Error ? err.message : "Image generation failed";
+		const message =
+			err instanceof Error ? err.message : "Image generation failed";
 		return NextResponse.json({ error: message }, { status: 500 });
 	}
 }
