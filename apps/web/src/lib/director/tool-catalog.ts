@@ -36,6 +36,11 @@ import type { ConsistencyCharacter } from "./consistency-prompt";
 import type { StyleBible } from "./storyboard-plan";
 import type { ShotImportance } from "./budget";
 import type { BriefPatch } from "./director-brief";
+import type {
+	AssetCitation,
+	ProposedShotInput,
+	ShotSource,
+} from "./reel-proposal";
 
 // ── coercion helpers (moved here from agent.ts; the single arg-coercion site) ──
 
@@ -169,6 +174,75 @@ function asImportance(raw: unknown): ShotImportance | undefined {
 	return raw === "hero" || raw === "support" || raw === "broll"
 		? raw
 		: undefined;
+}
+
+/** Coerce a loose `source` arg to a {@link ShotSource}, else undefined. */
+function asShotSource(raw: unknown): ShotSource | undefined {
+	return raw === "library" || raw === "generate" || raw === "generate-to-match"
+		? raw
+		: undefined;
+}
+
+/**
+ * Coerce a loose `citation` arg into an {@link AssetCitation}. Only `mediaId` is
+ * load-bearing (validated against the real index server-side); the rest are author
+ * hints. Returns `undefined` when there's no usable mediaId so a citation-less shot
+ * stays that way (and the validator repairs a library/generate-to-match shot).
+ */
+export function asCitation(v: unknown): AssetCitation | undefined {
+	if (!v || typeof v !== "object" || Array.isArray(v)) return undefined;
+	const o = v as Record<string, unknown>;
+	const mediaId = strOrUndefined(o.mediaId);
+	if (!mediaId) return undefined;
+	const matchScore = numOrUndefined(o.matchScore ?? o.score);
+	const sourceShotIndex = numOrUndefined(o.sourceShotIndex);
+	const range =
+		o.timeRange &&
+		typeof o.timeRange === "object" &&
+		!Array.isArray(o.timeRange)
+			? (o.timeRange as Record<string, unknown>)
+			: undefined;
+	const start = range ? numOrUndefined(range.start) : undefined;
+	const end = range ? numOrUndefined(range.end) : undefined;
+	return {
+		mediaId,
+		...(matchScore != null ? { matchScore } : {}),
+		...(sourceShotIndex != null ? { sourceShotIndex } : {}),
+		...(start != null && end != null ? { timeRange: { start, end } } : {}),
+	};
+}
+
+/**
+ * Coerce a loose `shots` arg into {@link ProposedShotInput}s for `proposeReel`: the
+ * storyboard fields (prompt/intent/camera/subject/importance/duration) PLUS the
+ * retrieve-vs-generate `source` and the grounded `citation`. Bare strings become a
+ * generate shot. `source` is optional — omit it and the allocator classifies the
+ * shot from importance + whether a citation is present.
+ */
+export function asProposedShots(
+	args: Record<string, unknown>,
+): ProposedShotInput[] {
+	const raw = Array.isArray(args.shots) ? args.shots : [];
+	return raw.map((s) => {
+		if (typeof s === "string") return { prompt: s, duration: 6 };
+		const obj = (s ?? {}) as Record<string, unknown>;
+		const source = asShotSource(obj.source);
+		const citation = asCitation(obj.citation);
+		const intent = strOrUndefined(obj.intent);
+		const camera = strOrUndefined(obj.camera);
+		const subject = strOrUndefined(obj.subject);
+		const importance = asImportance(obj.importance);
+		return {
+			prompt: str(obj.prompt),
+			duration: numOr(obj.duration, 6),
+			...(source ? { source } : {}),
+			...(citation ? { citation } : {}),
+			...(intent ? { intent } : {}),
+			...(camera ? { camera } : {}),
+			...(subject ? { subject } : {}),
+			...(importance ? { importance } : {}),
+		};
+	});
 }
 
 /**
@@ -596,6 +670,205 @@ export function toolCatalog(): ToolDescriptor[] {
 					...(budgetUsd > 0 ? { budgetUsd } : {}),
 				});
 			},
+		},
+		// ── propose-first drafting (Flow B) ─────────────────────────────────
+		{
+			name: "proposeReel",
+			description:
+				"PROPOSE-FIRST: draft the WHOLE reel as an editable plan the user reacts to, citing specific LIBRARY assets per shot instead of hand-placing clips. For each shot choose a source: 'library' (RETRIEVE — cite a real asset's mediaId; free, instant; prefer for b-roll), 'generate' (no matching asset — render from a prompt), or 'generate-to-match' (GENERATE conditioned on a cited asset's look — prefer for hero shots that justify the spend). GROUND every citation FIRST via searchMedia / getLibraryManifest and cite only mediaIds you actually found — NEVER invent a mediaId: a fabricated citation is rejected and its shot is downgraded to generate, and a hallucinated asset costs more trust than the feature earns. Nothing is placed yet; the user accepts (acceptProposal) or edits a line (reviseProposal). Use this for a 'build me a reel from my footage' brief.",
+			mutating: true,
+			inputSchema: {
+				type: "object",
+				properties: {
+					shots: {
+						type: "array",
+						description:
+							"Ordered shots. Give each a source + (for library/generate-to-match) a grounded citation, plus intent/camera/subject so the sequence is coherent.",
+						items: {
+							type: "object",
+							properties: {
+								source: {
+									type: "string",
+									enum: ["library", "generate", "generate-to-match"],
+									description:
+										"library = place the cited asset; generate = render from prompt; generate-to-match = generate in the cited asset's look. Omit to let importance + citation decide (hero→generate-to-match, b-roll→library).",
+								},
+								citation: {
+									type: "object",
+									description:
+										"The cited library asset (required for library/generate-to-match). Cite ONLY a mediaId you found via searchMedia/getLibraryManifest.",
+									properties: {
+										mediaId: {
+											type: "string",
+											description:
+												"FULL media-library asset id you grounded via searchMedia/getLibraryManifest. Validated against the real index; a fabricated id is rejected.",
+										},
+										matchScore: {
+											type: "number",
+											description:
+												"The searchMedia score you saw for this candidate, if any (helps the allocator judge retrieve-vs-generate).",
+										},
+										sourceShotIndex: {
+											type: "integer",
+											description:
+												"For a multi-shot source asset, which 0-based sub-shot to use.",
+										},
+									},
+									required: ["mediaId"],
+								},
+								prompt: {
+									type: "string",
+									description:
+										"Generation prompt for generate/generate-to-match; a short description for a library shot.",
+								},
+								intent: {
+									type: "string",
+									description:
+										"What this shot accomplishes (e.g. 'cold-open establishing shot').",
+								},
+								camera: {
+									type: "string",
+									description: "Framing / camera movement / lens.",
+								},
+								subject: {
+									type: "string",
+									description: "Who/what is on screen.",
+								},
+								importance: {
+									type: "string",
+									enum: ["hero", "support", "broll"],
+									description:
+										"Drives retrieve-vs-generate AND the budget tier: hero justifies generation spend, b-roll prefers retrieval. Default support.",
+								},
+								duration: secs("shot length in seconds (default 6)"),
+							},
+						},
+					},
+					bible: {
+						type: "object",
+						description:
+							"Shared style bible for the whole reel — seeds the consistency context on accept so every generated shot inherits it.",
+						properties: {
+							palette: { type: "string" },
+							lensMood: { type: "string" },
+							setting: { type: "string" },
+							characters: {
+								type: "array",
+								items: {
+									type: "object",
+									properties: {
+										name: { type: "string" },
+										descriptor: { type: "string" },
+									},
+									required: ["name", "descriptor"],
+								},
+							},
+						},
+					},
+					budgetUsd: {
+						type: "number",
+						description:
+							"Total USD the whole reel may spend (allocated across the GENERATE shots — library shots are $0). Use for 'make an N-shot reel for $X'.",
+					},
+				},
+				required: ["shots"],
+			},
+			handler: (d, a) => {
+				const budgetUsd = numOr(a.budgetUsd, 0);
+				return d.proposeReel({
+					shots: asProposedShots(a),
+					bible: asStyleBible(a),
+					...(budgetUsd > 0 ? { budgetUsd } : {}),
+				});
+			},
+		},
+		{
+			name: "reviseProposal",
+			description:
+				"revise ONE line of the pending draft and leave the rest stable — 'swap shot 2 for the drone pass' re-plans only shot 2. Pass the 1-based shot index plus the fields to change (source/citation/prompt/importance/etc). A new citation is re-validated against the real index (a fabricated swap-in is rejected). Use to steer a proposeReel draft before acceptProposal.",
+			mutating: true,
+			inputSchema: {
+				type: "object",
+				properties: {
+					index: {
+						type: "integer",
+						description: "1-based index of the shot to revise.",
+					},
+					source: {
+						type: "string",
+						enum: ["library", "generate", "generate-to-match"],
+						description: "New source for this shot.",
+					},
+					citation: {
+						type: "object",
+						description:
+							"New cited asset (grounded mediaId). Omit to keep the existing citation; set clearCitation to drop it.",
+						properties: {
+							mediaId: { type: "string" },
+							matchScore: { type: "number" },
+							sourceShotIndex: { type: "integer" },
+						},
+						required: ["mediaId"],
+					},
+					clearCitation: {
+						type: "boolean",
+						description:
+							"Set true to remove this shot's citation (falls back to generate).",
+					},
+					prompt: { type: "string" },
+					intent: { type: "string" },
+					camera: { type: "string" },
+					subject: { type: "string" },
+					importance: {
+						type: "string",
+						enum: ["hero", "support", "broll"],
+					},
+					duration: secs("new shot length in seconds"),
+				},
+				required: ["index"],
+			},
+			handler: (d, a) =>
+				d.reviseProposal({
+					index: numOr(a.index, 0),
+					source: asShotSource(a.source),
+					citation: asCitation(a.citation),
+					clearCitation: boolOrUndefined(a.clearCitation),
+					prompt: strOrUndefined(a.prompt),
+					intent: strOrUndefined(a.intent),
+					camera: strOrUndefined(a.camera),
+					subject: strOrUndefined(a.subject),
+					importance: asImportance(a.importance),
+					duration: numOrUndefined(a.duration),
+				}),
+		},
+		{
+			name: "acceptProposal",
+			description:
+				"ACCEPT the pending draft and materialize every shot IN ORDER — library shots place their cited asset as a clip, generate/generate-to-match shots become generative slots (then call generate). Persists the plan to the durable Project Bible and seeds the consistency context from the bible. Call after the user approves a proposeReel draft.",
+			mutating: true,
+			inputSchema: {
+				type: "object",
+				properties: {
+					seedConsistency: {
+						type: "boolean",
+						description:
+							"Set false to skip seeding the reel consistency context from the bible. Default true.",
+					},
+				},
+				additionalProperties: false,
+			},
+			handler: (d, a) =>
+				d.acceptProposal({
+					seedConsistency: boolOrUndefined(a.seedConsistency),
+				}),
+		},
+		{
+			name: "getProposal",
+			description:
+				"read the pending Flow-B draft (the current proposeReel plan) without changing it. The message is the rendered draft.",
+			mutating: false,
+			inputSchema: EMPTY,
+			handler: (d) => d.getProposal(),
 		},
 		{
 			name: "intakeReferences",

@@ -56,6 +56,21 @@ import {
 	type StyleBible,
 } from "./storyboard-plan";
 import {
+	buildReelProposal,
+	formatProposalDraft,
+	getStoredProposal,
+	proposalToPlan,
+	reviseProposalShot,
+	sourceNeedsCitation,
+	storeProposal,
+	validateProposal,
+	type AssetResolver,
+	type ProposedShotInput,
+	type ReelProposal,
+	type ResolvedAsset,
+	type ShotRevision,
+} from "./reel-proposal";
+import {
 	formatSpend,
 	getReelSpend,
 	planActionWithinBudget,
@@ -181,6 +196,15 @@ export type {
 	AssetUnderstandingLookup,
 	LibraryManifest,
 } from "./asset-manifest";
+
+export type {
+	AssetCitation,
+	CitationRepair,
+	ProposedShot,
+	ProposedShotInput,
+	ReelProposal,
+	ShotSource,
+} from "./reel-proposal";
 
 /**
  * A timeline element that is a generative slot — i.e. it carries a
@@ -1221,6 +1245,282 @@ export function createDirectorApi(
 				slotIds: ids,
 				plan,
 			}),
+		);
+	}
+
+	// ---- PROPOSE-FIRST DRAFTING (Flow B) ----------------------------------
+	//
+	// The inversion of `storyboard`: instead of the human hand-placing clips, the
+	// Director drafts the WHOLE reel as an editable plan that CITES specific library
+	// assets per shot (retrieve), or plans to GENERATE where nothing matches, or
+	// GENERATE-TO-MATCH a cited asset's look. The human reacts to the draft (accept
+	// / revise one line) rather than assembling. See `reel-proposal.ts`.
+	//
+	// THE SAFETY GATE: a plan may cite ONLY asset ids that resolve against the REAL
+	// index. `resolveAssetForCitation` is that gate — existence comes from the media
+	// store, caption/role from the injected Understanding Pass; a fabricated id
+	// resolves to `undefined` and `validateProposal` repairs the shot to `generate`.
+
+	/**
+	 * Resolve a cited mediaId against the REAL index — the single grounding source
+	 * for Flow B. EXISTENCE is the media store (a fabricated id returns `undefined`
+	 * and cannot be cited); the `#N` ref is the asset's 1-based library position;
+	 * caption/role come from the injected Understanding Pass when present (absent ⇒
+	 * the citation is still valid, just captionless — grounding degrades gracefully).
+	 */
+	const resolveAssetForCitation: AssetResolver = (
+		mediaId,
+	): ResolvedAsset | undefined => {
+		const assets = editor.media.getAssets();
+		const index = assets.findIndex((a) => a.id === mediaId);
+		if (index === -1) return undefined;
+		const asset = assets[index];
+		const u = options.understanding?.(mediaId);
+		return {
+			id: asset.id,
+			name: asset.name,
+			ref: `#${index + 1}`,
+			...(u?.caption ? { caption: u.caption } : {}),
+			...(u?.role ? { role: u.role } : {}),
+		};
+	};
+
+	/** Per-shot base (cheapest-tier) USD estimate for budget allocation: library shots cost $0. */
+	function proposalBaseCosts(proposal: ReelProposal): number[] {
+		return proposal.shots.map((s) =>
+			s.source === "library"
+				? 0
+				: estimateSpecCost(buildSpec(s.prompt, s.duration)).high,
+		);
+	}
+
+	/**
+	 * DRAFT the entire reel as an editable, CITED plan (Flow B). Decomposes the
+	 * brief into shots, each with a `source` — `library` (cite a specific asset),
+	 * `generate` (no match — render it), or `generate-to-match` (generate in a cited
+	 * asset's look). Every citation is VALIDATED against the real index before the
+	 * draft is returned: any id that doesn't resolve is repaired to `generate` (never
+	 * silently kept), so the draft can't hallucinate an asset. The draft is stored
+	 * pending — nothing is placed on the timeline until `acceptProposal`. The result
+	 * `message` IS the rendered draft (markdown) the human reacts to; `data.proposal`
+	 * carries the structured plan.
+	 */
+	function proposeReel(input: {
+		shots: ProposedShotInput[];
+		bible?: StyleBible;
+		budgetUsd?: number;
+	}): DirectorResult<{ proposal: ReelProposal; draft: string }> {
+		if (!input.shots || input.shots.length === 0) {
+			return fail("proposeReel requires at least one shot.");
+		}
+
+		// Build the draft (pure), then GROUND it: validate every citation against the
+		// real index and repair any that don't resolve.
+		const built = buildReelProposal({
+			shots: input.shots,
+			bible: input.bible,
+		});
+		const { proposal } = validateProposal(built, resolveAssetForCitation);
+
+		// Allocate a budget across the GENERATE shots (library shots are $0) for the
+		// draft's spend line; the running tracker is ARMED at acceptProposal, not now.
+		if (input.budgetUsd != null && input.budgetUsd > 0) {
+			const tmpPlan = proposalToPlan(proposal);
+			applyBudgetToPlan(tmpPlan, proposalBaseCosts(proposal), input.budgetUsd);
+			proposal.budget = tmpPlan.budget;
+		}
+
+		storeProposal(editor, proposal);
+
+		const draft = formatProposalDraft(proposal);
+		const grounded = proposal.shots.filter((s) =>
+			sourceNeedsCitation(s.source),
+		).length;
+		const headline = `Drafted a ${proposal.shotCount}-shot reel (${grounded} from the library, ${
+			proposal.shotCount - grounded
+		} to generate).${
+			proposal.repairs.length
+				? ` ${proposal.repairs.length} unresolved citation(s) fell back to generate.`
+				: ""
+		}${budgetSummary(proposal.budget)}`;
+
+		return ok(`${headline}\n\n${draft}`, { proposal, draft });
+	}
+
+	/**
+	 * Revise a SINGLE line of the pending draft and leave the rest STABLE — "swap
+	 * shot 2 for the drone pass, colder open" re-plans only shot 2; shots 1 and 3 are
+	 * untouched (preserved by reference). The revised shot's citation is re-validated
+	 * against the real index (a fabricated swap-in id is repaired just like on the
+	 * first draft). Fails if there's no pending draft or the index is out of range.
+	 */
+	function reviseProposal(
+		input: { index: number } & ShotRevision,
+	): DirectorResult<{ proposal: ReelProposal; draft: string }> {
+		const pending = getStoredProposal(editor);
+		if (!pending) {
+			return fail("No draft to revise — call proposeReel first.");
+		}
+		const { index, ...patch } = input;
+		if (!Number.isFinite(index) || index < 1 || index > pending.shots.length) {
+			return fail(
+				`No shot #${index} in the draft (it has ${pending.shots.length} shot(s)).`,
+			);
+		}
+
+		const { proposal, repair, changed } = reviseProposalShot(
+			pending,
+			index,
+			patch,
+			resolveAssetForCitation,
+		);
+		if (!changed) {
+			return fail(`Couldn't revise shot #${index}.`);
+		}
+
+		// Re-allocate the budget across the revised shots so the spend line stays honest.
+		if (proposal.budget) {
+			const tmpPlan = proposalToPlan(proposal);
+			applyBudgetToPlan(
+				tmpPlan,
+				proposalBaseCosts(proposal),
+				proposal.budget.totalBudgetUsd,
+			);
+			proposal.budget = tmpPlan.budget;
+		}
+
+		storeProposal(editor, proposal);
+
+		const draft = formatProposalDraft(proposal);
+		const note = repair ? ` (${repair.reason})` : "";
+		return ok(`Revised shot #${index}${note}.\n\n${draft}`, {
+			proposal,
+			draft,
+		});
+	}
+
+	/**
+	 * ACCEPT the pending draft: materialize every shot IN ORDER — library shots place
+	 * their cited asset via the `addClip` path, generate/generate-to-match shots
+	 * become generative slots (generate-to-match attaches the cited asset as a
+	 * reference image so generation inherits its look). Re-validates citations
+	 * against the CURRENT index first (assets may have changed since drafting), then
+	 * persists the accepted plan as the durable {@link StoryboardPlan}, arms the
+	 * budget, seeds the reel consistency context from the bible, and write-throughs to
+	 * the Project Bible. Clears the pending draft. Fails if there's no draft.
+	 */
+	function acceptProposal(input?: {
+		seedConsistency?: boolean;
+	}): DirectorResult<{ elementIds: string[]; plan: StoryboardPlan }> {
+		const pending = getStoredProposal(editor);
+		if (!pending) {
+			return fail("No draft to accept — call proposeReel first.");
+		}
+
+		// Re-ground against the live index; assets may have been deleted since drafting.
+		const { proposal } = validateProposal(pending, resolveAssetForCitation);
+
+		const before = captureReel();
+		const elementIds: string[] = [];
+		// Materialized copies so we can patch each shot's elementId without mutating
+		// the pending draft until the transaction commits.
+		const materialized = proposal.shots.map((s) => ({ ...s }));
+		let cursor = editor.timeline.getTotalDuration();
+
+		editor.command.beginTransaction();
+		try {
+			for (const shot of materialized) {
+				if (shot.source === "library" && shot.citation) {
+					const res = addClip({
+						mediaId: shot.citation.mediaId,
+						startTime: cursor,
+						duration: shot.duration,
+					});
+					if (res.ok && res.data) {
+						shot.elementId = res.data.elementId;
+						elementIds.push(res.data.elementId);
+						cursor += shot.duration;
+					}
+					// A library citation that can't be placed (e.g. an audio asset) is
+					// skipped rather than aborting the whole accept — the rest still lands.
+					continue;
+				}
+
+				// generate / generate-to-match → a generative slot.
+				const overrides: Partial<GenerationSpec> = {};
+				if (shot.source === "generate-to-match" && shot.citation) {
+					const url = editor.media.getAssetById(shot.citation.mediaId)?.url;
+					// Condition generation on the cited asset's LOOK via omni-reference.
+					if (url) overrides.referenceImages = [url];
+				}
+				const spec = buildSpec(shot.prompt, shot.duration, overrides);
+				const slotId = editor.timeline.addGenerativeSlot({
+					spec,
+					duration: shot.duration,
+					startTime: cursor,
+				});
+				shot.elementId = slotId;
+				elementIds.push(slotId);
+				cursor += shot.duration;
+			}
+		} catch (error) {
+			editor.command.rollbackTransaction();
+			return fail(
+				`acceptProposal failed: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+			);
+		}
+		editor.command.commitTransaction();
+
+		// Persist the accepted draft as the durable plan (read back off getReel().plan).
+		const accepted: ReelProposal = { ...proposal, shots: materialized };
+		const plan = proposalToPlan(accepted);
+		storePlan(editor, plan);
+
+		// Arm the running spend tracker if the draft carried a budget.
+		if (accepted.budget && accepted.budget.totalBudgetUsd > 0) {
+			setReelBudget(editor, accepted.budget.totalBudgetUsd);
+		}
+
+		// Seed the reel consistency context from the bible so every generate shot
+		// inherits the look (unless opted out) — the same path storyboard uses.
+		if (input?.seedConsistency !== false) {
+			const seed = bibleToConsistencyInput(plan.bible);
+			if (seed) applyConsistencyContext(seed);
+		}
+
+		// Write-through to the durable Project Bible (plan + consistency + roster).
+		syncBible(
+			"acceptProposal",
+			`Accepted draft — ${elementIds.length} shot(s)`,
+		);
+
+		// Draft consumed.
+		storeProposal(editor, undefined);
+
+		const libraryCount = materialized.filter(
+			(s) => s.source === "library" && s.elementId,
+		).length;
+		return withDelta(
+			before,
+			ok(
+				`Placed ${elementIds.length} shot(s) from the draft (${libraryCount} from the library, ${
+					elementIds.length - libraryCount
+				} generative).${budgetSummary(plan.budget)} Generate the slots when you're ready.`,
+				{ elementIds, plan },
+			),
+		);
+	}
+
+	/** Read the pending Flow-B draft, if one is open (read-only). */
+	function getProposal(): DirectorResult<ReelProposal | undefined> {
+		const proposal = getStoredProposal(editor);
+		return ok(
+			proposal
+				? formatProposalDraft(proposal)
+				: "No draft proposal is open — call proposeReel to draft one.",
+			proposal,
 		);
 	}
 
@@ -3253,6 +3553,11 @@ export function createDirectorApi(
 		intakeReferences,
 		reserveSlot,
 		setPrompt,
+		// propose-first drafting (Flow B)
+		proposeReel,
+		reviseProposal,
+		acceptProposal,
+		getProposal,
 		// generate
 		estimateGenerateCost,
 		generate,
