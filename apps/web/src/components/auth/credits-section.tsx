@@ -9,6 +9,8 @@ import {
 	CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { BuyCreditsDialog } from "@/components/auth/buy-credits-dialog";
 
 interface LedgerEntry {
 	id: string;
@@ -62,6 +64,7 @@ export function CreditsSection() {
 	const [data, setData] = useState<HistoryResponse | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
+	const [buyOpen, setBuyOpen] = useState(false);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -104,10 +107,13 @@ export function CreditsSection() {
 					<div className="text-sm text-destructive">{error}</div>
 				) : data ? (
 					<>
-						<div className="flex flex-wrap gap-6">
-							<Stat label="Spendable" value={data.spendable} emphasize />
-							<Stat label="Balance" value={data.balance} />
-							<Stat label="On hold" value={data.reserved} />
+						<div className="flex flex-wrap items-start justify-between gap-6">
+							<div className="flex flex-wrap gap-6">
+								<Stat label="Spendable" value={data.spendable} emphasize />
+								<Stat label="Balance" value={data.balance} />
+								<Stat label="On hold" value={data.reserved} />
+							</div>
+							<Button onClick={() => setBuyOpen(true)}>Buy credits</Button>
 						</div>
 
 						<div className="flex flex-col gap-2">
@@ -146,6 +152,7 @@ export function CreditsSection() {
 					</>
 				) : null}
 			</CardContent>
+			<BuyCreditsDialog open={buyOpen} onOpenChange={setBuyOpen} />
 		</Card>
 	);
 }
