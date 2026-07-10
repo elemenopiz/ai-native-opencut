@@ -24,6 +24,7 @@
 
 import { create } from "zustand";
 import type { PollVideoResult } from "@/lib/studio/provider-adapter";
+import { apiFetch } from "@/lib/auth/unauthorized";
 
 /** Per-job status, mirroring the fields our provider poll endpoint returns. */
 export type GenerationJobState = Pick<
@@ -133,7 +134,7 @@ function terminalPollError(status: number): string {
 export function createJobStatusPollFn(jobId: string): () => Promise<void> {
 	return async () => {
 		try {
-			const res = await fetch(`/api/studio/generate/${jobId}`);
+			const res = await apiFetch(`/api/studio/generate/${jobId}`);
 			if (!res.ok) {
 				// 4xx is a permanent client/permission error — terminate the poll so
 				// the spinner resolves to an error. 5xx / other codes stay transient.

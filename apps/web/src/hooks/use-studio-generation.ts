@@ -7,6 +7,7 @@ import type {
 	VideoMode,
 } from "@/lib/studio/provider-adapter";
 import { waitForJobTerminal } from "@/stores/generation-status-store";
+import { apiFetch } from "@/lib/auth/unauthorized";
 
 export type GenerationStatus =
 	| "idle"
@@ -139,7 +140,7 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 			cancelRef.current = false;
 
 			try {
-				const res = await fetch("/api/studio/generate", {
+				const res = await apiFetch("/api/studio/generate", {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify(params),
@@ -193,7 +194,7 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 
 	const promoteTo1080p = useCallback(
 		async (takeId: string) => {
-			const res = await fetch(`/api/studio/takes/${takeId}/promote`, {
+			const res = await apiFetch(`/api/studio/takes/${takeId}/promote`, {
 				method: "POST",
 			});
 			if (!res.ok) {
@@ -222,7 +223,7 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 	);
 
 	const starTake = useCallback(async (takeId: string, starred: boolean) => {
-		await fetch(`/api/studio/takes/${takeId}`, {
+		await apiFetch(`/api/studio/takes/${takeId}`, {
 			method: "PATCH",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ starred }),
@@ -233,7 +234,7 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 	}, []);
 
 	const pinToBoard = useCallback(async (takeId: string, notes?: string) => {
-		const res = await fetch("/api/studio/board", {
+		const res = await apiFetch("/api/studio/board", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ takeId, notes }),
@@ -248,7 +249,7 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 	// survives a reload. Resumes polling for any take still in-flight.
 	const loadHistory = useCallback(async () => {
 		try {
-			const res = await fetch("/api/studio/sets");
+			const res = await apiFetch("/api/studio/sets");
 			if (!res.ok) return;
 
 			const data = (await res.json()) as {

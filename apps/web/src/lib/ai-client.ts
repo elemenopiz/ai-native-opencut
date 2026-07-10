@@ -34,6 +34,7 @@ import type {
 	VideoGenResult,
 	PromptGenResult,
 } from "@/types/ai";
+import { apiFetch } from "@/lib/auth/unauthorized";
 
 interface MemoryStatus {
 	allocated: number;
@@ -81,14 +82,18 @@ export class AIClientError extends Error {
 	}
 }
 
-function classifyError(error: unknown): { message: string; errorType: AIErrorType } {
+function classifyError(error: unknown): {
+	message: string;
+	errorType: AIErrorType;
+} {
 	if (error instanceof AIClientError) {
 		return { message: error.message, errorType: error.errorType };
 	}
 
 	if (error instanceof DOMException && error.name === "AbortError") {
 		return {
-			message: "Request timed out. The AI backend may be overloaded or starting up.",
+			message:
+				"Request timed out. The AI backend may be overloaded or starting up.",
 			errorType: "timeout",
 		};
 	}
@@ -100,11 +105,17 @@ function classifyError(error: unknown): { message: string; errorType: AIErrorTyp
 		};
 	}
 
-	const message = error instanceof Error ? error.message : "An unknown error occurred";
+	const message =
+		error instanceof Error ? error.message : "An unknown error occurred";
 
-	if (message.includes("Failed to fetch") || message.includes("NetworkError") || message.includes("ERR_CONNECTION_REFUSED")) {
+	if (
+		message.includes("Failed to fetch") ||
+		message.includes("NetworkError") ||
+		message.includes("ERR_CONNECTION_REFUSED")
+	) {
 		return {
-			message: "Cannot connect to AI backend. Make sure it is running on the correct port.",
+			message:
+				"Cannot connect to AI backend. Make sure it is running on the correct port.",
 			errorType: "connection_refused",
 		};
 	}
@@ -147,9 +158,7 @@ class AIClient {
 	/** Get the Sarvam API key from localStorage or env. */
 	private getSarvamApiKey(): string {
 		return (
-			getStoredApiKey("sarvam") ||
-			process.env.NEXT_PUBLIC_SARVAM_API_KEY ||
-			""
+			getStoredApiKey("sarvam") || process.env.NEXT_PUBLIC_SARVAM_API_KEY || ""
 		);
 	}
 
@@ -222,9 +231,7 @@ class AIClient {
 
 	private getLumaApiKey(): string {
 		return (
-			getStoredApiKey("luma") ||
-			process.env.NEXT_PUBLIC_LUMA_API_KEY ||
-			""
+			getStoredApiKey("luma") || process.env.NEXT_PUBLIC_LUMA_API_KEY || ""
 		);
 	}
 
@@ -236,11 +243,16 @@ class AIClient {
 
 	private videoHeaders(provider: string): Record<string, string> {
 		switch (provider) {
-			case "replicate": return this.replicateHeaders();
-			case "stability": return this.stabilityHeaders();
-			case "luma": return this.lumaHeaders();
-			case "seedance": return this.seedanceHeaders();
-			default: return {};
+			case "replicate":
+				return this.replicateHeaders();
+			case "stability":
+				return this.stabilityHeaders();
+			case "luma":
+				return this.lumaHeaders();
+			case "seedance":
+				return this.seedanceHeaders();
+			default:
+				return {};
 		}
 	}
 
@@ -254,7 +266,7 @@ class AIClient {
 		const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
 		try {
-			const response = await fetch(url, {
+			const response = await apiFetch(url, {
 				...options,
 				signal: controller.signal,
 				headers: {
@@ -292,7 +304,7 @@ class AIClient {
 		const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
 		try {
-			const response = await fetch(url, {
+			const response = await apiFetch(url, {
 				method: "POST",
 				body: formData,
 				signal: controller.signal,
@@ -331,7 +343,7 @@ class AIClient {
 		const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
 		try {
-			const response = await fetch(url, {
+			const response = await apiFetch(url, {
 				method: "POST",
 				body: formData,
 				signal: controller.signal,
@@ -371,7 +383,7 @@ class AIClient {
 
 		let response: Response;
 		try {
-			response = await fetch(url, {
+			response = await apiFetch(url, {
 				...options,
 				signal: controller.signal,
 				headers: {
@@ -454,7 +466,7 @@ class AIClient {
 	): Promise<T> {
 		const url = `${this.baseUrl}${endpoint}`;
 
-		const response = await fetch(url, {
+		const response = await apiFetch(url, {
 			method: "POST",
 			body: formData,
 		});
@@ -539,11 +551,17 @@ class AIClient {
 		file: File,
 		fillerWords?: string,
 		threshold?: number,
-	): Promise<{ fillers: FillerWord[]; total_count: number; duration: number; filler_density: number }> {
+	): Promise<{
+		fillers: FillerWord[];
+		total_count: number;
+		duration: number;
+		filler_density: number;
+	}> {
 		const formData = new FormData();
 		formData.append("file", file);
 		if (fillerWords) formData.append("filler_words", fillerWords);
-		if (threshold !== undefined) formData.append("threshold", threshold.toString());
+		if (threshold !== undefined)
+			formData.append("threshold", threshold.toString());
 
 		return this.requestFormData("/api/analyze/fillers", formData);
 	}
@@ -552,11 +570,17 @@ class AIClient {
 		file: File,
 		thresholdDb?: number,
 		minDuration?: number,
-	): Promise<{ silences: SilenceRegion[]; total_count: number; total_silence_duration: number }> {
+	): Promise<{
+		silences: SilenceRegion[];
+		total_count: number;
+		total_silence_duration: number;
+	}> {
 		const formData = new FormData();
 		formData.append("file", file);
-		if (thresholdDb !== undefined) formData.append("threshold_db", thresholdDb.toString());
-		if (minDuration !== undefined) formData.append("min_duration", minDuration.toString());
+		if (thresholdDb !== undefined)
+			formData.append("threshold_db", thresholdDb.toString());
+		if (minDuration !== undefined)
+			formData.append("min_duration", minDuration.toString());
 
 		return this.requestFormData("/api/analyze/silences", formData);
 	}
@@ -569,7 +593,10 @@ class AIClient {
 		formData.append("file", file);
 		if (language) formData.append("language", language);
 
-		return this.requestFormDataWithKeepalive("/api/analyze/structure", formData);
+		return this.requestFormDataWithKeepalive(
+			"/api/analyze/structure",
+			formData,
+		);
 	}
 
 	async getSuggestions(
@@ -580,7 +607,10 @@ class AIClient {
 		formData.append("file", file);
 		if (language) formData.append("language", language);
 
-		return this.requestFormDataWithKeepalive("/api/analyze/suggestions", formData);
+		return this.requestFormDataWithKeepalive(
+			"/api/analyze/suggestions",
+			formData,
+		);
 	}
 
 	async executeCommand(
@@ -604,13 +634,14 @@ class AIClient {
 		prompt: string,
 		style?: string,
 	): Promise<{ enhanced: string; original: string; style: string }> {
-		return this.requestWithKeepalive<{ enhanced: string; original: string; style: string }>(
-			"/api/generate/enhance-prompt",
-			{
-				method: "POST",
-				body: JSON.stringify({ prompt, style: style ?? "photorealistic" }),
-			},
-		);
+		return this.requestWithKeepalive<{
+			enhanced: string;
+			original: string;
+			style: string;
+		}>("/api/generate/enhance-prompt", {
+			method: "POST",
+			body: JSON.stringify({ prompt, style: style ?? "photorealistic" }),
+		});
 	}
 
 	async generateInfographic(
@@ -677,7 +708,10 @@ class AIClient {
 		}
 	}
 
-	async cloneVoice(file: File, name: string): Promise<{ status: string; name: string; path: string }> {
+	async cloneVoice(
+		file: File,
+		name: string,
+	): Promise<{ status: string; name: string; path: string }> {
 		const formData = new FormData();
 		formData.append("file", file);
 		formData.append("name", name);
@@ -697,16 +731,24 @@ class AIClient {
 			"/api/transcribe/subtitles",
 			{
 				method: "POST",
-				body: JSON.stringify({ segments, format, max_chars_per_line: maxCharsPerLine }),
+				body: JSON.stringify({
+					segments,
+					format,
+					max_chars_per_line: maxCharsPerLine,
+				}),
 			},
 		);
 	}
 
 	async chat(message: string, system?: string): Promise<{ response: string }> {
-		return this.request<{ response: string }>("/api/llm/chat", {
-			method: "POST",
-			body: JSON.stringify({ message, system }),
-		}, LLM_TIMEOUT_MS);
+		return this.request<{ response: string }>(
+			"/api/llm/chat",
+			{
+				method: "POST",
+				body: JSON.stringify({ message, system }),
+			},
+			LLM_TIMEOUT_MS,
+		);
 	}
 
 	/**
@@ -799,10 +841,7 @@ class AIClient {
 		return { response: accumulated };
 	}
 
-	async translateText(
-		text: string,
-		targetLanguage: string,
-	): Promise<string> {
+	async translateText(text: string, targetLanguage: string): Promise<string> {
 		const result = await this.chat(
 			`Translate the following text to ${targetLanguage}. Return ONLY the translated text, nothing else. Do not add quotes, explanations, or notes.\n\n${text}`,
 			`You are a professional translator. Translate accurately and naturally into ${targetLanguage}. Return only the translated text.`,
@@ -863,19 +902,19 @@ class AIClient {
 		targetLanguageCode: string,
 		model: string = "sarvam-translate:v1",
 	): Promise<{ translated_text: string; source_language_code: string }> {
-		return this.request<{ translated_text: string; source_language_code: string }>(
-			"/api/sarvam/translate",
-			{
-				method: "POST",
-				headers: this.sarvamHeaders(),
-				body: JSON.stringify({
-					input: text,
-					source_language_code: sourceLanguageCode,
-					target_language_code: targetLanguageCode,
-					model,
-				}),
-			},
-		);
+		return this.request<{
+			translated_text: string;
+			source_language_code: string;
+		}>("/api/sarvam/translate", {
+			method: "POST",
+			headers: this.sarvamHeaders(),
+			body: JSON.stringify({
+				input: text,
+				source_language_code: sourceLanguageCode,
+				target_language_code: targetLanguageCode,
+				model,
+			}),
+		});
 	}
 
 	async sarvamTTS(
@@ -1089,7 +1128,12 @@ class AIClient {
 	async llmStatus(): Promise<{
 		available: boolean;
 		default_model: string;
-		models: { name: string; size: number; modified_at: string; details?: Record<string, unknown> }[];
+		models: {
+			name: string;
+			size: number;
+			modified_at: string;
+			details?: Record<string, unknown>;
+		}[];
 	}> {
 		return this.request("/api/llm/status");
 	}
@@ -1168,9 +1212,7 @@ class AIClient {
 
 		if (!response.ok) {
 			const errorBody = await response.text().catch(() => "Unknown error");
-			throw new Error(
-				`AI Backend error (${response.status}): ${errorBody}`,
-			);
+			throw new Error(`AI Backend error (${response.status}): ${errorBody}`);
 		}
 
 		if (!response.body) {
@@ -1205,7 +1247,11 @@ class AIClient {
 	}
 
 	async getServicesStatus(): Promise<ServicesStatus> {
-		return this.request<ServicesStatus>("/api/services/status", {}, HEALTH_TIMEOUT_MS);
+		return this.request<ServicesStatus>(
+			"/api/services/status",
+			{},
+			HEALTH_TIMEOUT_MS,
+		);
 	}
 
 	async pullOllamaModel(
@@ -1216,21 +1262,34 @@ class AIClient {
 		return { status: "success", model: modelName };
 	}
 
-	async prepareWhisper(modelSize?: string): Promise<{ status: string; message: string }> {
-		return this.request<{ status: string; message: string }>("/api/setup/download-model", {
-			method: "POST",
-			body: JSON.stringify({ model_type: "whisper", model_name: modelSize ?? "" }),
-		});
+	async prepareWhisper(
+		modelSize?: string,
+	): Promise<{ status: string; message: string }> {
+		return this.request<{ status: string; message: string }>(
+			"/api/setup/download-model",
+			{
+				method: "POST",
+				body: JSON.stringify({
+					model_type: "whisper",
+					model_name: modelSize ?? "",
+				}),
+			},
+		);
 	}
 
 	async prepareTTS(): Promise<{ status: string; message: string }> {
-		return this.request<{ status: string; message: string }>("/api/setup/download-model", {
-			method: "POST",
-			body: JSON.stringify({ model_type: "tts", model_name: "" }),
-		});
+		return this.request<{ status: string; message: string }>(
+			"/api/setup/download-model",
+			{
+				method: "POST",
+				body: JSON.stringify({ model_type: "tts", model_name: "" }),
+			},
+		);
 	}
 
-	async updateConfig(updates: Record<string, string | number>): Promise<{ status: string; updates: Record<string, string> }> {
+	async updateConfig(
+		updates: Record<string, string | number>,
+	): Promise<{ status: string; updates: Record<string, string> }> {
 		return this.request("/api/config/update", {
 			method: "POST",
 			body: JSON.stringify({ updates }),
@@ -1238,10 +1297,13 @@ class AIClient {
 	}
 
 	async prepareDiffusion(): Promise<{ status: string; message: string }> {
-		return this.request<{ status: string; message: string }>("/api/setup/download-model", {
-			method: "POST",
-			body: JSON.stringify({ model_type: "diffusion", model_name: "" }),
-		});
+		return this.request<{ status: string; message: string }>(
+			"/api/setup/download-model",
+			{
+				method: "POST",
+				body: JSON.stringify({ model_type: "diffusion", model_name: "" }),
+			},
+		);
 	}
 
 	async analyzeEmotions(
@@ -1250,7 +1312,8 @@ class AIClient {
 	): Promise<EmotionDetectionResult> {
 		const formData = new FormData();
 		formData.append("file", file);
-		if (windowSeconds !== undefined) formData.append("window_seconds", windowSeconds.toString());
+		if (windowSeconds !== undefined)
+			formData.append("window_seconds", windowSeconds.toString());
 
 		return this.requestFormData<EmotionDetectionResult>(
 			"/api/analyze/emotions",
@@ -1265,8 +1328,10 @@ class AIClient {
 	): Promise<FaceDetectionResult> {
 		const formData = new FormData();
 		formData.append("file", file);
-		if (options?.sampleInterval !== undefined) formData.append("sample_interval", options.sampleInterval.toString());
-		if (options?.maxSamples !== undefined) formData.append("max_samples", options.maxSamples.toString());
+		if (options?.sampleInterval !== undefined)
+			formData.append("sample_interval", options.sampleInterval.toString());
+		if (options?.maxSamples !== undefined)
+			formData.append("max_samples", options.maxSamples.toString());
 
 		return this.requestFormData<FaceDetectionResult>(
 			"/api/analyze/faces",
@@ -1277,13 +1342,20 @@ class AIClient {
 
 	async analyzeSpeakers(
 		file: File,
-		options?: { numSpeakers?: number; minSpeakers?: number; maxSpeakers?: number },
+		options?: {
+			numSpeakers?: number;
+			minSpeakers?: number;
+			maxSpeakers?: number;
+		},
 	): Promise<SpeakerDiarizationResult> {
 		const formData = new FormData();
 		formData.append("file", file);
-		if (options?.numSpeakers !== undefined) formData.append("num_speakers", options.numSpeakers.toString());
-		if (options?.minSpeakers !== undefined) formData.append("min_speakers", options.minSpeakers.toString());
-		if (options?.maxSpeakers !== undefined) formData.append("max_speakers", options.maxSpeakers.toString());
+		if (options?.numSpeakers !== undefined)
+			formData.append("num_speakers", options.numSpeakers.toString());
+		if (options?.minSpeakers !== undefined)
+			formData.append("min_speakers", options.minSpeakers.toString());
+		if (options?.maxSpeakers !== undefined)
+			formData.append("max_speakers", options.maxSpeakers.toString());
 
 		return this.requestFormData<SpeakerDiarizationResult>(
 			"/api/analyze/speakers",
@@ -1293,22 +1365,37 @@ class AIClient {
 	}
 
 	async findClips(
-		segments: { id: number; text: string; start: number; end: number; words: { word: string; start: number; end: number; confidence: number }[] }[],
+		segments: {
+			id: number;
+			text: string;
+			start: number;
+			end: number;
+			words: { word: string; start: number; end: number; confidence: number }[];
+		}[],
 		options?: { minDuration?: number; maxDuration?: number; maxClips?: number },
 	): Promise<FindClipsResult> {
-		return this.requestWithKeepalive<FindClipsResult>("/api/analyze/find-clips", {
-			method: "POST",
-			body: JSON.stringify({
-				segments,
-				min_duration: options?.minDuration ?? 15,
-				max_duration: options?.maxDuration ?? 90,
-				max_clips: options?.maxClips ?? 10,
-			}),
-		});
+		return this.requestWithKeepalive<FindClipsResult>(
+			"/api/analyze/find-clips",
+			{
+				method: "POST",
+				body: JSON.stringify({
+					segments,
+					min_duration: options?.minDuration ?? 15,
+					max_duration: options?.maxDuration ?? 90,
+					max_clips: options?.maxClips ?? 10,
+				}),
+			},
+		);
 	}
 
 	async extractKeywords(
-		segments: { id: number; text: string; start: number; end: number; words: { word: string; start: number; end: number; confidence: number }[] }[],
+		segments: {
+			id: number;
+			text: string;
+			start: number;
+			end: number;
+			words: { word: string; start: number; end: number; confidence: number }[];
+		}[],
 	): Promise<KeywordResult> {
 		return this.requestWithKeepalive<KeywordResult>("/api/analyze/keywords", {
 			method: "POST",
@@ -1317,29 +1404,44 @@ class AIClient {
 	}
 
 	async generateQuestionCards(
-		segments: { id: number; text: string; start: number; end: number; words: { word: string; start: number; end: number; confidence: number }[] }[],
+		segments: {
+			id: number;
+			text: string;
+			start: number;
+			end: number;
+			words: { word: string; start: number; end: number; confidence: number }[];
+		}[],
 		maxCards?: number,
 	): Promise<QuestionCardsResult> {
-		return this.requestWithKeepalive<QuestionCardsResult>("/api/analyze/question-cards", {
-			method: "POST",
-			body: JSON.stringify({ segments, max_cards: maxCards ?? 5 }),
-		});
+		return this.requestWithKeepalive<QuestionCardsResult>(
+			"/api/analyze/question-cards",
+			{
+				method: "POST",
+				body: JSON.stringify({ segments, max_cards: maxCards ?? 5 }),
+			},
+		);
 	}
 
 	/** Suggest B-roll visuals for transcript segments. */
 	async suggestBRoll(
-		segments: { id: number; text: string; start: number; end: number; words: { word: string; start: number; end: number; confidence: number }[] }[],
+		segments: {
+			id: number;
+			text: string;
+			start: number;
+			end: number;
+			words: { word: string; start: number; end: number; confidence: number }[];
+		}[],
 	): Promise<BRollSuggestionsResult> {
-		return this.requestWithKeepalive<BRollSuggestionsResult>("/api/analyze/broll-suggestions", {
-			method: "POST",
-			body: JSON.stringify({ segments }),
-		});
+		return this.requestWithKeepalive<BRollSuggestionsResult>(
+			"/api/analyze/broll-suggestions",
+			{
+				method: "POST",
+				body: JSON.stringify({ segments }),
+			},
+		);
 	}
 
-	async denoiseAudio(
-		file: File,
-		strength: number,
-	): Promise<DenoiseResult> {
+	async denoiseAudio(file: File, strength: number): Promise<DenoiseResult> {
 		const formData = new FormData();
 		formData.append("file", file);
 		formData.append("strength", strength.toString());
@@ -1359,9 +1461,7 @@ class AIClient {
 		};
 	}
 
-	async exportRender(
-		projectData: unknown,
-	): Promise<{ videoUrl: string }> {
+	async exportRender(projectData: unknown): Promise<{ videoUrl: string }> {
 		return this.request<{ videoUrl: string }>("/api/export/render", {
 			method: "POST",
 			body: JSON.stringify(projectData),
@@ -1427,7 +1527,11 @@ class AIClient {
 			const data = await response.json();
 			if (data.job_id) return data;
 			// Old backend returned full template as JSON — wrap it
-			return { job_id: "__direct__", status: "completed", result: data as ReelTemplate };
+			return {
+				job_id: "__direct__",
+				status: "completed",
+				result: data as ReelTemplate,
+			};
 		}
 
 		// Old backend with streaming (NDJSON) — read the stream and extract result
@@ -1446,7 +1550,9 @@ class AIClient {
 							const data = JSON.parse(line);
 							if (data.result) lastResult = data.result as ReelTemplate;
 							if (data.ping) continue;
-						} catch { /* skip */ }
+						} catch {
+							/* skip */
+						}
 					}
 				}
 			} finally {
@@ -1454,7 +1560,11 @@ class AIClient {
 			}
 
 			if (lastResult) {
-				return { job_id: "__direct__", status: "completed", result: lastResult };
+				return {
+					job_id: "__direct__",
+					status: "completed",
+					result: lastResult,
+				};
 			}
 		}
 
@@ -1462,9 +1572,7 @@ class AIClient {
 	}
 
 	/** Poll a template job for its status and result. */
-	async getTemplateJob(
-		jobId: string,
-	): Promise<{
+	async getTemplateJob(jobId: string): Promise<{
 		job_id: string;
 		status: "running" | "completed" | "failed";
 		topic: string;
@@ -1478,7 +1586,13 @@ class AIClient {
 
 	/** List all template jobs. */
 	async listTemplateJobs(): Promise<{
-		jobs: { job_id: string; status: string; topic: string; style: string; title?: string }[];
+		jobs: {
+			job_id: string;
+			status: string;
+			topic: string;
+			style: string;
+			title?: string;
+		}[];
 	}> {
 		return this.request("/api/template/jobs");
 	}
@@ -1551,9 +1665,7 @@ class AIClient {
 		);
 	}
 
-	async turboquantApplyTier(
-		tier: string,
-	): Promise<{
+	async turboquantApplyTier(tier: string): Promise<{
 		tier: string;
 		configuration: Record<string, string | number>;
 		model: {
@@ -1646,9 +1758,12 @@ class AIClient {
 	}
 
 	async turboquantDeleteModel(modelId: string): Promise<{ status: string }> {
-		return this.request(`/api/turboquant/models/${encodeURIComponent(modelId)}`, {
-			method: "DELETE",
-		});
+		return this.request(
+			`/api/turboquant/models/${encodeURIComponent(modelId)}`,
+			{
+				method: "DELETE",
+			},
+		);
 	}
 
 	// ── Video Generation ─────────────────────────────────────────────
@@ -1659,10 +1774,13 @@ class AIClient {
 		description: string,
 		style?: string,
 	): Promise<PromptGenResult> {
-		return this.requestWithKeepalive<PromptGenResult>("/api/video/generate-prompt", {
-			method: "POST",
-			body: JSON.stringify({ title, description, style }),
-		});
+		return this.requestWithKeepalive<PromptGenResult>(
+			"/api/video/generate-prompt",
+			{
+				method: "POST",
+				body: JSON.stringify({ title, description, style }),
+			},
+		);
 	}
 
 	/** Start video generation using the given prompt and provider. */
@@ -1675,7 +1793,10 @@ class AIClient {
 	}
 
 	/** Poll a video generation job for status. */
-	async getVideoJob(jobId: string, provider: string = "seedance"): Promise<VideoGenResult> {
+	async getVideoJob(
+		jobId: string,
+		provider: string = "seedance",
+	): Promise<VideoGenResult> {
 		return this.request<VideoGenResult>(`/api/video/jobs/${jobId}`, {
 			headers: { ...this.videoHeaders(provider) },
 		});
@@ -1688,10 +1809,18 @@ class AIClient {
 		url: string,
 		ownershipConfirmed: boolean,
 		language?: string,
-	): Promise<{ job_id: string; video_meta: YouTubeVideoMeta; estimated_processing_minutes: number }> {
+	): Promise<{
+		job_id: string;
+		video_meta: YouTubeVideoMeta;
+		estimated_processing_minutes: number;
+	}> {
 		return this.request("/api/youtube/ingest", {
 			method: "POST",
-			body: JSON.stringify({ url, ownership_confirmed: ownershipConfirmed, language }),
+			body: JSON.stringify({
+				url,
+				ownership_confirmed: ownershipConfirmed,
+				language,
+			}),
 		});
 	}
 
@@ -1725,7 +1854,13 @@ class AIClient {
 	async youtubeGenerateClips(
 		jobId: string,
 		clips: { clip_index: number; start: number; end: number; title: string }[],
-		config: { outputFormat?: string; captionStyle?: string; autoReframe?: boolean; addHook?: boolean; resolution?: string },
+		config: {
+			outputFormat?: string;
+			captionStyle?: string;
+			autoReframe?: boolean;
+			addHook?: boolean;
+			resolution?: string;
+		},
 	): Promise<{ job_id: string; message: string }> {
 		return this.request("/api/youtube/clips", {
 			method: "POST",
@@ -1744,9 +1879,14 @@ class AIClient {
 	// ── Engagement Scoring ───────────────────────────────────────────
 
 	/** Score a single clip's engagement potential. */
-	async engagementScore(
-		clip: { audio_path?: string; transcript_text?: string; start: number; end: number; title?: string; video_path?: string },
-	): Promise<EngagementScoreResult> {
+	async engagementScore(clip: {
+		audio_path?: string;
+		transcript_text?: string;
+		start: number;
+		end: number;
+		title?: string;
+		video_path?: string;
+	}): Promise<EngagementScoreResult> {
 		return this.requestWithKeepalive("/api/engagement/score", {
 			method: "POST",
 			body: JSON.stringify(clip),
@@ -1754,16 +1894,29 @@ class AIClient {
 	}
 
 	/** Score a video file's engagement potential. */
-	async engagementScoreVideo(file: File, transcriptText?: string): Promise<EngagementScoreResult> {
+	async engagementScoreVideo(
+		file: File,
+		transcriptText?: string,
+	): Promise<EngagementScoreResult> {
 		const formData = new FormData();
 		formData.append("file", file);
 		if (transcriptText) formData.append("transcript_text", transcriptText);
-		return this.requestFormData("/api/engagement/score-video", formData, LLM_TIMEOUT_MS);
+		return this.requestFormData(
+			"/api/engagement/score-video",
+			formData,
+			LLM_TIMEOUT_MS,
+		);
 	}
 
 	/** Score multiple clips in batch. */
 	async engagementScoreBatch(
-		clips: { audio_path?: string; transcript_text?: string; start: number; end: number; title?: string }[],
+		clips: {
+			audio_path?: string;
+			transcript_text?: string;
+			start: number;
+			end: number;
+			title?: string;
+		}[],
 	): Promise<{ scores: EngagementScoreResult[] }> {
 		return this.requestWithKeepalive("/api/engagement/score-batch", {
 			method: "POST",
@@ -1778,35 +1931,50 @@ class AIClient {
 	): Promise<ThumbnailScoreResponse> {
 		return this.requestWithKeepalive("/api/engagement/score-thumbnails", {
 			method: "POST",
-			body: JSON.stringify({ image_urls: imageUrls, headline: headline ?? "", platform: platform ?? "youtube" }),
+			body: JSON.stringify({
+				image_urls: imageUrls,
+				headline: headline ?? "",
+				platform: platform ?? "youtube",
+			}),
 		});
 	}
 
-	async generateHookVariants(req: HookVariantRequest): Promise<HookVariantResponse> {
+	async generateHookVariants(
+		req: HookVariantRequest,
+	): Promise<HookVariantResponse> {
 		return this.requestWithKeepalive("/api/engagement/generate-hook-variants", {
 			method: "POST",
 			body: JSON.stringify(req),
 		});
 	}
 
-	async recordScore(score: EngagementScoreResult & { project_id?: string; type?: string }): Promise<{ recorded: boolean; id: string }> {
+	async recordScore(
+		score: EngagementScoreResult & { project_id?: string; type?: string },
+	): Promise<{ recorded: boolean; id: string }> {
 		return this.requestWithKeepalive("/api/engagement/record-score", {
 			method: "POST",
 			body: JSON.stringify(score),
 		});
 	}
 
-	async getScoreHistory(projectId?: string, limit?: number): Promise<ScoreHistoryResponse> {
+	async getScoreHistory(
+		projectId?: string,
+		limit?: number,
+	): Promise<ScoreHistoryResponse> {
 		const params = new URLSearchParams();
 		if (projectId) params.set("project_id", projectId);
 		if (limit) params.set("limit", String(limit));
-		return this.requestWithKeepalive(`/api/engagement/score-history?${params.toString()}`);
+		return this.requestWithKeepalive(
+			`/api/engagement/score-history?${params.toString()}`,
+		);
 	}
 
 	async getScoreAnalytics(projectId?: string): Promise<ScoreAnalyticsResponse> {
 		const params = new URLSearchParams();
 		if (projectId) params.set("project_id", projectId);
-		return this.requestWithKeepalive(`/api/engagement/score-analytics?${params.toString()}`);
+		return this.requestWithKeepalive(
+			`/api/engagement/score-analytics?${params.toString()}`,
+		);
 	}
 
 	// ── Visual / Semantic Search (CLIP embeddings) ────────────────────
@@ -1833,16 +2001,26 @@ class AIClient {
 	 * media asset).
 	 */
 	async embedFrames(formData: FormData): Promise<EmbedFramesResult> {
-		return this.requestFormData<EmbedFramesResult>("/api/search/embed-frames", formData, 300_000);
+		return this.requestFormData<EmbedFramesResult>(
+			"/api/search/embed-frames",
+			formData,
+			300_000,
+		);
 	}
 
 	/**
 	 * Zero-shot classification: rank candidate `labels` for the image in
 	 * `formData`. Used for auto-tagging on import.
 	 */
-	async zeroShotTags(formData: FormData, labels: readonly string[]): Promise<ZeroShotResult> {
+	async zeroShotTags(
+		formData: FormData,
+		labels: readonly string[],
+	): Promise<ZeroShotResult> {
 		formData.append("labels", labels.join(","));
-		return this.requestFormData<ZeroShotResult>("/api/search/zero-shot-tags", formData);
+		return this.requestFormData<ZeroShotResult>(
+			"/api/search/zero-shot-tags",
+			formData,
+		);
 	}
 
 	/** Health-check the downstream CLIP service (used by Settings panel). */
@@ -1926,7 +2104,13 @@ export interface EngagementScoreResult {
 	face_presence: EngagementSubScore;
 	emotional_arc: EngagementSubScore;
 	virality: EngagementSubScore;
-	suggestions: { signal: string; current_score: number; suggestion: string; action_type: string; expected_impact: string }[];
+	suggestions: {
+		signal: string;
+		current_score: number;
+		suggestion: string;
+		action_type: string;
+		expected_impact: string;
+	}[];
 	composite: number;
 	grade: string;
 	grade_label: string;
@@ -2047,7 +2231,13 @@ export interface ClipServiceHealthResult {
 	upstream?: {
 		service: string;
 		status: string;
-		model: { loaded: boolean; name: string; pretrained: string; installed: boolean; error: string | null };
+		model: {
+			loaded: boolean;
+			name: string;
+			pretrained: string;
+			installed: boolean;
+			error: string | null;
+		};
 		device: string;
 		version: string;
 	};

@@ -54,6 +54,10 @@ export const RATE_LIMITS = {
 	// (SSRF-guarded) relay, not to throttle normal imports.
 	"studio:proxy": { perMinute: 90, perDay: 5000 },
 	"studio:image": { perMinute: 12, perDay: 300 },
+	// Rehost of user-uploaded reference media to R2. Not a paid model call, but an
+	// open write path to our object storage — cap it to bound cost/abuse while
+	// staying generous enough for a real multi-file reference upload.
+	"studio:upload": { perMinute: 30, perDay: 500 },
 	"studio:persona-still": { perMinute: 12, perDay: 300 },
 	"studio:promote": { perMinute: 6, perDay: 120 },
 	"llm:agent": { perMinute: 30, perDay: 1500 },
