@@ -16,7 +16,10 @@ const nextConfig: NextConfig = {
 	},
 	reactStrictMode: true,
 	productionBrowserSourceMaps: true,
-	output: "standalone",
+	// Standalone output is for the production Docker image, but `next start`
+	// (used by the Playwright e2e server) can't serve a standalone build. The
+	// e2e build sets NEXT_PUBLIC_E2E=1, so fall back to a normal build there.
+	output: process.env.NEXT_PUBLIC_E2E === "1" ? undefined : "standalone",
 	images: {
 		remotePatterns: [
 			{

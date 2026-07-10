@@ -33,5 +33,5 @@
 		"src/stores/timeline-store.ts",
 		".next/dev/types/**/*.ts"
 	],
-	"exclude": ["node_modules"]
+	"exclude": ["node_modules", "e2e", "playwright.config.ts"]
 }
