@@ -33,6 +33,11 @@ import { toast } from "sonner";
 import { FactCheckView } from "./factcheck";
 import { TurboQuantModelManager } from "./turboquant-model-manager";
 import type { ProxyResolution } from "@/services/storage/types";
+import {
+	clearAllUserMemory,
+	getUserMemorySummary,
+	type UserMemorySummary,
+} from "@/services/storage/user-memory-store";
 
 const ORIGINAL_PRESET_VALUE = "original";
 
@@ -87,6 +92,14 @@ export function SettingsView() {
 					</SectionHeader>
 					<SectionContent>
 						<APIKeysSection />
+					</SectionContent>
+				</Section>
+				<Section>
+					<SectionHeader>
+						<SectionTitle>Cross-Project Memory</SectionTitle>
+					</SectionHeader>
+					<SectionContent>
+						<CrossProjectMemorySection />
 					</SectionContent>
 				</Section>
 				{/* Fact Check renders its own PanelView header */}
@@ -1046,6 +1059,86 @@ function ComputeModeSelector({
 					</Badge>
 				)}
 			</div>
+		</div>
+	);
+}
+
+// ----- Cross-Project Memory Section -----
+
+/**
+ * Consent / control surface for Flow E's cross-project memory. Shows what the
+ * machine remembers ACROSS projects (the recurring look/tone defaults + the
+ * reusable-media understanding cache) and lets the user clear it. All of it is
+ * local to this browser — nothing leaves the machine.
+ */
+function CrossProjectMemorySection() {
+	const [summary, setSummary] = useState<UserMemorySummary | null>(null);
+	const [clearing, setClearing] = useState(false);
+
+	const refresh = useCallback(() => {
+		getUserMemorySummary()
+			.then(setSummary)
+			.catch(() => setSummary({ hasBibleDefaults: false, mediaCount: 0 }));
+	}, []);
+
+	useEffect(() => {
+		refresh();
+	}, [refresh]);
+
+	const handleClear = useCallback(async () => {
+		setClearing(true);
+		try {
+			await clearAllUserMemory();
+			toast.success("Cross-project memory cleared");
+			refresh();
+		} catch {
+			toast.error("Failed to clear cross-project memory");
+		} finally {
+			setClearing(false);
+		}
+	}, [refresh]);
+
+	const remembersLook = summary?.hasBibleDefaults ?? false;
+	const mediaCount = summary?.mediaCount ?? 0;
+	const remembersAnything = remembersLook || mediaCount > 0;
+
+	return (
+		<div className="flex flex-col gap-3">
+			<p className="text-[11px] text-muted-foreground leading-relaxed">
+				The Director carries your recurring look, tone, and reusable style rules
+				from one project into the next, and remembers what your library media is
+				so it doesn't re-analyze the same clips. This is stored locally in your
+				browser — nothing leaves your machine.
+			</p>
+
+			<div className="flex flex-col gap-1.5">
+				<div className="flex items-center justify-between rounded-md border px-2.5 py-1.5">
+					<span className="text-[10px]">Style &amp; tone defaults</span>
+					<Badge variant="secondary" className="text-[8px] px-1 py-0">
+						{remembersLook ? "Remembered" : "None yet"}
+					</Badge>
+				</div>
+				<div className="flex items-center justify-between rounded-md border px-2.5 py-1.5">
+					<span className="text-[10px]">Understood library media</span>
+					<Badge variant="secondary" className="text-[8px] px-1 py-0">
+						{mediaCount} {mediaCount === 1 ? "clip" : "clips"}
+					</Badge>
+				</div>
+			</div>
+
+			<button
+				type="button"
+				onClick={handleClear}
+				disabled={clearing || !remembersAnything}
+				className={cn(
+					"self-start rounded-md border border-destructive/30 px-2.5 py-1.5 text-[10px] text-destructive transition-colors",
+					clearing || !remembersAnything
+						? "opacity-50 cursor-not-allowed"
+						: "hover:bg-destructive/5 cursor-pointer",
+				)}
+			>
+				{clearing ? "Clearing…" : "Clear cross-project memory"}
+			</button>
 		</div>
 	);
 }

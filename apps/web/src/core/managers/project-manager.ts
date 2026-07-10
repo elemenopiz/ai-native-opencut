@@ -11,6 +11,10 @@ import type {
 } from "@/types/project";
 import type { ExportOptions, ExportResult, ExportState } from "@/types/export";
 import { storageService } from "@/services/storage/service";
+import {
+	promoteBibleToUserMemory,
+	seedProjectBibleFromUserMemory,
+} from "@/services/storage/user-memory-store";
 import { VersionStorage } from "@/services/storage/version-storage";
 import { toast } from "sonner";
 import { generateUUID } from "@/utils/id";
@@ -105,6 +109,17 @@ export class ProjectManager {
 			},
 			version: CURRENT_PROJECT_VERSION,
 		};
+
+		// FLOW E — pre-seed the Director's Project Bible from the user's cross-project
+		// defaults (recurring look + tone), so the Director's first turn already knows
+		// "your" style. Best-effort and non-destructive: absent defaults ⇒ no bible
+		// (exactly as before), and any per-project Director write overrides the seed.
+		try {
+			const seededBible = await seedProjectBibleFromUserMemory();
+			if (seededBible) newProject.projectBible = seededBible;
+		} catch {
+			// Never let a memory hiccup block project creation.
+		}
 
 		this.active = newProject;
 		this.notify();
@@ -293,11 +308,32 @@ export class ProjectManager {
 	}
 
 	closeProject(): void {
+		// FLOW E — distill this project's durable creative preferences up into the
+		// user's cross-project memory before closing (fire-and-forget; a promotion
+		// hiccup must never block closing the project).
+		void this.promoteActiveBibleToUserMemory();
+
 		this.active = null;
 		this.notify();
 
 		this.editor.media.clearAllAssets();
 		this.editor.scenes.clearScenes();
+	}
+
+	/**
+	 * FLOW E — promote the active project's Project Bible into the user-level
+	 * cross-project defaults (best-effort). Distillation, not a blind copy: only the
+	 * recurring look + durable brief slice flows up (see
+	 * `lib/director/cross-project-memory.ts`). No-op without an active bible.
+	 */
+	private async promoteActiveBibleToUserMemory(): Promise<void> {
+		const bible = this.active?.projectBible;
+		if (!bible) return;
+		try {
+			await promoteBibleToUserMemory(bible);
+		} catch {
+			// Best-effort — never surface a memory-persistence hiccup to the caller.
+		}
 	}
 
 	async renameProject({
@@ -501,6 +537,10 @@ export class ProjectManager {
 
 	async prepareExit(): Promise<void> {
 		if (!this.active) return;
+
+		// FLOW E — distill durable creative preferences up into cross-project memory
+		// on exit (best-effort; independent of the thumbnail step below).
+		await this.promoteActiveBibleToUserMemory();
 
 		try {
 			const didUpdateThumbnail = await this.updateThumbnailFromTimeline();
