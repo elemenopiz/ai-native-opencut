@@ -33,7 +33,7 @@ async function generateFilmstrip({
 }): Promise<string[]> {
 	if (mediaAsset.type !== "video" || !mediaAsset.url) return [];
 
-	const cacheKey = `${mediaAsset.id}-${numFrames}-${width}`;
+	const cacheKey = `${mediaAsset.id}-${numFrames}-${width}-${height}`;
 	const cached = CACHE.get(cacheKey);
 	if (cached) return cached;
 
@@ -109,17 +109,30 @@ export function useFilmstrip({
 	visibleWidth: number;
 	trackHeight: number;
 }): FilmstripState {
-	const [state, setState] = useState<FilmstripState>({ thumbnails: [], loading: false });
-	const abortRef = useRef(false);
+	const [state, setState] = useState<FilmstripState>({
+		thumbnails: [],
+		loading: false,
+	});
+	// Monotonic token per generate() invocation. A run only commits state if it is
+	// still the latest; the effect cleanup bumps it to invalidate an in-flight run
+	// (a single shared boolean flag gets reset by the next effect before a stale
+	// run resolves, letting it overwrite fresher thumbnails).
+	const runIdRef = useRef(0);
 
 	const generate = useCallback(async () => {
+		const runId = ++runIdRef.current;
 		if (!mediaAsset || mediaAsset.type !== "video" || clipDuration <= 0) {
-			setState({ thumbnails: [], loading: false });
+			if (runId === runIdRef.current) {
+				setState({ thumbnails: [], loading: false });
+			}
 			return;
 		}
 
-		const thumbWidth = Math.max(40, Math.round(trackHeight * 16 / 9));
-		const numFrames = Math.max(1, Math.min(20, Math.ceil(visibleWidth / thumbWidth)));
+		const thumbWidth = Math.max(40, Math.round((trackHeight * 16) / 9));
+		const numFrames = Math.max(
+			1,
+			Math.min(20, Math.ceil(visibleWidth / thumbWidth)),
+		);
 
 		setState({ thumbnails: [], loading: true });
 
@@ -130,16 +143,16 @@ export function useFilmstrip({
 			height: trackHeight,
 		});
 
-		if (!abortRef.current) {
+		if (runId === runIdRef.current) {
 			setState({ thumbnails, loading: false });
 		}
 	}, [mediaAsset?.id, clipDuration, visibleWidth, trackHeight]);
 
 	useEffect(() => {
-		abortRef.current = false;
 		generate();
 		return () => {
-			abortRef.current = true;
+			// Invalidate any in-flight run on unmount / dep change.
+			runIdRef.current++;
 		};
 	}, [generate]);
 
