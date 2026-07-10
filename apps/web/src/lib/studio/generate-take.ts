@@ -63,7 +63,6 @@ async function pollJob(
 ): Promise<{ videoUrl?: string; seed?: number; error?: string }> {
 	const outcome = await waitForJobTerminal(jobId);
 	if (outcome === "timeout") return { error: "Generation timed out" };
-	if (outcome === "cancelled") return { error: "Generation cancelled" };
 	if (outcome.status === "completed")
 		return { videoUrl: outcome.videoUrl, seed: outcome.seed };
 	return { error: outcome.error ?? "Generation failed" };

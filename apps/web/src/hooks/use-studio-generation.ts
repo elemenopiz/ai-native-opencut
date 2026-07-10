@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import type {
 	VideoResolution,
 	VideoOrientation,
@@ -62,7 +62,6 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 	const [activeTakes, setActiveTakes] = useState<StudioTake[]>([]);
 	const [error, setError] = useState<string | null>(null);
 	const [historyLoaded, setHistoryLoaded] = useState(false);
-	const cancelRef = useRef(false);
 
 	// Shared poll — waits for a job to reach a terminal state and patches the
 	// take by takeId. Used by both initial generation and promote-to-1080p so
@@ -71,17 +70,8 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 	// the same jobId (timeline slot badge, Takes grid) joins one deduped
 	// interval instead of stacking its own fetch loop.
 	const pollJobToCompletion = useCallback(
-		async (
-			takeId: string,
-			jobId: string,
-		): Promise<"done" | "error" | "cancelled"> => {
-			if (cancelRef.current) return "cancelled";
-
-			const outcome = await waitForJobTerminal(jobId, {
-				isCancelled: () => cancelRef.current,
-			});
-
-			if (outcome === "cancelled") return "cancelled";
+		async (takeId: string, jobId: string): Promise<"done" | "error"> => {
+			const outcome = await waitForJobTerminal(jobId);
 
 			if (outcome === "timeout") {
 				setActiveTakes((prev) =>
@@ -138,7 +128,6 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 		}) => {
 			setStatus("submitting");
 			setError(null);
-			cancelRef.current = false;
 
 			try {
 				const res = await fetch("/api/studio/generate", {
@@ -189,9 +178,7 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 
 				setStatus("polling");
 				const outcome = await pollJobToCompletion(data.takeId, data.jobId);
-				setStatus(
-					outcome === "done" ? "done" : outcome === "error" ? "error" : "idle",
-				);
+				setStatus(outcome);
 				// Async video settled/released on completion — refresh the balance.
 				void useCreditsStore.getState().refresh();
 			} catch (err) {
