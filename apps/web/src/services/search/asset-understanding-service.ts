@@ -30,6 +30,11 @@ import {
 	getUnderstanding,
 	saveUnderstanding,
 } from "@/services/search/asset-understanding-store";
+import {
+	getUserMediaMemory,
+	saveUserMediaMemory,
+} from "@/services/storage/user-memory-store";
+import { computeMediaIdentity } from "@/lib/search/media-identity";
 import type { MediaAsset } from "@/types/assets";
 
 /** Version tag for the understanding model/pipeline — bump to invalidate old records. */
@@ -211,6 +216,58 @@ export interface UnderstandAssetOptions {
 	hint?: string;
 	/** Re-run even if a record already exists for the current model. */
 	force?: boolean;
+	/**
+	 * FLOW E cross-project reuse (all optional; production defaults touch the
+	 * user-media memory store, tests inject stubs). When these resolve a cached
+	 * understanding for the SAME media (by stable content identity) the paid VLM
+	 * pass is skipped; a freshly-produced understanding is written back for the
+	 * NEXT project. Pass `crossProject: false` to disable reuse entirely.
+	 */
+	crossProject?:
+		| false
+		| {
+				/** Stable content identity for `media` (default: hash `media.file`). */
+				identify?: (media: MediaAsset) => Promise<string | undefined>;
+				/** Look up a cached understanding by content identity. */
+				lookup?: (
+					contentHash: string,
+				) => Promise<AssetUnderstanding | undefined>;
+				/** Persist a produced understanding for future projects. */
+				save?: (
+					contentHash: string,
+					understanding: AssetUnderstanding,
+					name?: string,
+				) => Promise<void>;
+		  };
+}
+
+/** Default content identity: a content hash of the asset's bytes (falls back to a signature). */
+async function defaultIdentify(media: MediaAsset): Promise<string | undefined> {
+	if (!media.file) return undefined;
+	return computeMediaIdentity(media.file);
+}
+
+/** Default cross-project lookup — the user-media memory, unwrapped to the understanding. */
+async function defaultReuseLookup(
+	contentHash: string,
+): Promise<AssetUnderstanding | undefined> {
+	return (await getUserMediaMemory(contentHash))?.understanding;
+}
+
+/** Default cross-project save — the user-media memory. */
+async function defaultReuseSave(
+	contentHash: string,
+	understanding: AssetUnderstanding,
+	name?: string,
+): Promise<void> {
+	await saveUserMediaMemory(contentHash, understanding, { name });
+}
+
+/** A produced understanding worth caching cross-project — a degraded "nothing usable" record is not. */
+function isWorthCaching(u: AssetUnderstanding): boolean {
+	return (
+		u.roleConfidence > 0 || u.tags.length > 0 || u.caption.trim().length > 0
+	);
 }
 
 /**
@@ -236,6 +293,31 @@ export async function understandAsset(
 
 	if (!media.url || (media.type !== "video" && media.type !== "image")) {
 		return null; // audio / URL-less assets have no visual signal to understand.
+	}
+
+	// FLOW E — cross-project reuse. Resolve a STABLE content identity for the asset;
+	// if a prior project already understood the same media (same content) with the
+	// current model, re-key that record to this asset and skip the paid VLM pass.
+	const reuse = options?.crossProject;
+	const reuseEnabled = reuse !== false;
+	const reuseCfg = reuse === false ? undefined : reuse;
+	const identify = reuseCfg?.identify ?? defaultIdentify;
+	const reuseLookup = reuseCfg?.lookup ?? defaultReuseLookup;
+	const reuseSave = reuseCfg?.save ?? defaultReuseSave;
+	let contentHash: string | undefined;
+	if (reuseEnabled && !options?.force) {
+		contentHash = await identify(media).catch(() => undefined);
+		if (contentHash) {
+			const cached = await reuseLookup(contentHash).catch(() => undefined);
+			if (cached && cached.modelName === modelName) {
+				// Persona ids on faces are user-scoped (stable across projects), so the
+				// only stale field is the mediaId — re-key it to this asset and persist
+				// into the per-project store so downstream consumers find it.
+				const rekeyed: AssetUnderstanding = { ...cached, mediaId: media.id };
+				await saveUnderstanding(rekeyed).catch(() => undefined);
+				return rekeyed;
+			}
+		}
 	}
 
 	let frames: string[];
@@ -266,6 +348,19 @@ export async function understandAsset(
 			? record
 			: degradedUnderstanding({ mediaId: media.id, modelName });
 	await saveUnderstanding(safe).catch(() => undefined);
+
+	// FLOW E — cache a real understanding under its content identity so the NEXT
+	// project that references the same media reuses it (skips the paid pass). A
+	// degraded "nothing usable" record is not cached, so a retry elsewhere can try
+	// again.
+	if (reuseEnabled && isWorthCaching(safe)) {
+		if (!contentHash)
+			contentHash = await identify(media).catch(() => undefined);
+		if (contentHash) {
+			await reuseSave(contentHash, safe, media.name).catch(() => undefined);
+		}
+	}
+
 	return safe;
 }
 
