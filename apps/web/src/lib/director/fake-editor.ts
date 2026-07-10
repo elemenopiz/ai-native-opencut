@@ -10,6 +10,7 @@
 
 import type { EditorCore } from "@/core";
 import type { GenerationSpec, Take, TimelineTrack } from "@/types/timeline";
+import type { DirectorBrief } from "@/types/project";
 
 let idCounter = 0;
 const nextId = (prefix: string) => `${prefix}_${++idCounter}`;
@@ -237,9 +238,16 @@ export function makeFakeEditor(opts?: { fps?: number }): FakeEditor {
 			canvasSize: { width: 1080, height: 1920 },
 		},
 	};
+	// In-memory durable brief, so brief-writing paths (chooseTake, recordFinalSpend)
+	// have real storage to persist to and read back.
+	let brief: DirectorBrief = {};
 	const project = {
 		getActive: () => activeProject,
 		getActiveOrNull: () => activeProject,
+		getDirectorBrief: () => brief,
+		setDirectorBrief: ({ brief: next }: { brief: DirectorBrief }) => {
+			brief = next;
+		},
 	};
 
 	const media = {

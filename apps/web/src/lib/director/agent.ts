@@ -48,6 +48,7 @@ import { createShortIdMap, type ShortIdMap } from "./short-id";
 import {
 	needsApproval,
 	formatCostRange,
+	formatUsd,
 	DEFAULT_APPROVAL_THRESHOLD_USD,
 	type CostRange,
 } from "@/lib/studio/cost";
@@ -134,6 +135,16 @@ export type DirectorEvent =
 	  }
 	| { type: "tool_finish"; callId: string; step: AgentToolStep }
 	| { type: "awaiting_approval"; approval: AgentApproval }
+	| {
+			/**
+			 * Running spend against the reel's budget, emitted after a budgeted
+			 * generation runs (and on a budget-driven down-route) so the panel can
+			 * render "spent X of $Y" live.
+			 */
+			type: "budget_update";
+			spentUsd: number;
+			budgetUsd?: number;
+	  }
 	| { type: "cancelled" };
 
 /** Sink the loops emit {@link DirectorEvent}s into (the panel's consumer). */
@@ -248,6 +259,15 @@ function anthropicToolDefs(): Anthropic.Tool[] {
 const MODEL_ROUTING_POLICY = [
 	"MODEL ROUTING: call getBackends to see the models available now — each has a cost tier (cheap/standard/premium), a safety tier, and whether it supports seed-lock. generate and reroll accept an optional `backendId`. Policy: draft and iterate on a CHEAP-tier backend; render final/hero shots on a PREMIUM-tier backend; put persona/identity-critical shots on a seed-lock-capable backend. Omit `backendId` to let the router auto-pick by intent.",
 	"A/B: to compare a shot across two models use compareTake with two backendIds — it auto-picks the winner when a vision critic is available, otherwise it adds both takes for the user to choose. It costs 2x, so reserve it for shots worth the extra spend.",
+].join("\n");
+
+/**
+ * The whole-reel budget policy. When the user names a total budget ("a 6-shot
+ * reel for $2"), the Director plans SPEND across the sequence instead of gating
+ * each shot alone.
+ */
+const BUDGET_POLICY = [
+	"BUDGET: when the user gives the WHOLE reel a dollar cap (e.g. 'a 6-shot reel for $2'), pass `budgetUsd` to storyboard and mark each shot's `importance` (hero/support/broll). The plan then allocates the cap across shots — hero shots get a premium tier, b-roll a cheap one — and down-tiers the least-important shots to fit. Every later generate is gated against the REMAINING budget: a shot that would blow it is automatically down-routed to a cheaper backend, or (if nothing fits) pauses for approval. Check getBudgetStatus for what's left; use setBudget to change the cap after shots exist. Do NOT hand-pick premium `backendId`s that would overspend — trust the allocation.",
 ].join("\n");
 
 /** Concise pointer to the UGC prompt playbooks — titles/descriptions only, not the full content. */
@@ -625,6 +645,153 @@ function evaluateApprovalGate(
 		};
 	}
 	return null;
+}
+
+// ── whole-reel budget gate (concept: budget-aware directing) ─────────────────
+//
+// When the reel carries a total budget (set via `storyboard budgetUsd` / the
+// `setBudget` verb), spend is governed by the REMAINING budget, not the flat
+// per-action threshold: `director.evaluateSpend` decides whether a proposed
+// generation fits at its requested tier and, if not, whether to DOWN-ROUTE it to
+// a cheaper backend or PAUSE for approval. This runs BEFORE the flat gate and
+// takes precedence while a budget is active — so the Director allocates spend
+// across the whole reel instead of blindly gating each action in isolation.
+
+/** Map a gated verb + its id-expanded args to the targeting `evaluateSpend` takes. */
+function budgetSpendInput(
+	action: string,
+	args: Record<string, unknown>,
+): {
+	slotIds?: string[] | "all";
+	alternatives?: number;
+	backendId?: string;
+} | null {
+	if (action === "generate") {
+		return {
+			slotIds: Array.isArray(args.slotIds) ? args.slotIds.map(str) : "all",
+			alternatives: numOr(args.alternatives, 1),
+			...(args.backendId ? { backendId: str(args.backendId) } : {}),
+		};
+	}
+	if (action === "reroll") {
+		return {
+			slotIds: [str(args.slotId)],
+			alternatives: numOr(args.alternatives, 1),
+			...(args.backendId ? { backendId: str(args.backendId) } : {}),
+		};
+	}
+	if (action === "compareTake") {
+		const backendCount = Array.isArray(args.backendIds)
+			? args.backendIds.length
+			: 0;
+		return {
+			slotIds: [str(args.slotId)],
+			alternatives: Math.max(2, backendCount),
+		};
+	}
+	return null;
+}
+
+/** Human copy for a budget-driven pause (distinct from the flat-threshold message). */
+function budgetPauseMessage(a: AgentApproval, remainingUsd: number): string {
+	return (
+		`This ${a.action} (~${formatCostRange(a.estimate)} for ${a.clips} clip(s)) ` +
+		`would exceed the reel's remaining budget of ${formatUsd(
+			Math.max(0, remainingUsd),
+		)} even at the cheapest tier. Approve to spend over budget — nothing has ` +
+		`been generated yet.`
+	);
+}
+
+/**
+ * The budget verdict for one proposed gated action. `outcome:"inactive"` ⇒ no
+ * budget is set (fall back to the flat approval gate). Otherwise the loop pauses,
+ * down-routes (pinning `backendId`), or proceeds — recording `costUsd` after a
+ * successful run.
+ */
+interface BudgetVerdict {
+	outcome: "inactive" | "proceed" | "downroute" | "pause";
+	/** USD to record as spent once the action succeeds (0 when inactive). */
+	costUsd: number;
+	/** On down-route: the cheaper backend to pin (undefined ⇒ drop any pin, auto-route cheaper). */
+	backendId?: string;
+	/** On down-route: a note describing what changed, surfaced as a synthetic step. */
+	note?: string;
+	/** On pause: the approval to end the turn with. */
+	approval?: AgentApproval;
+}
+
+/**
+ * Evaluate the whole-reel budget gate for one proposed gated action. Delegates
+ * the fit decision to `director.evaluateSpend` (which reads the live spend +
+ * catalog), then shapes it into a {@link BudgetVerdict} the loop acts on. Any
+ * id-expansion or estimate failure degrades to `inactive` so the flat gate still
+ * governs — the budget layer never swallows a spend silently.
+ */
+async function evaluateBudgetGate(
+	director: DirectorApi,
+	action: string,
+	rawArgs: Record<string, unknown>,
+): Promise<BudgetVerdict> {
+	const input = budgetSpendInput(action, rawArgs);
+	if (!input) return { outcome: "inactive", costUsd: 0 };
+
+	let expanded: {
+		slotIds?: string[] | "all";
+		alternatives?: number;
+		backendId?: string;
+	};
+	try {
+		const e = expandIdArgs(rawArgs, reelShortIdMap(director));
+		expanded = budgetSpendInput(action, e) ?? input;
+	} catch {
+		return { outcome: "inactive", costUsd: 0 };
+	}
+
+	let ev: Awaited<ReturnType<DirectorApi["evaluateSpend"]>>;
+	try {
+		ev = await director.evaluateSpend(expanded);
+	} catch {
+		return { outcome: "inactive", costUsd: 0 };
+	}
+	if (!ev.active || !ev.decision) return { outcome: "inactive", costUsd: 0 };
+
+	const { decision } = ev;
+	if (decision.outcome === "pause") {
+		const est = estimateActionCost(director, action, expanded);
+		const approval: AgentApproval = {
+			action,
+			args: rawArgs,
+			estimate: est
+				? { low: est.low, high: est.high }
+				: { low: decision.costUsd, high: decision.costUsd },
+			clips: est?.clips ?? 1,
+		};
+		return {
+			outcome: "pause",
+			costUsd: decision.costUsd,
+			approval,
+		};
+	}
+
+	if (decision.outcome === "downroute") {
+		const from = decision.downroutedFrom ?? "premium";
+		const note = ev.downrouteBackendId
+			? `Down-routed ${action} from ${from} to a cheaper backend (${ev.downrouteBackendId}) to stay within the ${formatUsd(
+					decision.remainingUsd,
+				)} left in budget.`
+			: `Down-routed ${action} from ${from} to the cheap tier (auto-routing cheaper) to stay within the ${formatUsd(
+					decision.remainingUsd,
+				)} left in budget.`;
+		return {
+			outcome: "downroute",
+			costUsd: decision.costUsd,
+			backendId: ev.downrouteBackendId,
+			note,
+		};
+	}
+
+	return { outcome: "proceed", costUsd: decision.costUsd };
 }
 
 /**
@@ -1020,6 +1187,7 @@ export function buildFrontierSystemPrompt(director: DirectorApi): string {
 		"",
 		"COST GATE: a generate/reroll/compareTake that would spend more than a small amount pauses for the user's approval — the run stops and asks them out-of-band. This is expected, not an error; do NOT retry the same action to force it through.",
 		MODEL_ROUTING_POLICY,
+		BUDGET_POLICY,
 		"",
 		"HONOR THE BRIEF: the DIRECTOR BRIEF below is the user's durable creative intent. Let it shape every prompt you write and every take you pick. When the user states a new preference — or a chosen take reveals one — call updateBrief so it persists for later turns.",
 		briefBlock(director),
@@ -1091,6 +1259,9 @@ async function runDirectorAgentFrontier(opts: {
 	 */
 	async function finalize(result: AgentRunResult): Promise<AgentRunResult> {
 		if (result.awaitingApproval) return result;
+		// A completed turn under a budget records its final spend on the durable
+		// brief, so the budget outcome survives into later sessions.
+		director.recordFinalSpend();
 		const settingEnabled =
 			useStudioSettingsStore.getState().autoReviewEnabled ?? false;
 		if (!wantsAutoReview(userMessage, settingEnabled)) return result;
@@ -1173,24 +1344,65 @@ async function runDirectorAgentFrontier(opts: {
 			if (isAbort(signal)) return cancelledResult();
 			const rawArgs = (use.input ?? {}) as Record<string, unknown>;
 
-			// Cost-preview approval gate: a gated verb whose estimate crosses the
-			// threshold ENDS THE TURN here (fail-closed) BEFORE it spends. The user
-			// approves out-of-band; the UI then runs the exact proposed action via
-			// `executeDirectorAction`. Checked per-block right before execution, so
-			// nothing gated ever runs without approval.
-			const approval = evaluateApprovalGate(director, use.name, rawArgs);
-			if (approval) {
-				const message = approvalMessage(approval);
+			// Whole-reel budget gate FIRST: while a budget is active it governs spend
+			// (pause / down-route / proceed) in place of the flat threshold, so the
+			// Director plans across the reel rather than gating each action alone.
+			const budget = await evaluateBudgetGate(director, use.name, rawArgs);
+			if (budget.outcome === "pause" && budget.approval) {
+				const spend = director.getBudgetStatus().data;
+				const message = budgetPauseMessage(
+					budget.approval,
+					spend?.remainingUsd ?? 0,
+				);
 				const step: AgentToolStep = {
-					action: approval.action,
-					args: approval.args,
+					action: budget.approval.action,
+					args: budget.approval.args,
 					ok: false,
-					message: `⏸ Awaiting approval — ${message}`,
+					message: `⏸ Over budget — ${message}`,
 				};
 				steps.push(step);
 				onStep?.(step);
-				onEvent?.({ type: "awaiting_approval", approval });
-				return { finalMessage: message, steps, awaitingApproval: approval };
+				onEvent?.({ type: "awaiting_approval", approval: budget.approval });
+				return {
+					finalMessage: message,
+					steps,
+					awaitingApproval: budget.approval,
+				};
+			}
+			if (budget.outcome === "downroute") {
+				// Pin the cheaper backend (or drop any premium pin) and tell the user.
+				if (budget.backendId) rawArgs.backendId = budget.backendId;
+				else delete rawArgs.backendId;
+				const drStep: AgentToolStep = {
+					action: use.name,
+					args: rawArgs,
+					ok: true,
+					message: `↧ ${budget.note}`,
+				};
+				steps.push(drStep);
+				onStep?.(drStep);
+			}
+
+			// Cost-preview approval gate: only when NO budget is active (budget mode
+			// supersedes the flat threshold). A gated verb whose estimate crosses the
+			// threshold ENDS THE TURN here (fail-closed) BEFORE it spends. The user
+			// approves out-of-band; the UI then runs the exact proposed action via
+			// `executeDirectorAction`.
+			if (budget.outcome === "inactive") {
+				const approval = evaluateApprovalGate(director, use.name, rawArgs);
+				if (approval) {
+					const message = approvalMessage(approval);
+					const step: AgentToolStep = {
+						action: approval.action,
+						args: approval.args,
+						ok: false,
+						message: `⏸ Awaiting approval — ${message}`,
+					};
+					steps.push(step);
+					onStep?.(step);
+					onEvent?.({ type: "awaiting_approval", approval });
+					return { finalMessage: message, steps, awaitingApproval: approval };
+				}
 			}
 
 			// Announce the step BEFORE it runs so the panel shows it live — with the
@@ -1210,6 +1422,22 @@ async function runDirectorAgentFrontier(opts: {
 			onStep?.(step);
 			onEvent?.({ type: "tool_finish", callId, step });
 			toolCalls++;
+
+			// Record the modeled spend against the budget once a budgeted generation
+			// actually ran, and surface the running "spent X of $Y" to the panel.
+			if (
+				(budget.outcome === "proceed" || budget.outcome === "downroute") &&
+				step.ok &&
+				budget.costUsd > 0
+			) {
+				const spend = director.recordSpend({ usd: budget.costUsd });
+				onEvent?.({
+					type: "budget_update",
+					spentUsd: spend.spentUsd,
+					...(spend.budgetUsd != null ? { budgetUsd: spend.budgetUsd } : {}),
+				});
+			}
+
 			resultBlocks.push({
 				type: "tool_result",
 				tool_use_id: use.id,
@@ -1262,6 +1490,7 @@ function buildLocalSystemPrompt(director: DirectorApi): string {
 		"PLAN FIRST for multi-shot briefs: if the brief implies more than one shot, use `storyboard` before generating — give each shot a prompt plus intent/camera/subject notes under one shared `bible` (palette, lensMood, setting, characters). It persists the PLAN (shown in the REEL below) and auto-seeds the consistency context, so later shots stay coherent without restating style. For a single quick clip, skip planning and just reserveSlot + generate.",
 		"COST GATE: a generate/reroll/compareTake that would spend more than a small amount pauses for the user's approval — the run stops and asks them. This is expected, not an error; never retry the same action to force it through.",
 		MODEL_ROUTING_POLICY,
+		BUDGET_POLICY,
 		"",
 		"HONOR THE BRIEF: the DIRECTOR BRIEF below is the user's durable creative intent — let it shape every prompt and take. Call updateBrief when the user states a new preference or a chosen take reveals one.",
 		briefBlock(director),

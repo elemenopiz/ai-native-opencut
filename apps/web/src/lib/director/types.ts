@@ -30,6 +30,7 @@ import type {
 } from "@/types/timeline";
 import type { ConsistencyContext } from "./consistency-prompt";
 import type { StoryboardPlan } from "./storyboard-plan";
+import type { ReelSpend, ShotAllocation } from "./budget";
 
 // Re-export the canonical generative types so Director consumers have a single
 // import site. These are NOT redefined — they live in `@/types/timeline`.
@@ -71,6 +72,29 @@ export interface ReelSnapshot {
 	 * per-shot intent and shared style bible instead of re-deriving them.
 	 */
 	plan?: StoryboardPlan;
+	/**
+	 * The reel's running spend against its budget cap, if a budget is active (see
+	 * `budget.ts`). Surfaced so the panel can render "spent X of $Y" live.
+	 */
+	spend?: ReelSpend;
+}
+
+/**
+ * The reel's budget + running spend, as {@link DirectorApi.getBudgetStatus}
+ * reports it. `budgetUsd`/`remainingUsd` are absent when no cap is set;
+ * `allocations` mirrors the persisted plan's per-shot tier split.
+ */
+export interface BudgetStatus {
+	/** Active USD cap, or undefined when the reel is unbudgeted. */
+	budgetUsd?: number;
+	/** Actual USD spent so far this turn/session. */
+	spentUsd: number;
+	/** USD left before the cap (undefined when unbudgeted). */
+	remainingUsd?: number;
+	/** Per-shot tier + planned USD from the authored plan, if one exists. */
+	allocations?: ShotAllocation[];
+	/** Whether the authored allocation fits the cap (false ⇒ generation will pause). */
+	withinBudget?: boolean;
 }
 
 /**

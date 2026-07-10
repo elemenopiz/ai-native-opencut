@@ -34,6 +34,7 @@ import type { DirectorApi, SpecOverride } from "./director-api";
 import type { DirectorResult } from "./types";
 import type { ConsistencyCharacter } from "./consistency-prompt";
 import type { StyleBible } from "./storyboard-plan";
+import type { ShotImportance } from "./budget";
 import type { BriefPatch } from "./director-brief";
 
 // ── coercion helpers (moved here from agent.ts; the single arg-coercion site) ──
@@ -139,6 +140,7 @@ export function asShots(args: Record<string, unknown>): {
 	intent?: string;
 	camera?: string;
 	subject?: string;
+	importance?: ShotImportance;
 	spec?: SpecOverride;
 }[] {
 	const raw = Array.isArray(args.shots) ? args.shots : [];
@@ -149,15 +151,24 @@ export function asShots(args: Record<string, unknown>): {
 		const intent = strOrUndefined(obj.intent);
 		const camera = strOrUndefined(obj.camera);
 		const subject = strOrUndefined(obj.subject);
+		const importance = asImportance(obj.importance);
 		return {
 			prompt: str(obj.prompt),
 			duration: numOr(obj.duration, 6),
 			...(intent ? { intent } : {}),
 			...(camera ? { camera } : {}),
 			...(subject ? { subject } : {}),
+			...(importance ? { importance } : {}),
 			...(spec ? { spec } : {}),
 		};
 	});
+}
+
+/** Coerce a loose `importance` arg to a {@link ShotImportance}, else undefined. */
+function asImportance(raw: unknown): ShotImportance | undefined {
+	return raw === "hero" || raw === "support" || raw === "broll"
+		? raw
+		: undefined;
 }
 
 /**
@@ -514,6 +525,12 @@ export function toolCatalog(): ToolDescriptor[] {
 									description:
 										"Who/what is on screen and what they're doing (keep the cast consistent across shots).",
 								},
+								importance: {
+									type: "string",
+									enum: ["hero", "support", "broll"],
+									description:
+										"How important this shot is to the reel — drives its budget tier when budgetUsd is set: hero → premium backend, support → standard, broll → cheap. Default support.",
+								},
 								duration: secs("shot length in seconds (default 6)"),
 								spec: slotSpecSchema,
 							},
@@ -555,11 +572,22 @@ export function toolCatalog(): ToolDescriptor[] {
 							},
 						},
 					},
+					budgetUsd: {
+						type: "number",
+						description:
+							"Total USD the WHOLE reel may spend. When set, allocates the cap across shots by importance (hero premium, b-roll cheap), down-tiering the least-important shots to fit, and gates every later generate against the remaining budget. Use for a 'make an N-shot reel for $X' brief.",
+					},
 				},
 				required: ["shots"],
 			},
-			handler: (d, a) =>
-				d.storyboard({ shots: asShots(a), bible: asStyleBible(a) }),
+			handler: (d, a) => {
+				const budgetUsd = numOr(a.budgetUsd, 0);
+				return d.storyboard({
+					shots: asShots(a),
+					bible: asStyleBible(a),
+					...(budgetUsd > 0 ? { budgetUsd } : {}),
+				});
+			},
 		},
 		{
 			name: "reserveSlot",
@@ -730,6 +758,32 @@ export function toolCatalog(): ToolDescriptor[] {
 							rationale,
 						});
 			},
+		},
+		// ── budget (whole-reel spend planning) ──────────────────────────────
+		{
+			name: "getBudgetStatus",
+			description:
+				"read the reel's BUDGET: the total cap, how much has been spent so far, what's left, and the per-shot tier allocation. Call to check remaining budget before proposing more generation.",
+			mutating: false,
+			inputSchema: EMPTY,
+			handler: (d) => d.getBudgetStatus(),
+		},
+		{
+			name: "setBudget",
+			description:
+				"set (or change) the WHOLE reel's total USD budget and reset the running spend. Re-allocates an existing storyboard across the new cap (hero shots premium, b-roll cheap; down-tiered to fit). Use when the user names a budget after shots exist, e.g. 'keep it under $2'.",
+			mutating: true,
+			inputSchema: {
+				type: "object",
+				properties: {
+					budgetUsd: {
+						type: "number",
+						description: "Total USD the whole reel may spend.",
+					},
+				},
+				required: ["budgetUsd"],
+			},
+			handler: (d, a) => d.setBudget({ budgetUsd: numOr(a.budgetUsd, 0) }),
 		},
 		// ── brief (durable creative intent) ─────────────────────────────────
 		{

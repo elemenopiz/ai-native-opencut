@@ -46,6 +46,7 @@ import {
 	type ConsistencyContext,
 } from "./consistency-prompt";
 import {
+	applyBudgetToPlan,
 	bibleToConsistencyInput,
 	buildStoryboardPlan,
 	getStoredPlan,
@@ -54,6 +55,18 @@ import {
 	type StoryboardPlan,
 	type StyleBible,
 } from "./storyboard-plan";
+import {
+	formatSpend,
+	getReelSpend,
+	planActionWithinBudget,
+	recordReelSpend,
+	remainingBudgetUsd,
+	setReelBudget,
+	TIER_ORDER,
+	type BudgetGateDecision,
+	type CostTier,
+	type ReelSpend,
+} from "./budget";
 import {
 	applyBriefPatch,
 	summarizeBrief,
@@ -67,7 +80,9 @@ import {
 } from "@/lib/media/last-frame";
 import {
 	estimateBatchCost,
+	estimateSpecCost,
 	formatCostRange,
+	formatUsd,
 	type CostRange,
 } from "@/lib/studio/cost";
 import { createShortIdMap } from "./short-id";
@@ -102,6 +117,7 @@ import type {
 import type {
 	BackendCatalogEntry,
 	BackendCatalogProvider,
+	BudgetStatus,
 	DirectorResult,
 	GenerationFailure,
 	MediaSearchHit,
@@ -277,6 +293,47 @@ export function defaultSafetyRephrase(prompt: string): string {
 export function estimateSpeechSeconds(script: string): number {
 	const words = script.trim().split(/\s+/).filter(Boolean).length;
 	return Math.max(1, Math.round((words / 2.5) * 10) / 10);
+}
+
+/** One-line " Budget: $X across N shots (…)" tail appended to a storyboard message. */
+function budgetSummary(budget: StoryboardPlan["budget"] | undefined): string {
+	if (!budget) return "";
+	const tiers = budget.allocations.reduce<Record<CostTier, number>>(
+		(acc, a) => {
+			acc[a.tier] = (acc[a.tier] ?? 0) + 1;
+			return acc;
+		},
+		{ cheap: 0, standard: 0, premium: 0 },
+	);
+	const mix = (["premium", "standard", "cheap"] as const)
+		.filter((t) => tiers[t] > 0)
+		.map((t) => `${tiers[t]} ${t}`)
+		.join(", ");
+	const fit = budget.withinBudget
+		? ""
+		: " — over budget even all-cheap; generation will pause for approval";
+	return ` Budget ${formatUsd(budget.totalBudgetUsd)} across ${
+		budget.allocations.length
+	} shot(s) (${mix}); planned ${formatUsd(budget.plannedTotalUsd)}${fit}.`;
+}
+
+/**
+ * Pick a concrete cheaper backend to down-route to: the lowest-`relativeCost`
+ * entry at or below `maxTier`, falling back to the globally cheapest when nothing
+ * sits within the tier. Returns `undefined` for an empty catalog (caller then
+ * simply drops any premium pin and lets the router auto-pick cheaper).
+ */
+function cheapestBackendId(
+	catalog: BackendCatalogEntry[],
+	maxTier: CostTier,
+): string | undefined {
+	if (catalog.length === 0) return undefined;
+	const cap = TIER_ORDER.indexOf(maxTier);
+	const withinTier = catalog.filter(
+		(b) => TIER_ORDER.indexOf(b.costTier) <= cap,
+	);
+	const pool = withinTier.length > 0 ? withinTier : catalog;
+	return [...pool].sort((a, b) => a.relativeCost - b.relativeCost)[0]?.id;
 }
 
 /** Short, user-facing label per failure class (for result messages). */
@@ -614,6 +671,7 @@ export function createDirectorApi(
 			canRedo: editor.command.canRedo(),
 			consistency: getStoredConsistencyContext(editor),
 			plan: getStoredPlan(editor),
+			spend: getReelSpend(editor),
 		};
 	}
 
@@ -969,6 +1027,13 @@ export function createDirectorApi(
 		bible?: StyleBible;
 		/** Set false to skip auto-seeding the consistency context. Default true. */
 		seedConsistency?: boolean;
+		/**
+		 * Total USD the whole reel may spend. When set, the plan allocates this cap
+		 * across shots by importance (hero → premium tier, b-roll → cheap), down-
+		 * tiering the least-important shots to fit, and ARMS the running spend
+		 * tracker so later generation is gated against the remaining budget.
+		 */
+		budgetUsd?: number;
 	}): DirectorResult<{ slotIds: string[]; plan: StoryboardPlan }> {
 		if (!input.shots || input.shots.length === 0) {
 			return fail("storyboard requires at least one shot.");
@@ -983,6 +1048,10 @@ export function createDirectorApi(
 
 		const before = captureReel();
 		const ids: string[] = [];
+		// Each shot's base (cheapest-tier) USD estimate, in shot order — the budget
+		// allocator's cost basis. Uses the HIGH end so a budget never silently
+		// underestimates (fail toward asking), matching the approval gate.
+		const baseCostUsd: number[] = [];
 		let cursor = editor.timeline.getTotalDuration();
 
 		editor.command.beginTransaction();
@@ -994,6 +1063,7 @@ export function createDirectorApi(
 					planned.duration,
 					applyReferenceMediaId(shot.spec),
 				);
+				baseCostUsd.push(estimateSpecCost(spec).high);
 				const slotId = editor.timeline.addGenerativeSlot({
 					spec,
 					duration: planned.duration,
@@ -1013,6 +1083,13 @@ export function createDirectorApi(
 		}
 		editor.command.commitTransaction();
 
+		// Budget: allocate the cap across shots (patches each shot's tier +
+		// allocatedUsd, sets plan.budget) and arm the running spend tracker.
+		if (input.budgetUsd != null && input.budgetUsd > 0) {
+			applyBudgetToPlan(plan, baseCostUsd, input.budgetUsd);
+			setReelBudget(editor, input.budgetUsd);
+		}
+
 		// Persist the plan so getReel/later turns read back the per-shot intent.
 		storePlan(editor, plan);
 
@@ -1026,7 +1103,10 @@ export function createDirectorApi(
 
 		return withDelta(
 			before,
-			ok(`Storyboarded ${ids.length} shot(s).`, { slotIds: ids, plan }),
+			ok(`Storyboarded ${ids.length} shot(s).${budgetSummary(plan.budget)}`, {
+				slotIds: ids,
+				plan,
+			}),
 		);
 	}
 
@@ -1305,6 +1385,188 @@ export function createDirectorApi(
 			`~${formatCostRange(estimate)} for ${estimate.clips} clip(s).`,
 			estimate,
 		);
+	}
+
+	// ---- BUDGET (whole-reel spend planning) -------------------------------
+	//
+	// Helpers first (closures over `editor`/plan), then the verbs.
+
+	/** The priciest tier the plan assigned to any of these targeted slots (undefined if none carry a tier). */
+	function priciestPlannedTier(targets: LocatedSlot[]): CostTier | undefined {
+		const plan = getStoredPlan(editor);
+		if (!plan) return undefined;
+		const wanted = new Set(targets.map((t) => t.element.id));
+		let best: CostTier | undefined;
+		for (const shot of plan.shots) {
+			if (!shot.slotId || !shot.tier || !wanted.has(shot.slotId)) continue;
+			if (
+				best === undefined ||
+				TIER_ORDER.indexOf(shot.tier) > TIER_ORDER.indexOf(best)
+			) {
+				best = shot.tier;
+			}
+		}
+		return best;
+	}
+	//
+	// A reel can carry a total USD budget the Director plans spend against (see
+	// `budget.ts`): the storyboard allocates the cap across shots by importance,
+	// and every subsequent generation is checked against the REMAINING budget so a
+	// hero shot at a premium tier can't quietly drain what six b-roll shots need.
+	// The cap + running tally are session state (a WeakMap keyed by editor); the
+	// authored per-shot allocation is persisted on the plan.
+
+	/** Read the reel's budget cap, running spend, and per-shot allocation. */
+	function getBudgetStatus(): DirectorResult<BudgetStatus> {
+		const spend = getReelSpend(editor);
+		const plan = getStoredPlan(editor);
+		const status: BudgetStatus = {
+			spentUsd: spend.spentUsd,
+			...(spend.budgetUsd != null ? { budgetUsd: spend.budgetUsd } : {}),
+			...(remainingBudgetUsd(spend) != null
+				? { remainingUsd: remainingBudgetUsd(spend) }
+				: {}),
+			...(plan?.budget
+				? {
+						allocations: plan.budget.allocations,
+						withinBudget: plan.budget.withinBudget,
+					}
+				: {}),
+		};
+		const msg =
+			spend.budgetUsd == null
+				? "No budget set for this reel."
+				: `${formatSpend(spend, formatUsd)} (${formatUsd(
+						Math.max(0, spend.budgetUsd - spend.spentUsd),
+					)} remaining).`;
+		return ok(msg, status);
+	}
+
+	/**
+	 * Set (or change) the reel's total USD budget and RESET the running spend. If
+	 * a storyboard plan already exists it is re-allocated against the new cap
+	 * (re-tiering each shot from its located spec's cost). Use to answer "keep the
+	 * whole thing under $X" after shots are laid out.
+	 */
+	function setBudget(input: {
+		budgetUsd: number;
+	}): DirectorResult<BudgetStatus> {
+		if (!(input.budgetUsd > 0)) {
+			return fail("setBudget requires a positive budgetUsd.");
+		}
+		setReelBudget(editor, input.budgetUsd);
+		const plan = getStoredPlan(editor);
+		if (plan && plan.shots.length > 0) {
+			const baseCostUsd = plan.shots.map((s) => {
+				const located = s.slotId ? findSlot(s.slotId) : null;
+				return located
+					? estimateSpecCost(located.element.generation).high
+					: estimateSpecCost(buildSpec(s.prompt, s.duration)).high;
+			});
+			applyBudgetToPlan(plan, baseCostUsd, input.budgetUsd);
+			storePlan(editor, plan);
+		}
+		const status = getBudgetStatus();
+		return ok(
+			`Budget set to ${formatUsd(input.budgetUsd)}.${budgetSummary(
+				plan?.budget,
+			)}`,
+			status.data,
+		);
+	}
+
+	/**
+	 * Add `usd` to the reel's running spend — called after a gated generation
+	 * actually runs so "spent X of $Y" stays live. Returns the updated tally.
+	 */
+	function recordSpend(input: { usd: number }): ReelSpend {
+		return recordReelSpend(editor, input.usd);
+	}
+
+	/**
+	 * The heart of the spend gate: decide whether a proposed generation fits the
+	 * REMAINING budget. Given the same targeting args `generate` takes, it (a)
+	 * estimates the batch's base (cheapest-tier) cost, (b) picks the requested tier
+	 * — from an explicit `backendId`'s tier, else the priciest targeted shot's
+	 * planned tier, else "standard" — and (c) returns a {@link BudgetGateDecision}:
+	 * proceed, down-route (with a concrete cheaper `downrouteBackendId` resolved
+	 * from the live catalog), or pause. `active:false` ⇒ no budget is set, so the
+	 * caller falls back to the flat approval threshold. Async only to resolve the
+	 * cheaper backend from the catalog.
+	 */
+	async function evaluateSpend(input: {
+		slotIds?: string[] | "all";
+		alternatives?: number;
+		backendId?: string;
+	}): Promise<{
+		active: boolean;
+		decision?: BudgetGateDecision;
+		downrouteBackendId?: string;
+		spend: ReelSpend;
+	}> {
+		const spend = getReelSpend(editor);
+		if (spend.budgetUsd == null) return { active: false, spend };
+
+		const est = estimateGenerateCost({
+			slotIds: input.slotIds,
+			alternatives: input.alternatives,
+		}).data;
+		const baseCostUsd = est?.high ?? 0;
+
+		// Which slots does this action hit? (drives modality + planned tier.)
+		const targets = resolveTargets(input.slotIds);
+		const modality: "video" | "image" =
+			targets.length > 0 && targets.every((t) => t.element.type === "image")
+				? "image"
+				: "video";
+
+		// Requested tier: an explicit backendId's tier wins; else the priciest
+		// planned tier among the targeted shots; else "standard".
+		let requestedTier: CostTier = "standard";
+		const catalog = backendsProvider
+			? await backendsProvider(modality).catch(
+					() => [] as BackendCatalogEntry[],
+				)
+			: [];
+		if (input.backendId) {
+			const entry = catalog.find((b) => b.id === input.backendId);
+			if (entry) requestedTier = entry.costTier;
+			else requestedTier = "premium"; // an unknown explicit pin — assume worst case
+		} else {
+			requestedTier = priciestPlannedTier(targets) ?? "standard";
+		}
+
+		const decision = planActionWithinBudget({
+			baseCostUsd,
+			requestedTier,
+			spentUsd: spend.spentUsd,
+			budgetUsd: spend.budgetUsd,
+		});
+
+		let downrouteBackendId: string | undefined;
+		if (decision.outcome === "downroute" && catalog.length > 0) {
+			downrouteBackendId = cheapestBackendId(catalog, decision.tier);
+		}
+
+		return { active: true, decision, downrouteBackendId, spend };
+	}
+
+	/**
+	 * Record the reel's FINAL spend on the durable brief (a one-line learned note),
+	 * so a budget outcome survives the turn. No-op when nothing was spent under a
+	 * budget. Called by the agent loop when a turn completes.
+	 */
+	function recordFinalSpend(): DirectorResult<{
+		note?: string;
+		spend: ReelSpend;
+	}> {
+		const spend = getReelSpend(editor);
+		if (spend.budgetUsd == null || spend.spentUsd <= 0) {
+			return ok("No budgeted spend to record.", { spend });
+		}
+		const note = `Reel spend: ${formatSpend(spend, formatUsd)}.`;
+		persistBrief(applyBriefPatch(readBrief(), { notes: [note] }));
+		return ok("Recorded final spend to the brief.", { note, spend });
 	}
 
 	/**
@@ -2570,6 +2832,12 @@ export function createDirectorApi(
 		remix,
 		chooseTake,
 		reviewTake,
+		// budget (whole-reel spend planning)
+		getBudgetStatus,
+		setBudget,
+		recordSpend,
+		evaluateSpend,
+		recordFinalSpend,
 		// audio
 		addVoiceover,
 		addMusicBed,

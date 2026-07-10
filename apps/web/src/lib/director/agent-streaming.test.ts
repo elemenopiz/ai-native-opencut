@@ -43,6 +43,12 @@ function fakeDirector(): DirectorApi {
 		getReel: () => ({ slots: [], totalDuration: 0 }),
 		getProjectInfo: () => ({ data: null }),
 		briefPromptBlock: () => "DIRECTOR BRIEF: (empty)",
+		// finalize() records final spend on a clean close; a no-budget reel is a no-op.
+		recordFinalSpend: () => ({
+			ok: true,
+			message: "",
+			data: { spend: { spentUsd: 0 } },
+		}),
 	} as unknown as DirectorApi;
 }
 

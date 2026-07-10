@@ -24,6 +24,12 @@ import type {
 	BuildConsistencyContextInput,
 	ConsistencyCharacter,
 } from "./consistency-prompt";
+import {
+	allocateBudget,
+	type CostTier,
+	type ReelBudget,
+	type ShotImportance,
+} from "./budget";
 
 /**
  * One shot's creative intent within a {@link StoryboardPlan}. The `prompt` is
@@ -44,6 +50,19 @@ export interface PlannedShot {
 	subject?: string;
 	/** Shot length in seconds. */
 	duration: number;
+	/**
+	 * How important this shot is to the reel — the signal budget allocation uses
+	 * to pick its cost tier (hero → premium, b-roll → cheap). Absent ⇒ "support".
+	 */
+	importance?: ShotImportance;
+	/**
+	 * The cost tier this shot was allocated when a budget is set (see
+	 * {@link StoryboardPlan.budget}). Doubles as a routing hint: draft b-roll on a
+	 * cheap backend, render hero shots on a premium one.
+	 */
+	tier?: CostTier;
+	/** Planned USD for this shot at its allocated tier (present only with a budget). */
+	allocatedUsd?: number;
 	/** The slot id this shot was materialized into, once `storyboard` runs. */
 	slotId?: string;
 }
@@ -79,6 +98,12 @@ export interface StoryboardPlan {
 	bible: StyleBible;
 	/** Total planned runtime in seconds (sum of shot durations). */
 	totalDuration: number;
+	/**
+	 * Whole-reel spend plan: the total USD cap and each shot's allocated tier +
+	 * planned spend. Present only when the planner set a budget (`budgetUsd`);
+	 * absent ⇒ the reel spends per the flat approval threshold, unbudgeted.
+	 */
+	budget?: ReelBudget;
 	/** Wall-clock creation time (ms epoch), so a stale plan is recognizable. */
 	createdAt: number;
 }
@@ -90,6 +115,8 @@ export interface PlannedShotInput {
 	intent?: string;
 	camera?: string;
 	subject?: string;
+	/** How important the shot is — drives its budget tier. Default "support". */
+	importance?: ShotImportance;
 }
 
 const DEFAULT_SHOT_DURATION = 6;
@@ -113,6 +140,7 @@ export function buildStoryboardPlan(input: {
 			...(s.intent ? { intent: s.intent } : {}),
 			...(s.camera ? { camera: s.camera } : {}),
 			...(s.subject ? { subject: s.subject } : {}),
+			...(s.importance ? { importance: s.importance } : {}),
 		};
 	});
 	return {
@@ -122,6 +150,38 @@ export function buildStoryboardPlan(input: {
 		totalDuration: shots.reduce((sum, s) => sum + s.duration, 0),
 		createdAt: Date.now(),
 	};
+}
+
+/**
+ * Allocate a total USD budget across an already-built plan and write the result
+ * back onto it: sets `plan.budget` and patches each shot's `tier`/`allocatedUsd`.
+ * `baseCostUsd[i]` is shot `i`'s base (cheapest-tier) USD estimate — the caller
+ * (the `storyboard` verb) computes these from the resolved specs so this module
+ * stays free of the studio cost machinery. Mutates and returns `plan` for
+ * chaining. A non-positive budget is a no-op (leaves the plan unbudgeted).
+ */
+export function applyBudgetToPlan(
+	plan: StoryboardPlan,
+	baseCostUsd: number[],
+	budgetUsd: number,
+): StoryboardPlan {
+	if (!(budgetUsd > 0)) return plan;
+	const budget = allocateBudget({
+		shots: plan.shots.map((s, i) => ({
+			index: s.index,
+			baseCostUsd: baseCostUsd[i] ?? 0,
+			...(s.importance ? { importance: s.importance } : {}),
+		})),
+		totalBudgetUsd: budgetUsd,
+	});
+	plan.budget = budget;
+	for (const alloc of budget.allocations) {
+		const shot = plan.shots[alloc.index - 1];
+		if (!shot) continue;
+		shot.tier = alloc.tier;
+		shot.allocatedUsd = alloc.allocatedUsd;
+	}
+	return plan;
 }
 
 /**

@@ -35,6 +35,7 @@ import type { ReelSnapshot } from "@/lib/director/types";
 import {
 	needsApproval,
 	formatCostRange,
+	formatUsd,
 	type CostRange,
 } from "@/lib/studio/cost";
 import { useStudioSettingsStore } from "@/stores/studio-settings-store";
@@ -546,6 +547,9 @@ export function DirectorView() {
 			// update the same bubble in place.
 			const toolMsgIds = new Map<string, string>();
 			let streamedText = false;
+			// One persistent "spent X of $Y" bubble, updated in place as budgeted
+			// generations run, so the running budget stays visible without spamming.
+			let budgetMsgId = "";
 
 			const onEvent = (event: DirectorEvent) => {
 				switch (event.type) {
@@ -603,6 +607,24 @@ export function DirectorView() {
 								role: "assistant",
 								content,
 							});
+						break;
+					}
+					case "budget_update": {
+						// Running whole-reel spend — one bubble, updated in place.
+						const content =
+							event.budgetUsd != null
+								? `💰 Spent ${formatUsd(event.spentUsd)} of ${formatUsd(
+										event.budgetUsd,
+									)} (${formatUsd(
+										Math.max(0, event.budgetUsd - event.spentUsd),
+									)} left)`
+								: `💰 Spent ${formatUsd(event.spentUsd)}`;
+						if (!budgetMsgId) {
+							budgetMsgId = crypto.randomUUID();
+							addMessage({ id: budgetMsgId, role: "assistant", content });
+						} else {
+							updateMessage(budgetMsgId, content);
+						}
 						break;
 					}
 					case "awaiting_approval":
