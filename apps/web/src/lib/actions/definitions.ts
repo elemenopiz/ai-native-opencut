@@ -225,7 +225,9 @@ export const ACTIONS = {
 	"open-command-palette": {
 		description: "Open command palette",
 		category: "controls",
-		defaultShortcuts: ["ctrl+shift+p"],
+		// No default shortcut here: CommandPalette owns the ctrl+shift+p listener
+		// directly. Binding the action to the same combo made one keypress toggle
+		// twice (action's synthetic dispatch + the real event), a net no-op.
 	},
 	"check-engagement-score": {
 		description: "Check engagement score",
