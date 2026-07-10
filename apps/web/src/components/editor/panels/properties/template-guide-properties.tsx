@@ -77,7 +77,15 @@ function parseGuideContent(element: TextElement): ParsedGuideContent {
 // Check if an element is a template guide
 // ---------------------------------------------------------------------------
 
-export function isTemplateGuideElement(element: { type: string; hidden?: boolean; opacity?: number; color?: string; fontSize?: number; name?: string; content?: string }): boolean {
+export function isTemplateGuideElement(element: {
+	type: string;
+	hidden?: boolean;
+	opacity?: number;
+	color?: string;
+	fontSize?: number;
+	name?: string;
+	content?: string;
+}): boolean {
 	if (element.type !== "text") return false;
 	// Match by the combination of properties that template guides have:
 	// - name starts with "N. " (segment order)
@@ -85,14 +93,21 @@ export function isTemplateGuideElement(element: { type: string; hidden?: boolean
 	// - fontSize 1 (effectively zero)
 	// - content has structured markers like "[Title]" and "Visual:" / "Narration:"
 	const nameMatch = /^\d+\.\s/.test(element.name ?? "");
-	const isInvisible = element.opacity === 0 && element.color === "transparent" && element.fontSize === 1;
-	const hasGuideContent = typeof element.content === "string" &&
+	const isInvisible =
+		element.opacity === 0 &&
+		element.color === "transparent" &&
+		element.fontSize === 1;
+	const hasGuideContent =
+		typeof element.content === "string" &&
 		element.content.includes("[") &&
-		(element.content.includes("Visual:") || element.content.includes("Narration:"));
+		(element.content.includes("Visual:") ||
+			element.content.includes("Narration:"));
 
 	// Primary: hidden flag set (new elements)
 	// Fallback: invisible + structured content (elements created before hidden was passed through)
-	return nameMatch && (element.hidden === true || (isInvisible && hasGuideContent));
+	return (
+		nameMatch && (element.hidden === true || (isInvisible && hasGuideContent))
+	);
 }
 
 // ---------------------------------------------------------------------------
@@ -111,6 +126,7 @@ export function TemplateGuideProperties({
 
 	const [prompt, setPrompt] = useState("");
 	const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
+	const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
 	const [isGeneratingMedia, setIsGeneratingMedia] = useState(false);
 	const [generatedUrl, setGeneratedUrl] = useState<string | null>(null);
 	const [inserted, setInserted] = useState(false);
@@ -139,6 +155,31 @@ export function TemplateGuideProperties({
 			setIsGeneratingPrompt(false);
 		}
 	}, [parsed, isGeneratingPrompt]);
+
+	// ── Enhance the current prompt into a richer, more detailed one ──
+
+	const handleEnhancePrompt = useCallback(async () => {
+		const p = prompt.trim();
+		if (!p) {
+			toast.error("Write or generate a prompt first");
+			return;
+		}
+		if (isEnhancingPrompt) return;
+		setIsEnhancingPrompt(true);
+		try {
+			const result = await aiClient.enhancePrompt(p);
+			setPrompt(result.enhanced);
+			toast.success("Prompt enhanced");
+		} catch (err) {
+			toast.error(
+				err instanceof Error
+					? err.message
+					: "Failed to enhance prompt. Make sure AI backend is running.",
+			);
+		} finally {
+			setIsEnhancingPrompt(false);
+		}
+	}, [prompt, isEnhancingPrompt]);
 
 	// ── Generate image from prompt and insert at segment time ──
 
@@ -354,23 +395,45 @@ export function TemplateGuideProperties({
 									<label className="text-[10px] font-medium text-muted-foreground">
 										Prompt
 									</label>
-									<Button
-										variant="ghost"
-										size="sm"
-										className="h-5 text-[9px] px-1.5"
-										disabled={isGeneratingPrompt}
-										onClick={handleGeneratePrompt}
-									>
-										{isGeneratingPrompt ? (
-											<Spinner className="size-2.5 mr-1" />
-										) : (
-											<HugeiconsIcon
-												icon={SparklesIcon}
-												className="size-2.5 mr-1"
-											/>
+									<div className="flex items-center gap-1">
+										{prompt.trim() && (
+											<Button
+												variant="ghost"
+												size="sm"
+												className="h-5 text-[9px] px-1.5"
+												disabled={isEnhancingPrompt || isGeneratingPrompt}
+												onClick={handleEnhancePrompt}
+												title="Rewrite the prompt with richer visual detail"
+											>
+												{isEnhancingPrompt ? (
+													<Spinner className="size-2.5 mr-1" />
+												) : (
+													<HugeiconsIcon
+														icon={SparklesIcon}
+														className="size-2.5 mr-1"
+													/>
+												)}
+												Enhance
+											</Button>
 										)}
-										{prompt ? "Regenerate" : "Generate Prompt"}
-									</Button>
+										<Button
+											variant="ghost"
+											size="sm"
+											className="h-5 text-[9px] px-1.5"
+											disabled={isGeneratingPrompt}
+											onClick={handleGeneratePrompt}
+										>
+											{isGeneratingPrompt ? (
+												<Spinner className="size-2.5 mr-1" />
+											) : (
+												<HugeiconsIcon
+													icon={SparklesIcon}
+													className="size-2.5 mr-1"
+												/>
+											)}
+											{prompt ? "Regenerate" : "Generate Prompt"}
+										</Button>
+									</div>
 								</div>
 								<Textarea
 									value={prompt}
