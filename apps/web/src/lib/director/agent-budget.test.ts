@@ -187,4 +187,48 @@ describe("whole-reel budget gate (frontier loop)", () => {
 		expect(takeCount).toBe(0);
 		expect(director.getBudgetStatus().data?.spentUsd).toBeCloseTo(4.85, 5);
 	});
+
+	// Regression: `remix` used to be absent from the gated-action set, the cost
+	// estimator and budgetSpendInput, so it ran a paid backend with zero budget
+	// enforcement and never advanced spend. It must gate exactly like `reroll`.
+	test("gates a remix against the whole-reel budget instead of spending silently", async () => {
+		const { fake, director } = budgetedReel();
+		director.recordSpend({ usd: 4.85 }); // only $0.15 left — nothing fits
+
+		const slotId = fake.tracks.flatMap((t) => t.elements)[0]?.id as string;
+		expect(slotId).toBeDefined();
+
+		const remixTurn = () =>
+			sseResponse([
+				frame("final", {
+					content: [
+						{ type: "text", text: "Reworking the hero." },
+						{
+							type: "tool_use",
+							id: "r1",
+							name: "remix",
+							input: { slotId, remixPrompt: "make it moodier" },
+						},
+					],
+					stop_reason: "tool_use",
+					model: "test",
+				}),
+				frame("done", {}),
+			]);
+		global.fetch = mock(async () => remixTurn()) as unknown as typeof fetch;
+
+		const result = await runDirectorAgent({
+			director,
+			chat: async () => "",
+			userMessage: "make the hero moodier",
+			brain: "frontier",
+		});
+
+		// The remix paused for approval before spending — it is no longer invisible
+		// to the budget gate.
+		expect(result.awaitingApproval).toBeDefined();
+		expect(result.awaitingApproval?.action).toBe("remix");
+		// Spend is unchanged — nothing ran.
+		expect(director.getBudgetStatus().data?.spentUsd).toBeCloseTo(4.85, 5);
+	});
 });

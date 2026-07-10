@@ -541,6 +541,7 @@ async function executeTool(
 const REQUIRES_APPROVAL = new Set([
 	"generate",
 	"reroll",
+	"remix",
 	"compareTake",
 	"addVoiceover",
 	"addMusicBed",
@@ -577,6 +578,16 @@ function estimateActionCost(
 			director.estimateGenerateCost({
 				slotIds: [str(args.slotId)],
 				alternatives: numOr(args.alternatives, 1),
+			}).data ?? null
+		);
+	}
+	if (action === "remix") {
+		// remix produces one new take on the one slot — same cost shape as a
+		// single-alternative reroll.
+		return (
+			director.estimateGenerateCost({
+				slotIds: [str(args.slotId)],
+				alternatives: 1,
 			}).data ?? null
 		);
 	}
@@ -702,6 +713,14 @@ function budgetSpendInput(
 		return {
 			slotIds: [str(args.slotId)],
 			alternatives: numOr(args.alternatives, 1),
+			...(args.backendId ? { backendId: str(args.backendId) } : {}),
+		};
+	}
+	if (action === "remix") {
+		// One new take on the one slot (remix takes no `alternatives` arg).
+		return {
+			slotIds: [str(args.slotId)],
+			alternatives: 1,
 			...(args.backendId ? { backendId: str(args.backendId) } : {}),
 		};
 	}
