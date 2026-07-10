@@ -65,10 +65,7 @@ function buildTrackNodes({
 				}
 
 				const shouldUseProxy =
-					useProxy &&
-					isPreview &&
-					mediaAsset.proxyFile &&
-					mediaAsset.proxyUrl;
+					useProxy && isPreview && mediaAsset.proxyFile && mediaAsset.proxyUrl;
 
 				const effectiveFile = shouldUseProxy
 					? mediaAsset.proxyFile!
@@ -89,8 +86,7 @@ function buildTrackNodes({
 							trimEnd: element.trimEnd,
 							playbackRate:
 								element.type === "video" ? element.playbackRate : undefined,
-							reversed:
-								element.type === "video" ? element.reversed : undefined,
+							reversed: element.type === "video" ? element.reversed : undefined,
 							transform: element.transform,
 							animations: element.animations,
 							opacity: element.opacity,
@@ -297,8 +293,7 @@ function buildTransitionNodes({
 							trimEnd: current.trimEnd,
 							playbackRate:
 								current.type === "video" ? current.playbackRate : undefined,
-							reversed:
-								current.type === "video" ? current.reversed : undefined,
+							reversed: current.type === "video" ? current.reversed : undefined,
 							transform: current.transform,
 							animations: current.animations,
 							opacity: current.opacity,
@@ -312,18 +307,14 @@ function buildTransitionNodes({
 							trimEnd: next.trimEnd,
 							playbackRate:
 								next.type === "video" ? next.playbackRate : undefined,
-							reversed:
-								next.type === "video" ? next.reversed : undefined,
+							reversed: next.type === "video" ? next.reversed : undefined,
 							transform: (next as VisualElement).transform,
 							animations: (next as VisualElement).animations,
 							opacity: (next as VisualElement).opacity,
 							blendMode: (next as VisualElement).blendMode,
 							effects: (next as VisualElement).effects,
 						},
-						mediaMap: mediaMap as unknown as Map<
-							string,
-							{ url: string; file?: File }
-						>,
+						mediaMap,
 						mediaIdA: current.mediaId,
 						mediaIdB:
 							next.type === "video" || next.type === "image"
