@@ -237,6 +237,27 @@ export interface TakeCritic {
 }
 
 /**
+ * Result of {@link DirectorApi.reviewTake} — the frames of a take decoded for a
+ * VISION review, plus the slot's intent to judge them against. `frames` are
+ * base64 `data:` image URLs (first → last); the agent layer turns them into
+ * image content blocks so the model actually SEES the generated clip. Kept off
+ * the plain-text observation path (they're large) — surfaced only as images.
+ */
+export interface ReviewTakeData {
+	/** Full slot (element) id the reviewed take belongs to. */
+	slotId: string;
+	/** Full id of the reviewed take. */
+	takeId: string;
+	/** The slot's prompt — the intent the take is judged against. */
+	prompt: string;
+	status: TakeStatus;
+	/** Number of frames actually decoded (1–3). */
+	frameCount: number;
+	/** Decoded frames as base64 `data:` image URLs, in first → last order. */
+	frames: string[];
+}
+
+/**
  * Injectable boundary for the actual generation network calls.
  *
  * The Director API performs all *bookkeeping* (appending takes, flipping

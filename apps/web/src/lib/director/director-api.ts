@@ -61,7 +61,10 @@ import {
 } from "./director-brief";
 import type { DirectorBrief } from "@/types/project";
 import { buildRemixSpec } from "@/lib/studio/remix";
-import { extractTakeLastFrame } from "@/lib/media/last-frame";
+import {
+	extractTakeLastFrame,
+	extractTakeFrames,
+} from "@/lib/media/last-frame";
 import {
 	estimateBatchCost,
 	formatCostRange,
@@ -95,6 +98,7 @@ import type {
 	MutationDelta,
 	ProjectInfo,
 	ReelSnapshot,
+	ReviewTakeData,
 	SlotChange,
 	SlotSnapshot,
 	GenerateExecutor,
@@ -1473,6 +1477,97 @@ export function createDirectorApi(
 		return summarizeBrief(readBrief());
 	}
 
+	// ---- REVIEW (vision self-review) --------------------------------------
+	//
+	// Closes the "generate but can't SEE" gap: no other verb feeds a generated
+	// result back to the model, so it can't tell a good take from a broken one.
+	// `reviewTake` decodes a take's frames (first/mid/last) to `data:` image URLs
+	// — the agent layer turns those into image content blocks that ride back to
+	// the model through the stateless relay untouched. Read-only (no `withDelta`):
+	// nothing on the reel changes; the observation IS the pixels.
+
+	/**
+	 * Pick the take to review: an explicit `takeId`, else the active take, else the
+	 * most recent READY take, else the most recent take (so a caller always gets a
+	 * defined target to explain, even if it isn't ready).
+	 */
+	function pickReviewTake(
+		element: SlotElement,
+		takeId?: string,
+	): Take | undefined {
+		const takes = takesOf(element);
+		if (takeId) return takes.find((t) => t.id === takeId);
+		if (element.activeTakeId) {
+			const active = takes.find((t) => t.id === element.activeTakeId);
+			if (active) return active;
+		}
+		for (let i = takes.length - 1; i >= 0; i--) {
+			if (takes[i].status === "ready") return takes[i];
+		}
+		return takes[takes.length - 1];
+	}
+
+	/**
+	 * Decode a slot take's frames so the model can SEE the generated clip and judge
+	 * it against the slot's prompt. Defaults to a 3-frame first/mid/last triptych
+	 * (override with `frames`, clamped 1–3). Fails (never throws) with actionable
+	 * copy when there's nothing decodable yet — no takes, the target isn't `ready`,
+	 * the take hasn't been imported (`mediaId`), or no frame could be decoded.
+	 */
+	async function reviewTake(input: {
+		slotId: string;
+		takeId?: string;
+		frames?: number;
+	}): Promise<DirectorResult<ReviewTakeData>> {
+		const located = findSlot(input.slotId);
+		if (!located) return fail(`No slot with id "${input.slotId}".`);
+
+		const take = pickReviewTake(located.element, input.takeId);
+		if (!take) {
+			return fail(
+				input.takeId
+					? `Slot "${input.slotId}" has no take "${input.takeId}".`
+					: `Slot "${input.slotId}" has no takes yet — generate one before reviewing.`,
+			);
+		}
+		if (take.status !== "ready") {
+			return fail(
+				`Take "${take.id}" is ${take.status}, not ready to review yet — wait for it to finish generating.`,
+			);
+		}
+		if (!take.mediaId) {
+			return fail(
+				`Take "${take.id}" has no imported media to review yet — its frames aren't available.`,
+			);
+		}
+
+		const count = Math.max(1, Math.min(3, input.frames ?? 3));
+		const frames = await extractTakeFrames(
+			editor.media.getAssetById(take.mediaId),
+			{ count, name: take.id },
+		);
+		if (frames.length === 0) {
+			return fail(
+				`Couldn't decode any frames from take "${take.id}" to review.`,
+			);
+		}
+
+		const prompt = located.element.generation.prompt;
+		return ok(
+			`Reviewing take "${take.id}" of slot "${input.slotId}" against its prompt (${JSON.stringify(
+				prompt,
+			)}). ${frames.length} frame(s) attached (first → last) — judge whether the clip realizes that prompt.`,
+			{
+				slotId: located.element.id,
+				takeId: take.id,
+				prompt,
+				status: take.status,
+				frameCount: frames.length,
+				frames,
+			},
+		);
+	}
+
 	// ---- EDIT (delegate to timeline-manager) ------------------------------
 	//
 	// UNIT CONVENTION: every numeric time/duration field on this API surface is
@@ -1920,6 +2015,7 @@ export function createDirectorApi(
 		compareTake,
 		remix,
 		chooseTake,
+		reviewTake,
 		// consistency
 		getConsistencyContext,
 		setConsistencyContext,

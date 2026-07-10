@@ -42,6 +42,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { DirectorApi } from "./director-api";
 import type { StoryboardPlan } from "./storyboard-plan";
+import type { ReviewTakeData } from "./types";
 import { PLAYBOOKS } from "@/lib/studio/playbooks";
 import { createShortIdMap, type ShortIdMap } from "./short-id";
 import {
@@ -58,6 +59,14 @@ import {
 	type JSONSchema,
 	type ToolHandler,
 } from "./tool-catalog";
+import {
+	buildCriticUserBlocks,
+	CRITIC_SYSTEM_PROMPT,
+	dataUrlToImageBlock,
+	parseVerdict,
+	wantsAutoReview,
+	type CriticVerdict,
+} from "./vision-critic";
 
 /** Single-shot, non-streaming chat call: (message, system) → assistant text. Local (Ollama) transport. */
 export type AgentChatFn = (message: string, system: string) => Promise<string>;
@@ -404,13 +413,24 @@ async function executeTool(
 	director: DirectorApi,
 	action: string,
 	rawArgs: Record<string, unknown>,
-): Promise<{ step: AgentToolStep; observation: string }> {
+): Promise<{
+	step: AgentToolStep;
+	observation: string;
+	/**
+	 * What actually goes in the tool_result: the plain-text `observation` for most
+	 * verbs, or a text-plus-image block array for `reviewTake` so the model SEES
+	 * the take's frames. The stateless relay forwards message content verbatim, so
+	 * image blocks ride through to Claude unchanged (no relay change needed).
+	 */
+	content: string | Array<Anthropic.TextBlockParam | Anthropic.ImageBlockParam>;
+}> {
 	const tool = TOOLS[action];
 	if (!tool) {
 		const message = `Unknown action "${action}". Valid tools: ${Object.keys(TOOLS).join(", ")}.`;
 		return {
 			step: { action, args: rawArgs, ok: false, message },
 			observation: message,
+			content: message,
 		};
 	}
 
@@ -458,7 +478,25 @@ async function executeTool(
 	} else {
 		observation = result.message;
 	}
-	return { step, observation };
+
+	// reviewTake carries decoded frames — attach them as image content blocks so
+	// the model SEES the take instead of reading about it. The data URLs are kept
+	// OUT of `observation` (they're large and never belong in the step log); the
+	// text summary rides alongside the images in the tool_result content array.
+	let content:
+		| string
+		| Array<Anthropic.TextBlockParam | Anthropic.ImageBlockParam> = observation;
+	if (action === "reviewTake" && result.ok) {
+		const frames = (result.data as ReviewTakeData | undefined)?.frames ?? [];
+		const imageBlocks = frames
+			.map(dataUrlToImageBlock)
+			.filter((b): b is Anthropic.ImageBlockParam => b !== null);
+		if (imageBlocks.length > 0) {
+			content = [{ type: "text", text: observation }, ...imageBlocks];
+		}
+	}
+
+	return { step, observation, content };
 }
 
 // ── cost-preview approval gate (concept: cost-preview gate) ──────────────────
@@ -603,6 +641,210 @@ export async function executeDirectorAction(
 ): Promise<AgentToolStep> {
 	const { step } = await executeTool(director, action, args);
 	return step;
+}
+
+// ── vision self-review loop (concept: generate → SEE → fix) ──────────────────
+//
+// After a generation, the model normally never SEES the result. When the user
+// opts into quality ("make it good", a studio setting), we run a bounded,
+// DETERMINISTIC self-correction per generated slot: decode the take's frames
+// (reviewTake), have a tool-less critic judge them against the slot's prompt,
+// and act on the structured verdict — keep, reroll from a revised prompt, or
+// remix with a small anchored delta. Every corrective spend is gated by the SAME
+// cost-preview threshold as the interactive loop, so auto-review can never burn
+// budget past what the user would have to approve by hand.
+
+/** Max self-correction attempts per slot before auto-review gives up and keeps the take. */
+const MAX_AUTO_REVIEW_ATTEMPTS = 2;
+
+/** Record a synthetic (non-model) auto-review step so the UI shows what happened. */
+function recordAutoStep(
+	steps: AgentToolStep[],
+	onStep: ((step: AgentToolStep) => void) | undefined,
+	action: string,
+	message: string,
+	ok: boolean,
+): void {
+	const step: AgentToolStep = { action, args: {}, ok, message };
+	steps.push(step);
+	onStep?.(step);
+}
+
+/** A critic step: judge a take's frames against its intent → structured verdict. */
+export type CritiqueFn = (
+	intent: string,
+	frames: string[],
+) => Promise<CriticVerdict>;
+
+/** The production critic: one tool-less relay call → a parsed {@link CriticVerdict}. */
+const relayCritique: CritiqueFn = async (intent, frames) => {
+	const turn = await callAgentRelay({
+		messages: [
+			{ role: "user", content: buildCriticUserBlocks(intent, frames) },
+		],
+		system: CRITIC_SYSTEM_PROMPT,
+		tools: [],
+	});
+	return parseVerdict(textOf(turn.content));
+};
+
+/**
+ * Auto-review one slot: SEE → critique → correct, up to
+ * {@link MAX_AUTO_REVIEW_ATTEMPTS} times. Stops early on `pass`, on any
+ * non-reviewable state (take not ready / no media / critic error), or when a
+ * corrective action would cross the approval threshold (left for the user).
+ * Mutations go through the DirectorApi verbs, so the corrected take is selected
+ * and the next iteration re-reviews the NEW take.
+ *
+ * `critique` is injected (defaults to the relay critic) so the loop's decision →
+ * action wiring is testable without a live model call. Exported for the same
+ * reason.
+ */
+export async function autoReviewSlot(opts: {
+	director: DirectorApi;
+	slotId: string;
+	shortId: string;
+	threshold: number;
+	steps: AgentToolStep[];
+	onStep?: (step: AgentToolStep) => void;
+	critique?: CritiqueFn;
+}): Promise<void> {
+	const { director, slotId, shortId, threshold, steps, onStep } = opts;
+	const critique = opts.critique ?? relayCritique;
+
+	for (let attempt = 0; attempt < MAX_AUTO_REVIEW_ATTEMPTS; attempt++) {
+		// 1. SEE the current take.
+		const review = await director.reviewTake({ slotId });
+		if (!review.ok || !review.data) return; // nothing decodable to review — stop quietly.
+
+		// 2. Critic verdict — a relay failure must not derail the user's turn.
+		let verdict: CriticVerdict;
+		try {
+			verdict = await critique(review.data.prompt, review.data.frames);
+		} catch (err) {
+			recordAutoStep(
+				steps,
+				onStep,
+				"reviewTake",
+				`Skipped auto-review of slot ${shortId} — critic call failed: ${
+					err instanceof Error ? err.message : String(err)
+				}`,
+				false,
+			);
+			return;
+		}
+		recordAutoStep(
+			steps,
+			onStep,
+			"reviewTake",
+			`Reviewed slot ${shortId}: ${verdict.verdict}${verdict.reason ? ` — ${verdict.reason}` : ""}`,
+			true,
+		);
+
+		// 3. Keep it and stop.
+		if (verdict.verdict === "pass" || !verdict.revisedPrompt) return;
+
+		// 4. Cost gate: a corrective generation is a spend — never cross the
+		// approval threshold unsupervised. Pause and leave it for the user.
+		const est = director.estimateGenerateCost({
+			slotIds: [slotId],
+			alternatives: 1,
+		}).data;
+		if (est && needsApproval(est, threshold)) {
+			recordAutoStep(
+				steps,
+				onStep,
+				verdict.verdict === "reroll-with-delta" ? "reroll" : "remix",
+				`Auto-review paused on slot ${shortId} — a corrective ${verdict.verdict} (~${formatCostRange(
+					est,
+				)}) is over your approval threshold. Approve it to apply the fix.`,
+				false,
+			);
+			return;
+		}
+
+		// 5. Apply the correction through the real verbs.
+		let correctedTakeId: string | undefined;
+		let message: string;
+		let corrected: boolean;
+		if (verdict.verdict === "reroll-with-delta") {
+			director.setPrompt({ slotId, prompt: verdict.revisedPrompt });
+			const res = await director.reroll({ slotId, alternatives: 1 });
+			correctedTakeId = res.data?.takeIds?.[0];
+			message = res.message;
+			corrected = res.ok;
+		} else {
+			const res = await director.remix({
+				slotId,
+				remixPrompt: verdict.revisedPrompt,
+			});
+			correctedTakeId = res.data?.takeId;
+			message = res.message;
+			corrected = res.ok;
+		}
+		recordAutoStep(
+			steps,
+			onStep,
+			verdict.verdict === "reroll-with-delta" ? "reroll" : "remix",
+			message,
+			corrected,
+		);
+		if (!corrected) return;
+
+		// 6. Select the corrected take so the reel (and the next review) uses it.
+		// Bail if it didn't come back ready — don't spiral on a failing slot.
+		if (correctedTakeId) {
+			const take = director
+				.getSlot(slotId)
+				.data?.takes.find((t) => t.id === correctedTakeId);
+			if (take?.status === "ready") {
+				director.chooseTake({ slotId, takeId: correctedTakeId });
+			} else {
+				recordAutoStep(
+					steps,
+					onStep,
+					"reviewTake",
+					`Corrective take for slot ${shortId} came back ${take?.status ?? "unavailable"} — stopping auto-review.`,
+					false,
+				);
+				return;
+			}
+		}
+		// loop → re-review the corrected take.
+	}
+}
+
+/**
+ * Full ids of slots that a completed run generated or rerolled into, resolved
+ * from the recorded steps' (short-id) args — the set auto-review should inspect.
+ * A bare `generate` (no `slotIds`, or `"all"`) targets every current slot.
+ */
+function collectGeneratedSlotIds(
+	director: DirectorApi,
+	steps: AgentToolStep[],
+): string[] {
+	const map = reelShortIdMap(director);
+	const ids = new Set<string>();
+	const expand = (v: unknown) => {
+		if (typeof v === "string" && v) {
+			try {
+				ids.add(map.expand(v));
+			} catch {
+				/* stale short id — skip */
+			}
+		}
+	};
+	for (const step of steps) {
+		if (!step.ok) continue;
+		if (step.action === "generate") {
+			const raw = step.args.slotIds;
+			if (Array.isArray(raw)) raw.forEach(expand);
+			else for (const s of director.getReel().slots) ids.add(s.id);
+		} else if (step.action === "reroll") {
+			expand(step.args.slotId);
+		}
+	}
+	return [...ids];
 }
 
 // ── frontier brain (Claude native tool-calling via the server relay) ─────────
@@ -782,6 +1024,12 @@ export function buildFrontierSystemPrompt(director: DirectorApi): string {
 		"HONOR THE BRIEF: the DIRECTOR BRIEF below is the user's durable creative intent. Let it shape every prompt you write and every take you pick. When the user states a new preference — or a chosen take reveals one — call updateBrief so it persists for later turns.",
 		briefBlock(director),
 		"",
+		"VISION REVIEW: you cannot judge a generated clip from its prompt alone — you must SEE it. Call `reviewTake` to get a slot take's actual frames (first→mid→last) as images, then decide against the slot's prompt:",
+		"  · faithful → keep it (chooseTake if it isn't already active); do nothing more.",
+		"  · fundamentally wrong shot (wrong subject/scene, missing the point) → fix the prompt with `setPrompt`, then `reroll` for a fresh take.",
+		"  · mostly right but one flaw (extra finger, wrong color, missing prop) → `remix` with a SHORT delta prompt to edit it in place, seed-anchored.",
+		"Review when the user cares about quality (asks for it to look good/right/best), when a take might be off, or before finishing an important shot — not reflexively after every generation. A separate automatic review may also run for quality-focused turns; it uses the same reviewTake→verdict→fix logic.",
+		"",
 		'If the user wants UGC/influencer-style, "looks like a real phone photo" imagery or video, follow these playbook conventions when writing prompts:',
 		PLAYBOOK_POINTER,
 		"",
@@ -831,6 +1079,35 @@ async function runDirectorAgentFrontier(opts: {
 			cancelled: true,
 		};
 	};
+
+	/**
+	 * On a clean completion, optionally run the vision self-review loop over the
+	 * slots this turn generated, appending its steps to the result. Gated on the
+	 * user's opt-in ({@link wantsAutoReview}) and skipped when the run paused for
+	 * approval (nothing generated to review). Failures here never mask the turn's
+	 * own result — auto-review is best-effort polish.
+	 */
+	async function finalize(result: AgentRunResult): Promise<AgentRunResult> {
+		if (result.awaitingApproval) return result;
+		const settingEnabled =
+			useStudioSettingsStore.getState().autoReviewEnabled ?? false;
+		if (!wantsAutoReview(userMessage, settingEnabled)) return result;
+		const slotIds = collectGeneratedSlotIds(director, result.steps);
+		if (slotIds.length === 0) return result;
+		const threshold = approvalThreshold();
+		const map = reelShortIdMap(director);
+		for (const slotId of slotIds) {
+			await autoReviewSlot({
+				director,
+				slotId,
+				shortId: map.shorten(slotId),
+				threshold,
+				steps: result.steps,
+				onStep,
+			});
+		}
+		return result;
+	}
 
 	for (let call = 0; call < MAX_MODEL_CALLS; call++) {
 		if (isAbort(signal)) return cancelledResult();
@@ -883,7 +1160,7 @@ async function runDirectorAgentFrontier(opts: {
 		);
 		if (toolUses.length === 0) {
 			// end_turn (or max_tokens) with no tool calls — we're done.
-			return { finalMessage: textOf(turn.content), steps };
+			return finalize({ finalMessage: textOf(turn.content), steps });
 		}
 
 		// Execute EVERY tool_use block in this assistant message, then return
@@ -926,11 +1203,7 @@ async function runDirectorAgentFrontier(opts: {
 				cost: previewToolCost(director, use.name, rawArgs),
 			});
 
-			const { step, observation } = await executeTool(
-				director,
-				use.name,
-				rawArgs,
-			);
+			const { step, content } = await executeTool(director, use.name, rawArgs);
 			steps.push(step);
 			onStep?.(step);
 			onEvent?.({ type: "tool_finish", callId, step });
@@ -938,7 +1211,7 @@ async function runDirectorAgentFrontier(opts: {
 			resultBlocks.push({
 				type: "tool_result",
 				tool_use_id: use.id,
-				content: observation,
+				content,
 				...(step.ok ? {} : { is_error: true }),
 			});
 		}
@@ -956,12 +1229,12 @@ async function runDirectorAgentFrontier(opts: {
 	}
 
 	// Model-call ceiling hit without a clean close — surface the best text we saw.
-	return {
+	return finalize({
 		finalMessage:
 			lastText ||
 			`Stopped after ${MAX_MODEL_CALLS} model turns (${steps.length} tool call(s) executed).`,
 		steps,
-	};
+	});
 }
 
 // ── local brain (plain-text ReAct over Ollama — privacy mode / fallback) ─────

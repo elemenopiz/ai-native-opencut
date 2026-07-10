@@ -402,7 +402,8 @@ const slotSpecSchema: JSONSchema = {
  * The Director verbs, one descriptor each — including `export` (maps to
  * `director-api.ts`'s `exportReel`), the model-routing surface (`getBackends`
  * to read the catalog, `backendId` on generate/reroll, `compareTake` to A/B two
- * backends), and the durable-brief pair (`getBrief`/`updateBrief`).
+ * backends), the durable-brief pair (`getBrief`/`updateBrief`), and `reviewTake`
+ * (decode a take's frames so the model can SEE and judge it).
  */
 export function toolCatalog(): ToolDescriptor[] {
 	return [
@@ -779,6 +780,39 @@ export function toolCatalog(): ToolDescriptor[] {
 				},
 			},
 			handler: (d, a) => d.updateBrief(asBriefPatch(a)),
+		},
+		{
+			name: "reviewTake",
+			description:
+				"SEE a take — decode first/mid/last frames of a slot's take as images so you can judge whether the generated clip actually realizes the slot's prompt. Use before keeping a shot when quality matters; act on what you see (chooseTake to keep, setPrompt+reroll to redo, or remix for a small fix).",
+			// Read-only: decodes frames, changes nothing on the reel → reel:read.
+			mutating: false,
+			inputSchema: {
+				type: "object",
+				properties: {
+					slotId: slotIdProp,
+					takeId: {
+						type: "string",
+						description:
+							"Short take id to review; omit to review the active (or most recent ready) take.",
+					},
+					frames: {
+						type: "integer",
+						default: 3,
+						minimum: 1,
+						maximum: 3,
+						description:
+							"How many frames to sample (1–3, spread first→mid→last). Default 3.",
+					},
+				},
+				required: ["slotId"],
+			},
+			handler: (d, a) =>
+				d.reviewTake({
+					slotId: str(a.slotId),
+					takeId: strOrUndefined(a.takeId),
+					frames: numOrUndefined(a.frames),
+				}),
 		},
 		// ── consistency ─────────────────────────────────────────────────────
 		{

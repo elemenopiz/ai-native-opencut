@@ -45,6 +45,12 @@ interface StudioSettingsState {
 	// exceeds this USD threshold ask for explicit approval before spending
 	// (see `lib/studio/cost.ts`). Trivial single re-rolls fall under it.
 	approvalThresholdUsd: number;
+	// Vision self-review: when on, the Director automatically reviews each
+	// generated slot's frames against its prompt and self-corrects (reroll/remix)
+	// up to a bounded number of attempts, still gated by the approval threshold
+	// above (see `lib/director/vision-critic.ts`). Off ⇒ review only when the
+	// user's message asks for quality, or when the model calls `reviewTake` itself.
+	autoReviewEnabled: boolean;
 
 	set: (patch: Partial<Omit<StudioSettingsState, "set">>) => void;
 }
@@ -63,6 +69,7 @@ export const useStudioSettingsStore = create<StudioSettingsState>()(
 			imageSize: "1024x1536",
 			imageQuality: "high",
 			approvalThresholdUsd: DEFAULT_APPROVAL_THRESHOLD_USD,
+			autoReviewEnabled: false,
 			set: (patch) => set(patch),
 		}),
 		{ name: "studio-settings" },
