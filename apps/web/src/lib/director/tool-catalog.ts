@@ -304,7 +304,7 @@ const slotSpecSchema: JSONSchema = {
 // ── the catalog ───────────────────────────────────────────────────────────────
 
 /**
- * The 25 Director verbs, one descriptor each. The `export` verb is intentionally
+ * The 26 Director verbs, one descriptor each. The `export` verb is intentionally
  * omitted — it is not wired (see `director-api.ts`'s `exportReel`).
  */
 export function toolCatalog(): ToolDescriptor[] {
@@ -504,6 +504,39 @@ export function toolCatalog(): ToolDescriptor[] {
 				a.index != null
 					? d.chooseTake({ slotId: str(a.slotId), index: Number(a.index) })
 					: d.chooseTake({ slotId: str(a.slotId), takeId: str(a.takeId) }),
+		},
+		{
+			name: "reviewTake",
+			description:
+				"SEE a take — decode first/mid/last frames of a slot's take as images so you can judge whether the generated clip actually realizes the slot's prompt. Use before keeping a shot when quality matters; act on what you see (chooseTake to keep, setPrompt+reroll to redo, or remix for a small fix).",
+			// Read-only: decodes frames, changes nothing on the reel → reel:read.
+			mutating: false,
+			inputSchema: {
+				type: "object",
+				properties: {
+					slotId: slotIdProp,
+					takeId: {
+						type: "string",
+						description:
+							"Short take id to review; omit to review the active (or most recent ready) take.",
+					},
+					frames: {
+						type: "integer",
+						default: 3,
+						minimum: 1,
+						maximum: 3,
+						description:
+							"How many frames to sample (1–3, spread first→mid→last). Default 3.",
+					},
+				},
+				required: ["slotId"],
+			},
+			handler: (d, a) =>
+				d.reviewTake({
+					slotId: str(a.slotId),
+					takeId: strOrUndefined(a.takeId),
+					frames: numOrUndefined(a.frames),
+				}),
 		},
 		// ── consistency ─────────────────────────────────────────────────────
 		{

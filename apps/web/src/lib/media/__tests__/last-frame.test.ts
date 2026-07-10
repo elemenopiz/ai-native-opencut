@@ -1,11 +1,62 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
 	LAST_FRAME_EPSILON_S,
+	MAX_REVIEW_FRAMES,
 	extractLastFrame,
 	fetchVideoAsFile,
 	lastFrameTimestamp,
+	reviewFrameTimestamps,
 	videoFetchUrl,
 } from "@/lib/media/last-frame";
+
+describe("reviewFrameTimestamps", () => {
+	test("samples first / mid / last for a normal clip", () => {
+		const ts = reviewFrameTimestamps(6);
+		expect(ts).toHaveLength(3);
+		expect(ts[0]).toBe(0);
+		expect(ts[2]).toBeCloseTo(6 - LAST_FRAME_EPSILON_S, 5);
+		expect(ts[1]).toBeCloseTo((6 - LAST_FRAME_EPSILON_S) / 2, 5);
+	});
+
+	test("count 1 returns only the last frame (matches lastFrameTimestamp)", () => {
+		expect(reviewFrameTimestamps(6, 1)).toEqual([lastFrameTimestamp(6)]);
+	});
+
+	test("count 2 returns first + last", () => {
+		const ts = reviewFrameTimestamps(6, 2);
+		expect(ts).toHaveLength(2);
+		expect(ts[0]).toBe(0);
+		expect(ts[1]).toBeCloseTo(6 - LAST_FRAME_EPSILON_S, 5);
+	});
+
+	test("clamps count to 1..MAX_REVIEW_FRAMES; 0/NaN fall back to one frame", () => {
+		expect(reviewFrameTimestamps(6, 99)).toHaveLength(MAX_REVIEW_FRAMES);
+		expect(reviewFrameTimestamps(6, 0)).toEqual([lastFrameTimestamp(6)]);
+		expect(reviewFrameTimestamps(6, Number.NaN)).toEqual([
+			lastFrameTimestamp(6),
+		]);
+	});
+
+	test("collapses to a single frame for zero / invalid durations", () => {
+		expect(reviewFrameTimestamps(0)).toEqual([0]);
+		expect(reviewFrameTimestamps(-3)).toEqual([0]);
+		expect(reviewFrameTimestamps(Number.NaN)).toEqual([0]);
+	});
+
+	test("de-duplicates timestamps that collapse together on a tiny clip", () => {
+		expect(reviewFrameTimestamps(0.06, 3)).toEqual([0]);
+	});
+
+	test("returns strictly ascending, in-range timestamps", () => {
+		const duration = 12.5;
+		const ts = reviewFrameTimestamps(duration, 3);
+		for (let i = 1; i < ts.length; i++) {
+			expect(ts[i]).toBeGreaterThan(ts[i - 1]);
+		}
+		expect(ts[0]).toBeGreaterThanOrEqual(0);
+		expect(ts[ts.length - 1]).toBeLessThan(duration);
+	});
+});
 
 describe("lastFrameTimestamp", () => {
 	test("samples just before the reported end", () => {

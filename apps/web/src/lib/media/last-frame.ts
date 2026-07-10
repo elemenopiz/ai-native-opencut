@@ -34,6 +34,40 @@ export function lastFrameTimestamp(
 	return Math.max(0, durationSeconds - epsilon);
 }
 
+/** The most frames a single review samples — a first/mid/last triptych. */
+export const MAX_REVIEW_FRAMES = 3;
+
+/**
+ * Timestamps (seconds, ascending) to sample for a "review" of a clip — up to
+ * `count` frames spread first → mid → last so the model can judge how a shot
+ * OPENS, HOLDS, and RESOLVES, not just its final frame. Pure and cheap (it only
+ * picks sample points; decoding happens in {@link extractFrames}).
+ *
+ *  - count 1 → just the last frame (matches {@link lastFrameTimestamp}).
+ *  - count 2 → first + last.
+ *  - count 3 → first + midpoint + last.
+ *
+ * `count` is clamped to 1..{@link MAX_REVIEW_FRAMES}. On tiny/zero/invalid
+ * durations the samples collapse toward 0; timestamps within `epsilon` of each
+ * other are de-duplicated so a very short clip doesn't decode the same frame
+ * three times.
+ */
+export function reviewFrameTimestamps(
+	durationSeconds: number,
+	count = MAX_REVIEW_FRAMES,
+	epsilon = LAST_FRAME_EPSILON_S,
+): number[] {
+	const last = lastFrameTimestamp(durationSeconds, epsilon);
+	const n = Math.max(1, Math.min(MAX_REVIEW_FRAMES, Math.floor(count) || 1));
+	if (last <= 0 || n === 1) return [last];
+	const raw = n === 2 ? [0, last] : [0, last / 2, last];
+	const out: number[] = [];
+	for (const t of raw) {
+		if (!out.some((u) => Math.abs(u - t) < epsilon)) out.push(t);
+	}
+	return out;
+}
+
 /**
  * Resolve the URL to actually fetch a take's video from. Remote (cross-origin
  * http/https) URLs are routed through the same-origin `/api/studio/proxy` to
@@ -109,8 +143,73 @@ export async function extractTakeLastFrame(
 	asset: { type?: string; file?: File; url?: string } | undefined,
 	name?: string,
 ): Promise<string | undefined> {
-	if (!asset || asset.type !== "video") return undefined;
+	if (asset?.type !== "video") return undefined;
 	if (asset.file) return extractLastFrame({ videoFile: asset.file, name });
 	if (asset.url) return extractLastFrame({ videoUrl: asset.url, name });
 	return undefined;
+}
+
+/** Resolve a {@link LastFrameSource} to a decodable `File` (proxying remote URLs). */
+async function resolveSourceFile(
+	source: LastFrameSource,
+): Promise<File | undefined> {
+	if (source.videoFile) return source.videoFile;
+	if (source.videoUrl) return fetchVideoAsFile(source.videoUrl, source.name);
+	return undefined;
+}
+
+/**
+ * Decode up to `count` frames (first/mid/last — see {@link reviewFrameTimestamps})
+ * of a completed take's video to image data URLs, for a VISION review of the
+ * shot. Decodes the file ONCE, then samples each timestamp through the same
+ * `generateThumbnail` path {@link extractLastFrame} uses (no new decode
+ * dependency). Never throws: a frame that fails to decode is skipped, and a
+ * total failure resolves to `[]` so a caller can fall back to text-only review.
+ */
+export async function extractFrames(
+	source: LastFrameSource,
+	count = MAX_REVIEW_FRAMES,
+): Promise<string[]> {
+	try {
+		const file = await resolveSourceFile(source);
+		if (!file) return [];
+		const { duration } = await getVideoInfo({ videoFile: file });
+		const frames: string[] = [];
+		for (const timeInSeconds of reviewFrameTimestamps(duration, count)) {
+			try {
+				frames.push(
+					await generateThumbnail({ videoFile: file, timeInSeconds }),
+				);
+			} catch (error) {
+				console.warn(
+					"extractFrames: frame decode failed",
+					timeInSeconds,
+					error,
+				);
+			}
+		}
+		return frames;
+	} catch (error) {
+		console.warn("extractFrames failed", error);
+		return [];
+	}
+}
+
+/**
+ * Convenience over {@link extractFrames} for a resolved media asset (structurally
+ * typed so this module stays free of the editor/store types). Mirrors
+ * {@link extractTakeLastFrame}: prefers the in-memory `file`, falls back to
+ * `url`, and returns `[]` for non-video / missing assets.
+ */
+export async function extractTakeFrames(
+	asset: { type?: string; file?: File; url?: string } | undefined,
+	opts: { count?: number; name?: string } = {},
+): Promise<string[]> {
+	if (asset?.type !== "video") return [];
+	const count = opts.count ?? MAX_REVIEW_FRAMES;
+	if (asset.file)
+		return extractFrames({ videoFile: asset.file, name: opts.name }, count);
+	if (asset.url)
+		return extractFrames({ videoUrl: asset.url, name: opts.name }, count);
+	return [];
 }
