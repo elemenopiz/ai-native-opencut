@@ -15,6 +15,7 @@ import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { mcpTokens } from "@/lib/db/schema-mcp";
+import { getTokenCache } from "./token-cache";
 
 /** All scopes a token may carry (const tuple so `z.enum(MCP_SCOPES)` type-checks). */
 export const MCP_SCOPES = ["reel:read", "reel:write"] as const;
@@ -40,7 +41,9 @@ export function parseScopes(csv: string | null | undefined): McpScope[] {
 	return csv
 		.split(",")
 		.map((s) => s.trim())
-		.filter((s): s is McpScope => (MCP_SCOPES as readonly string[]).includes(s));
+		.filter((s): s is McpScope =>
+			(MCP_SCOPES as readonly string[]).includes(s),
+		);
 }
 
 /** Result of a successful token verification. */
@@ -63,6 +66,14 @@ export async function verifyProjectToken(
 	if (!token) return null;
 
 	const hash = hashToken(token);
+
+	// Fast path: a recently verified grant (positive results only; a revoked or
+	// unknown token is never cached, and revocation evicts the key). Bounded
+	// staleness — see `token-cache.ts`.
+	const cache = getTokenCache();
+	const cached = await cache.get(hash);
+	if (cached) return cached;
+
 	const rows = await db
 		.select()
 		.from(mcpTokens)
@@ -74,6 +85,7 @@ export async function verifyProjectToken(
 	if (row.revokedAt) return null;
 
 	// Best-effort last-used bump; never blocks the request on a write failure.
+	// Only refreshed on a cache miss, so `lastUsedAt` is accurate to ~TTL_SECONDS.
 	try {
 		await db
 			.update(mcpTokens)
@@ -83,9 +95,11 @@ export async function verifyProjectToken(
 		/* non-fatal: verification still succeeds */
 	}
 
-	return {
+	const grant: VerifiedToken = {
 		userId: row.userId,
 		projectId: row.projectId,
 		scopes: parseScopes(row.scopes),
 	};
+	await cache.set(hash, grant);
+	return grant;
 }
