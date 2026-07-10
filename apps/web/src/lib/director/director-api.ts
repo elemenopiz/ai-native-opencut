@@ -95,6 +95,11 @@ import {
 	type CostRange,
 } from "@/lib/studio/cost";
 import { createShortIdMap } from "./short-id";
+import {
+	buildLibraryManifest,
+	type AssetUnderstandingLookup,
+	type LibraryManifest,
+} from "./asset-manifest";
 import { aiClient } from "@/lib/ai-client";
 import { getAllEmbeddings } from "@/services/search/embedding-store";
 import { DEFAULT_TEXT_ELEMENT } from "@/constants/text-constants";
@@ -160,6 +165,13 @@ export type {
 	TakeCritic,
 	TakeStatus,
 } from "./types";
+
+export type {
+	AssetRole,
+	AssetUnderstanding,
+	AssetUnderstandingLookup,
+	LibraryManifest,
+} from "./asset-manifest";
 
 /**
  * A timeline element that is a generative slot — i.e. it carries a
@@ -266,6 +278,15 @@ export interface CreateDirectorApiOptions {
 			seed?: number;
 		}) => Promise<{ id: string } | null>;
 	};
+	/**
+	 * "Understanding Pass" seam (see `asset-manifest.ts`). A per-asset lookup that
+	 * returns the role/caption/face understanding for a media id — the data behind
+	 * the faceted library manifest folded into the agent's system prompt. Built by
+	 * a sibling agent; ABSENT ⇒ the manifest DEGRADES GRACEFULLY to media-type
+	 * counts + recent asset names. Pure + injectable, so this ships and is tested
+	 * independently — the same pattern as `executor`/`audio`/`references`.
+	 */
+	understanding?: AssetUnderstandingLookup;
 }
 
 const ok = <T>(message: string, data?: T): DirectorResult<T> => ({
@@ -726,11 +747,30 @@ export function createDirectorApi(
 	const CONTEXT_LIST_CAP = 5;
 
 	/**
+	 * Build the faceted, role-aware {@link LibraryManifest} from CURRENT editor
+	 * state (assets + persona roster) through the injected Understanding Pass
+	 * lookup. Shared by `getProjectInfo` (rides the system prompt) and the
+	 * `getLibraryManifest` verb (re-queryable on demand) so both render one digest.
+	 * Cheap, O(assets) — safe to rebuild every turn like `getProjectInfo` itself.
+	 */
+	function buildManifest(): LibraryManifest {
+		const assets = editor.media.getAssets();
+		const personas = usePersonaStore.getState().personas;
+		return buildLibraryManifest({
+			assets: assets.map((a) => ({ id: a.id, name: a.name, type: a.type })),
+			understanding: options.understanding,
+			personas: personas.map((p) => ({ id: p.id, name: p.name })),
+		});
+	}
+
+	/**
 	 * Compact project-level grounding: canvas/fps settings, the persona roster
-	 * (reusable characters for consistency), and a media-library summary. Read-
-	 * only — no `withDelta`, nothing mutates. Cheap enough to call every turn;
-	 * also folded into the agent's system prompt (see `agent.ts`'s context block)
-	 * so this exists both as prompt grounding AND as a re-queryable verb.
+	 * (reusable characters for consistency), and a faceted media-library MANIFEST
+	 * (counts by role, named heroes, face-anchors, a searchable tail — see
+	 * `asset-manifest.ts`). Read-only — no `withDelta`, nothing mutates. Cheap
+	 * enough to call every turn; also folded into the agent's system prompt (see
+	 * `agent.ts`'s context block) so this exists both as prompt grounding AND as a
+	 * re-queryable verb.
 	 */
 	function getProjectInfo(): DirectorResult<ProjectInfo> {
 		const project = editor.project.getActiveOrNull();
@@ -760,7 +800,21 @@ export function createDirectorApi(
 			recentAssets: assets
 				.slice(-CONTEXT_LIST_CAP)
 				.map((a) => ({ id: a.id, name: a.name })),
+			manifest: buildManifest(),
 		});
+	}
+
+	/**
+	 * Re-query the faceted library MANIFEST on demand (the same digest already in
+	 * the system prompt via `getProjectInfo`). The result `message` IS the one-line
+	 * digest; `data` carries the structured facets (per-role counts, named heroes
+	 * with FULL media ids + captions, face-anchor personas, the searchable tail) so
+	 * the agent can read exact ids/captions after the library changes mid-turn.
+	 * Read-only — nothing mutates.
+	 */
+	function getLibraryManifest(): DirectorResult<LibraryManifest> {
+		const manifest = buildManifest();
+		return ok(manifest.digest, manifest);
 	}
 
 	/**
@@ -3104,6 +3158,7 @@ export function createDirectorApi(
 		getReel,
 		getSlot,
 		getProjectInfo,
+		getLibraryManifest,
 		getBackends,
 		// media search / placement
 		searchMedia,

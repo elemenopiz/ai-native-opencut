@@ -364,12 +364,13 @@ function buildContextBlock(director: DirectorApi): string {
 		lines.push("PERSONAS: none created yet.");
 	}
 
-	const recent = info.recentAssets.length
-		? ` Recent: ${info.recentAssets.map((a) => a.name).join(", ")}.`
-		: "";
-	lines.push(
-		`MEDIA LIBRARY: ${info.assetCount} asset(s) indexed. searchMedia finds footage semantically; addClip places a hit on the timeline.${recent}`,
-	);
+	// STANDING LIBRARY AWARENESS: a faceted, role-aware manifest digest (counts by
+	// role, named heroes with captions, face-anchor personas, a searchable tail)
+	// instead of only the last few assets by recency — so the brain knows the whole
+	// library, not just what it happened to upload last. `getProjectInfo` builds it
+	// (via `asset-manifest.ts`) and it degrades to media-type counts + recent names
+	// when no Understanding Pass data is wired. `getLibraryManifest` re-queries it.
+	lines.push(info.manifest.digest);
 
 	return lines.join("\n");
 }
@@ -495,6 +496,7 @@ async function executeTool(
 			action === "searchMedia" ||
 			action === "getConsistencyContext" ||
 			action === "getProjectInfo" ||
+			action === "getLibraryManifest" ||
 			action === "getBackends" ||
 			action === "getBrief" ||
 			action === "intakeReferences")
