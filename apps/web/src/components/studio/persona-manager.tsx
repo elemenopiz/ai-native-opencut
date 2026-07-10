@@ -9,6 +9,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/utils/ui";
 import { usePersonaStore } from "@/stores/persona-store";
 import { uploadReferenceFile } from "@/lib/studio/reference-upload";
+import { gateOn402 } from "@/lib/credits/client-gate";
+import { useCreditsStore } from "@/stores/credits-store";
 
 interface PersonaManagerProps {
 	className?: string;
@@ -111,6 +113,10 @@ export function PersonaManager({ className }: PersonaManagerProps) {
 				}),
 			});
 			if (!res.ok) {
+				// Insufficient credits (402) → open the "Out of credits" modal.
+				if (await gateOn402(res)) {
+					return;
+				}
 				const data = (await res.json()) as { error?: string };
 				throw new Error(data.error ?? "Generation failed");
 			}
@@ -118,6 +124,7 @@ export function PersonaManager({ className }: PersonaManagerProps) {
 				images: Array<{ imageUrl: string }>;
 			};
 			setCandidates(data.images.map((i) => i.imageUrl));
+			void useCreditsStore.getState().refresh();
 		} catch (err) {
 			toast.error(
 				err instanceof Error ? err.message : "Could not generate portraits.",

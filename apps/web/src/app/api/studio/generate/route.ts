@@ -21,6 +21,17 @@ import { STILL_SIZE_BY_ORIENTATION } from "@/lib/studio/options";
 import { db } from "@/lib/db";
 import { generationSets, personas, takes } from "@/lib/db/schema-studio";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { costFor } from "@/lib/credits/cost-table";
+import {
+	InsufficientCredits,
+	release,
+	reserve,
+	settle,
+} from "@/lib/credits/ledger";
+import {
+	insufficientCreditsResponse,
+	STUDIO_REF_TYPE,
+} from "@/lib/credits/metering";
 import type { GenerationSpec, Provenance, TakeCost } from "@/types/timeline";
 
 /** Max value BytePlus accepts for a seed (signed 32-bit). */
@@ -244,22 +255,68 @@ export async function POST(req: Request) {
 		// errors — it returns `{ status: "failed", error }` — so re-throw to land in
 		// the outer catch (500, no take persisted), matching the pre-routing flow
 		// where `generateVideo` threw on submit failure.
-		const result = await route.backend.submit(normalized.request);
-		if (result.status === "failed") {
-			throw new Error(result.error ?? "Generation failed");
+		// Credits: reserve BEFORE dispatching the paid provider call. Cost is
+		// computed SERVER-SIDE from the routed backend + clip length; the client
+		// never supplies a price. Hold it against the account (402 if the user
+		// can't afford it) so we never bill a provider we can't cover. Keyed by
+		// setId so the async completion path (generate/[jobId]) settles/releases
+		// this exact hold and a retried callback can't double-charge.
+		const creditCost = costFor(route.backend.id, "video", {
+			seconds: duration,
+		});
+		try {
+			await reserve(session.user.id, creditCost, {
+				refType: STUDIO_REF_TYPE,
+				refId: setId,
+				idempotencyKey: `${setId}:reserve`,
+				metadata: { backendId: route.backend.id, seconds: duration },
+			});
+		} catch (err) {
+			if (err instanceof InsufficientCredits) {
+				return insufficientCreditsResponse(err);
+			}
+			throw err;
 		}
 
-		// Persist the take
-		const takeId = nanoid();
-		await db.insert(takes).values({
-			id: takeId,
-			setId,
-			seed: result.seed ?? effectiveSeed,
-			resolution,
-			providerJobId: result.jobId,
-			status: result.status === "completed" ? "kept" : "drafting",
-			videoUrl: result.mediaUrl ?? null,
-		});
+		let result: Awaited<ReturnType<typeof route.backend.submit>>;
+		let takeId: string;
+		try {
+			result = await route.backend.submit(normalized.request);
+			if (result.status === "failed") {
+				throw new Error(result.error ?? "Generation failed");
+			}
+
+			// Persist the take
+			takeId = nanoid();
+			await db.insert(takes).values({
+				id: takeId,
+				setId,
+				seed: result.seed ?? effectiveSeed,
+				resolution,
+				providerJobId: result.jobId,
+				status: result.status === "completed" ? "kept" : "drafting",
+				videoUrl: result.mediaUrl ?? null,
+			});
+
+			// Sync backends finish inline — settle now. Async video (pending/
+			// processing) stays reserved; the poll route settles on completion.
+			if (result.status === "completed" && creditCost > 0) {
+				await settle(session.user.id, creditCost, {
+					refType: STUDIO_REF_TYPE,
+					refId: setId,
+					idempotencyKey: `${setId}:settle`,
+					metadata: { backendId: route.backend.id },
+				});
+			}
+		} catch (err) {
+			// Never charge for a failed dispatch/persist — refund the hold.
+			await release(session.user.id, creditCost, {
+				refType: STUDIO_REF_TYPE,
+				refId: setId,
+				idempotencyKey: `${setId}:release`,
+			}).catch(() => {});
+			throw err;
+		}
 
 		const provenance: Provenance = {
 			backendId: route.backend.id,

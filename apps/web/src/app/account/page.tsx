@@ -17,6 +17,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DeleteAccountDialog } from "@/components/auth/delete-account-dialog";
+import { CreditsSection } from "@/components/auth/credits-section";
 
 export default function AccountPage() {
 	const { data: session, isPending } = useSession();
@@ -77,6 +78,8 @@ export default function AccountPage() {
 						)}
 					</CardContent>
 				</Card>
+
+				{isPending || !session?.user ? null : <CreditsSection />}
 
 				<Card className="border-destructive/30">
 					<CardHeader>

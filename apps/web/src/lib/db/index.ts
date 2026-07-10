@@ -3,9 +3,15 @@ import postgres from "postgres";
 import * as schema from "./schema";
 import * as studioSchema from "./schema-studio";
 import * as arrangementsSchema from "./schema-arrangements";
+import * as creditsSchema from "./schema-credits";
 import { webEnv } from "@byorn/env/web";
 
-const combinedSchema = { ...schema, ...studioSchema, ...arrangementsSchema };
+const combinedSchema = {
+	...schema,
+	...studioSchema,
+	...arrangementsSchema,
+	...creditsSchema,
+};
 
 // Carry the combined schema in the type so drizzle's relational query API
 // (`db.query.<table>`) is properly typed rather than resolving to `{}`.
@@ -25,3 +31,4 @@ export const db = getDb();
 export * from "./schema";
 export * from "./schema-studio";
 export * from "./schema-arrangements";
+export * from "./schema-credits";
