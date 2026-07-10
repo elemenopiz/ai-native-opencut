@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
+import { headers } from "next/headers";
 import { canRehost, rehostToR2 } from "@/lib/studio/media-storage";
+import { auth } from "@/lib/auth/server";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
 /**
  * Upload reference media for Seedance omni-reference. Accepts a single file
@@ -16,6 +19,21 @@ const MAX_INLINE_IMAGE_BYTES = 8 * 1024 * 1024; // 8 MB
 
 export async function POST(req: Request) {
 	try {
+		// Rehosting media to R2 is an open write path to our object storage —
+		// require a signed-in user so it can't be driven anonymously.
+		const session = await auth.api.getSession({ headers: await headers() });
+		if (!session?.user) {
+			return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+		}
+
+		// Throttle uploads per account (bounds R2 cost/abuse, not a paid model call).
+		const limited = await enforceRateLimit({
+			name: "studio:upload",
+			request: req,
+			userId: session.user.id,
+		});
+		if (limited) return limited;
+
 		const form = await req.formData();
 		const file = form.get("file");
 

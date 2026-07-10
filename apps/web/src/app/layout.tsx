@@ -9,6 +9,7 @@ import { webEnv } from "@byorn/env/web";
 import { Inter } from "next/font/google";
 import { JsonLd } from "@/components/seo/json-ld";
 import { GoogleAnalytics } from "@/components/seo/google-analytics";
+import { SessionExpiredListener } from "@/components/auth/session-expired-listener";
 
 const siteFont = Inter({ subsets: ["latin"] });
 
@@ -40,7 +41,10 @@ export default function RootLayout({
 					/>
 				)}
 			</head>
-			<body className={`${siteFont.className} font-sans antialiased`} suppressHydrationWarning>
+			<body
+				className={`${siteFont.className} font-sans antialiased`}
+				suppressHydrationWarning
+			>
 				<ThemeProvider
 					attribute="class"
 					defaultTheme="system"
@@ -48,6 +52,7 @@ export default function RootLayout({
 				>
 					<TooltipProvider>
 						<Toaster />
+						<SessionExpiredListener />
 						<Script
 							src="https://cdn.databuddy.cc/databuddy.js"
 							strategy="afterInteractive"

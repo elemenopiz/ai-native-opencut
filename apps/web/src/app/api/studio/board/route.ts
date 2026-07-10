@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
+import { headers } from "next/headers";
 import { desc, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { db } from "@/lib/db";
+import { auth } from "@/lib/auth/server";
 import {
 	boardItems,
 	takes,
@@ -12,6 +14,14 @@ import {
 // GET — fetch all board items, enriched with their take+set or image still
 export async function GET() {
 	try {
+		// The board is shared server-side (no owner column yet — see route note),
+		// so gating on a session only closes the anonymous-read hole. TRUE per-user
+		// isolation needs an ownerId column + query scoping (follow-up).
+		const session = await auth.api.getSession({ headers: await headers() });
+		if (!session?.user) {
+			return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+		}
+
 		const items = await db
 			.select()
 			.from(boardItems)
@@ -31,8 +41,8 @@ export async function GET() {
 					: null;
 				const set = take
 					? await db.query.generationSets.findFirst({
-						where: eq(generationSets.id, take.setId),
-					})
+							where: eq(generationSets.id, take.setId),
+						})
 					: null;
 				return { ...item, take, set, image: null };
 			}),
@@ -40,7 +50,8 @@ export async function GET() {
 
 		return NextResponse.json({ items: enriched });
 	} catch (err) {
-		const message = err instanceof Error ? err.message : "Failed to fetch board";
+		const message =
+			err instanceof Error ? err.message : "Failed to fetch board";
 		return NextResponse.json({ error: message }, { status: 500 });
 	}
 }
@@ -48,7 +59,12 @@ export async function GET() {
 // POST — pin a take or an image still to the board
 export async function POST(req: Request) {
 	try {
-		const body = await req.json() as {
+		const session = await auth.api.getSession({ headers: await headers() });
+		if (!session?.user) {
+			return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+		}
+
+		const body = (await req.json()) as {
 			takeId?: string;
 			imageStillId?: string;
 			notes?: string;
@@ -85,7 +101,8 @@ export async function POST(req: Request) {
 
 		return NextResponse.json({ item });
 	} catch (err) {
-		const message = err instanceof Error ? err.message : "Failed to pin to board";
+		const message =
+			err instanceof Error ? err.message : "Failed to pin to board";
 		return NextResponse.json({ error: message }, { status: 500 });
 	}
 }
@@ -93,6 +110,11 @@ export async function POST(req: Request) {
 // DELETE — remove a take from the board
 export async function DELETE(req: Request) {
 	try {
+		const session = await auth.api.getSession({ headers: await headers() });
+		if (!session?.user) {
+			return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+		}
+
 		const { searchParams } = new URL(req.url);
 		const id = searchParams.get("id");
 		if (!id) {
@@ -102,7 +124,8 @@ export async function DELETE(req: Request) {
 		await db.delete(boardItems).where(eq(boardItems.id, id));
 		return NextResponse.json({ ok: true });
 	} catch (err) {
-		const message = err instanceof Error ? err.message : "Failed to remove from board";
+		const message =
+			err instanceof Error ? err.message : "Failed to remove from board";
 		return NextResponse.json({ error: message }, { status: 500 });
 	}
 }
