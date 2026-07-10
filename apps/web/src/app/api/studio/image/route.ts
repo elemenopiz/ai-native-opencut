@@ -10,6 +10,7 @@ import { db } from "@/lib/db";
 import { imageStills } from "@/lib/db/schema-studio";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth/server";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
 export async function POST(req: Request) {
 	try {
@@ -18,6 +19,14 @@ export async function POST(req: Request) {
 		if (!session?.user) {
 			return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 		}
+
+		// Cap paid image generation per account (both burst and daily volume).
+		const limited = await enforceRateLimit({
+			name: "studio:image",
+			request: req,
+			userId: session.user.id,
+		});
+		if (limited) return limited;
 
 		const body = (await req.json()) as {
 			prompt: string;

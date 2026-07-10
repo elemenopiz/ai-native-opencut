@@ -11,6 +11,7 @@ import { db } from "@/lib/db";
 import { takes, generationSets } from "@/lib/db/schema-studio";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth/server";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
 export async function GET(
 	_req: Request,
@@ -25,6 +26,16 @@ export async function GET(
 		if (!session?.user) {
 			return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 		}
+
+		// Polling is looped by the client, so this cap is generous — it exists to
+		// bound a runaway/abusive poller, not normal polling.
+		const limited = await enforceRateLimit({
+			name: "studio:poll",
+			request: _req,
+			userId: session.user.id,
+		});
+		if (limited) return limited;
+
 		const ownTake = await db.query.takes.findFirst({
 			where: eq(takes.providerJobId, jobId),
 		});

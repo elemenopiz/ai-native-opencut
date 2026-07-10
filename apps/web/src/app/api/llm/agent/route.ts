@@ -19,7 +19,10 @@
  */
 
 import { NextResponse } from "next/server";
+import { headers } from "next/headers";
 import Anthropic from "@anthropic-ai/sdk";
+import { auth } from "@/lib/auth/server";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -74,6 +77,23 @@ export async function POST(req: Request) {
 			{ status: 503 },
 		);
 	}
+
+	// A provider key IS configured, so this relay bills our key — require a
+	// signed-in user. (Placed AFTER the no-key check so a self-hosted instance
+	// with no key still returns the 503 the client uses to fall back to local
+	// Ollama, rather than a 401 that blocks the privacy path for anonymous users.)
+	const session = await auth.api.getSession({ headers: await headers() });
+	if (!session?.user) {
+		return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+	}
+
+	// Cap paid relay calls per account (both burst and daily volume).
+	const limited = await enforceRateLimit({
+		name: "llm:agent",
+		request: req,
+		userId: session.user.id,
+	});
+	if (limited) return limited;
 
 	let body: AgentRelayRequest;
 	try {
