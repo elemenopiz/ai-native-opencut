@@ -73,6 +73,8 @@ import type {
 	ExportQuality,
 } from "@/types/export";
 import type {
+	BackendCatalogEntry,
+	BackendCatalogProvider,
 	DirectorResult,
 	MediaSearchHit,
 	MutationDelta,
@@ -81,10 +83,13 @@ import type {
 	SlotChange,
 	SlotSnapshot,
 	GenerateExecutor,
+	TakeCritic,
 	UniformShift,
 } from "./types";
 
 export type {
+	BackendCatalogEntry,
+	BackendCatalogProvider,
 	DirectorResult,
 	GenerateExecutor,
 	GenerationSpec,
@@ -94,6 +99,7 @@ export type {
 	ReelSnapshot,
 	SlotSnapshot,
 	Take,
+	TakeCritic,
 	TakeStatus,
 } from "./types";
 
@@ -120,6 +126,19 @@ export interface CreateDirectorApiOptions {
 	 * configured. See `// TODO(generation-pipeline)`.
 	 */
 	executor?: GenerateExecutor;
+	/**
+	 * Read-through to the client-safe backend catalog (see
+	 * {@link BackendCatalogProvider}). Powers the `getBackends` verb so the agent
+	 * can route intent-appropriately. Omitted ⇒ `getBackends` reports an empty
+	 * catalog and generation uses default auto-routing.
+	 */
+	backends?: BackendCatalogProvider;
+	/**
+	 * Optional vision critic used by `compareTake` to auto-pick the better of two
+	 * A/B takes (D1). Omitted ⇒ `compareTake` presents both takes for the user to
+	 * choose (graceful no-op until D1 is merged).
+	 */
+	critic?: TakeCritic;
 }
 
 const ok = <T>(message: string, data?: T): DirectorResult<T> => ({
@@ -196,7 +215,7 @@ export function createDirectorApi(
 	editor: EditorCore,
 	options: CreateDirectorApiOptions = {},
 ) {
-	const { executor } = options;
+	const { executor, backends: backendsProvider, critic } = options;
 
 	// ---- internal helpers -------------------------------------------------
 
@@ -462,6 +481,41 @@ export function createDirectorApi(
 				.slice(-CONTEXT_LIST_CAP)
 				.map((a) => ({ id: a.id, name: a.name })),
 		});
+	}
+
+	/**
+	 * List the generation backends available right now — each with its modality,
+	 * safety tier, identity capabilities, and a RELATIVE cost tier — so the agent
+	 * can choose a `backendId` intent-appropriately (draft on cheap, hero on
+	 * premium, persona-critical on seed-lock-capable). Read-only. Reads through the
+	 * injected {@link BackendCatalogProvider}; with none wired it returns an empty
+	 * catalog (generation then uses default auto-routing). This is the read side of
+	 * model-routing; `generate`/`reroll`/`compareTake` are the write side.
+	 */
+	async function getBackends(input?: {
+		modality?: "video" | "image";
+	}): Promise<DirectorResult<BackendCatalogEntry[]>> {
+		if (!backendsProvider) {
+			return ok(
+				"No backend catalog is wired in this context — generation uses default auto-routing.",
+				[],
+			);
+		}
+		try {
+			const list = await backendsProvider(input?.modality);
+			return ok(
+				list.length
+					? `${list.length} backend(s) available.`
+					: "No backends are configured — set provider keys to enable model routing.",
+				list,
+			);
+		} catch (error) {
+			return fail(
+				`Failed to load backends: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+			);
+		}
 	}
 
 	// ---- CONSISTENCY --------------------------------------------------------
@@ -790,6 +844,7 @@ export function createDirectorApi(
 	async function runTakesForSlot(
 		slotId: string,
 		count: number,
+		backendId?: string,
 	): Promise<DirectorResult<{ slotId: string; takeIds: string[] }>> {
 		const located = findSlot(slotId);
 		if (!located) return fail(`No slot with id "${slotId}".`);
@@ -799,11 +854,19 @@ export function createDirectorApi(
 			return fail(`Slot "${slotId}" has no prompt; set one before generating.`);
 		}
 
+		// A per-call `backendId` pins this run to a specific model (the router's
+		// `preferredBackendId`), overriding any model on the slot's own spec. It
+		// rides on `spec.model` — the field the studio pipeline forwards to
+		// `/api/studio/generate`, where `routeSlot` honors it.
+		const takeSpec: GenerationSpec = backendId
+			? { ...baseSpec, model: backendId }
+			: { ...baseSpec };
+
 		const newTakes: Take[] = Array.from({ length: count }, () => ({
 			id: generateUUID(),
 			status: "queued" as const,
-			spec: { ...baseSpec },
-			seed: baseSpec.seed,
+			spec: { ...takeSpec },
+			seed: takeSpec.seed,
 			createdAt: Date.now(),
 		}));
 
@@ -913,6 +976,8 @@ export function createDirectorApi(
 	async function generate(input: {
 		slotIds?: string[] | "all";
 		alternatives?: number;
+		/** Optional model pin for THIS run (the router's `preferredBackendId`). */
+		backendId?: string;
 	}): Promise<DirectorResult<{ slotIds: string[] }>> {
 		const before = captureReel();
 		const count = Math.max(1, input.alternatives ?? 1);
@@ -928,7 +993,7 @@ export function createDirectorApi(
 		const done: string[] = [];
 		const errors: string[] = [];
 		for (const slotId of targets) {
-			const result = await runTakesForSlot(slotId, count);
+			const result = await runTakesForSlot(slotId, count, input.backendId);
 			if (result.ok) done.push(slotId);
 			else errors.push(`${slotId}: ${result.message}`);
 		}
@@ -952,10 +1017,185 @@ export function createDirectorApi(
 	async function reroll(input: {
 		slotId: string;
 		alternatives?: number;
+		/** Optional model pin for THIS run (the router's `preferredBackendId`). */
+		backendId?: string;
 	}): Promise<DirectorResult<{ slotId: string; takeIds: string[] }>> {
 		const before = captureReel();
 		const count = Math.max(1, input.alternatives ?? 1);
-		return withDelta(before, await runTakesForSlot(input.slotId, count));
+		return withDelta(
+			before,
+			await runTakesForSlot(input.slotId, count, input.backendId),
+		);
+	}
+
+	/**
+	 * A/B one slot across TWO backends: generate the same shot on each `backendId`,
+	 * then AUTO-PICK the better take when a vision {@link TakeCritic} is wired,
+	 * otherwise leave both takes for the user to choose. This is the write side of
+	 * cost/quality-aware routing — spend 2x on a shot that matters and let the
+	 * critic (or the human) settle it. Costs twice a single generate; the agent's
+	 * cost gate accounts for that added spend before this runs.
+	 *
+	 * D1 GRACE: with no critic injected, auto-pick is a deliberate no-op — both
+	 * takes are appended and the user picks via `chooseTake`.
+	 */
+	async function compareTake(input: {
+		slotId: string;
+		backendIds: string[];
+	}): Promise<
+		DirectorResult<{
+			slotId: string;
+			takeIds: string[];
+			winner?: string;
+			autoPicked: boolean;
+		}>
+	> {
+		const before = captureReel();
+		const located = findSlot(input.slotId);
+		if (!located) return fail(`No slot with id "${input.slotId}".`);
+
+		const ids = [...new Set(input.backendIds.filter((s) => s && s.trim()))];
+		if (ids.length < 2) {
+			return fail(
+				"compareTake needs at least 2 distinct backendIds to compare (get them from getBackends).",
+			);
+		}
+
+		const baseSpec = located.element.generation;
+		if (!baseSpec.prompt) {
+			return fail(
+				`Slot "${input.slotId}" has no prompt; set one before comparing.`,
+			);
+		}
+
+		// No executor: enqueue one queued take per backend so the comparison is
+		// observable, but nothing renders (mirrors runTakesForSlot's no-executor path).
+		if (!executor) {
+			const takeIds: string[] = [];
+			for (const backendId of ids) {
+				const take: Take = {
+					id: generateUUID(),
+					status: "queued",
+					spec: { ...baseSpec, model: backendId },
+					seed: baseSpec.seed,
+					createdAt: Date.now(),
+				};
+				editor.timeline.addTakeToElement({ elementId: input.slotId, take });
+				takeIds.push(take.id);
+			}
+			return withDelta(
+				before,
+				ok(
+					`Queued ${ids.length} comparison take(s) for slot "${input.slotId}" (no generation executor configured — takes remain queued).`,
+					{ slotId: input.slotId, takeIds, autoPicked: false },
+				),
+			);
+		}
+
+		// Render one take per backend, each pinned via spec.model.
+		const produced: {
+			takeId: string;
+			backendId: string;
+			status: Take["status"];
+			mediaId?: string;
+			thumbnailUrl?: string;
+		}[] = [];
+		for (const backendId of ids) {
+			const take: Take = {
+				id: generateUUID(),
+				status: "generating",
+				spec: { ...baseSpec, model: backendId },
+				seed: baseSpec.seed,
+				createdAt: Date.now(),
+			};
+			editor.timeline.addTakeToElement({ elementId: input.slotId, take });
+
+			let result: Pick<
+				Take,
+				"status" | "mediaId" | "thumbnailUrl" | "seed" | "jobId" | "error"
+			>;
+			try {
+				result = await executor.run({
+					slotId: input.slotId,
+					takeId: take.id,
+					spec: take.spec,
+				});
+			} catch (error) {
+				result = {
+					status: "failed",
+					error: error instanceof Error ? error.message : String(error),
+				};
+			}
+			editor.timeline.updateTake({
+				elementId: input.slotId,
+				takeId: take.id,
+				patch: result,
+			});
+			produced.push({
+				takeId: take.id,
+				backendId,
+				status: result.status ?? "failed",
+				mediaId: result.mediaId,
+				thumbnailUrl: result.thumbnailUrl,
+			});
+		}
+
+		const takeIds = produced.map((p) => p.takeId);
+		const ready = produced.filter((p) => p.status === "ready");
+		if (ready.length === 0) {
+			return withDelta(
+				before,
+				ok(
+					`Compared ${ids.length} backend(s) for slot "${input.slotId}" but every take failed — see the takes for details.`,
+					{ slotId: input.slotId, takeIds, autoPicked: false },
+				),
+			);
+		}
+
+		// Auto-pick with the critic when present; any failure or no-pick falls back
+		// to presenting both takes (never throws the comparison away).
+		let winner: string | undefined;
+		let autoPicked = false;
+		if (critic && ready.length >= 2) {
+			try {
+				const pick = await critic.pickBest({
+					slotId: input.slotId,
+					prompt: baseSpec.prompt,
+					takes: ready.map((r) => ({
+						takeId: r.takeId,
+						mediaId: r.mediaId,
+						thumbnailUrl: r.thumbnailUrl,
+					})),
+				});
+				if (pick && ready.some((r) => r.takeId === pick.takeId)) {
+					editor.timeline.selectTake({
+						elementId: input.slotId,
+						takeId: pick.takeId,
+					});
+					winner = pick.takeId;
+					autoPicked = true;
+				}
+			} catch {
+				/* critic unavailable/failed → present both (graceful degradation) */
+			}
+		}
+
+		const message = autoPicked
+			? `Compared ${ids.length} backends on slot "${input.slotId}"; the vision critic auto-picked the winning take.`
+			: `Compared ${ids.length} backends on slot "${input.slotId}" — ${ready.length} take(s) ready; ${
+					critic
+						? "the critic returned no confident pick, so"
+						: "no vision critic is wired, so"
+				} choose the winner with chooseTake.`;
+		return withDelta(
+			before,
+			ok(message, {
+				slotId: input.slotId,
+				takeIds,
+				winner,
+				autoPicked,
+			}),
+		);
 	}
 
 	/**
@@ -1535,6 +1775,7 @@ export function createDirectorApi(
 		getReel,
 		getSlot,
 		getProjectInfo,
+		getBackends,
 		// media search / placement
 		searchMedia,
 		addClip,
@@ -1546,6 +1787,7 @@ export function createDirectorApi(
 		estimateGenerateCost,
 		generate,
 		reroll,
+		compareTake,
 		remix,
 		chooseTake,
 		// consistency

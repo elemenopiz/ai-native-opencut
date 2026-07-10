@@ -50,3 +50,21 @@ export function formatCredits(credits: number): string {
 	if (credits >= 1000) return `${(credits / 1000).toFixed(1)}k`;
 	return String(credits);
 }
+
+/**
+ * Bucket a backend's normalized credit estimate into a RELATIVE cost tier, judged
+ * against the cheapest available backend in the same modality (`minCredits`). This
+ * is the signal the Director reasons over — "draft on cheap, hero on premium" —
+ * without hard-coding provider names: a backend within ~⅓ of the floor is `cheap`,
+ * up to ~2.5× is `standard`, pricier than that is `premium`. Relative (not
+ * absolute) so the buckets stay meaningful as providers come and go.
+ */
+export function relativeCostTier(
+	credits: number,
+	minCredits: number,
+): "cheap" | "standard" | "premium" {
+	const ratio = minCredits > 0 ? credits / minCredits : 1;
+	if (ratio <= 1.34) return "cheap";
+	if (ratio <= 2.5) return "standard";
+	return "premium";
+}

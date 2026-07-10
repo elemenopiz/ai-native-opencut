@@ -24,6 +24,7 @@
 import type {
 	GenerationSpec,
 	GenerativeFields,
+	SafetyTier,
 	Take,
 	TakeStatus,
 } from "@/types/timeline";
@@ -31,7 +32,7 @@ import type { ConsistencyContext } from "./consistency-prompt";
 
 // Re-export the canonical generative types so Director consumers have a single
 // import site. These are NOT redefined — they live in `@/types/timeline`.
-export type { GenerationSpec, GenerativeFields, Take, TakeStatus };
+export type { GenerationSpec, GenerativeFields, SafetyTier, Take, TakeStatus };
 
 /** Compact, agent-readable snapshot of a single generative slot. */
 export interface SlotSnapshot {
@@ -178,6 +179,57 @@ export interface ProjectInfo {
 }
 
 /**
+ * One backend the Director may route a shot to, as seen by the AGENT (not the
+ * server registry). Mirrors the client-safe fields of `/api/studio/backends`
+ * plus a RELATIVE cost tier — enough for the model to pick intent-appropriately
+ * ("draft on cheap, hero on premium, persona-critical on seed-lock") without
+ * ever seeing a provider key. This is the read side of model-routing: the same
+ * catalog `useBackends` renders in the UI, handed to the agent as a verb.
+ */
+export interface BackendCatalogEntry {
+	id: string;
+	label: string;
+	vendor: string;
+	modality: "video" | "image";
+	safetyTier: SafetyTier;
+	intents: string[];
+	/** Reproduces identity from a seed — the persona-critical routing signal. */
+	supportsSeedLock: boolean;
+	/** Reference-conditioned edits (identity carry when no seed). */
+	supportsReferenceEdits: boolean;
+	/** Relative cost bucket vs. the cheapest available backend of this modality. */
+	costTier: "cheap" | "standard" | "premium";
+	/** Normalized credits for a nominal generation (finer-grained ranking aid). */
+	relativeCost: number;
+}
+
+/**
+ * Injectable read-through to the backend catalog. The Director API is browser-
+ * side pure logic and MUST NOT import the server registry (it reads secret keys),
+ * so the concrete provider (wired in `use-director`) fetches `/api/studio/backends`
+ * and hands back the client-safe entries. Absent ⇒ `getBackends` reports an empty
+ * catalog and generation falls back to default auto-routing.
+ */
+export type BackendCatalogProvider = (
+	modality?: "video" | "image",
+) => Promise<BackendCatalogEntry[]>;
+
+/**
+ * A vision critic that scores candidate takes and picks the best — the D1
+ * capability `compareTake` auto-picks with. Injected (not imported) so the
+ * Director degrades gracefully when D1 isn't merged: with no critic, `compareTake`
+ * simply presents both takes for the user to choose. Returning `null` (or an
+ * unknown takeId) means "no confident pick" → also present both.
+ */
+export interface TakeCritic {
+	pickBest(input: {
+		slotId: string;
+		prompt: string;
+		takes: { takeId: string; mediaId?: string; thumbnailUrl?: string }[];
+	}): Promise<{ takeId: string; reason?: string } | null>;
+}
+
+/**
  * Injectable boundary for the actual generation network calls.
  *
  * The Director API performs all *bookkeeping* (appending takes, flipping
@@ -196,5 +248,10 @@ export interface GenerateExecutor {
 		slotId: string;
 		takeId: string;
 		spec: GenerationSpec;
-	}): Promise<Pick<Take, "status" | "mediaId" | "thumbnailUrl" | "seed" | "jobId" | "error">>;
+	}): Promise<
+		Pick<
+			Take,
+			"status" | "mediaId" | "thumbnailUrl" | "seed" | "jobId" | "error"
+		>
+	>;
 }

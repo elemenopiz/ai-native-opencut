@@ -28,6 +28,7 @@ export {
 	sumCredits,
 	formatCredits,
 	estimateVideoCredits,
+	relativeCostTier,
 	VIDEO_CREDITS_PER_SEC,
 } from "@/lib/studio/backends/cost";
 export { ensureBackendsRegistered } from "@/lib/studio/backends/register-all";

@@ -79,6 +79,11 @@ export async function generateTakeMedia({
 				// studio form — otherwise a camera move set in the clip inspector is
 				// silently dropped on the slot/Director generation path.
 				prompt: composePromptWithCamera(spec.prompt, spec.cameraPreset ?? null),
+				// The routed model pin (backendId). The route maps this to
+				// `routeSlot`'s `preferredBackendId`; omitted ⇒ auto-route. Without
+				// forwarding it here, a per-shot/per-run backend choice was silently
+				// dropped on the Director/slot generation path.
+				model: spec.model,
 				referenceImageUrl: spec.referenceImageUrl,
 				referenceImages: spec.referenceImages,
 				referenceVideos: spec.referenceVideos,

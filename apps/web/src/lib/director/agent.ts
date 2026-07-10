@@ -176,6 +176,17 @@ function anthropicToolDefs(): Anthropic.Tool[] {
 	}));
 }
 
+/**
+ * The model-routing policy the Director reasons over. States the intent→tier
+ * mapping once, shared by both brains. The backend catalog itself is fetched
+ * on demand via `getBackends` (not dumped here) to keep the once-per-turn prompt
+ * cheap and byte-stable for caching.
+ */
+const MODEL_ROUTING_POLICY = [
+	"MODEL ROUTING: call getBackends to see the models available now — each has a cost tier (cheap/standard/premium), a safety tier, and whether it supports seed-lock. generate and reroll accept an optional `backendId`. Policy: draft and iterate on a CHEAP-tier backend; render final/hero shots on a PREMIUM-tier backend; put persona/identity-critical shots on a seed-lock-capable backend. Omit `backendId` to let the router auto-pick by intent.",
+	"A/B: to compare a shot across two models use compareTake with two backendIds — it auto-picks the winner when a vision critic is available, otherwise it adds both takes for the user to choose. It costs 2x, so reserve it for shots worth the extra spend.",
+].join("\n");
+
 /** Concise pointer to the UGC prompt playbooks — titles/descriptions only, not the full content. */
 const PLAYBOOK_POINTER = Object.values(PLAYBOOKS)
 	.map((p) => `- ${p.title}: ${p.description}`)
@@ -348,7 +359,8 @@ async function executeTool(
 		(action === "getSlot" ||
 			action === "searchMedia" ||
 			action === "getConsistencyContext" ||
-			action === "getProjectInfo")
+			action === "getProjectInfo" ||
+			action === "getBackends")
 	) {
 		observation = `${result.message} DATA:${JSON.stringify(result.data)}`;
 	} else {
@@ -366,8 +378,9 @@ async function executeTool(
 // runs the exact proposed action via `executeDirectorAction`. Fail-closed: the
 // agent cannot talk itself past the gate within a turn — the loop returns.
 
-/** Verbs gated behind the approval gate — they render takes and cost money. */
-const REQUIRES_APPROVAL = new Set(["generate", "reroll"]);
+/** Verbs gated behind the approval gate — they render takes and cost money.
+ *  `compareTake` is included because A/B doubles the spend (one take per backend). */
+const REQUIRES_APPROVAL = new Set(["generate", "reroll", "compareTake"]);
 
 /** The user-configured USD threshold, read live from the studio settings store. */
 function approvalThreshold(): number {
@@ -400,6 +413,20 @@ function estimateActionCost(
 			director.estimateGenerateCost({
 				slotIds: [str(args.slotId)],
 				alternatives: numOr(args.alternatives, 1),
+			}).data ?? null
+		);
+	}
+	if (action === "compareTake") {
+		// One take per backend on the one slot → alternatives = number of backends
+		// (at least 2). Reuses the same per-slot estimator so the preview matches
+		// the doubled A/B spend.
+		const backendCount = Array.isArray(args.backendIds)
+			? args.backendIds.length
+			: 0;
+		return (
+			director.estimateGenerateCost({
+				slotIds: [str(args.slotId)],
+				alternatives: Math.max(2, backendCount),
 			}).data ?? null
 		);
 	}
@@ -543,7 +570,8 @@ function buildFrontierSystemPrompt(director: DirectorApi): string {
 		"Use tools ONLY when the user wants to build or change the reel. For questions, ideas, scripts, or advice, reply with plain text and no tool calls.",
 		"You may request several independent tool calls in one turn; dependent steps (e.g. storyboard, then generate the new slots) belong in separate turns so you can read the ids from the results. Each tool result is a compact observation — mutating verbs report a CHANGES diff in short ids. The REEL listing below is a snapshot from the start of this turn; call getReel when you need a fresh view.",
 		"Think through multi-step edits as much as needed, then act decisively. When the task is done, reply with a short plain-text summary of what you did.",
-		"COST GATE: a generate/reroll that would spend more than a small amount pauses for the user's approval — the run stops and asks them out-of-band. This is expected, not an error; do NOT retry the same action to force it through.",
+		"COST GATE: a generate/reroll/compareTake that would spend more than a small amount pauses for the user's approval — the run stops and asks them out-of-band. This is expected, not an error; do NOT retry the same action to force it through.",
+		MODEL_ROUTING_POLICY,
 		"",
 		'If the user wants UGC/influencer-style, "looks like a real phone photo" imagery or video, follow these playbook conventions when writing prompts:',
 		PLAYBOOK_POINTER,
@@ -696,7 +724,8 @@ function buildLocalSystemPrompt(director: DirectorApi): string {
 		'  to reply: {"final":"<message to the user>"}',
 		"Use actions ONLY when the user wants to build or change the reel. For questions, ideas, scripts, or advice, answer with a final message.",
 		"After each action you receive an OBSERVATION. When the task is done, send a final message summarizing what you did.",
-		"COST GATE: a generate/reroll that would spend more than a small amount pauses for the user's approval — the run stops and asks them. This is expected, not an error; never retry the same action to force it through.",
+		"COST GATE: a generate/reroll/compareTake that would spend more than a small amount pauses for the user's approval — the run stops and asks them. This is expected, not an error; never retry the same action to force it through.",
+		MODEL_ROUTING_POLICY,
 		"",
 		buildContextBlock(director),
 		"",
