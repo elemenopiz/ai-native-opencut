@@ -60,7 +60,10 @@ jobs:
         working-directory: apps/web
         run: bun run build
 
+      - name: Typecheck
+        working-directory: apps/web
+        run: bun run typecheck
+
       - name: Run tests
         working-directory: apps/web
-        run: echo "No tests implemented yet"
-        continue-on-error: true
+        run: bun test
