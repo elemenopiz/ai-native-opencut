@@ -39,8 +39,9 @@ interface GenerationStatusStore {
 	 * Start polling `jobId` on an interval, invoking the caller-supplied
 	 * `pollFn` immediately and then every `POLL_INTERVAL_MS`. `pollFn` is
 	 * expected to resolve the job's latest status and call `setStatus` itself
-	 * (see `use-generation-polling.ts` for the composed version). No-ops if a
-	 * poll is already running for this id, or if the job is already terminal.
+	 * (see `createJobStatusPollFn` below for the canonical implementation).
+	 * No-ops if a poll is already running for this id, or if the job is already
+	 * terminal.
 	 */
 	startPolling: (jobId: string, pollFn: () => Promise<void>) => void;
 	stopPolling: (jobId: string) => void;
