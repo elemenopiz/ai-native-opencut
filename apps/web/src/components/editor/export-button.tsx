@@ -20,7 +20,21 @@ import {
 	downloadBuffer,
 } from "@/lib/export";
 import { exportCapcutDraft } from "@/lib/export/capcut-export";
-import { Check, Clapperboard, Copy, Download, RotateCcw } from "lucide-react";
+import {
+	Check,
+	Clapperboard,
+	Copy,
+	Download,
+	Layers,
+	RotateCcw,
+} from "lucide-react";
+import {
+	Dialog,
+	DialogContent,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
+import { BatchExportPanel } from "@/components/editor/panels/assets/views/batch-export";
 import { toast } from "sonner";
 import {
 	EXPORT_FORMAT_VALUES,
@@ -122,6 +136,7 @@ function ExportPopover({
 	);
 	const [shouldIncludeWatermark, setShouldIncludeWatermark] = useState(true);
 	const [isExportingCapcutDraft, setIsExportingCapcutDraft] = useState(false);
+	const [isBatchOpen, setIsBatchOpen] = useState(false);
 
 	const handlePresetSelect = (presetId: string) => {
 		const preset = EXPORT_PRESETS.find((p) => p.id === presetId);
@@ -387,10 +402,28 @@ function ExportPopover({
 											? "Preparing CapCut draft..."
 											: "Export as CapCut draft"}
 									</Button>
+									<Button
+										variant="outline"
+										className="w-full gap-2"
+										onClick={() => setIsBatchOpen(true)}
+									>
+										<Layers className="size-4" />
+										Batch export (multi-platform)
+									</Button>
 									<p className="text-[10px] text-muted-foreground leading-relaxed">
 										CapCut draft keeps your clips editable in CapCut / JianYing.
 										Unsupported effects are skipped.
 									</p>
+									<Dialog open={isBatchOpen} onOpenChange={setIsBatchOpen}>
+										<DialogContent className="max-w-md p-0">
+											<DialogHeader className="sr-only">
+												<DialogTitle>Batch export</DialogTitle>
+											</DialogHeader>
+											<div className="h-[70vh]">
+												<BatchExportPanel />
+											</div>
+										</DialogContent>
+									</Dialog>
 								</div>
 							</>
 						)}

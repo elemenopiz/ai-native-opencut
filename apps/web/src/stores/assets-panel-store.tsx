@@ -14,6 +14,8 @@ import {
 	Search01Icon,
 	StarIcon,
 	UserGroupIcon,
+	Camera01Icon,
+	GridIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 
@@ -27,6 +29,8 @@ export const TAB_KEYS = [
 	"audio",
 	"elements",
 	"visuals",
+	"multicam",
+	"templates",
 	"search",
 	"brandkit",
 	"settings",
@@ -76,6 +80,14 @@ export const tabs = {
 	visuals: {
 		icon: createHugeiconsIcon({ icon: MagicWand05Icon }),
 		label: "Visuals",
+	},
+	multicam: {
+		icon: createHugeiconsIcon({ icon: Camera01Icon }),
+		label: "Multicam",
+	},
+	templates: {
+		icon: createHugeiconsIcon({ icon: GridIcon }),
+		label: "Templates",
 	},
 	search: {
 		icon: createHugeiconsIcon({ icon: Search01Icon }),

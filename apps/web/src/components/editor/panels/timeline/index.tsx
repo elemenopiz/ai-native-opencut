@@ -63,6 +63,8 @@ import { useTimelinePlayhead } from "@/hooks/timeline/use-timeline-playhead";
 import { DragLine } from "./drag-line";
 import { invokeAction } from "@/lib/actions";
 import { AudioMixerPanel } from "./audio-mixer-panel";
+import { AudioEffectsChainPanel } from "./audio-effects-panel";
+import { MarkersPanel } from "./markers-panel";
 
 const TRACKS_CONTAINER_MAX_HEIGHT = 800;
 const FALLBACK_CONTAINER_WIDTH = 1000;
@@ -87,6 +89,8 @@ export function Timeline() {
 
 	const [isResizing, setIsResizing] = useState(false);
 	const [showMixer, setShowMixer] = useState(false);
+	const [showEffects, setShowEffects] = useState(false);
+	const [showMarkers, setShowMarkers] = useState(false);
 	const [currentSnapPoint, setCurrentSnapPoint] = useState<SnapPoint | null>(
 		null,
 	);
@@ -181,7 +185,8 @@ export function Timeline() {
 		zoomLevel,
 	});
 
-	const containerWidth = tracksContainerRef.current?.clientWidth || FALLBACK_CONTAINER_WIDTH;
+	const containerWidth =
+		tracksContainerRef.current?.clientWidth || FALLBACK_CONTAINER_WIDTH;
 	const contentWidth =
 		timelineDuration * TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel;
 	const paddingPx = getTimelinePaddingPx({
@@ -391,111 +396,112 @@ export function Timeline() {
 										[...tracks]
 											.map((track, index) => ({ track, index }))
 											.sort((a, b) => {
-											const aHasDragged = a.track.elements.some(
-												(element) => element.id === dragState.elementId,
-											);
-											const bHasDragged = b.track.elements.some(
-												(element) => element.id === dragState.elementId,
-											);
+												const aHasDragged = a.track.elements.some(
+													(element) => element.id === dragState.elementId,
+												);
+												const bHasDragged = b.track.elements.some(
+													(element) => element.id === dragState.elementId,
+												);
 												if (aHasDragged) return 1;
 												if (bHasDragged) return -1;
 												return 0;
 											})
 											.map(({ track, index }) => (
-											<ContextMenu key={track.id}>
-												<ContextMenuTrigger asChild>
-													<div
-														className="absolute right-0 left-0"
-														style={{
-															top: `${getCumulativeHeightBefore({
-																tracks,
-																trackIndex: index,
-															})}px`,
-															height: `${getTrackHeight({
-																type: track.type,
-															})}px`,
-														}}
-													>
-														<TimelineTrackContent
-															track={track}
-															zoomLevel={zoomLevel}
-															dragState={dragState}
-															rulerScrollRef={tracksScrollRef}
-															tracksScrollRef={tracksScrollRef}
-															lastMouseXRef={lastMouseXRef}
-															onSnapPointChange={handleSnapPointChange}
-															onResizeStateChange={handleResizeStateChange}
-															onElementMouseDown={handleElementMouseDown}
-															onElementClick={handleElementClick}
-															onTrackMouseDown={(event) => {
-																handleSelectionMouseDown(event);
-																handleTracksMouseDown(event);
+												<ContextMenu key={track.id}>
+													<ContextMenuTrigger asChild>
+														<div
+															className="absolute right-0 left-0"
+															style={{
+																top: `${getCumulativeHeightBefore({
+																	tracks,
+																	trackIndex: index,
+																})}px`,
+																height: `${getTrackHeight({
+																	type: track.type,
+																})}px`,
 															}}
-															onTrackClick={handleTracksClick}
-															shouldIgnoreClick={shouldIgnoreClick}
-															targetElementId={
-																isDragOver
-																	? dropTarget?.targetElement?.elementId ?? null
-																	: null
-															}
-														/>
-													</div>
-												</ContextMenuTrigger>
-												<ContextMenuContent className="w-40">
-													<ContextMenuItem
-														icon={<HugeiconsIcon icon={TaskAdd02Icon} />}
-												onClick={(event) => {
-														event.stopPropagation();
-														invokeAction("paste-copied");
-													}}
-												>
-													Paste elements
-												</ContextMenuItem>
-												<ContextMenuItem
-													onClick={(event) => {
-														event.stopPropagation();
-														timeline.toggleTrackMute({
-															trackId: track.id,
-														});
-													}}
-												>
-													<HugeiconsIcon icon={VolumeHighIcon} />
-													<span>
-														{canTracktHaveAudio(track) && track.muted
-															? "Unmute track"
-															: "Mute track"}
-													</span>
-												</ContextMenuItem>
-												<ContextMenuItem
-													onClick={(event) => {
-														event.stopPropagation();
-														timeline.toggleTrackVisibility({
-															trackId: track.id,
-														});
-													}}
-												>
-													<HugeiconsIcon icon={ViewIcon} />
-													<span>
-														{canTrackBeHidden(track) && track.hidden
-															? "Show track"
-															: "Hide track"}
-													</span>
-												</ContextMenuItem>
-												<ContextMenuItem
-													onClick={(event) => {
-														event.stopPropagation();
-														timeline.removeTrack({
-															trackId: track.id,
-														});
-													}}
-														variant="destructive"
-													>
-														<HugeiconsIcon icon={Delete02Icon} />
-														Delete track
-													</ContextMenuItem>
-												</ContextMenuContent>
-											</ContextMenu>
-										))
+														>
+															<TimelineTrackContent
+																track={track}
+																zoomLevel={zoomLevel}
+																dragState={dragState}
+																rulerScrollRef={tracksScrollRef}
+																tracksScrollRef={tracksScrollRef}
+																lastMouseXRef={lastMouseXRef}
+																onSnapPointChange={handleSnapPointChange}
+																onResizeStateChange={handleResizeStateChange}
+																onElementMouseDown={handleElementMouseDown}
+																onElementClick={handleElementClick}
+																onTrackMouseDown={(event) => {
+																	handleSelectionMouseDown(event);
+																	handleTracksMouseDown(event);
+																}}
+																onTrackClick={handleTracksClick}
+																shouldIgnoreClick={shouldIgnoreClick}
+																targetElementId={
+																	isDragOver
+																		? (dropTarget?.targetElement?.elementId ??
+																			null)
+																		: null
+																}
+															/>
+														</div>
+													</ContextMenuTrigger>
+													<ContextMenuContent className="w-40">
+														<ContextMenuItem
+															icon={<HugeiconsIcon icon={TaskAdd02Icon} />}
+															onClick={(event) => {
+																event.stopPropagation();
+																invokeAction("paste-copied");
+															}}
+														>
+															Paste elements
+														</ContextMenuItem>
+														<ContextMenuItem
+															onClick={(event) => {
+																event.stopPropagation();
+																timeline.toggleTrackMute({
+																	trackId: track.id,
+																});
+															}}
+														>
+															<HugeiconsIcon icon={VolumeHighIcon} />
+															<span>
+																{canTracktHaveAudio(track) && track.muted
+																	? "Unmute track"
+																	: "Mute track"}
+															</span>
+														</ContextMenuItem>
+														<ContextMenuItem
+															onClick={(event) => {
+																event.stopPropagation();
+																timeline.toggleTrackVisibility({
+																	trackId: track.id,
+																});
+															}}
+														>
+															<HugeiconsIcon icon={ViewIcon} />
+															<span>
+																{canTrackBeHidden(track) && track.hidden
+																	? "Show track"
+																	: "Hide track"}
+															</span>
+														</ContextMenuItem>
+														<ContextMenuItem
+															onClick={(event) => {
+																event.stopPropagation();
+																timeline.removeTrack({
+																	trackId: track.id,
+																});
+															}}
+															variant="destructive"
+														>
+															<HugeiconsIcon icon={Delete02Icon} />
+															Delete track
+														</ContextMenuItem>
+													</ContextMenuContent>
+												</ContextMenu>
+											))
 									)}
 								</div>
 							</div>
@@ -508,25 +514,77 @@ export function Timeline() {
 					<AudioMixerPanel />
 				</div>
 			)}
-			<button
-				type="button"
-				onClick={() => setShowMixer((prev) => !prev)}
-				className="flex items-center justify-center border-t py-0.5 text-[9px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-			>
-				{showMixer ? "Hide Mixer" : "Show Mixer"}
-			</button>
+			{showEffects && (
+				<div className="max-h-64 space-y-2 overflow-y-auto border-t bg-background/95 p-2">
+					{tracks.filter(
+						(track) => track.type === "audio" || track.type === "video",
+					).length === 0 ? (
+						<p className="py-3 text-center text-[10px] text-muted-foreground">
+							No audio or video tracks to add effects to.
+						</p>
+					) : (
+						tracks
+							.filter(
+								(track) => track.type === "audio" || track.type === "video",
+							)
+							.map((track) => (
+								<div key={track.id} className="rounded border p-2">
+									<div className="mb-1.5 text-[10px] font-medium text-muted-foreground">
+										{track.name || track.type}
+									</div>
+									<AudioEffectsChainPanel
+										trackId={track.id}
+										trackType={track.type as "audio" | "video"}
+									/>
+								</div>
+							))
+					)}
+				</div>
+			)}
+			{showMarkers && (
+				<div className="h-64 border-t bg-background/95">
+					<MarkersPanel />
+				</div>
+			)}
+			<div className="flex items-stretch border-t">
+				<button
+					type="button"
+					onClick={() => setShowMixer((prev) => !prev)}
+					className="flex flex-1 items-center justify-center border-r py-0.5 text-[9px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+				>
+					{showMixer ? "Hide Mixer" : "Show Mixer"}
+				</button>
+				<button
+					type="button"
+					onClick={() => setShowEffects((prev) => !prev)}
+					className="flex flex-1 items-center justify-center border-r py-0.5 text-[9px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+				>
+					{showEffects ? "Hide Effects" : "Show Effects"}
+				</button>
+				<button
+					type="button"
+					onClick={() => setShowMarkers((prev) => !prev)}
+					className="flex flex-1 items-center justify-center py-0.5 text-[9px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+				>
+					{showMarkers ? "Hide Markers" : "Show Markers"}
+				</button>
+			</div>
 		</section>
 	);
 }
 
 function TrackIcon({ track }: { track: TimelineTrack }) {
 	const config = TRACK_CONFIG[track.type];
-	return (
-		<span className="flex items-center shrink-0">{config.icon}</span>
- 	);
+	return <span className="flex items-center shrink-0">{config.icon}</span>;
 }
 
-function TrackLabelList({ tracks, editor }: { tracks: TimelineTrack[]; editor: ReturnType<typeof useEditor> }) {
+function TrackLabelList({
+	tracks,
+	editor,
+}: {
+	tracks: TimelineTrack[];
+	editor: ReturnType<typeof useEditor>;
+}) {
 	const [dragIndex, setDragIndex] = useState<number | null>(null);
 	const [dropIndex, setDropIndex] = useState<number | null>(null);
 
@@ -542,14 +600,17 @@ function TrackLabelList({ tracks, editor }: { tracks: TimelineTrack[]; editor: R
 		setDropIndex(index);
 	}, []);
 
-	const handleDrop = useCallback((e: React.DragEvent, toIndex: number) => {
-		e.preventDefault();
-		if (dragIndex !== null && dragIndex !== toIndex) {
-			editor.timeline.reorderTracks({ fromIndex: dragIndex, toIndex });
-		}
-		setDragIndex(null);
-		setDropIndex(null);
-	}, [dragIndex, editor]);
+	const handleDrop = useCallback(
+		(e: React.DragEvent, toIndex: number) => {
+			e.preventDefault();
+			if (dragIndex !== null && dragIndex !== toIndex) {
+				editor.timeline.reorderTracks({ fromIndex: dragIndex, toIndex });
+			}
+			setDragIndex(null);
+			setDropIndex(null);
+		},
+		[dragIndex, editor],
+	);
 
 	const handleDragEnd = useCallback(() => {
 		setDragIndex(null);
@@ -569,7 +630,9 @@ function TrackLabelList({ tracks, editor }: { tracks: TimelineTrack[]; editor: R
 					className={cn(
 						"group flex items-center gap-1 px-2 transition-colors",
 						dragIndex === index && "opacity-50",
-						dropIndex === index && dragIndex !== index && "border-t-2 border-primary",
+						dropIndex === index &&
+							dragIndex !== index &&
+							"border-t-2 border-primary",
 					)}
 					style={{
 						height: `${getTrackHeight({ type: track.type })}px`,
