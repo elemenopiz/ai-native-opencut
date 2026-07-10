@@ -31,6 +31,7 @@ import { aiClient } from "@/lib/ai-client";
 import type { TurboQuantStatus } from "@/types/ai";
 import { toast } from "sonner";
 import { FactCheckView } from "./factcheck";
+import { TurboQuantModelManager } from "./turboquant-model-manager";
 import type { ProxyResolution } from "@/services/storage/types";
 
 const ORIGINAL_PRESET_VALUE = "original";
@@ -86,6 +87,7 @@ export function SettingsView() {
 					</SectionHeader>
 					<SectionContent>
 						<APIKeysSection />
+						<StudioProviderKeysSection />
 					</SectionContent>
 				</Section>
 				{/* Fact Check renders its own PanelView header */}
@@ -810,6 +812,9 @@ function AIOptimizationSection() {
 					handleConfigUpdate({ AI_COMPUTE_MODE: mode }, label)
 				}
 			/>
+
+			{/* Multi-model manager: browse catalog / download / load / delete */}
+			<TurboQuantModelManager />
 		</div>
 	);
 }
@@ -1166,6 +1171,214 @@ function APIKeysSection() {
 						)}
 
 						<p className="text-[10px] text-muted-foreground">{field.description}</p>
+					</div>
+				);
+			})}
+		</div>
+	);
+}
+
+
+// ----- Studio Generation Providers (server-configured keys) -----
+
+/**
+ * Studio generation providers (inventory item D1).
+ *
+ * Unlike the keys above — which the browser stores and forwards to a Next.js
+ * route as a header (e.g. Freesound) — the studio generation adapters
+ * (`lib/studio/backends/{video,image}/*`) read their secrets SERVER-SIDE from
+ * `process.env`. There is no request path that carries a browser-entered key
+ * into those adapters, so an editable field here would persist a value that
+ * silently never takes effect. Instead this section reports the REAL server
+ * configuration state (from `GET /api/studio/provider-keys`, which returns
+ * booleans only — never key values) and tells the user which env var to set in
+ * `.env.local`. Honest status, not a dead input.
+ */
+
+interface ProviderKeyStatus {
+	id: string;
+	label: string;
+	vendor: string;
+	modality: "video" | "image";
+	requiredEnv: string[];
+	configured: boolean;
+}
+
+/** Where to get each provider's key — shown in the info popover. */
+const PROVIDER_KEY_HELP: Record<string, string> = {
+	RUNWAY_API_KEY: "Runway Gen-4 / Aleph video. Get a key at dev.runwayml.com.",
+	KLING_ACCESS_KEY:
+		"Kling video needs both an access key and a secret key. Get them at klingai.com (API access).",
+	KLING_SECRET_KEY:
+		"Kling video needs both an access key and a secret key. Get them at klingai.com (API access).",
+	GEMINI_API_KEY:
+		"Google Gemini key — shared by Veo (video), Imagen and Nano-Banana (image). Get it at aistudio.google.com/apikey.",
+	FAL_KEY:
+		"fal.ai serverless models (Pika, etc.). Get a key at fal.ai/dashboard/keys.",
+	BFL_API_KEY:
+		"Black Forest Labs FLUX image models. Get a key at dashboard.bfl.ai.",
+	IDEOGRAM_API_KEY:
+		"Ideogram image generation. Get a key at ideogram.ai (developer/API).",
+	OPENAI_API_KEY:
+		"OpenAI GPT-Image generation. Get a key at platform.openai.com/api-keys.",
+	LUMA_API_KEY:
+		"Luma Dream Machine (studio pipeline). Get a key at lumalabs.ai/dream-machine/api.",
+	BYTEPLUS_API_KEY:
+		"BytePlus ModelArk / Seedance 2.0 — the default studio video backend. Get a key at console.byteplus.com.",
+};
+
+/** Group backends by their required-env set so shared keys (e.g. Gemini across
+ *  Veo/Imagen/Nano-Banana) render once. */
+interface ProviderKeyGroup {
+	envKey: string;
+	requiredEnv: string[];
+	vendors: string[];
+	models: string[];
+	modalities: Set<"video" | "image">;
+	configured: boolean;
+}
+
+function groupProviders(providers: ProviderKeyStatus[]): ProviderKeyGroup[] {
+	const groups = new Map<string, ProviderKeyGroup>();
+	for (const p of providers) {
+		const envKey = [...p.requiredEnv].sort().join("+");
+		const existing = groups.get(envKey);
+		if (existing) {
+			if (!existing.vendors.includes(p.vendor)) existing.vendors.push(p.vendor);
+			existing.models.push(p.label);
+			existing.modalities.add(p.modality);
+			existing.configured = existing.configured && p.configured;
+		} else {
+			groups.set(envKey, {
+				envKey,
+				requiredEnv: p.requiredEnv,
+				vendors: [p.vendor],
+				models: [p.label],
+				modalities: new Set([p.modality]),
+				configured: p.configured,
+			});
+		}
+	}
+	return [...groups.values()];
+}
+
+function StudioProviderKeysSection() {
+	const [groups, setGroups] = useState<ProviderKeyGroup[] | null>(null);
+	const [error, setError] = useState(false);
+
+	useEffect(() => {
+		let cancelled = false;
+		fetch("/api/studio/provider-keys")
+			.then((res) => {
+				if (!res.ok) throw new Error(String(res.status));
+				return res.json() as Promise<{ providers: ProviderKeyStatus[] }>;
+			})
+			.then((data) => {
+				if (cancelled) return;
+				setGroups(groupProviders(data.providers ?? []));
+			})
+			.catch(() => {
+				if (!cancelled) setError(true);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
+	if (error) {
+		return (
+			<div className="mt-4 flex flex-col gap-1.5">
+				<Label className="text-xs">Studio Generation Providers</Label>
+				<p className="text-[10px] text-muted-foreground">
+					Couldn&apos;t load provider status.
+				</p>
+			</div>
+		);
+	}
+
+	if (!groups) {
+		return (
+			<div className="mt-4 flex flex-col gap-1.5">
+				<Label className="text-xs">Studio Generation Providers</Label>
+				<p className="text-[10px] text-muted-foreground">Loading…</p>
+			</div>
+		);
+	}
+
+	return (
+		<div className="mt-4 flex flex-col gap-2 border-t pt-3">
+			<Label className="text-xs">Studio Generation Providers</Label>
+			<p className="text-[11px] text-muted-foreground leading-relaxed">
+				These video/image models read their keys from the{" "}
+				<span className="font-medium">server environment</span> — set them in{" "}
+				<code className="text-[10px] font-mono bg-muted px-1 rounded">
+					.env.local
+				</code>{" "}
+				(they can&apos;t be stored from the browser like the keys above). Status
+				below reflects the live server config.
+			</p>
+
+			{groups.map((group) => {
+				const models = Array.from(new Set(group.models)).join(", ");
+				const info =
+					PROVIDER_KEY_HELP[group.requiredEnv[0]] ??
+					`Required environment: ${group.requiredEnv.join(", ")}.`;
+				return (
+					<div
+						key={group.envKey}
+						className={cn(
+							"flex flex-col gap-1.5 rounded-lg border p-2.5",
+							group.configured
+								? "border-green-500/20 bg-green-500/5"
+								: "border-border",
+						)}
+					>
+						<div className="flex items-center justify-between">
+							<div className="flex items-center gap-1.5">
+								<span
+									className={cn(
+										"size-1.5 rounded-full shrink-0",
+										group.configured
+											? "bg-green-500"
+											: "bg-muted-foreground/30",
+									)}
+								/>
+								<Label className="text-[11px]">
+									{group.vendors.join(" / ")}
+								</Label>
+								<Badge
+									variant={group.configured ? "secondary" : "outline"}
+									className={cn(
+										"text-[8px] px-1 py-0",
+										group.configured
+											? "text-green-500 border-green-500/30"
+											: "text-muted-foreground",
+									)}
+								>
+									{group.configured ? "Configured" : "Not set"}
+								</Badge>
+							</div>
+							<Popover>
+								<PopoverTrigger asChild>
+									<button
+										type="button"
+										className="size-4 rounded-full border text-[9px] font-bold text-muted-foreground hover:text-foreground hover:bg-accent flex items-center justify-center"
+									>
+										i
+									</button>
+								</PopoverTrigger>
+								<PopoverContent side="left" align="start" className="w-64 p-3">
+									<p className="text-xs leading-relaxed">{info}</p>
+									<p className="text-[10px] text-muted-foreground mt-2 font-mono">
+										env: {group.requiredEnv.join(", ")}
+									</p>
+								</PopoverContent>
+							</Popover>
+						</div>
+						<p className="text-[10px] text-muted-foreground">Powers: {models}</p>
+						<p className="text-[10px] text-muted-foreground font-mono">
+							{group.requiredEnv.join(", ")}
+						</p>
 					</div>
 				);
 			})}
