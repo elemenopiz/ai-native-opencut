@@ -63,13 +63,25 @@ const renderToThumbnailDataUrl = ({
 	return canvas.toDataURL("image/jpeg", 0.8);
 };
 
-export async function generateThumbnail({
+/**
+ * Decode one or more frames from a video in a SINGLE decode pass: the file is
+ * opened (demuxed) and the decoder is set up ONCE, then every requested
+ * timestamp is sampled from that same pipeline via mediabunny's
+ * `samplesAtTimestamps` (which avoids the redundant re-decode of calling
+ * `getSample` per timestamp). Returns one JPEG data URL per timestamp that
+ * successfully decoded, in the order the sink yields them; timestamps that
+ * fall outside the track (yielded as `null`) are skipped. Throws only on a
+ * setup failure (no/undecodable video track).
+ */
+export async function generateThumbnails({
 	videoFile,
-	timeInSeconds,
+	timesInSeconds,
 }: {
 	videoFile: File;
-	timeInSeconds: number;
-}): Promise<string> {
+	timesInSeconds: number[];
+}): Promise<string[]> {
+	if (timesInSeconds.length === 0) return [];
+
 	const input = new Input({
 		source: new BlobSource(videoFile),
 		formats: ALL_FORMATS,
@@ -86,24 +98,45 @@ export async function generateThumbnail({
 	}
 
 	const sink = new VideoSampleSink(videoTrack);
+	const thumbnails: string[] = [];
 
-	const frame = await sink.getSample(timeInSeconds);
+	for await (const frame of sink.samplesAtTimestamps(timesInSeconds)) {
+		if (!frame) continue;
+		try {
+			thumbnails.push(
+				renderToThumbnailDataUrl({
+					width: videoTrack.displayWidth,
+					height: videoTrack.displayHeight,
+					draw: ({ context, width, height }) => {
+						frame.draw(context, 0, 0, width, height);
+					},
+				}),
+			);
+		} finally {
+			frame.close();
+		}
+	}
 
-	if (!frame) {
+	return thumbnails;
+}
+
+export async function generateThumbnail({
+	videoFile,
+	timeInSeconds,
+}: {
+	videoFile: File;
+	timeInSeconds: number;
+}): Promise<string> {
+	const [thumbnail] = await generateThumbnails({
+		videoFile,
+		timesInSeconds: [timeInSeconds],
+	});
+
+	if (!thumbnail) {
 		throw new Error("Could not get frame at specified time");
 	}
 
-	try {
-		return renderToThumbnailDataUrl({
-			width: videoTrack.displayWidth,
-			height: videoTrack.displayHeight,
-			draw: ({ context, width, height }) => {
-				frame.draw(context, 0, 0, width, height);
-			},
-		});
-	} finally {
-		frame.close();
-	}
+	return thumbnail;
 }
 
 export async function generateImageThumbnail({

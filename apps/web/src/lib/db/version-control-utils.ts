@@ -82,11 +82,16 @@ export async function checkBranchPushPermission(
 		return { allowed: true };
 	}
 
-	// For private repos, check if user has any permission
+	// For private repos, check if the user holds any permission on THIS repo's
+	// branches. Scope via branches.repoId — an unscoped userId lookup would leak
+	// cross-repo access (a permission on some OTHER repo would grant entry here).
 	const perms = await db
-		.select()
+		.select({ id: branchPermissions.id })
 		.from(branchPermissions)
-		.where(eq(branchPermissions.userId, userId))
+		.innerJoin(branches, eq(branchPermissions.branchId, branches.id))
+		.where(
+			and(eq(branches.repoId, repoId), eq(branchPermissions.userId, userId)),
+		)
 		.limit(1);
 
 	if (perms.length === 0) {
@@ -136,4 +141,60 @@ export async function checkRepoAccess(
 		.limit(1);
 
 	return perms.length > 0;
+}
+
+/**
+ * Check if a user OWNS a repo. Use this to gate write operations that only the
+ * owner may perform (creating/deleting tags, etc.).
+ *
+ * NOTE: unlike checkRepoAccess (a READ-visibility check that returns true for
+ * ANY public repo), this never grants access on the basis of public visibility.
+ */
+export async function checkRepoOwner(
+	repoId: string,
+	userId: string,
+): Promise<boolean> {
+	const repos = await db
+		.select({ userId: projectRepositories.userId })
+		.from(projectRepositories)
+		.where(eq(projectRepositories.id, repoId))
+		.limit(1);
+
+	if (repos.length === 0) return false;
+
+	return repos[0].userId === userId;
+}
+
+/**
+ * Check if a user may WRITE to a repo (create branches, push commits, …).
+ * True for the repo owner, or a user holding a write/admin branch permission on
+ * ANY branch of THIS repo. Unlike checkRepoAccess, this is NOT satisfied merely
+ * by a repo being public — public visibility is read-only.
+ */
+export async function checkRepoWriteAccess(
+	repoId: string,
+	userId: string,
+): Promise<boolean> {
+	const repos = await db
+		.select({ userId: projectRepositories.userId })
+		.from(projectRepositories)
+		.where(eq(projectRepositories.id, repoId))
+		.limit(1);
+
+	if (repos.length === 0) return false;
+	if (repos[0].userId === userId) return true;
+
+	// Scope the permission lookup to THIS repo's branches (via branches.repoId).
+	const perms = await db
+		.select({ permission: branchPermissions.permission })
+		.from(branchPermissions)
+		.innerJoin(branches, eq(branchPermissions.branchId, branches.id))
+		.where(
+			and(eq(branches.repoId, repoId), eq(branchPermissions.userId, userId)),
+		)
+		.limit(1);
+
+	if (perms.length === 0) return false;
+
+	return perms[0].permission === "write" || perms[0].permission === "admin";
 }

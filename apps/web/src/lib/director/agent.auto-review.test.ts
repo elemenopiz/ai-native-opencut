@@ -16,6 +16,8 @@ import type { ContinuityContext, CriticVerdict } from "./vision-critic";
 interface FakeOpts {
 	reviewOk?: boolean;
 	prompt?: string;
+	/** The slot's currently-stored prompt, returned by getSlot (the authored one). */
+	slotPrompt?: string;
 	estimate?: { low: number; high: number; clips: number };
 	rerollTakeId?: string;
 	rerollOk?: boolean;
@@ -104,7 +106,7 @@ function makeDirector(opts: FakeOpts = {}) {
 			message: "slot",
 			data: {
 				id: slotId,
-				prompt: "",
+				prompt: opts.slotPrompt ?? "",
 				status: "ready",
 				takeCount: 2,
 				takes: [
@@ -257,6 +259,34 @@ describe("autoReviewSlot", () => {
 		expect(critiqued).toBe(false);
 		expect(calls.reroll).toHaveLength(0);
 		expect(steps).toHaveLength(0);
+	});
+
+	it("restores the authored prompt when a reroll fails (no silent loss)", async () => {
+		const { director, calls } = makeDirector({
+			slotPrompt: "a red convertible on a beach",
+			rerollOk: false,
+		});
+		const { fn } = sequenceCritique([
+			{
+				verdict: "reroll-with-delta",
+				reason: "wrong subject",
+				revisedPrompt: "a bright red convertible on a coastal road",
+			},
+		]);
+		const steps: AgentToolStep[] = [];
+
+		await autoReviewSlot({ ...base, director, steps, critique: fn });
+
+		// The prompt was revised for the attempt, then rolled back to the original
+		// once the reroll came back not-ok — so the user's authored prompt survives.
+		expect(calls.setPrompt).toEqual([
+			{ slotId: "slot1", prompt: "a bright red convertible on a coastal road" },
+			{ slotId: "slot1", prompt: "a red convertible on a beach" },
+		]);
+		expect(calls.reroll).toHaveLength(1);
+		// Failed reroll → no take selected, loop stops.
+		expect(calls.chooseTake).toHaveLength(0);
+		expect(steps.some((s) => s.action === "reroll" && !s.ok)).toBe(true);
 	});
 
 	it("stops if the corrective take comes back not ready (no spiral)", async () => {

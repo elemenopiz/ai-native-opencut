@@ -16,7 +16,19 @@ export type GenerateTakeResult =
 			/** Actualized cost of the generation. */
 			cost?: TakeCost;
 	  }
-	| { status: "failed"; error: string };
+	| {
+			status: "failed";
+			error: string;
+			/** HTTP status from the generate boundary, when the failure was an
+			 *  HTTP error response (dropped for network/poll failures). Threaded
+			 *  to `classifyFailure` so retry-vs-escalate uses the reliable code,
+			 *  not message regex-guessing. */
+			errorStatus?: number;
+			/** Structured provider error code (e.g. "content_policy_violation"),
+			 *  when the response body carried one. Folded into the error text so
+			 *  the classifier's regex fallback can see it too. */
+			errorCode?: string;
+	  };
 
 /** Fetch a finished take's video (via same-origin proxy to dodge provider CORS),
  *  run it through the normal media pipeline, and register it as a project asset. */
@@ -98,8 +110,23 @@ export async function generateTakeMedia({
 			}),
 		});
 		if (!res.ok) {
-			const data = (await res.json().catch(() => ({}))) as { error?: string };
-			return { status: "failed", error: data.error ?? "Submission failed" };
+			// Capture the reliable HTTP status (and any structured provider error
+			// code) at the boundary instead of discarding it — the executor threads
+			// `errorStatus` into `classifyFailure`, whose status branch decides
+			// retry (5xx/429) vs. escalate (4xx) far more reliably than regex.
+			const data = (await res.json().catch(() => ({}))) as {
+				error?: string;
+				code?: string;
+			};
+			const message = data.error ?? "Submission failed";
+			return {
+				status: "failed",
+				// Surface the provider code in the text so the classifier's regex
+				// fallback (and logs) can see it even where status is ambiguous.
+				error: data.code ? `${message} (${data.code})` : message,
+				errorStatus: res.status,
+				...(data.code ? { errorCode: data.code } : {}),
+			};
 		}
 		const data = (await res.json()) as {
 			jobId: string;

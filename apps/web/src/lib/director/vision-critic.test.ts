@@ -330,6 +330,7 @@ describe("wantsAutoReview", () => {
 	it("triggers on explicit quality intent in the message", () => {
 		expect(wantsAutoReview("make it look good", false)).toBe(true);
 		expect(wantsAutoReview("make this perfect", false)).toBe(true);
+		expect(wantsAutoReview("make it look perfect", false)).toBe(true);
 		expect(wantsAutoReview("give me the best take", false)).toBe(true);
 		expect(wantsAutoReview("auto-review the shots", false)).toBe(true);
 		expect(wantsAutoReview("I want high quality output", false)).toBe(true);
@@ -339,6 +340,13 @@ describe("wantsAutoReview", () => {
 		expect(wantsAutoReview("generate a beach reel", false)).toBe(false);
 		expect(wantsAutoReview("what's the best time to post?", false)).toBe(false);
 		expect(wantsAutoReview("add a good vibe to the caption", false)).toBe(
+			false,
+		);
+		// Incidental "looks good" describing the scene, not an opt-in to spend.
+		expect(
+			wantsAutoReview("add a shot of a park that looks good at sunset", false),
+		).toBe(false);
+		expect(wantsAutoReview("a park that looks good at sunset", false)).toBe(
 			false,
 		);
 	});

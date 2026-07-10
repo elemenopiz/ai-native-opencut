@@ -13,7 +13,7 @@
  */
 
 import { getVideoInfo } from "./mediabunny";
-import { generateThumbnail } from "./processing";
+import { generateThumbnail, generateThumbnails } from "./processing";
 
 /**
  * The reported duration can sit a hair past the last decodable sample's
@@ -161,10 +161,11 @@ async function resolveSourceFile(
 /**
  * Decode up to `count` frames (first/mid/last — see {@link reviewFrameTimestamps})
  * of a completed take's video to image data URLs, for a VISION review of the
- * shot. Decodes the file ONCE, then samples each timestamp through the same
- * `generateThumbnail` path {@link extractLastFrame} uses (no new decode
- * dependency). Never throws: a frame that fails to decode is skipped, and a
- * total failure resolves to `[]` so a caller can fall back to text-only review.
+ * shot. Decodes the file ONCE — all requested timestamps are sampled from a
+ * single open decoder via {@link generateThumbnails} (mediabunny's
+ * `samplesAtTimestamps`), rather than re-parsing the whole video per frame.
+ * Never throws: timestamps that fall outside the track are skipped, and a total
+ * decode failure resolves to `[]` so a caller can fall back to text-only review.
  */
 export async function extractFrames(
 	source: LastFrameSource,
@@ -174,21 +175,10 @@ export async function extractFrames(
 		const file = await resolveSourceFile(source);
 		if (!file) return [];
 		const { duration } = await getVideoInfo({ videoFile: file });
-		const frames: string[] = [];
-		for (const timeInSeconds of reviewFrameTimestamps(duration, count)) {
-			try {
-				frames.push(
-					await generateThumbnail({ videoFile: file, timeInSeconds }),
-				);
-			} catch (error) {
-				console.warn(
-					"extractFrames: frame decode failed",
-					timeInSeconds,
-					error,
-				);
-			}
-		}
-		return frames;
+		return await generateThumbnails({
+			videoFile: file,
+			timesInSeconds: reviewFrameTimestamps(duration, count),
+		});
 	} catch (error) {
 		console.warn("extractFrames failed", error);
 		return [];

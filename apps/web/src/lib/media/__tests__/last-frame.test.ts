@@ -1,13 +1,46 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import {
+import { afterEach, describe, expect, mock, test } from "bun:test";
+
+// Track how the decode pipeline is exercised. `generateThumbnails` is the
+// single-decode (open-once, sample-many) helper; a true single decode calls it
+// ONCE for a whole multi-frame review, not once per frame. `getVideoInfo` is
+// the one duration probe. We assert both below.
+const decodeCalls: { generateThumbnails: number[][]; getVideoInfo: number } = {
+	generateThumbnails: [],
+	getVideoInfo: 0,
+};
+
+mock.module("@/lib/media/processing", () => ({
+	generateThumbnails: async ({
+		timesInSeconds,
+	}: {
+		timesInSeconds: number[];
+	}) => {
+		decodeCalls.generateThumbnails.push(timesInSeconds);
+		return timesInSeconds.map((t) => `data:image/jpeg;base64,frame-${t}`);
+	},
+	generateThumbnail: async ({ timeInSeconds }: { timeInSeconds: number }) =>
+		`data:image/jpeg;base64,frame-${timeInSeconds}`,
+}));
+
+mock.module("@/lib/media/mediabunny", () => ({
+	getVideoInfo: async () => {
+		decodeCalls.getVideoInfo += 1;
+		return { duration: 6, width: 1920, height: 1080, fps: 30 };
+	},
+}));
+
+// Import AFTER the mocks are registered so `last-frame` binds the stubbed decode
+// path (matches this repo's mock.module + dynamic-import convention).
+const {
 	LAST_FRAME_EPSILON_S,
 	MAX_REVIEW_FRAMES,
+	extractFrames,
 	extractLastFrame,
 	fetchVideoAsFile,
 	lastFrameTimestamp,
 	reviewFrameTimestamps,
 	videoFetchUrl,
-} from "@/lib/media/last-frame";
+} = await import("@/lib/media/last-frame");
 
 describe("reviewFrameTimestamps", () => {
 	test("samples first / mid / last for a normal clip", () => {
@@ -177,5 +210,39 @@ describe("extractLastFrame", () => {
 		} finally {
 			globalThis.fetch = realFetch;
 		}
+	});
+});
+
+describe("extractFrames", () => {
+	afterEach(() => {
+		decodeCalls.generateThumbnails = [];
+		decodeCalls.getVideoInfo = 0;
+	});
+
+	test("opens the decoder ONCE for a multi-frame review (single decode pass)", async () => {
+		const file = new File([new Uint8Array([1, 2, 3])], "take.mp4", {
+			type: "video/mp4",
+		});
+
+		const frames = await extractFrames({ videoFile: file }, MAX_REVIEW_FRAMES);
+
+		// One duration probe + one open-once/sample-many decode — NOT one decode
+		// per frame (the E1 bug re-parsed the whole video per timestamp).
+		expect(decodeCalls.getVideoInfo).toBe(1);
+		expect(decodeCalls.generateThumbnails).toHaveLength(1);
+
+		// That single decode was handed ALL the requested timestamps at once.
+		expect(decodeCalls.generateThumbnails[0]).toEqual(
+			reviewFrameTimestamps(6, MAX_REVIEW_FRAMES),
+		);
+		expect(frames).toHaveLength(
+			reviewFrameTimestamps(6, MAX_REVIEW_FRAMES).length,
+		);
+	});
+
+	test("returns [] for a source with neither file nor url (no decode)", async () => {
+		expect(await extractFrames({})).toEqual([]);
+		expect(decodeCalls.getVideoInfo).toBe(0);
+		expect(decodeCalls.generateThumbnails).toHaveLength(0);
 	});
 });

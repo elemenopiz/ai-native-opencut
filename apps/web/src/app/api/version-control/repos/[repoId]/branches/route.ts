@@ -6,7 +6,10 @@ import { auth } from "@/lib/auth/server";
 import { headers } from "next/headers";
 import { eq } from "drizzle-orm";
 import { generateUUID } from "@/utils/id";
-import { checkRepoAccess } from "@/lib/db/version-control-utils";
+import {
+	checkRepoAccess,
+	checkRepoWriteAccess,
+} from "@/lib/db/version-control-utils";
 
 const createBranchSchema = z.object({
 	id: z.string().optional(),
@@ -29,8 +32,15 @@ export async function POST(
 		}
 
 		const { repoId } = await params;
-		if (!(await checkRepoAccess(repoId, session.user.id))) {
-			return NextResponse.json({ error: "Not found" }, { status: 404 });
+		// WRITE gate: creating a branch requires owner or repo write permission.
+		// checkRepoAccess is read-only (true for any public repo) and must not gate
+		// a mutation.
+		if (!(await checkRepoWriteAccess(repoId, session.user.id))) {
+			const visible = await checkRepoAccess(repoId, session.user.id);
+			return NextResponse.json(
+				{ error: visible ? "Forbidden" : "Not found" },
+				{ status: visible ? 403 : 404 },
+			);
 		}
 
 		const body = await request.json();
