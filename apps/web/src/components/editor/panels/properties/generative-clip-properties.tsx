@@ -22,6 +22,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useEditor } from "@/hooks/use-editor";
 import { useSlotGeneration } from "@/hooks/use-slot-generation";
 import { TakeProvenanceBadge } from "@/components/editor/take-provenance-badge";
+import { RemixPopover } from "@/components/studio/remix-popover";
 import {
 	estimateVideoCredits,
 	formatCredits,
@@ -86,11 +87,13 @@ function SpecSection({
 		});
 	}
 
-	const rendersStill = addsPerShotStill(
-		!!spec.personaId,
-		spec.consistencyMode,
-	);
+	const rendersStill = addsPerShotStill(!!spec.personaId, spec.consistencyMode);
 	const cost = estimateCost(spec.resolution, spec.duration, rendersStill);
+
+	// The take to remix from: the active take (the "prior generation" the user
+	// is looking at) or, before any take exists, the current working spec.
+	const activeTake = element.takes?.find((t) => t.id === element.activeTakeId);
+	const remixAnchor = activeTake ?? { spec, seed: spec.seed };
 
 	return (
 		<Section showTopBorder={false}>
@@ -201,9 +204,7 @@ function SpecSection({
 						placeholder="Leave blank for random"
 						onChange={(e) => setSeedText(e.target.value)}
 						onBlur={() => {
-							const next = seedText.trim()
-								? parseInt(seedText, 10)
-								: undefined;
+							const next = seedText.trim() ? parseInt(seedText, 10) : undefined;
 							if (next !== spec.seed) commit({ seed: next });
 						}}
 						className="h-8 text-xs"
@@ -243,35 +244,53 @@ function SpecSection({
 						{/* Pre-generate credits preview — normalized, client-safe
 						    estimate. Exact routed cost is stamped server-side. */}
 						<span className="text-[10px] text-muted-foreground tabular-nums">
-							~{formatCredits(estimateVideoCredits(spec.resolution, spec.duration))} credits est.
+							~
+							{formatCredits(
+								estimateVideoCredits(spec.resolution, spec.duration),
+							)}{" "}
+							credits est.
 						</span>
 					</div>
 				</div>
 
-				{/* Re-roll — enqueue a fresh take for this slot via the orchestrator. */}
-				<Button
-					size="sm"
-					className="w-full"
-					disabled={rerolling || !spec.prompt?.trim()}
-					onClick={async () => {
-						setRerolling(true);
-						try {
-							await generateIntoSlot({
+				{/* Re-roll — enqueue a fresh take for this slot via the orchestrator.
+				    Remix sits beside it: a delta prompt composed onto the prior
+				    take (seed-locked) lands as a new take on the same slot. */}
+				<div className="flex gap-2">
+					<Button
+						size="sm"
+						className="flex-1"
+						disabled={rerolling || !spec.prompt?.trim()}
+						onClick={async () => {
+							setRerolling(true);
+							try {
+								await generateIntoSlot({
+									elementId: element.id,
+									spec,
+									alternatives: 1,
+								});
+							} finally {
+								setRerolling(false);
+							}
+						}}
+					>
+						{rerolling
+							? "Generating…"
+							: spec.prompt?.trim()
+								? "Re-roll · +1 take"
+								: "Add a prompt to generate"}
+					</Button>
+					<RemixPopover
+						take={remixAnchor}
+						onRemix={({ spec }) =>
+							generateIntoSlot({
 								elementId: element.id,
 								spec,
 								alternatives: 1,
-							});
-						} finally {
-							setRerolling(false);
+							})
 						}
-					}}
-				>
-					{rerolling
-						? "Generating…"
-						: spec.prompt?.trim()
-							? "Re-roll · +1 take"
-							: "Add a prompt to generate"}
-				</Button>
+					/>
+				</div>
 			</SectionContent>
 		</Section>
 	);
