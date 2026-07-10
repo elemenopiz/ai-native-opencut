@@ -162,14 +162,14 @@ export function createJobStatusPollFn(jobId: string): () => Promise<void> {
 /**
  * Non-React entry point: start (or join) the deduped poll for `jobId` and
  * resolve once the job reaches a terminal state. Concurrent callers for the
- * same job share one interval via `startPolling`'s dedup. On cancellation or
- * timeout the job's interval is stopped too, mirroring the old loops exiting.
+ * same job share one interval via `startPolling`'s dedup. On timeout the job's
+ * interval is stopped too, mirroring the old loops exiting.
  */
 export function waitForJobTerminal(
 	jobId: string,
-	options: { timeoutMs?: number; isCancelled?: () => boolean } = {},
-): Promise<GenerationJobState | "cancelled" | "timeout"> {
-	const { timeoutMs = DEFAULT_TIMEOUT_MS, isCancelled } = options;
+	options: { timeoutMs?: number } = {},
+): Promise<GenerationJobState | "timeout"> {
+	const { timeoutMs = DEFAULT_TIMEOUT_MS } = options;
 	const store = useGenerationStatusStore.getState();
 
 	const existing = store.getStatus(jobId);
@@ -181,14 +181,12 @@ export function waitForJobTerminal(
 
 	return new Promise((resolve) => {
 		let unsubscribe: () => void = () => {};
-		let cancelWatch: ReturnType<typeof setInterval> | undefined;
 		let deadline: ReturnType<typeof setTimeout> | undefined;
 
-		const finish = (value: GenerationJobState | "cancelled" | "timeout") => {
+		const finish = (value: GenerationJobState | "timeout") => {
 			unsubscribe();
-			if (cancelWatch) clearInterval(cancelWatch);
 			if (deadline) clearTimeout(deadline);
-			if (value === "cancelled" || value === "timeout") {
+			if (value === "timeout") {
 				useGenerationStatusStore.getState().stopPolling(jobId);
 			}
 			resolve(value);
@@ -206,11 +204,6 @@ export function waitForJobTerminal(
 			return;
 		}
 
-		if (isCancelled) {
-			cancelWatch = setInterval(() => {
-				if (isCancelled()) finish("cancelled");
-			}, 1000);
-		}
 		deadline = setTimeout(() => finish("timeout"), timeoutMs);
 	});
 }
