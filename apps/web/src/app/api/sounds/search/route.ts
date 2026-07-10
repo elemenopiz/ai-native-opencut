@@ -12,46 +12,51 @@ const searchParamsSchema = z.object({
 		.enum(["downloads", "rating", "created", "score"])
 		.default("downloads"),
 	min_rating: z.coerce.number().min(0).max(5).default(3),
-	commercial_only: z.coerce.boolean().default(true),
+	// NB: z.coerce.boolean() treats any non-empty string (incl. "false") as true,
+	// so the caller converts the query string to a real boolean before parsing.
+	commercial_only: z.boolean().default(true),
 });
 
-const freesoundResultSchema = z.object({
-	id: z.number(),
-	name: z.string(),
-	description: z.string().default(""),
-	url: z.string(),
-	previews: z
-		.object({
-			"preview-hq-mp3": z.string().optional(),
-			"preview-lq-mp3": z.string().optional(),
-			"preview-hq-ogg": z.string().optional(),
-			"preview-lq-ogg": z.string().optional(),
-		})
-		.optional(),
-	download: z.string().optional(),
-	duration: z.number().default(0),
-	filesize: z.number().default(0),
-	type: z.string().default(""),
-	channels: z.number().default(1),
-	bitrate: z.number().default(0),
-	bitdepth: z.number().default(0),
-	samplerate: z.number().default(0),
-	username: z.string().default(""),
-	tags: z.array(z.string()).default([]),
-	license: z.string().default(""),
-	created: z.string().default(""),
-	num_downloads: z.number().optional(),
-	avg_rating: z.number().optional(),
-	num_ratings: z.number().optional(),
-}).passthrough();
+const freesoundResultSchema = z
+	.object({
+		id: z.number(),
+		name: z.string(),
+		description: z.string().default(""),
+		url: z.string(),
+		previews: z
+			.object({
+				"preview-hq-mp3": z.string().optional(),
+				"preview-lq-mp3": z.string().optional(),
+				"preview-hq-ogg": z.string().optional(),
+				"preview-lq-ogg": z.string().optional(),
+			})
+			.optional(),
+		download: z.string().optional(),
+		duration: z.number().default(0),
+		filesize: z.number().default(0),
+		type: z.string().default(""),
+		channels: z.number().default(1),
+		bitrate: z.number().default(0),
+		bitdepth: z.number().default(0),
+		samplerate: z.number().default(0),
+		username: z.string().default(""),
+		tags: z.array(z.string()).default([]),
+		license: z.string().default(""),
+		created: z.string().default(""),
+		num_downloads: z.number().optional(),
+		avg_rating: z.number().optional(),
+		num_ratings: z.number().optional(),
+	})
+	.passthrough();
 
-const freesoundResponseSchema = z.object({
-	count: z.number().default(0),
-	next: z.string().nullable().default(null),
-	previous: z.string().nullable().default(null),
-	results: z.array(freesoundResultSchema).default([]),
-}).passthrough();
-
+const freesoundResponseSchema = z
+	.object({
+		count: z.number().default(0),
+		next: z.string().nullable().default(null),
+		previous: z.string().nullable().default(null),
+		results: z.array(freesoundResultSchema).default([]),
+	})
+	.passthrough();
 
 function buildSortParameter({ query, sort }: { query?: string; sort: string }) {
 	if (!query) return `${sort}_desc`;
@@ -133,6 +138,9 @@ export async function GET(request: NextRequest) {
 			page_size: searchParams.get("page_size") || undefined,
 			sort: searchParams.get("sort") || undefined,
 			min_rating: searchParams.get("min_rating") || undefined,
+			commercial_only: searchParams.has("commercial_only")
+				? searchParams.get("commercial_only") !== "false"
+				: undefined,
 		});
 
 		if (!validationResult.success) {
@@ -197,7 +205,12 @@ export async function GET(request: NextRequest) {
 
 		const isEffectsSearch = type === "effects" || !type;
 		if (isEffectsSearch) {
-			applyEffectsFilters({ params, min_rating, commercial_only, hasQuery: !!query?.trim() });
+			applyEffectsFilters({
+				params,
+				min_rating,
+				commercial_only,
+				hasQuery: !!query?.trim(),
+			});
 		}
 
 		const response = await fetch(`${baseUrl}?${params.toString()}`);
@@ -227,28 +240,32 @@ export async function GET(request: NextRequest) {
 					previous: rawData.previous ?? null,
 					results: Array.isArray(rawData.results) ? rawData.results : [],
 				};
-				const transformedResults = data.results.map((r: Record<string, unknown>) => ({
-					id: r.id,
-					name: r.name ?? "Unknown",
-					description: r.description ?? "",
-					url: r.url ?? "",
-					previewUrl: (r.previews as Record<string, string>)?.["preview-hq-mp3"] || (r.previews as Record<string, string>)?.["preview-lq-mp3"],
-					downloadUrl: r.download,
-					duration: r.duration ?? 0,
-					filesize: r.filesize ?? 0,
-					type: r.type ?? "",
-					channels: r.channels ?? 1,
-					bitrate: r.bitrate ?? 0,
-					bitdepth: r.bitdepth ?? 0,
-					samplerate: r.samplerate ?? 0,
-					username: r.username ?? "",
-					tags: Array.isArray(r.tags) ? r.tags : [],
-					license: r.license ?? "",
-					created: r.created ?? "",
-					downloads: (r.num_downloads as number) ?? 0,
-					rating: (r.avg_rating as number) ?? 0,
-					ratingCount: (r.num_ratings as number) ?? 0,
-				}));
+				const transformedResults = data.results.map(
+					(r: Record<string, unknown>) => ({
+						id: r.id,
+						name: r.name ?? "Unknown",
+						description: r.description ?? "",
+						url: r.url ?? "",
+						previewUrl:
+							(r.previews as Record<string, string>)?.["preview-hq-mp3"] ||
+							(r.previews as Record<string, string>)?.["preview-lq-mp3"],
+						downloadUrl: r.download,
+						duration: r.duration ?? 0,
+						filesize: r.filesize ?? 0,
+						type: r.type ?? "",
+						channels: r.channels ?? 1,
+						bitrate: r.bitrate ?? 0,
+						bitdepth: r.bitdepth ?? 0,
+						samplerate: r.samplerate ?? 0,
+						username: r.username ?? "",
+						tags: Array.isArray(r.tags) ? r.tags : [],
+						license: r.license ?? "",
+						created: r.created ?? "",
+						downloads: (r.num_downloads as number) ?? 0,
+						rating: (r.avg_rating as number) ?? 0,
+						ratingCount: (r.num_ratings as number) ?? 0,
+					}),
+				);
 				return NextResponse.json({
 					count: data.count,
 					next: data.next,
