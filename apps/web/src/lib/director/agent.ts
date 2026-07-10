@@ -41,6 +41,7 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 import type { DirectorApi } from "./director-api";
+import type { StoryboardPlan } from "./storyboard-plan";
 import { PLAYBOOKS } from "@/lib/studio/playbooks";
 import { createShortIdMap, type ShortIdMap } from "./short-id";
 import {
@@ -276,10 +277,37 @@ function buildContextBlock(director: DirectorApi): string {
 	return lines.join("\n");
 }
 
+/**
+ * Compact render of the active storyboard plan, so a later turn reads back the
+ * per-shot INTENT/CAMERA/SUBJECT and the style bible it should generate against
+ * WITHOUT having to call getReel. Shows only the creative notes (the prompts are
+ * already in the REEL listing), plus the one-line bible.
+ */
+function planSummary(plan: StoryboardPlan): string {
+	const bibleParts = [
+		plan.bible.palette && `palette: ${plan.bible.palette}`,
+		plan.bible.lensMood && `lens/mood: ${plan.bible.lensMood}`,
+		plan.bible.setting && `setting: ${plan.bible.setting}`,
+	].filter((p): p is string => Boolean(p));
+	const bible = bibleParts.length ? ` — ${bibleParts.join("; ")}` : "";
+	const shots = plan.shots.map((s) => {
+		const notes = [
+			s.intent && `intent: ${s.intent}`,
+			s.camera && `camera: ${s.camera}`,
+			s.subject && `subject: ${s.subject}`,
+		]
+			.filter(Boolean)
+			.join("; ");
+		return `  ${s.index}. ${notes || JSON.stringify(s.prompt)}`;
+	});
+	return `PLAN (${plan.shotCount} shots${bible}) — generate each shot against its intent:\n${shots.join("\n")}`;
+}
+
 /** Compact, current reel state for the model to target slots by id (SHORT ids). */
 function reelSummary(director: DirectorApi): string {
 	const reel = director.getReel();
-	if (reel.slots.length === 0) return "REEL: empty (no slots yet).";
+	const planBlock = reel.plan ? `\n\n${planSummary(reel.plan)}` : "";
+	if (reel.slots.length === 0) return `REEL: empty (no slots yet).${planBlock}`;
 	const map = reelShortIdMap(director);
 	const lines = reel.slots.map(
 		(s, i) =>
@@ -287,7 +315,7 @@ function reelSummary(director: DirectorApi): string {
 				s.prompt,
 			)}`,
 	);
-	return `REEL (${reel.slots.length} slots, ${reel.totalDuration.toFixed(1)}s):\n${lines.join("\n")}`;
+	return `REEL (${reel.slots.length} slots, ${reel.totalDuration.toFixed(1)}s):\n${lines.join("\n")}${planBlock}`;
 }
 
 // ── shared tool execution ────────────────────────────────────────────────────
@@ -543,6 +571,10 @@ function buildFrontierSystemPrompt(director: DirectorApi): string {
 		"Use tools ONLY when the user wants to build or change the reel. For questions, ideas, scripts, or advice, reply with plain text and no tool calls.",
 		"You may request several independent tool calls in one turn; dependent steps (e.g. storyboard, then generate the new slots) belong in separate turns so you can read the ids from the results. Each tool result is a compact observation — mutating verbs report a CHANGES diff in short ids. The REEL listing below is a snapshot from the start of this turn; call getReel when you need a fresh view.",
 		"Think through multi-step edits as much as needed, then act decisively. When the task is done, reply with a short plain-text summary of what you did.",
+		"",
+		"PLAN FIRST for multi-shot briefs: when the brief implies MORE THAN ONE shot (a sequence, story, ad, montage, or a 'make a video about X' that isn't a single clip), call `storyboard` BEFORE generating anything. Decompose the brief into ordered shots — each with its `prompt` PLUS creative `intent`/`camera`/`subject` notes — under one shared `bible` (palette, lensMood, setting, and any recurring `characters`). `storyboard` persists the plan (it appears as PLAN in the REEL below and via getReel) and auto-seeds the reel's consistency context from the bible, so every later `generate` inherits the same style and cast — do NOT restate style/characters shot by shot. Then generate against each shot's planned intent. If a PLAN already exists, build on it (setPrompt/reroll individual shots) rather than re-storyboarding from scratch.",
+		'SINGLE / QUICK requests stay fast: for a one-off clip ("make me one clip of X", "add a shot of Y"), skip planning — go straight to reserveSlot (or a one-shot storyboard) and generate. Don\'t force a storyboard or a style bible onto a single-shot ask.',
+		"",
 		"COST GATE: a generate/reroll that would spend more than a small amount pauses for the user's approval — the run stops and asks them out-of-band. This is expected, not an error; do NOT retry the same action to force it through.",
 		"",
 		'If the user wants UGC/influencer-style, "looks like a real phone photo" imagery or video, follow these playbook conventions when writing prompts:',
@@ -696,6 +728,7 @@ function buildLocalSystemPrompt(director: DirectorApi): string {
 		'  to reply: {"final":"<message to the user>"}',
 		"Use actions ONLY when the user wants to build or change the reel. For questions, ideas, scripts, or advice, answer with a final message.",
 		"After each action you receive an OBSERVATION. When the task is done, send a final message summarizing what you did.",
+		"PLAN FIRST for multi-shot briefs: if the brief implies more than one shot, use `storyboard` before generating — give each shot a prompt plus intent/camera/subject notes under one shared `bible` (palette, lensMood, setting, characters). It persists the PLAN (shown in the REEL below) and auto-seeds the consistency context, so later shots stay coherent without restating style. For a single quick clip, skip planning and just reserveSlot + generate.",
 		"COST GATE: a generate/reroll that would spend more than a small amount pauses for the user's approval — the run stops and asks them. This is expected, not an error; never retry the same action to force it through.",
 		"",
 		buildContextBlock(director),

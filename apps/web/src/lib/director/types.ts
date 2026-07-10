@@ -28,6 +28,7 @@ import type {
 	TakeStatus,
 } from "@/types/timeline";
 import type { ConsistencyContext } from "./consistency-prompt";
+import type { StoryboardPlan } from "./storyboard-plan";
 
 // Re-export the canonical generative types so Director consumers have a single
 // import site. These are NOT redefined — they live in `@/types/timeline`.
@@ -63,6 +64,12 @@ export interface ReelSnapshot {
 	canRedo: boolean;
 	/** Reel-level STYLE/CHARACTERS/SETTING block, if set (see `consistency-prompt.ts`). */
 	consistency?: ConsistencyContext;
+	/**
+	 * The active multi-shot storyboard plan, if one was authored (see
+	 * `storyboard-plan.ts`). Persisted per editor so later turns read back the
+	 * per-shot intent and shared style bible instead of re-deriving them.
+	 */
+	plan?: StoryboardPlan;
 }
 
 /**
@@ -196,5 +203,10 @@ export interface GenerateExecutor {
 		slotId: string;
 		takeId: string;
 		spec: GenerationSpec;
-	}): Promise<Pick<Take, "status" | "mediaId" | "thumbnailUrl" | "seed" | "jobId" | "error">>;
+	}): Promise<
+		Pick<
+			Take,
+			"status" | "mediaId" | "thumbnailUrl" | "seed" | "jobId" | "error"
+		>
+	>;
 }

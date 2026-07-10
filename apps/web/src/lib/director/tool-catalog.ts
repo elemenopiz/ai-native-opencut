@@ -33,6 +33,7 @@ import {
 import type { DirectorApi, SpecOverride } from "./director-api";
 import type { DirectorResult } from "./types";
 import type { ConsistencyCharacter } from "./consistency-prompt";
+import type { StyleBible } from "./storyboard-plan";
 
 // ── coercion helpers (moved here from agent.ts; the single arg-coercion site) ──
 
@@ -121,21 +122,68 @@ export function asSpecOverride(v: unknown): SpecOverride | undefined {
 	return Object.keys(out).length ? out : undefined;
 }
 
-/** Coerce a loose `shots` arg into the storyboard shape (with optional per-shot spec). */
-export function asShots(
-	args: Record<string, unknown>,
-): { prompt: string; duration: number; spec?: SpecOverride }[] {
+/**
+ * Coerce a loose `shots` arg into the storyboard shape: the generation `prompt`
+ * + `duration` + optional per-shot `spec`, PLUS the planning notes
+ * (`intent`/`camera`/`subject`) that make the shot list a real storyboard rather
+ * than N independent prompts. Bare strings and note-less shots still work.
+ */
+export function asShots(args: Record<string, unknown>): {
+	prompt: string;
+	duration: number;
+	intent?: string;
+	camera?: string;
+	subject?: string;
+	spec?: SpecOverride;
+}[] {
 	const raw = Array.isArray(args.shots) ? args.shots : [];
 	return raw.map((s) => {
 		if (typeof s === "string") return { prompt: s, duration: 6 };
 		const obj = (s ?? {}) as Record<string, unknown>;
 		const spec = asSpecOverride(obj.spec);
+		const intent = strOrUndefined(obj.intent);
+		const camera = strOrUndefined(obj.camera);
+		const subject = strOrUndefined(obj.subject);
 		return {
 			prompt: str(obj.prompt),
 			duration: numOr(obj.duration, 6),
+			...(intent ? { intent } : {}),
+			...(camera ? { camera } : {}),
+			...(subject ? { subject } : {}),
 			...(spec ? { spec } : {}),
 		};
 	});
+}
+
+/**
+ * Coerce a loose `bible` arg for `storyboard` into a {@link StyleBible} — the
+ * shared palette/lens-mood/setting/cast the whole reel inherits. Returns
+ * `undefined` when nothing usable is present so the verb skips consistency
+ * seeding and leaves any prior context untouched.
+ */
+export function asStyleBible(
+	args: Record<string, unknown>,
+): StyleBible | undefined {
+	const raw = args.bible;
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+	const obj = raw as Record<string, unknown>;
+	const palette = strOrUndefined(obj.palette);
+	const lensMood = strOrUndefined(obj.lensMood);
+	const setting = strOrUndefined(obj.setting);
+	const characters = Array.isArray(obj.characters)
+		? obj.characters.map((c) => {
+				const co = (c ?? {}) as Record<string, unknown>;
+				return { name: str(co.name), descriptor: str(co.descriptor) };
+			})
+		: [];
+	if (!palette && !lensMood && !setting && characters.length === 0)
+		return undefined;
+	return {
+		...(palette ? { palette } : {}),
+		...(lensMood ? { lensMood } : {}),
+		...(setting ? { setting } : {}),
+		...(characters.length ? { characters } : {}),
+	};
 }
 
 /** Coerce a loose `extraCharacters` arg for setConsistencyContext. */
@@ -359,27 +407,84 @@ export function toolCatalog(): ToolDescriptor[] {
 		// ── storyboard ──────────────────────────────────────────────────────
 		{
 			name: "storyboard",
-			description: "append SEVERAL slots from a shot list.",
+			description:
+				"PLAN a multi-shot sequence: decompose a brief into shots (prompt + creative intent/camera/subject notes + duration) under a shared style bible, then materialize them as slots. Persists the plan and auto-seeds the reel's consistency context from the bible, so every later generate stays coherent. Use this before generating anything for a >1-shot brief.",
 			mutating: true,
 			inputSchema: {
 				type: "object",
 				properties: {
 					shots: {
 						type: "array",
+						description:
+							"Ordered shots. Author per-shot INTENT/CAMERA/SUBJECT notes so the sequence is coherent, not N independent prompts.",
 						items: {
 							type: "object",
 							properties: {
-								prompt: { type: "string" },
+								prompt: {
+									type: "string",
+									description: "What actually gets rendered for this shot.",
+								},
+								intent: {
+									type: "string",
+									description:
+										"What this shot accomplishes narratively (e.g. 'cold-open establishing shot').",
+								},
+								camera: {
+									type: "string",
+									description:
+										"Framing / camera movement / lens (e.g. 'slow push-in, 35mm, eye-level').",
+								},
+								subject: {
+									type: "string",
+									description:
+										"Who/what is on screen and what they're doing (keep the cast consistent across shots).",
+								},
 								duration: secs("shot length in seconds (default 6)"),
 								spec: slotSpecSchema,
 							},
 							required: ["prompt"],
 						},
 					},
+					bible: {
+						type: "object",
+						description:
+							"Shared style bible for the whole reel — also seeds the consistency context so every shot inherits it.",
+						properties: {
+							palette: {
+								type: "string",
+								description:
+									"Color grade / palette held constant across shots.",
+							},
+							lensMood: {
+								type: "string",
+								description:
+									"Lens + mood (e.g. 'anamorphic, dreamy, shallow DoF').",
+							},
+							setting: {
+								type: "string",
+								description:
+									"Primary location: environment, time of day, lighting.",
+							},
+							characters: {
+								type: "array",
+								description:
+									"Secondary/background cast with no persona of their own (personas are pulled in automatically).",
+								items: {
+									type: "object",
+									properties: {
+										name: { type: "string" },
+										descriptor: { type: "string" },
+									},
+									required: ["name", "descriptor"],
+								},
+							},
+						},
+					},
 				},
 				required: ["shots"],
 			},
-			handler: (d, a) => d.storyboard({ shots: asShots(a) }),
+			handler: (d, a) =>
+				d.storyboard({ shots: asShots(a), bible: asStyleBible(a) }),
 		},
 		{
 			name: "reserveSlot",
