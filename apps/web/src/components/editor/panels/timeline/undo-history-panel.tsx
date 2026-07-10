@@ -40,22 +40,34 @@ export function UndoHistoryPanel({ className }: { className?: string }) {
 							)}
 							onClick={() => editor.command.undoTo(i)}
 						>
-							<span className="text-[8px] text-muted-foreground mr-1">#{i + 1}</span>
+							<span className="text-[8px] text-muted-foreground mr-1">
+								#{i + 1}
+							</span>
 							{cmd.getDescription()}
 						</button>
 					))}
 
 					{redoStack.length > 0 && (
 						<div className="border-t pt-1 mt-1">
-							<span className="text-[8px] text-muted-foreground px-2">Redo stack</span>
+							<span className="text-[8px] text-muted-foreground px-2">
+								Redo stack
+							</span>
 							{redoStack.map((cmd, i) => (
 								<button
 									key={`redo-${i}`}
 									type="button"
 									className="w-full text-left rounded px-2 py-1 text-[10px] text-muted-foreground/50 hover:bg-accent/50 transition-colors"
-									onClick={() => editor.command.redoTo(history.length + i + 1)}
+									onClick={() =>
+										// redoTo pops from the END of redoStack (LIFO): redoing down to
+										// display row i (redoStack[i]) needs (redoStack.length - i) pops.
+										editor.command.redoTo(
+											history.length + (redoStack.length - i),
+										)
+									}
 								>
-									<span className="text-[8px] text-muted-foreground mr-1">r#{i + 1}</span>
+									<span className="text-[8px] text-muted-foreground mr-1">
+										r#{i + 1}
+									</span>
 									{cmd.getDescription()}
 								</button>
 							))}
