@@ -97,6 +97,7 @@ Split into what decides the fight vs. what to deliberately ignore.
 | 4 | **Adobe Firefly + Premiere** | Incumbent + AI | Distribution pincer | Firefly generates B-roll on the Premiere timeline, aggregates 12 models (incl. Kling 3.0). Slow, ~$55/mo, 5-sec clips — but unmatched distribution. | Firefly $9.99; CC ~$55–60 mo |
 | 5 | **Descript (Underlord)** | Editor + agent | Agentic-editor | Mature NL co-editor (20+ tasks) with Veo 3.1/Sora 2 inside a real editor. Closest in-market analog to our Director. Text/podcast-first, not shot-based. | Creator $24 mo |
 | 6 | **Higgsfield** | AI generator | Benchmark | **Soul ID** (train on 20+ photos → identity portable across every model) is the character-consistency gold standard our personas chase. **No timeline** — still their gap. | $15 / $39 / $99 mo |
+| 7 | **Vyra** (usevyra.com) | MCP-native editor | **Architecture twin** | Indie (`kale-eb`). Ships *our* Sprint-2 thesis: agent drives a real timeline over MCP on real footage. Proves the lane is real/paid and kills "nobody's done this." Their edge = visual indexing/embeddings — **which we already ship** (`services/search/`, wired to the agent as `searchMedia`). **No persona/seed-lock, no screen-record, no avatars.** | $24 / $65 mo (a "$9.99" tier is hinted) |
 
 **Pure generators with no timeline** — dangerous only if one bolts on a real editor: Pika, Luma
 Dream Machine, Kling, Google Veo 3 / Flow, OpenAI Sora 2, Krea, Captions.ai, HeyGen, Argil,
@@ -123,7 +124,9 @@ Invideo AI.
    elsewhere; every editor makes you leave to generate. Seed-lock + promote-to-1080p +
    "regenerate this shot in place, never re-import" closes a loop none of them do.
 3. **Local, $0, private AI** — in-browser CLIP search + Whisper captions. Everyone else meters
-   these as cloud credits. Privacy + zero-marginal-cost is a real, uncopied differentiator.
+   these as cloud credits — **including Vyra**, whose headline "visual indexing" is exactly our
+   on-device CLIP index but billed as processing credits. Privacy + zero-marginal-cost is a real,
+   uncopied differentiator, and now a direct counter to the one MCP-editor that matches our shape.
 4. **Honest pricing + no silent downgrade.** The field runs opaque, expiring credit traps
    (Higgsfield 90-day expiry; Palmier "shifts with every model update"; CapCut/InVideo
    complaints). Transparent price-per-reel + a delivery-promise lock (no silent video→slideshow
