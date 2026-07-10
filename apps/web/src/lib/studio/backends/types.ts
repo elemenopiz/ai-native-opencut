@@ -42,8 +42,8 @@ export type SlotIntent =
 
 export type BackendId = string;
 
-/** Per-backend capability surface. Mirrors `model-capabilities.ts` but lives on
- *  the adapter so the router and UI can introspect a single source of truth. */
+/** Per-backend capability surface. Lives on the adapter (not a parallel table)
+ *  so the router and UI introspect a single source of truth. */
 export interface BackendCapabilities {
 	// Video-oriented
 	resolutions?: VideoResolution[];
