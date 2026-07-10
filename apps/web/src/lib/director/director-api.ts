@@ -60,6 +60,17 @@ import { AddTransitionCommand } from "@/lib/commands/timeline/element/transition
 import { getAllTransitions } from "@/lib/transitions";
 import { getAllEffects } from "@/lib/effects";
 import type { EffectParamValues } from "@/types/effects";
+import { DEFAULT_EXPORT_OPTIONS } from "@/constants/export-constants";
+import {
+	downloadBuffer,
+	getExportFileExtension,
+	getExportMimeType,
+} from "@/lib/export";
+import type {
+	ExportFormat,
+	ExportOptions,
+	ExportQuality,
+} from "@/types/export";
 import type {
 	DirectorResult,
 	MediaSearchHit,
@@ -1427,12 +1438,82 @@ export function createDirectorApi(
 		return withDelta(before, ok("Redid last action."));
 	}
 
-	function exportReel(): DirectorResult {
-		// TODO(export): wire to the existing export/render path
-		// (see RendererManager / the export UI). Kept as a thin pointer so the
-		// verb surface is complete without duplicating the render pipeline here.
-		return fail(
-			"export() is not wired yet — delegate to the existing render/export path (RendererManager).",
+	/**
+	 * Render the reel to a video file. Delegates to the SAME path the Export
+	 * button drives — `editor.project.export` → `RendererManager.exportProject`
+	 * (canvas/WebCodecs render + optional audio mux) — so there is one render
+	 * pipeline, not a duplicate. Read-only w.r.t. the reel (no `withDelta`): the
+	 * timeline isn't mutated; the observable output is the produced file.
+	 *
+	 * BROWSER-BOUND: the underlying pipeline uses canvas/WebCodecs/AudioContext
+	 * and (when `download` is on) `document`, so this verb only runs where the
+	 * Director API is driven in a browser — which is exactly where the in-app
+	 * agent and the MCP editor-bridge live. In a headless/Node unit test pass
+	 * `download: false` and stub `editor.project.export`. This is NOT a fake: it
+	 * calls the real export path, which simply requires a browser to execute.
+	 */
+	async function exportReel(input?: {
+		format?: ExportFormat;
+		quality?: ExportQuality;
+		includeAudio?: boolean;
+		includeWatermark?: boolean;
+		/** Trigger a browser file download of the rendered buffer (default true). */
+		download?: boolean;
+	}): Promise<
+		DirectorResult<{
+			format: ExportFormat;
+			bytes: number;
+			durationSeconds: number;
+			downloaded: boolean;
+		}>
+	> {
+		const project = editor.project.getActiveOrNull();
+		if (!project) return fail("No active project to export.");
+
+		const durationSeconds = editor.timeline.getTotalDuration();
+		if (durationSeconds === 0) {
+			return fail(
+				"Nothing to export — the timeline is empty. Storyboard and generate some shots first.",
+			);
+		}
+
+		const options: ExportOptions = {
+			format: input?.format ?? DEFAULT_EXPORT_OPTIONS.format,
+			quality: input?.quality ?? DEFAULT_EXPORT_OPTIONS.quality,
+			fps: project.settings.fps,
+			includeAudio: input?.includeAudio ?? DEFAULT_EXPORT_OPTIONS.includeAudio,
+			includeWatermark: input?.includeWatermark ?? true,
+		};
+
+		const result = await editor.project.export({ options });
+
+		if (result.cancelled) return fail("Export was cancelled.");
+		if (!result.success || !result.buffer) {
+			return fail(`Export failed: ${result.error ?? "unknown error"}.`);
+		}
+
+		const shouldDownload = input?.download ?? true;
+		let downloaded = false;
+		if (shouldDownload) {
+			downloadBuffer({
+				buffer: result.buffer,
+				filename: `${project.metadata.name}${getExportFileExtension({ format: options.format })}`,
+				mimeType: getExportMimeType({ format: options.format }),
+			});
+			downloaded = true;
+		}
+
+		const megabytes = result.buffer.byteLength / (1024 * 1024);
+		return ok(
+			`Exported "${project.metadata.name}" — ${options.format.toUpperCase()}, ` +
+				`${megabytes.toFixed(1)} MB, ${durationSeconds.toFixed(1)}s` +
+				(downloaded ? " (downloaded)." : "."),
+			{
+				format: options.format,
+				bytes: result.buffer.byteLength,
+				durationSeconds,
+				downloaded,
+			},
 		);
 	}
 
