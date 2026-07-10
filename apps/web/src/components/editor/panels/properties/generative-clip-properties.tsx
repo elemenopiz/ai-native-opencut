@@ -23,6 +23,7 @@ import { useEditor } from "@/hooks/use-editor";
 import { useSlotGeneration } from "@/hooks/use-slot-generation";
 import { TakeProvenanceBadge } from "@/components/editor/take-provenance-badge";
 import { RemixPopover } from "@/components/studio/remix-popover";
+import { extractTakeLastFrame } from "@/lib/media/last-frame";
 import {
 	estimateVideoCredits,
 	formatCredits,
@@ -94,6 +95,30 @@ function SpecSection({
 	// is looking at) or, before any take exists, the current working spec.
 	const activeTake = element.takes?.find((t) => t.id === element.activeTakeId);
 	const remixAnchor = activeTake ?? { spec, seed: spec.seed };
+
+	// Anchor a manual remix on the active take's REAL last frame — true img2img
+	// re-conditioning, mirroring director-api's `remix` verb so the human and
+	// agent paths behave identically. The decode is async, so resolve it into
+	// state and hand the URL to RemixPopover; it falls back (inside
+	// buildRemixSpec) to the prior spec's referenceImageUrl when the take isn't
+	// imported yet or the frame can't be decoded.
+	const activeTakeAsset = activeTake?.mediaId
+		? editor.media.getAssetById(activeTake.mediaId)
+		: undefined;
+	const [remixAnchorUrl, setRemixAnchorUrl] = useState<string | undefined>();
+	useEffect(() => {
+		if (!activeTakeAsset) {
+			setRemixAnchorUrl(undefined);
+			return;
+		}
+		let cancelled = false;
+		void extractTakeLastFrame(activeTakeAsset, activeTake?.id).then((url) => {
+			if (!cancelled) setRemixAnchorUrl(url);
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, [activeTakeAsset, activeTake?.id]);
 
 	return (
 		<Section showTopBorder={false}>
@@ -282,6 +307,7 @@ function SpecSection({
 					</Button>
 					<RemixPopover
 						take={remixAnchor}
+						anchorImageUrl={remixAnchorUrl}
 						onRemix={({ spec }) =>
 							generateIntoSlot({
 								elementId: element.id,

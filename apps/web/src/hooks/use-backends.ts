@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import type { SafetyTier } from "@/types/timeline";
 import type {
-	VideoMode,
 	VideoOrientation,
 	VideoResolution,
 } from "@/lib/studio/provider-adapter";
@@ -25,7 +24,6 @@ export interface BackendInfo {
 	resolutions?: VideoResolution[];
 	orientations?: VideoOrientation[];
 	durationRangeSec?: { min: number; max: number };
-	modes?: VideoMode[];
 	supportsSeedLock: boolean;
 	supportsOmniReference: boolean;
 	supportsLastFrame: boolean;

@@ -5,7 +5,6 @@ import {
 	type GenerationModality,
 } from "@/lib/studio/backends";
 import type {
-	VideoMode,
 	VideoOrientation,
 	VideoResolution,
 } from "@/lib/studio/provider-adapter";
@@ -28,12 +27,11 @@ export interface BackendInfo {
 	safetyTier: string;
 	intents: string[];
 	// Per-backend constraint surface — lets the UI offer only what THIS backend
-	// supports (resolution/orientation/duration/mode) instead of a flat option
-	// set. Optional because image backends carry sizes/qualities instead.
+	// supports (resolution/orientation/duration) instead of a flat option set.
+	// Optional because image backends carry sizes/qualities instead.
 	resolutions?: VideoResolution[];
 	orientations?: VideoOrientation[];
 	durationRangeSec?: { min: number; max: number };
-	modes?: VideoMode[];
 	supportsSeedLock: boolean;
 	supportsOmniReference: boolean;
 	supportsLastFrame: boolean;
@@ -62,7 +60,6 @@ export function GET(req: Request) {
 		resolutions: b.capabilities.resolutions,
 		orientations: b.capabilities.orientations,
 		durationRangeSec: b.capabilities.durationRangeSec,
-		modes: b.capabilities.modes,
 		supportsSeedLock: b.capabilities.supportsSeedLock,
 		supportsOmniReference: b.capabilities.supportsOmniReference,
 		supportsLastFrame: b.capabilities.supportsLastFrame,

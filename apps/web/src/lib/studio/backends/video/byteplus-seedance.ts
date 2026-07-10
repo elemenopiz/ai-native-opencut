@@ -31,7 +31,6 @@ export const byteplusSeedanceBackend: GenerationBackend = {
 		resolutions: ["480p", "720p", "1080p"],
 		orientations: ["portrait", "landscape", "square"],
 		durationRangeSec: { min: 4, max: 15 },
-		modes: ["text-to-video", "image-to-video"],
 		supportsSeedLock: true,
 		supportsOmniReference: true,
 		supportsLastFrame: true,

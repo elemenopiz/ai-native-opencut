@@ -124,7 +124,6 @@ export const googleVeoBackend: GenerationBackend = {
 		resolutions: ["720p", "1080p"],
 		orientations: ["landscape", "portrait"],
 		durationRangeSec: { min: 4, max: 8 },
-		modes: ["text-to-video", "image-to-video"],
 		// No seed field in the documented instances/parameters schema.
 		supportsSeedLock: false,
 		// `referenceImages[].referenceType: "asset"` is real subject/style/scene
