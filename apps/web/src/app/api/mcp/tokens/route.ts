@@ -21,6 +21,7 @@ import { mcpTokens } from "@/lib/db/schema-mcp";
 import { auth } from "@/lib/auth/server";
 import { generateUUID } from "@/utils/id";
 import { hashToken, MCP_SCOPES, parseScopes } from "@/lib/mcp/auth";
+import { getTokenCache } from "@/lib/mcp/token-cache";
 
 const createTokenSchema = z.object({
 	projectId: z.string().min(1),
@@ -44,7 +45,10 @@ export async function POST(request: NextRequest) {
 		const parsed = createTokenSchema.safeParse(body);
 		if (!parsed.success) {
 			return NextResponse.json(
-				{ error: "Invalid request", details: parsed.error.flatten().fieldErrors },
+				{
+					error: "Invalid request",
+					details: parsed.error.flatten().fieldErrors,
+				},
 				{ status: 400 },
 			);
 		}
@@ -80,7 +84,10 @@ export async function POST(request: NextRequest) {
 		);
 	} catch (error) {
 		console.error("Error creating MCP token:", error);
-		return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+		return NextResponse.json(
+			{ error: "Internal server error" },
+			{ status: 500 },
+		);
 	}
 }
 
@@ -115,7 +122,10 @@ export async function GET(request: NextRequest) {
 		return NextResponse.json(tokens);
 	} catch (error) {
 		console.error("Error listing MCP tokens:", error);
-		return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+		return NextResponse.json(
+			{ error: "Internal server error" },
+			{ status: 500 },
+		);
 	}
 }
 
@@ -132,19 +142,29 @@ export async function DELETE(request: NextRequest) {
 		}
 
 		// Scope the revoke to the caller's own tokens so a user can't revoke another's.
+		// Return the stored hash so we can evict it from the verification cache —
+		// otherwise a revoked token would keep working until its cache TTL lapsed.
 		const revoked = await db
 			.update(mcpTokens)
 			.set({ revokedAt: new Date() })
 			.where(and(eq(mcpTokens.id, id), eq(mcpTokens.userId, session.user.id)))
-			.returning({ id: mcpTokens.id });
+			.returning({ id: mcpTokens.id, token: mcpTokens.token });
 
 		if (revoked.length === 0) {
 			return NextResponse.json({ error: "Token not found" }, { status: 404 });
 		}
 
+		// Best-effort: make revocation effective immediately across instances.
+		await getTokenCache()
+			.delete(revoked[0].token)
+			.catch(() => {});
+
 		return NextResponse.json({ id: revoked[0].id, revoked: true });
 	} catch (error) {
 		console.error("Error revoking MCP token:", error);
-		return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+		return NextResponse.json(
+			{ error: "Internal server error" },
+			{ status: 500 },
+		);
 	}
 }
