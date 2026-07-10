@@ -46,6 +46,7 @@ import {
 	type ConsistencyContext,
 } from "./consistency-prompt";
 import { buildRemixSpec } from "@/lib/studio/remix";
+import { extractTakeLastFrame } from "@/lib/media/last-frame";
 import {
 	estimateBatchCost,
 	formatCostRange,
@@ -982,9 +983,21 @@ export function createDirectorApi(
 			);
 		}
 
+		// Anchor the remix on the source take's REAL last frame when it's a
+		// finished, imported take — true img2img re-conditioning. Falls back
+		// (inside buildRemixSpec) to the prior spec's referenceImageUrl when the
+		// take isn't imported yet or the frame can't be decoded.
+		const anchorImageUrl = source.mediaId
+			? await extractTakeLastFrame(
+					editor.media.getAssetById(source.mediaId),
+					source.id,
+				)
+			: undefined;
+
 		const spec = buildRemixSpec({
 			priorTake: source,
 			remixPrompt: input.remixPrompt,
+			anchorImageUrl,
 		});
 		const newTake: Take = {
 			id: generateUUID(),
