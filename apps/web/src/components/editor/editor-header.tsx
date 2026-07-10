@@ -9,7 +9,6 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
-import Link from "next/link";
 import { RenameProjectDialog } from "./dialogs/rename-project-dialog";
 import { DeleteProjectDialog } from "./dialogs/delete-project-dialog";
 import { useRouter } from "next/navigation";
@@ -58,6 +57,7 @@ import {
 import { useAssetsPanelStore } from "@/stores/assets-panel-store";
 import { useBoardStore } from "@/stores/board-store";
 import { SaveArrangementDialog } from "@/components/arrangements/save-arrangement-dialog";
+import { AccountMenu } from "@/components/auth/account-menu";
 
 export function EditorHeader() {
 	const toggleBoard = useBoardStore((s) => s.toggle);
@@ -139,6 +139,7 @@ export function EditorHeader() {
 				</Button>
 				<ExportButton />
 				<ThemeToggle />
+				<AccountMenu />
 			</nav>
 			<VersionControlDrawer
 				open={vcDrawerOpen}
