@@ -61,7 +61,9 @@ export class MoveElementCommand extends Command {
 			throw new Error("Source track or element not found");
 		}
 
-		let targetTrack = this.savedState.find((track) => track.id === this.targetTrackId);
+		let targetTrack = this.savedState.find(
+			(track) => track.id === this.targetTrackId,
+		);
 		let tracksToUpdate = this.savedState;
 		if (!targetTrack && this.createTrack) {
 			const newTrack = buildEmptyTrack({
@@ -102,6 +104,27 @@ export class MoveElementCommand extends Command {
 
 		let updatedTracks = tracksToUpdate.map((track): TimelineTrack => {
 			if (isSameTrack && track.id === this.sourceTrackId) {
+				if (this.rippleEnabled) {
+					const otherElements = track.elements.filter(
+						(trackElement) => trackElement.id !== this.elementId,
+					);
+					// reorder = close + push: close the gap the clip vacates,
+					// then open a gap at the drop point (negative shift moves right).
+					const closedElements = rippleShiftElements({
+						elements: otherElements,
+						afterTime: element.startTime,
+						shiftAmount: element.duration,
+					});
+					const openedElements = rippleShiftElements({
+						elements: closedElements,
+						afterTime: adjustedStartTime,
+						shiftAmount: -element.duration,
+					});
+					return {
+						...track,
+						elements: [...openedElements, movedElement],
+					} as typeof track;
+				}
 				return {
 					...track,
 					elements: track.elements.map((trackElement) =>
