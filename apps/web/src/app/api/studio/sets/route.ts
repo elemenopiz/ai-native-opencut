@@ -1,23 +1,25 @@
 import { NextResponse } from "next/server";
 import { desc, eq } from "drizzle-orm";
+import { headers } from "next/headers";
+import { auth } from "@/lib/auth/server";
 import { db } from "@/lib/db";
 import { generationSets, takes } from "@/lib/db/schema-studio";
 
-export async function GET(req: Request) {
+export async function GET() {
 	try {
-		const { searchParams } = new URL(req.url);
-		const userId = searchParams.get("userId");
+		// Sets expose generation history and rehosted video URLs. Require a session
+		// and scope to it — never honor a client-supplied ?userId=, and never fall
+		// through to an unscoped query that would leak every user's sets.
+		const session = await auth.api.getSession({ headers: await headers() });
+		if (!session?.user) {
+			return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+		}
 
-		const sets = userId
-			? await db.query.generationSets.findMany({
-				where: eq(generationSets.userId, userId),
-				orderBy: [desc(generationSets.createdAt)],
-				limit: 50,
-			})
-			: await db.query.generationSets.findMany({
-				orderBy: [desc(generationSets.createdAt)],
-				limit: 50,
-			});
+		const sets = await db.query.generationSets.findMany({
+			where: eq(generationSets.userId, session.user.id),
+			orderBy: [desc(generationSets.createdAt)],
+			limit: 50,
+		});
 
 		// Attach takes for each set
 		const setsWithTakes = await Promise.all(

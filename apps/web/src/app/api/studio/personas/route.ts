@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { desc, eq, isNull } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
+import { headers } from "next/headers";
+import { auth } from "@/lib/auth/server";
 import { db } from "@/lib/db";
 import { personas } from "@/lib/db/schema-studio";
 
@@ -33,17 +35,23 @@ function serialize(p: typeof personas.$inferSelect) {
 // sheet → crop) or, in the photo-upload fast-follow, an uploaded image URL.
 export async function POST(req: Request) {
 	try {
+		// Creating a persona — require a signed-in user. Ownership is stamped from
+		// the session, never from the body (a body userId would let a caller forge
+		// a persona under another user's account).
+		const session = await auth.api.getSession({ headers: await headers() });
+		if (!session?.user) {
+			return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+		}
+
 		const body = (await req.json()) as {
 			name?: string;
 			descriptor?: string;
 			anchorImageUrl?: string;
 			refImageUrls?: string[];
 			seed?: number;
-			userId?: string;
 		};
 
-		const { name, descriptor, anchorImageUrl, refImageUrls, seed, userId } =
-			body;
+		const { name, descriptor, anchorImageUrl, refImageUrls, seed } = body;
 		if (!name?.trim() || !descriptor?.trim() || !anchorImageUrl?.trim()) {
 			return NextResponse.json(
 				{ error: "name, descriptor and anchorImageUrl are required" },
@@ -55,7 +63,7 @@ export async function POST(req: Request) {
 			.insert(personas)
 			.values({
 				id: nanoid(),
-				userId: userId ?? null,
+				userId: session.user.id,
 				name: name.trim(),
 				descriptor: descriptor.trim(),
 				anchorImageUrl,
@@ -74,17 +82,19 @@ export async function POST(req: Request) {
 	}
 }
 
-// GET — list personas (optionally scoped to a user).
-export async function GET(req: Request) {
+// GET — list the signed-in user's personas.
+export async function GET() {
 	try {
-		const { searchParams } = new URL(req.url);
-		const userId = searchParams.get("userId");
+		// Personas expose anchor/reference photo URLs (PII). Require a session and
+		// scope to it — never honor a client-supplied ?userId=, which would let any
+		// caller read another user's persona photos.
+		const session = await auth.api.getSession({ headers: await headers() });
+		if (!session?.user) {
+			return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+		}
 
-		// Scope to the requested user, or — when no userId is supplied — to the
-		// anonymous bucket (userId IS NULL). Never fall through to an unscoped
-		// query: that would return every user's personas to a no-userId caller.
 		const rows = await db.query.personas.findMany({
-			where: userId ? eq(personas.userId, userId) : isNull(personas.userId),
+			where: eq(personas.userId, session.user.id),
 			orderBy: [desc(personas.createdAt)],
 			limit: 100,
 		});
