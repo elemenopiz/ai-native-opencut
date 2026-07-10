@@ -73,6 +73,11 @@ import {
 	type BriefPatch,
 } from "./director-brief";
 import {
+	revertProjectBible,
+	syncProjectBible,
+	type RevertResult,
+} from "./project-bible";
+import {
 	relayDeriveReferences,
 	styleBibleToBriefLine,
 	styleHasContent,
@@ -81,7 +86,11 @@ import {
 } from "./reference-intake";
 import { uploadReferenceFile } from "@/lib/studio/reference-upload";
 import type { MediaAsset } from "@/types/assets";
-import type { DirectorBrief } from "@/types/project";
+import type {
+	DirectorBrief,
+	PersonaRosterEntry,
+	ProjectBible,
+} from "@/types/project";
 import { buildRemixSpec } from "@/lib/studio/remix";
 import {
 	extractTakeLastFrame,
@@ -856,6 +865,7 @@ export function createDirectorApi(
 	}): DirectorResult<ConsistencyContext> {
 		const before = captureReel();
 		const context = applyConsistencyContext(input);
+		syncBible("setConsistencyContext", "Set reel consistency context");
 		return withDelta(before, ok("Consistency context updated.", context));
 	}
 
@@ -1148,6 +1158,9 @@ export function createDirectorApi(
 			if (seed) applyConsistencyContext(seed);
 		}
 
+		// Write-through to the durable bible (plan + any seeded consistency + roster).
+		syncBible("storyboard", `Storyboarded ${ids.length} shot(s)`);
+
 		return withDelta(
 			before,
 			ok(`Storyboarded ${ids.length} shot(s).${budgetSummary(plan.budget)}`, {
@@ -1347,6 +1360,10 @@ export function createDirectorApi(
 				applied.push("recorded the look on the director brief");
 			}
 		}
+
+		// Write-through to the durable bible: the seeded style/consistency, the
+		// locked persona (roster), and the recorded brief all just changed.
+		if (applied.length) syncBible("intakeReferences", "Intook references");
 
 		const headline = applied.length
 			? `Reference intake (${images.length} image${images.length === 1 ? "" : "s"}): ${applied.join("; ")}.`
@@ -2313,6 +2330,31 @@ export function createDirectorApi(
 		return next;
 	}
 
+	/** Compact, durable snapshot of the reusable persona roster for the bible. */
+	function personaRoster(): PersonaRosterEntry[] {
+		return usePersonaStore.getState().personas.map((p) => ({
+			id: p.id,
+			name: p.name,
+			descriptor: p.descriptor,
+		}));
+	}
+
+	/**
+	 * WRITE-THROUGH to the durable {@link ProjectBible}: capture the editor's
+	 * current Director state (brief + consistency context + plan + persona roster),
+	 * checkpoint the prior bible, and persist. Called after every creative-state
+	 * mutation (setConsistencyContext / storyboard / updateBrief / intakeReferences)
+	 * so the persisted bible stays the source of truth the WeakMaps hydrate from.
+	 * Best-effort: a persistence hiccup must never break the verb that triggered it.
+	 */
+	function syncBible(label: string, note?: string): void {
+		try {
+			syncProjectBible(editor, { label, note, personas: personaRoster() });
+		} catch {
+			// swallow — the WeakMap write already succeeded; the bible is a cache-behind.
+		}
+	}
+
 	/** First ~48 chars of a prompt, for compact learned notes. */
 	function briefSnippet(prompt: string | undefined): string {
 		const trimmed = (prompt ?? "").trim();
@@ -2331,7 +2373,50 @@ export function createDirectorApi(
 	 */
 	function updateBrief(patch: BriefPatch): DirectorResult<DirectorBrief> {
 		const next = persistBrief(applyBriefPatch(readBrief(), patch));
+		syncBible("updateBrief", "Updated director brief");
 		return ok("Director brief updated.", next);
+	}
+
+	// ---- PROJECT BIBLE (durable, versioned creative memory) ---------------
+	//
+	// The bible is written through automatically by the creative-state verbs above
+	// (setConsistencyContext / storyboard / updateBrief / intakeReferences). These
+	// two verbs expose the DURABLE artifact itself: read the current bible (with its
+	// checkpoint history) and REVERT to a prior checkpoint — "revert the look to
+	// before the last change" — re-hydrating the session WeakMaps from the restored
+	// state. See `lib/director/project-bible.ts`.
+
+	/** Read the persisted Project Bible (durable creative memory + checkpoint history). */
+	function getProjectBible(): DirectorResult<ProjectBible | undefined> {
+		return ok("Project bible.", editor.project.getProjectBible());
+	}
+
+	/**
+	 * Revert the bible to a prior checkpoint (a specific `toVersion`, else the most
+	 * recent change) and re-hydrate the live consistency/plan state + brief from it.
+	 * Reports a no-op when there is nothing to revert to.
+	 */
+	function revertBibleCheckpoint(input?: {
+		toVersion?: number;
+	}): DirectorResult<RevertResult> {
+		const before = captureReel();
+		const result = revertProjectBible(editor, {
+			...(input?.toVersion != null ? { toVersion: input.toVersion } : {}),
+		});
+		if (!result.reverted) {
+			return fail(
+				input?.toVersion != null
+					? `No checkpoint v${input.toVersion} to revert to.`
+					: "No earlier checkpoint to revert to.",
+			);
+		}
+		return withDelta(
+			before,
+			ok(
+				`Reverted the project bible to checkpoint v${result.toVersion} (now v${result.bible.version}).`,
+				result,
+			),
+		);
 	}
 
 	/** Serialize the brief as the compact prompt block (see `summarizeBrief`). */
@@ -3137,6 +3222,9 @@ export function createDirectorApi(
 		getBrief,
 		updateBrief,
 		briefPromptBlock,
+		// project bible (durable, versioned creative memory + checkpoint revert)
+		getProjectBible,
+		revertBibleCheckpoint,
 		// edit
 		trim,
 		move,

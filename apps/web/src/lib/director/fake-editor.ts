@@ -10,7 +10,7 @@
 
 import type { EditorCore } from "@/core";
 import type { GenerationSpec, Take, TimelineTrack } from "@/types/timeline";
-import type { DirectorBrief } from "@/types/project";
+import type { DirectorBrief, ProjectBible } from "@/types/project";
 
 let idCounter = 0;
 const nextId = (prefix: string) => `${prefix}_${++idCounter}`;
@@ -241,12 +241,19 @@ export function makeFakeEditor(opts?: { fps?: number }): FakeEditor {
 	// In-memory durable brief, so brief-writing paths (chooseTake, recordFinalSpend)
 	// have real storage to persist to and read back.
 	let brief: DirectorBrief = {};
+	// In-memory durable Project Bible, so bible write-through + hydration + revert
+	// paths have real storage to persist to and read back (models `TProject.projectBible`).
+	let projectBible: ProjectBible | undefined;
 	const project = {
 		getActive: () => activeProject,
 		getActiveOrNull: () => activeProject,
 		getDirectorBrief: () => brief,
 		setDirectorBrief: ({ brief: next }: { brief: DirectorBrief }) => {
 			brief = next;
+		},
+		getProjectBible: () => projectBible,
+		setProjectBible: ({ bible }: { bible: ProjectBible }) => {
+			projectBible = bible;
 		},
 	};
 

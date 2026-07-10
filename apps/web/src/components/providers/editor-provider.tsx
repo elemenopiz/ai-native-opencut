@@ -13,6 +13,7 @@ import { useEmbeddingIndexer } from "@/hooks/use-embedding-indexer";
 import { useStudioHandoff } from "@/hooks/use-studio-handoff";
 import { useMcpBridge } from "@/hooks/use-mcp-bridge";
 import { prefetchFontAtlas } from "@/lib/fonts/google-fonts";
+import { hydrateDirectorStateFromBible } from "@/lib/director/project-bible";
 
 interface EditorProviderProps {
 	projectId: string;
@@ -44,6 +45,13 @@ export function EditorProvider({ projectId, children }: EditorProviderProps) {
 				await editor.project.loadProject({ id: projectId });
 
 				if (cancelled) return;
+
+				// Hydrate the Director's session WeakMaps (consistency context +
+				// storyboard plan) from the now-loaded project's durable Project Bible,
+				// so the reel's look/cast/plan survive editor unmount + reload. Clears
+				// any prior reel's state first (EditorCore is a reused singleton across
+				// project switches). See `lib/director/project-bible.ts`.
+				hydrateDirectorStateFromBible(editor);
 
 				setIsLoading(false);
 				prefetchFontAtlas();
