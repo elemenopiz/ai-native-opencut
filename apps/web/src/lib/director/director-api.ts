@@ -45,6 +45,15 @@ import {
 	type ConsistencyCharacter,
 	type ConsistencyContext,
 } from "./consistency-prompt";
+import {
+	bibleToConsistencyInput,
+	buildStoryboardPlan,
+	getStoredPlan,
+	storePlan,
+	type PlannedShotInput,
+	type StoryboardPlan,
+	type StyleBible,
+} from "./storyboard-plan";
 import { buildRemixSpec } from "@/lib/studio/remix";
 import { extractTakeLastFrame } from "@/lib/media/last-frame";
 import {
@@ -420,6 +429,7 @@ export function createDirectorApi(
 			canUndo: editor.command.canUndo(),
 			canRedo: editor.command.canRedo(),
 			consistency: getStoredConsistencyContext(editor),
+			plan: getStoredPlan(editor),
 		};
 	}
 
@@ -477,18 +487,18 @@ export function createDirectorApi(
 	}
 
 	/**
-	 * Set (or update) the reel-level consistency context, applied to every
-	 * shot's prompt at generation time (see `studio-executor.ts`). Personas are
-	 * pulled from `usePersonaStore` by descriptor, not re-authored, unless the
-	 * caller opts out with `includeAllPersonas: false`.
+	 * Build the reel-level consistency context (active personas + any extra
+	 * characters + style/setting) and store it on this editor. The shared core of
+	 * the `setConsistencyContext` verb AND the `storyboard` planner's auto-seed,
+	 * so both pull personas identically and there is one place that authors the
+	 * context. Returns the stored context.
 	 */
-	function setConsistencyContext(input: {
+	function applyConsistencyContext(input: {
 		style?: string;
 		setting?: string;
 		extraCharacters?: ConsistencyCharacter[];
 		includeAllPersonas?: boolean;
-	}): DirectorResult<ConsistencyContext> {
-		const before = captureReel();
+	}): ConsistencyContext {
 		const personas =
 			input.includeAllPersonas === false
 				? []
@@ -505,6 +515,23 @@ export function createDirectorApi(
 			extraCharacters: input.extraCharacters,
 		});
 		storeConsistencyContext(editor, context);
+		return context;
+	}
+
+	/**
+	 * Set (or update) the reel-level consistency context, applied to every
+	 * shot's prompt at generation time (see `studio-executor.ts`). Personas are
+	 * pulled from `usePersonaStore` by descriptor, not re-authored, unless the
+	 * caller opts out with `includeAllPersonas: false`.
+	 */
+	function setConsistencyContext(input: {
+		style?: string;
+		setting?: string;
+		extraCharacters?: ConsistencyCharacter[];
+		includeAllPersonas?: boolean;
+	}): DirectorResult<ConsistencyContext> {
+		const before = captureReel();
+		const context = applyConsistencyContext(input);
 		return withDelta(before, ok("Consistency context updated.", context));
 	}
 
@@ -699,20 +726,41 @@ export function createDirectorApi(
 	}
 
 	/**
-	 * Create a sequence of empty slots from a shot list. Slots are appended in
-	 * order, back-to-back, after existing content. Grouped into one undoable
-	 * history entry. Returns the new slot ids.
+	 * Author a multi-shot PLAN and materialize it into a sequence of generative
+	 * slots — the Director's planning entry point (see `storyboard-plan.ts`).
+	 *
+	 * Beyond appending back-to-back slots (grouped into one undoable history
+	 * entry), this:
+	 *  1. records each shot's creative INTENT (intent/camera/subject) and the
+	 *     shared STYLE BIBLE (palette, lens/mood, cast, setting) as a
+	 *     {@link StoryboardPlan}, persisted per editor so later turns read it back
+	 *     off `getReel().plan` instead of re-deriving it, and
+	 *  2. AUTO-SEEDS the reel-level consistency context from the bible (unless
+	 *     `seedConsistency: false`), so every subsequent `generate` call inherits
+	 *     the style/cast without the user restating it — the plan and the
+	 *     prompt-time consistency block come from the same source.
+	 *
+	 * A shot with a missing/non-positive duration is floored to the 6s default
+	 * rather than rejected — friendlier for an agent that omits it. Returns the
+	 * new slot ids (in order) plus the persisted plan.
 	 */
 	function storyboard(input: {
-		shots: {
-			prompt: string;
-			duration: number;
-			spec?: SpecOverride;
-		}[];
-	}): DirectorResult<string[]> {
+		shots: (PlannedShotInput & { spec?: SpecOverride })[];
+		/** Shared style bible; also seeds the consistency context (see above). */
+		bible?: StyleBible;
+		/** Set false to skip auto-seeding the consistency context. Default true. */
+		seedConsistency?: boolean;
+	}): DirectorResult<{ slotIds: string[]; plan: StoryboardPlan }> {
 		if (!input.shots || input.shots.length === 0) {
 			return fail("storyboard requires at least one shot.");
 		}
+
+		// Author the plan first (pure): floors durations, assigns 1-based indices.
+		// Slot ids are patched back onto each shot after materialization.
+		const plan = buildStoryboardPlan({
+			shots: input.shots.map(({ spec, ...rest }) => rest),
+			bible: input.bible,
+		});
 
 		const before = captureReel();
 		const ids: string[] = [];
@@ -720,26 +768,22 @@ export function createDirectorApi(
 
 		editor.command.beginTransaction();
 		try {
-			for (const shot of input.shots) {
-				if (shot.duration <= 0) {
-					editor.command.rollbackTransaction();
-					return fail(
-						`Shot "${shot.prompt}" has a non-positive duration (${shot.duration}).`,
-					);
-				}
+			input.shots.forEach((shot, i) => {
+				const planned = plan.shots[i];
 				const spec = buildSpec(
-					shot.prompt,
-					shot.duration,
+					planned.prompt,
+					planned.duration,
 					applyReferenceMediaId(shot.spec),
 				);
 				const slotId = editor.timeline.addGenerativeSlot({
 					spec,
-					duration: shot.duration,
+					duration: planned.duration,
 					startTime: cursor,
 				});
-				cursor += shot.duration;
+				planned.slotId = slotId;
+				cursor += planned.duration;
 				ids.push(slotId);
-			}
+			});
 		} catch (error) {
 			editor.command.rollbackTransaction();
 			return fail(
@@ -749,7 +793,22 @@ export function createDirectorApi(
 			);
 		}
 		editor.command.commitTransaction();
-		return withDelta(before, ok(`Created ${ids.length} slot(s).`, ids));
+
+		// Persist the plan so getReel/later turns read back the per-shot intent.
+		storePlan(editor, plan);
+
+		// Auto-seed the reel-level consistency context from the bible so every
+		// generate call inherits style/cast. `bibleToConsistencyInput` returns
+		// undefined for an empty bible → leave any prior context untouched.
+		if (input.seedConsistency !== false) {
+			const seed = bibleToConsistencyInput(plan.bible);
+			if (seed) applyConsistencyContext(seed);
+		}
+
+		return withDelta(
+			before,
+			ok(`Storyboarded ${ids.length} shot(s).`, { slotIds: ids, plan }),
+		);
 	}
 
 	/** Update the prompt (and optionally other spec fields) of a slot. */
