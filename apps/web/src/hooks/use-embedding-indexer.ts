@@ -14,10 +14,15 @@ import { useEffect, useRef } from "react";
 import { useEditor } from "@/hooks/use-editor";
 import { indexMedia } from "@/services/search/embedding-service";
 import {
+	isUnderstandingAutorunEnabled,
+	understandAsset,
+} from "@/services/search/asset-understanding-service";
+import {
 	listIndexedMediaIds,
 	setStatus,
 } from "@/services/search/embedding-store";
 import type { EmbeddingStatus } from "@/lib/search/embedding-types";
+import { usePersonaStore } from "@/stores/persona-store";
 
 const CLIP_MODEL_NAME = "ViT-B-32";
 
@@ -70,6 +75,22 @@ export function useEmbeddingIndexer() {
 						inflightSet.delete(asset.id);
 						indexedSet.add(asset.id);
 					});
+
+				// Ingest-time Understanding Pass (role / caption / faces / style),
+				// independent of the on-device CLIP embedding above. Gated OFF by
+				// default because it bills the paid VLM relay per asset; enable with
+				// NEXT_PUBLIC_UNDERSTANDING_AUTORUN=1. `understandAsset` de-dupes
+				// against its own store, so a re-tick never re-bills an asset.
+				if (isUnderstandingAutorunEnabled()) {
+					const personas = usePersonaStore.getState().personas.map((p) => ({
+						id: p.id,
+						name: p.name,
+						descriptor: p.descriptor,
+					}));
+					understandAsset(asset, { personas }).catch((err) => {
+						console.warn(`[asset-understanding] failed for ${asset.id}:`, err);
+					});
+				}
 			}
 		};
 
