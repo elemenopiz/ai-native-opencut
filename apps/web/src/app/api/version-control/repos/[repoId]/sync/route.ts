@@ -61,7 +61,7 @@ export async function POST(
 		if (pushCommits && pushCommits.length > 0) {
 			for (const raw of pushCommits) {
 				const commit = raw as Record<string, unknown>;
-				await db
+				const inserted = await db
 					.insert(commits)
 					.values({
 						id: commit.id as string,
@@ -86,8 +86,11 @@ export async function POST(
 						mergeSourceBranch: (commit.mergeSourceBranch as string) ?? null,
 						createdAt: new Date(),
 					})
-					.onConflictDoNothing();
-				pushedCount++;
+					.onConflictDoNothing()
+					.returning({ id: commits.id });
+				// Count only rows actually written — a commit the server already has
+				// is skipped by onConflictDoNothing and must not inflate the count.
+				pushedCount += inserted.length;
 			}
 		}
 

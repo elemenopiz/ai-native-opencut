@@ -54,7 +54,18 @@ export async function POST(
 			createdAt: new Date(),
 		};
 
-		await db.insert(tags).values(tag).onConflictDoNothing();
+		const inserted = await db
+			.insert(tags)
+			.values(tag)
+			.onConflictDoNothing()
+			.returning({ id: tags.id });
+		if (inserted.length === 0) {
+			// Unique (repoId, name) collision — the row was not written.
+			return NextResponse.json(
+				{ error: "A tag with that name already exists" },
+				{ status: 409 },
+			);
+		}
 		return NextResponse.json(tag, { status: 201 });
 	} catch (error) {
 		console.error("Error creating tag:", error);

@@ -30,6 +30,10 @@ interface State {
 	offset?: number;
 	/** Every insert the handler attempted (table + values). */
 	inserts: Array<{ table: unknown; values: unknown }>;
+	/** Rows a `.returning()` after an insert resolves to (default: one row). */
+	insertReturning?: (table: unknown) => unknown[];
+	/** Rows a `.returning()` after an update resolves to (default: one row). */
+	updateReturning?: () => unknown[];
 }
 
 const state: State = {
@@ -66,6 +70,26 @@ function makeQuery() {
 	return q;
 }
 
+/** Chainable insert result: supports `.onConflictDoNothing()` and `.returning()`,
+ *  and is awaitable on its own. `.returning()` resolves to `state.insertReturning`
+ *  (default: one row → "a row was written"); set it to `[]` to simulate a conflict. */
+function insertResult(table: unknown) {
+	const result: Record<string, unknown> = {
+		onConflictDoNothing() {
+			return result;
+		},
+		returning() {
+			return Promise.resolve(
+				state.insertReturning ? state.insertReturning(table) : [{ id: "row" }],
+			);
+		},
+		then(resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) {
+			return Promise.resolve(undefined).then(resolve, reject);
+		},
+	};
+	return result;
+}
+
 const fakeDb = {
 	select() {
 		return makeQuery();
@@ -74,7 +98,30 @@ const fakeDb = {
 		return {
 			values(values: unknown) {
 				state.inserts.push({ table, values });
-				return { onConflictDoNothing: async () => undefined };
+				return insertResult(table);
+			},
+		};
+	},
+	update(_table: unknown) {
+		return {
+			set() {
+				const chain: Record<string, unknown> = {
+					where() {
+						return chain;
+					},
+					returning() {
+						return Promise.resolve(
+							state.updateReturning ? state.updateReturning() : [{ id: "row" }],
+						);
+					},
+					then(
+						resolve: (v: unknown) => unknown,
+						reject: (e: unknown) => unknown,
+					) {
+						return Promise.resolve(undefined).then(resolve, reject);
+					},
+				};
+				return chain;
 			},
 		};
 	},
@@ -114,6 +161,8 @@ beforeEach(() => {
 	state.limit = undefined;
 	state.offset = undefined;
 	state.inserts = [];
+	state.insertReturning = undefined;
+	state.updateReturning = undefined;
 });
 
 describe("commits GET — pagination NaN/negative guard", () => {
@@ -284,6 +333,19 @@ describe("tags POST — write-authorization on a public repo (H1)", () => {
 		);
 		expect(res.status).toBe(201);
 		expect(state.inserts.length).toBeGreaterThan(0);
+	});
+
+	// Regression: a duplicate tag name (unique (repoId,name)) is dropped by
+	// onConflictDoNothing; the route used to still report 201 with the payload.
+	it("409s when the tag name already exists (insert was a no-op)", async () => {
+		state.session = { user: { id: "owner-1", name: "Owner", image: null } };
+		state.rowsFor = publicRepoOwnedBy("owner-1");
+		state.insertReturning = () => []; // conflict → nothing written
+		const res = await tagsPOST(
+			jsonRequest({ commitId: "c1", name: "v1" }),
+			params("owned-repo"),
+		);
+		expect(res.status).toBe(409);
 	});
 
 	it("401s before any db access when unauthenticated", async () => {

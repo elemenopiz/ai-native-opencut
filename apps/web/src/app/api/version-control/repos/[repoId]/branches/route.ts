@@ -60,7 +60,18 @@ export async function POST(
 			createdAt: new Date(),
 		};
 
-		await db.insert(branches).values(branch).onConflictDoNothing();
+		const inserted = await db
+			.insert(branches)
+			.values(branch)
+			.onConflictDoNothing()
+			.returning({ id: branches.id });
+		if (inserted.length === 0) {
+			// Unique (repoId, name) collision — the row was not written.
+			return NextResponse.json(
+				{ error: "A branch with that name already exists" },
+				{ status: 409 },
+			);
+		}
 		return NextResponse.json(branch, { status: 201 });
 	} catch (error) {
 		console.error("Error creating branch:", error);

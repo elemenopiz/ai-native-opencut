@@ -47,10 +47,15 @@ export async function PUT(
 			return NextResponse.json({ error: "Invalid request" }, { status: 400 });
 		}
 
-		await db
+		const updated = await db
 			.update(branches)
 			.set(parsed.data)
-			.where(and(eq(branches.repoId, repoId), eq(branches.name, name)));
+			.where(and(eq(branches.repoId, repoId), eq(branches.name, name)))
+			.returning({ id: branches.id });
+
+		if (updated.length === 0) {
+			return NextResponse.json({ error: "Branch not found" }, { status: 404 });
+		}
 
 		return NextResponse.json({ ok: true });
 	} catch (error) {
