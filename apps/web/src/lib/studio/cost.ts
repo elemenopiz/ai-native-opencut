@@ -126,3 +126,46 @@ export function needsApproval(
 export function formatCostRange(estimate: CostRange): string {
 	return `${formatUsd(estimate.low)}–${formatUsd(estimate.high)}`;
 }
+
+// ─── Audio cost (voiceover TTS + music bed) ──────────────────────────────────
+// The Director's audio verbs (`addVoiceover`/`addMusicBed`) hit PAID backends
+// just like a visual `generate`, so they ride the SAME cost-preview approval
+// gate. These estimators mirror `estimateBatchCost`'s shape (a `CostRange` plus
+// a `clips` count) so the agent's approval path treats an audio spend exactly
+// like a generation one.
+
+/**
+ * Per-1000-characters cost range for synthesized speech (USD). Premium neural
+ * TTS with voice cloning (the persona/`voiceRef` path) is billed by the length
+ * of the synthesized text, so a long monologue costs materially more than a
+ * one-line VO — which is exactly why it needs the approval gate.
+ */
+export const TTS_RATE_PER_1K_CHARS: [number, number] = [0.15, 0.3];
+
+/**
+ * Flat cost range for sourcing one music-bed track — a search plus a licensed
+ * download from the paid sounds backend. Independent of the query and of how
+ * long the bed spans (one track is fetched once, then looped/trimmed locally).
+ */
+export const MUSIC_BED_COST: [number, number] = [0.02, 0.06];
+
+/**
+ * Cost of synthesizing one voiceover from its script. `clips: 1` — a VO add
+ * renders a single audio take — so the gate counts it like a one-clip generate.
+ * An empty script costs nothing (the verb rejects it before spending).
+ */
+export function estimateVoiceoverCost(
+	script: string,
+): CostRange & { clips: number } {
+	const chars = script.trim().length;
+	if (chars === 0) return { low: 0, high: 0, clips: 0 };
+	const [lo, hi] = TTS_RATE_PER_1K_CHARS;
+	const thousands = chars / 1000;
+	return { low: lo * thousands, high: hi * thousands, clips: 1 };
+}
+
+/** Cost of laying down one music bed (flat per-track fee). `clips: 1`. */
+export function estimateMusicBedCost(): CostRange & { clips: number } {
+	const [lo, hi] = MUSIC_BED_COST;
+	return { low: lo, high: hi, clips: 1 };
+}
