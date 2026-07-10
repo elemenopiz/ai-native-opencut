@@ -29,7 +29,8 @@ import type {
 	TakeStatus,
 } from "@/types/timeline";
 import type { ConsistencyContext } from "./consistency-prompt";
-import type { StoryboardPlan } from "./storyboard-plan";
+import type { StoryboardPlan, StyleBible } from "./storyboard-plan";
+import type { DerivedReference } from "./reference-intake";
 import type { ReelSpend, ShotAllocation } from "./budget";
 
 // Re-export the canonical generative types so Director consumers have a single
@@ -279,6 +280,30 @@ export interface ReviewTakeData {
 	frameCount: number;
 	/** Decoded frames as base64 `data:` image URLs, in first → last order. */
 	frames: string[];
+}
+
+/**
+ * Result of {@link DirectorApi.intakeReferences} — the outcome of giving the
+ * Director EYES ON INPUT. The model looked at the user's reference images and
+ * derived a {@link DerivedReference} (a StyleBible + optional persona sketch);
+ * the verb then seeded the reel-level consistency context from the style,
+ * optionally locked a persona (seed-lock path) from the character, and recorded
+ * the look on the durable brief. This payload reports what was derived and
+ * applied so the agent can pass `bible` straight into `storyboard`.
+ */
+export interface IntakeReferencesData {
+	/** The full derived look — StyleBible + optional persona sketch + summary. */
+	derived: DerivedReference;
+	/** The derived StyleBible, hoisted for a direct `storyboard({ bible })` handoff. */
+	bible: StyleBible;
+	/** True ⇒ the reel-level consistency context was seeded from the derived style. */
+	styleApplied: boolean;
+	/** Set ⇒ a persona was locked + activated from the reference character. */
+	personaId?: string;
+	/** How many reference assets were actually decoded into images. */
+	imageCount: number;
+	/** Any requested mediaIds that didn't resolve to an asset (skipped). */
+	missingMediaIds: string[];
 }
 
 /**

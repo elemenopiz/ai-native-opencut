@@ -590,6 +590,59 @@ export function toolCatalog(): ToolDescriptor[] {
 			},
 		},
 		{
+			name: "intakeReferences",
+			description:
+				"SEE the user's reference images and build the plan from them. Pass the uploaded/attached reference mediaIds (FULL media ids, e.g. from getProjectInfo recentAssets — style refs like a moodboard/film still, and/or a character photo). The model looks at the pixels and derives a StyleBible (palette/lens-mood/setting) that SEEDS the reel's consistency context, and — when the refs center on a person — locks & activates a PERSONA (descriptor + anchor image, seed-lock path) so that character recurs. The derived look is recorded on the brief. Call this FIRST when the user attaches references; then pass the returned bible into storyboard.",
+			mutating: true,
+			inputSchema: {
+				type: "object",
+				properties: {
+					mediaIds: {
+						type: "array",
+						items: { type: "string" },
+						description:
+							"FULL media-library asset ids of the reference image(s)/video(s) to read. Not reel slot ids.",
+					},
+					hint: {
+						type: "string",
+						description:
+							"Optional: what the user wants the references to steer (intent), e.g. 'match this grade' or 'keep this character'.",
+					},
+					createPersona: {
+						type: "boolean",
+						description:
+							"Set false to derive STYLE only and skip locking a persona even if a character is detected. Default true.",
+					},
+					personaName: {
+						type: "string",
+						description:
+							"Optional name for the locked persona (overrides the model-derived name).",
+					},
+					seed: {
+						type: "number",
+						description:
+							"Optional seed to lock the derived persona's identity (seed-lock).",
+					},
+					record: {
+						type: "boolean",
+						description:
+							"Set false to skip recording the derived look on the durable brief. Default true.",
+					},
+				},
+				required: ["mediaIds"],
+			},
+			handler: (d, a) =>
+				d.intakeReferences({
+					mediaIds: asStringList(a.mediaIds) ?? [],
+					hint: strOrUndefined(a.hint),
+					createPersona:
+						typeof a.createPersona === "boolean" ? a.createPersona : undefined,
+					personaName: strOrUndefined(a.personaName),
+					seed: numOrUndefined(a.seed),
+					record: typeof a.record === "boolean" ? a.record : undefined,
+				}),
+		},
+		{
 			name: "reserveSlot",
 			description: "append ONE empty slot (optionally with a prompt).",
 			mutating: true,

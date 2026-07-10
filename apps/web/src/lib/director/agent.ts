@@ -42,6 +42,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { DirectorApi } from "./director-api";
 import type { StoryboardPlan } from "./storyboard-plan";
+import { styleBibleDescriptors } from "./storyboard-plan";
 import type { ReviewTakeData } from "./types";
 import { PLAYBOOKS } from "@/lib/studio/playbooks";
 import { createShortIdMap, type ShortIdMap } from "./short-id";
@@ -49,6 +50,8 @@ import {
 	needsApproval,
 	formatCostRange,
 	formatUsd,
+	estimateVoiceoverCost,
+	estimateMusicBedCost,
 	DEFAULT_APPROVAL_THRESHOLD_USD,
 	type CostRange,
 } from "@/lib/studio/cost";
@@ -61,11 +64,12 @@ import {
 	type ToolHandler,
 } from "./tool-catalog";
 import {
+	buildCriticSystemPrompt,
 	buildCriticUserBlocks,
-	CRITIC_SYSTEM_PROMPT,
 	dataUrlToImageBlock,
 	parseVerdict,
 	wantsAutoReview,
+	type ContinuityContext,
 	type CriticVerdict,
 } from "./vision-critic";
 
@@ -492,7 +496,8 @@ async function executeTool(
 			action === "getConsistencyContext" ||
 			action === "getProjectInfo" ||
 			action === "getBackends" ||
-			action === "getBrief")
+			action === "getBrief" ||
+			action === "intakeReferences")
 	) {
 		observation = `${result.message} DATA:${JSON.stringify(result.data)}`;
 	} else {
@@ -528,9 +533,18 @@ async function executeTool(
 // runs the exact proposed action via `executeDirectorAction`. Fail-closed: the
 // agent cannot talk itself past the gate within a turn — the loop returns.
 
-/** Verbs gated behind the approval gate — they render takes and cost money.
- *  `compareTake` is included because A/B doubles the spend (one take per backend). */
-const REQUIRES_APPROVAL = new Set(["generate", "reroll", "compareTake"]);
+/** Verbs gated behind the approval gate — they hit a PAID backend and cost money.
+ *  `compareTake` is included because A/B doubles the spend (one take per backend);
+ *  `addVoiceover`/`addMusicBed` because they render TTS / pull a licensed track from
+ *  the paid sounds backend, so an audio spend must pause at the threshold just like
+ *  a visual `generate` does. */
+const REQUIRES_APPROVAL = new Set([
+	"generate",
+	"reroll",
+	"compareTake",
+	"addVoiceover",
+	"addMusicBed",
+]);
 
 /** The user-configured USD threshold, read live from the studio settings store. */
 function approvalThreshold(): number {
@@ -579,6 +593,17 @@ function estimateActionCost(
 				alternatives: Math.max(2, backendCount),
 			}).data ?? null
 		);
+	}
+	// Audio verbs bill a paid backend too, so they gate on a real estimate. TTS
+	// cost scales with the script length (always in the args); a music bed is a
+	// flat per-track fee. Both are pure functions of the args — no DirectorApi
+	// round-trip and no slot resolution — so `director` is intentionally unused.
+	if (action === "addVoiceover") {
+		const est = estimateVoiceoverCost(str(args.script));
+		return est.clips > 0 ? est : null;
+	}
+	if (action === "addMusicBed") {
+		return estimateMusicBedCost();
 	}
 	return null;
 }
@@ -837,19 +862,24 @@ function recordAutoStep(
 	onStep?.(step);
 }
 
-/** A critic step: judge a take's frames against its intent → structured verdict. */
+/**
+ * A critic step: judge a take's frames against its intent → structured verdict.
+ * The optional {@link ContinuityContext} (a prior shot's frame + style bible)
+ * turns on cross-shot continuity judging and the `remix-for-continuity` verdict.
+ */
 export type CritiqueFn = (
 	intent: string,
 	frames: string[],
+	context?: ContinuityContext,
 ) => Promise<CriticVerdict>;
 
 /** The production critic: one tool-less relay call → a parsed {@link CriticVerdict}. */
-const relayCritique: CritiqueFn = async (intent, frames) => {
+const relayCritique: CritiqueFn = async (intent, frames, context) => {
 	const turn = await callAgentRelay({
 		messages: [
-			{ role: "user", content: buildCriticUserBlocks(intent, frames) },
+			{ role: "user", content: buildCriticUserBlocks(intent, frames, context) },
 		],
-		system: CRITIC_SYSTEM_PROMPT,
+		system: buildCriticSystemPrompt(Boolean(context?.priorFrame)),
 		tools: [],
 	});
 	return parseVerdict(textOf(turn.content));
@@ -875,9 +905,45 @@ export async function autoReviewSlot(opts: {
 	steps: AgentToolStep[];
 	onStep?: (step: AgentToolStep) => void;
 	critique?: CritiqueFn;
+	/**
+	 * The PREVIOUS shot's slot id, when this slot follows another in the reel.
+	 * Its last frame is decoded once and fed to the critic so it can judge
+	 * CROSS-SHOT continuity; on a continuity miss the corrective remix is anchored
+	 * on that same frame. Omit for the first shot (no continuity to hold).
+	 */
+	priorSlotId?: string;
+	/** Rendered style-bible descriptors (see `styleBibleDescriptors`) the reel must hold. */
+	bible?: string;
 }): Promise<void> {
-	const { director, slotId, shortId, threshold, steps, onStep } = opts;
+	const {
+		director,
+		slotId,
+		shortId,
+		threshold,
+		steps,
+		onStep,
+		priorSlotId,
+		bible,
+	} = opts;
 	const critique = opts.critique ?? relayCritique;
+
+	// Cross-shot continuity: decode the PRIOR shot's last frame once (reused every
+	// attempt) so the critic can compare this shot against it. A prior shot that
+	// isn't reviewable yet simply turns continuity judging off for this slot.
+	let priorFrame: string | undefined;
+	if (priorSlotId) {
+		const priorReview = await director.reviewTake({
+			slotId: priorSlotId,
+			frames: 1,
+		});
+		if (priorReview.ok && priorReview.data) {
+			const f = priorReview.data.frames;
+			priorFrame = f[f.length - 1];
+		}
+	}
+	const context: ContinuityContext | undefined = priorFrame
+		? { priorFrame, ...(bible ? { bible } : {}) }
+		: undefined;
 
 	for (let attempt = 0; attempt < MAX_AUTO_REVIEW_ATTEMPTS; attempt++) {
 		// 1. SEE the current take.
@@ -887,7 +953,7 @@ export async function autoReviewSlot(opts: {
 		// 2. Critic verdict — a relay failure must not derail the user's turn.
 		let verdict: CriticVerdict;
 		try {
-			verdict = await critique(review.data.prompt, review.data.frames);
+			verdict = await critique(review.data.prompt, review.data.frames, context);
 		} catch (err) {
 			recordAutoStep(
 				steps,
@@ -904,7 +970,9 @@ export async function autoReviewSlot(opts: {
 			steps,
 			onStep,
 			"reviewTake",
-			`Reviewed slot ${shortId}: ${verdict.verdict}${verdict.reason ? ` — ${verdict.reason}` : ""}`,
+			`Reviewed slot ${shortId}: ${verdict.verdict}${verdict.reason ? ` — ${verdict.reason}` : ""}${
+				verdict.temporalIssue ? ` [motion: ${verdict.temporalIssue}]` : ""
+			}`,
 			true,
 		);
 
@@ -938,6 +1006,22 @@ export async function autoReviewSlot(opts: {
 			director.setPrompt({ slotId, prompt: verdict.revisedPrompt });
 			const res = await director.reroll({ slotId, alternatives: 1 });
 			correctedTakeId = res.data?.takeIds?.[0];
+			message = res.message;
+			corrected = res.ok;
+		} else if (verdict.verdict === "remix-for-continuity") {
+			// Continuity miss: remix anchored on the PRIOR shot's frame (not this
+			// take's own), with the bible descriptors folded into the delta so the
+			// fix pulls the shot back onto the reel's look. `priorFrame` is present
+			// here — a continuity verdict only comes from a continuity-enabled call.
+			const remixPrompt = bible
+				? `${verdict.revisedPrompt} — hold continuity: ${bible}`
+				: verdict.revisedPrompt;
+			const res = await director.remix({
+				slotId,
+				remixPrompt,
+				anchorImageUrl: priorFrame,
+			});
+			correctedTakeId = res.data?.takeId;
 			message = res.message;
 			corrected = res.ok;
 		} else {
@@ -1161,6 +1245,27 @@ function textOf(content: Anthropic.ContentBlock[]): string {
 }
 
 /**
+ * One tool-less vision model round-trip through the SAME stateless relay the
+ * agent/critic use: a system prompt + user content blocks (text + images) → the
+ * assistant's text reply. This is the `VisionRelay` the take-critic adapter
+ * (`take-critic-adapter.ts`) is wired with in `use-director`, so `compareTake`'s
+ * auto-pick rides the exact relay path `reviewTake`'s critic does.
+ */
+export async function callVisionRelay(request: {
+	system: string;
+	content: Anthropic.ContentBlockParam[];
+	signal?: AbortSignal;
+}): Promise<string> {
+	const turn = await callAgentRelay({
+		messages: [{ role: "user", content: request.content }],
+		system: request.system,
+		tools: [],
+		signal: request.signal,
+	});
+	return textOf(turn.content);
+}
+
+/**
  * System prompt for the frontier brain. Built ONCE per user turn (not per
  * model call) so the prefix stays byte-stable across the loop for prompt
  * caching; the reel listing inside it is therefore a snapshot — live state
@@ -1185,13 +1290,14 @@ export function buildFrontierSystemPrompt(director: DirectorApi): string {
 		"PLAN FIRST for multi-shot briefs: when the brief implies MORE THAN ONE shot (a sequence, story, ad, montage, or a 'make a video about X' that isn't a single clip), call `storyboard` BEFORE generating anything. Decompose the brief into ordered shots — each with its `prompt` PLUS creative `intent`/`camera`/`subject` notes — under one shared `bible` (palette, lensMood, setting, and any recurring `characters`). `storyboard` persists the plan (it appears as PLAN in the REEL below and via getReel) and auto-seeds the reel's consistency context from the bible, so every later `generate` inherits the same style and cast — do NOT restate style/characters shot by shot. Then generate against each shot's planned intent. If a PLAN already exists, build on it (setPrompt/reroll individual shots) rather than re-storyboarding from scratch.",
 		'SINGLE / QUICK requests stay fast: for a one-off clip ("make me one clip of X", "add a shot of Y"), skip planning — go straight to reserveSlot (or a one-shot storyboard) and generate. Don\'t force a storyboard or a style bible onto a single-shot ask.',
 		"",
-		"COST GATE: a generate/reroll/compareTake that would spend more than a small amount pauses for the user's approval — the run stops and asks them out-of-band. This is expected, not an error; do NOT retry the same action to force it through.",
+		"COST GATE: any paid action — generate/reroll/compareTake, or an audio add (addVoiceover/addMusicBed) — that would spend more than a small amount pauses for the user's approval; the run stops and asks them out-of-band. This is expected, not an error; do NOT retry the same action to force it through.",
 		MODEL_ROUTING_POLICY,
 		BUDGET_POLICY,
 		"",
 		"HONOR THE BRIEF: the DIRECTOR BRIEF below is the user's durable creative intent. Let it shape every prompt you write and every take you pick. When the user states a new preference — or a chosen take reveals one — call updateBrief so it persists for later turns.",
 		briefBlock(director),
 		"",
+		'EYES ON INPUT: when the user ATTACHES reference images — style refs (a moodboard, a film still, a product/location shot) and/or a character photo — do NOT plan from words alone. Call `intakeReferences` FIRST with those reference mediaIds (full media ids; see the recent assets in the project info): the model SEES the pixels and derives a StyleBible (palette/lens-mood/setting) that seeds the reel\'s consistency context, and — when a person is the subject — locks & activates a PERSONA so that character recurs across shots. Then pass the returned `bible` into `storyboard` and generate; every shot inherits the referenced look and cast without you restating it. Use it for a plain "make it look like this" / "use this character" ask, not for footage the user wants placed on the timeline (that\'s addClip).',
 		"VISION REVIEW: you cannot judge a generated clip from its prompt alone — you must SEE it. Call `reviewTake` to get a slot take's actual frames (first→mid→last) as images, then decide against the slot's prompt:",
 		"  · faithful → keep it (chooseTake if it isn't already active); do nothing more.",
 		"  · fundamentally wrong shot (wrong subject/scene, missing the point) → fix the prompt with `setPrompt`, then `reroll` for a fresh take.",
@@ -1260,8 +1366,13 @@ async function runDirectorAgentFrontier(opts: {
 	async function finalize(result: AgentRunResult): Promise<AgentRunResult> {
 		if (result.awaitingApproval) return result;
 		// A completed turn under a budget records its final spend on the durable
-		// brief, so the budget outcome survives into later sessions.
-		director.recordFinalSpend();
+		// brief, so the budget outcome survives into later sessions. Best-effort:
+		// a no-budget reel is a no-op, and this never masks the turn's own result.
+		try {
+			director.recordFinalSpend();
+		} catch {
+			/* recording spend must never break a completed turn */
+		}
 		const settingEnabled =
 			useStudioSettingsStore.getState().autoReviewEnabled ?? false;
 		if (!wantsAutoReview(userMessage, settingEnabled)) return result;
@@ -1269,7 +1380,15 @@ async function runDirectorAgentFrontier(opts: {
 		if (slotIds.length === 0) return result;
 		const threshold = approvalThreshold();
 		const map = reelShortIdMap(director);
+		// Reel order + style bible drive CROSS-SHOT continuity: each shot is
+		// reviewed against the shot BEFORE it in timeline order, holding the plan's
+		// bible. The first shot has no predecessor, so it gets a plain review.
+		const reel = director.getReel();
+		const order = reel.slots.map((s) => s.id);
+		const bible = reel.plan ? styleBibleDescriptors(reel.plan.bible) : "";
 		for (const slotId of slotIds) {
+			const idx = order.indexOf(slotId);
+			const priorSlotId = idx > 0 ? order[idx - 1] : undefined;
 			await autoReviewSlot({
 				director,
 				slotId,
@@ -1277,6 +1396,8 @@ async function runDirectorAgentFrontier(opts: {
 				threshold,
 				steps: result.steps,
 				onStep,
+				...(priorSlotId ? { priorSlotId } : {}),
+				...(bible ? { bible } : {}),
 			});
 		}
 		return result;
@@ -1488,7 +1609,7 @@ function buildLocalSystemPrompt(director: DirectorApi): string {
 		"Use actions ONLY when the user wants to build or change the reel. For questions, ideas, scripts, or advice, answer with a final message.",
 		"After each action you receive an OBSERVATION. When the task is done, send a final message summarizing what you did.",
 		"PLAN FIRST for multi-shot briefs: if the brief implies more than one shot, use `storyboard` before generating — give each shot a prompt plus intent/camera/subject notes under one shared `bible` (palette, lensMood, setting, characters). It persists the PLAN (shown in the REEL below) and auto-seeds the consistency context, so later shots stay coherent without restating style. For a single quick clip, skip planning and just reserveSlot + generate.",
-		"COST GATE: a generate/reroll/compareTake that would spend more than a small amount pauses for the user's approval — the run stops and asks them. This is expected, not an error; never retry the same action to force it through.",
+		"COST GATE: any paid action — generate/reroll/compareTake, or an audio add (addVoiceover/addMusicBed) — that would spend more than a small amount pauses for the user's approval; the run stops and asks them. This is expected, not an error; never retry the same action to force it through.",
 		MODEL_ROUTING_POLICY,
 		BUDGET_POLICY,
 		"",

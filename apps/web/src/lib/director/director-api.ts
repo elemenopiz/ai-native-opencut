@@ -72,6 +72,15 @@ import {
 	summarizeBrief,
 	type BriefPatch,
 } from "./director-brief";
+import {
+	relayDeriveReferences,
+	styleBibleToBriefLine,
+	styleHasContent,
+	type DeriveReferencesFn,
+	type DerivedReference,
+} from "./reference-intake";
+import { uploadReferenceFile } from "@/lib/studio/reference-upload";
+import type { MediaAsset } from "@/types/assets";
 import type { DirectorBrief } from "@/types/project";
 import { buildRemixSpec } from "@/lib/studio/remix";
 import {
@@ -120,6 +129,7 @@ import type {
 	BudgetStatus,
 	DirectorResult,
 	GenerationFailure,
+	IntakeReferencesData,
 	MediaSearchHit,
 	MutationDelta,
 	ProjectInfo,
@@ -235,6 +245,26 @@ export interface CreateDirectorApiOptions {
 			query: string;
 			commercialOnly: boolean;
 		}) => Promise<ResolvedMusic>;
+	};
+	/**
+	 * Reference-intake seam (see `reference-intake.ts`). `derive` runs the user's
+	 * reference images through the model to derive a StyleBible/persona; the
+	 * default hits the same `/api/llm/agent` relay the agent uses. `uploadAnchor`
+	 * rehosts a persona anchor File to a fetchable URL (default: the shared
+	 * `/api/studio/upload` path); `createPersona` persists+returns a persona
+	 * (default: the client `usePersonaStore`). All three are BROWSER-BOUND, so
+	 * headless tests inject stubs — the same pattern as `executor`/`audio`.
+	 */
+	references?: {
+		derive?: DeriveReferencesFn;
+		uploadAnchor?: (file: File) => Promise<string>;
+		createPersona?: (input: {
+			name: string;
+			descriptor: string;
+			anchorImageUrl: string;
+			refImageUrls?: string[];
+			seed?: number;
+		}) => Promise<{ id: string } | null>;
 	};
 }
 
@@ -436,6 +466,23 @@ export function createDirectorApi(
 	options: CreateDirectorApiOptions = {},
 ) {
 	const { executor, backends: backendsProvider, critic } = options;
+
+	// Reference-intake seam: model derivation + anchor upload + persona create.
+	// Defaults are browser-bound (relay / R2 upload / persona store); tests inject.
+	const deriveReferences: DeriveReferencesFn =
+		options.references?.derive ?? relayDeriveReferences;
+	const uploadAnchorFile: (file: File) => Promise<string> =
+		options.references?.uploadAnchor ??
+		(async (file) => (await uploadReferenceFile(file)).url);
+	const createPersonaRecord =
+		options.references?.createPersona ??
+		((input: {
+			name: string;
+			descriptor: string;
+			anchorImageUrl: string;
+			refImageUrls?: string[];
+			seed?: number;
+		}) => usePersonaStore.getState().create(input));
 
 	// Resolved self-correction config (defaults + injected overrides).
 	const recovery = {
@@ -1107,6 +1154,217 @@ export function createDirectorApi(
 				slotIds: ids,
 				plan,
 			}),
+		);
+	}
+
+	// ---- REFERENCE INTAKE (eyes on INPUT) ---------------------------------
+	//
+	// The INPUT twin of `reviewTake`: reviewTake feeds the model its OWN output
+	// (a generated take); intakeReferences feeds it the user's INPUT — dropped
+	// style refs / a character photo — and turns what it SEES into the two
+	// artifacts the reel already honors. A derived StyleBible seeds the reel-level
+	// consistency context (so every `generate` inherits the LOOK); a derived
+	// persona is locked on the seed-lock path (so a dropped face recurs shot to
+	// shot). The look is also recorded on the durable brief (D4). The model call
+	// itself is the injectable `deriveReferences` seam (default: the relay).
+
+	/** Read an image File into a base64 `data:` URL for an Anthropic image block. */
+	async function fileToDataUrl(file: File): Promise<string | undefined> {
+		try {
+			const bytes = new Uint8Array(await file.arrayBuffer());
+			// Chunked to keep String.fromCharCode off a huge spread for big images.
+			let binary = "";
+			const chunk = 0x8000;
+			for (let i = 0; i < bytes.length; i += chunk) {
+				binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+			}
+			const mime =
+				file.type && file.type.startsWith("image/") ? file.type : "image/png";
+			return `data:${mime};base64,${btoa(binary)}`;
+		} catch {
+			return undefined;
+		}
+	}
+
+	/**
+	 * Decode one media asset to a base64 image `data:` URL the model can SEE:
+	 * image assets are read straight from their File (no CORS); video assets
+	 * sample their first frame through the same decode path `reviewTake` uses.
+	 */
+	async function decodeAssetToImage(
+		asset: MediaAsset | undefined,
+	): Promise<string | undefined> {
+		if (!asset) return undefined;
+		if (asset.type === "image" && asset.file) return fileToDataUrl(asset.file);
+		if (asset.type === "video") {
+			const [frame] = await extractTakeFrames(asset, {
+				count: 1,
+				name: asset.name,
+			});
+			return frame;
+		}
+		return undefined;
+	}
+
+	/**
+	 * Resolve a reference asset to a publicly-fetchable URL for use as a persona
+	 * anchor (the persona endpoint + downstream providers pull it server-side, so
+	 * a `blob:`/object URL won't do). An already-remote `http(s)` URL passes
+	 * through; otherwise the asset's File is rehosted via `uploadAnchor`.
+	 */
+	async function resolveAnchorUrl(
+		asset: MediaAsset | undefined,
+	): Promise<string | undefined> {
+		if (!asset) return undefined;
+		if (asset.url && /^https?:\/\//i.test(asset.url)) return asset.url;
+		if (asset.file) {
+			try {
+				return await uploadAnchorFile(asset.file);
+			} catch {
+				return undefined;
+			}
+		}
+		return undefined;
+	}
+
+	/**
+	 * Give the Director EYES ON INPUT: run the user's reference images through the
+	 * model to derive the referenced LOOK (a StyleBible) and, when the refs center
+	 * on a person, a CHARACTER (a persona), then wire both so every generated shot
+	 * inherits them:
+	 *  1. decode each `mediaId` (uploaded image/video asset) to an image block;
+	 *  2. `deriveReferences` → StyleBible (+ optional persona sketch);
+	 *  3. lock + activate a persona from the character on the seed-lock path
+	 *     (unless `createPersona: false`), rehosting its anchor + extra refs;
+	 *  4. seed the reel-level consistency context from the style (which also
+	 *     folds in the now-active persona);
+	 *  5. record the derived look on the durable brief (D4) unless `record: false`.
+	 *
+	 * The returned `bible` is ready to pass straight into `storyboard({ bible })`.
+	 * Never throws: a decode/model/upload hiccup yields a `fail`/partial result.
+	 */
+	async function intakeReferences(input: {
+		mediaIds: string[];
+		hint?: string;
+		createPersona?: boolean;
+		personaName?: string;
+		seed?: number;
+		record?: boolean;
+	}): Promise<DirectorResult<IntakeReferencesData>> {
+		const ids = (input.mediaIds ?? []).filter(
+			(id): id is string => typeof id === "string" && id.length > 0,
+		);
+		if (ids.length === 0) {
+			return fail(
+				"intakeReferences requires at least one reference mediaId (an uploaded image or video asset).",
+			);
+		}
+
+		// 1. Resolve + decode each reference into an image the model can SEE.
+		const entries = ids.map((id) => ({
+			id,
+			asset: editor.media.getAssetById(id),
+		}));
+		const missing = entries.filter((e) => !e.asset).map((e) => e.id);
+		const decoded: { asset: MediaAsset; image: string }[] = [];
+		for (const entry of entries) {
+			if (!entry.asset) continue;
+			const image = await decodeAssetToImage(entry.asset);
+			if (image) decoded.push({ asset: entry.asset, image });
+		}
+		if (decoded.length === 0) {
+			return fail(
+				`Couldn't decode any of the ${ids.length} reference asset(s) into images${
+					missing.length ? ` (${missing.length} id(s) not found)` : ""
+				}. Pass uploaded IMAGE (or video) media ids.`,
+			);
+		}
+		const images = decoded.map((d) => d.image);
+
+		// 2. Run them through the model → derived StyleBible (+ optional persona).
+		let derived: DerivedReference;
+		try {
+			derived = await deriveReferences(images, input.hint);
+		} catch (err) {
+			return fail(
+				`Reference intake couldn't reach the model: ${
+					err instanceof Error ? err.message : String(err)
+				}`,
+			);
+		}
+
+		const applied: string[] = [];
+
+		// 3. Persona FIRST (so the consistency re-pull in step 4 includes it), on
+		//    the seed-lock path: rehost the anchor (+ every other ref as an extra
+		//    likeness photo), persist a persona, and activate it.
+		let personaId: string | undefined;
+		if (derived.persona && input.createPersona !== false) {
+			const anchor = decoded[derived.persona.anchorIndex] ?? decoded[0];
+			const anchorUrl = await resolveAnchorUrl(anchor?.asset);
+			if (anchorUrl) {
+				const refUrls: string[] = [];
+				for (const d of decoded) {
+					if (d === anchor) continue;
+					const u = await resolveAnchorUrl(d.asset);
+					if (u) refUrls.push(u);
+				}
+				const name = input.personaName?.trim() || derived.persona.name;
+				const persona = await createPersonaRecord({
+					name,
+					descriptor: derived.persona.descriptor,
+					anchorImageUrl: anchorUrl,
+					...(refUrls.length ? { refImageUrls: refUrls } : {}),
+					...(input.seed != null ? { seed: input.seed } : {}),
+				});
+				if (persona) {
+					personaId = persona.id;
+					usePersonaStore.getState().setActive(persona.id);
+					applied.push(`locked & activated persona "${name}"`);
+				}
+			}
+		}
+
+		// 4. Seed the reel-level consistency context from the derived style (+ the
+		//    now-active persona, which `applyConsistencyContext` pulls from the store).
+		let styleApplied = false;
+		if (styleHasContent(derived.style) || personaId) {
+			applyConsistencyContext(bibleToConsistencyInput(derived.style) ?? {});
+			styleApplied = styleHasContent(derived.style);
+			if (styleApplied)
+				applied.push("seeded the reel style from the reference(s)");
+		}
+
+		// 5. Record the derived look on the durable brief (D4) so it persists across turns.
+		if (input.record !== false) {
+			const briefLine = styleBibleToBriefLine(derived.style);
+			const patch: BriefPatch = {};
+			if (briefLine) patch.styleBible = briefLine;
+			const note = derived.summary?.trim();
+			if (note) patch.notes = [`Reference look: ${note}`];
+			if (patch.styleBible || patch.notes) {
+				persistBrief(applyBriefPatch(readBrief(), patch));
+				applied.push("recorded the look on the director brief");
+			}
+		}
+
+		const headline = applied.length
+			? `Reference intake (${images.length} image${images.length === 1 ? "" : "s"}): ${applied.join("; ")}.`
+			: `Read ${images.length} reference(s) but derived nothing to apply.`;
+
+		// No reel-slot change (consistency/persona/brief are session + durable
+		// state, not timeline slots), so this carries DATA, not a mutation delta —
+		// like getConsistencyContext/getBrief. The agent reads `bible` off DATA.
+		return ok(
+			`${headline}${derived.summary ? ` ${derived.summary}` : ""} Pass the returned bible to storyboard({bible}) to plan shots in this look.`,
+			{
+				derived,
+				bible: derived.style,
+				styleApplied,
+				personaId,
+				imageCount: images.length,
+				missingMediaIds: missing,
+			},
 		);
 	}
 
@@ -1799,6 +2057,7 @@ export function createDirectorApi(
 		// to presenting both takes (never throws the comparison away).
 		let winner: string | undefined;
 		let autoPicked = false;
+		let winnerReason: string | undefined;
 		if (critic && ready.length >= 2) {
 			try {
 				const pick = await critic.pickBest({
@@ -1817,6 +2076,22 @@ export function createDirectorApi(
 					});
 					winner = pick.takeId;
 					autoPicked = true;
+					winnerReason = pick.reason?.trim() || undefined;
+
+					// LEARN from the auto-pick: fold WHICH backend/look won (and why) into
+					// the durable brief so future shots inherit the preference — the same
+					// brief-writing path `chooseTake` uses (task item 3).
+					const winningBackend = produced.find(
+						(p) => p.takeId === pick.takeId,
+					)?.backendId;
+					const snippet = briefSnippet(baseSpec.prompt);
+					const note =
+						"A/B auto-pick" +
+						(winningBackend ? `: backend "${winningBackend}" won` : "") +
+						(snippet ? ` for "${snippet}"` : "") +
+						(winnerReason ? ` — ${winnerReason}` : "") +
+						".";
+					persistBrief(applyBriefPatch(readBrief(), { notes: [note] }));
 				}
 			} catch {
 				/* critic unavailable/failed → present both (graceful degradation) */
@@ -1824,7 +2099,9 @@ export function createDirectorApi(
 		}
 
 		const message = autoPicked
-			? `Compared ${ids.length} backends on slot "${input.slotId}"; the vision critic auto-picked the winning take.`
+			? `Compared ${ids.length} backends on slot "${input.slotId}"; the vision critic auto-picked the winning take${
+					winnerReason ? ` — ${winnerReason}` : ""
+				}.`
 			: `Compared ${ids.length} backends on slot "${input.slotId}" — ${ready.length} take(s) ready; ${
 					critic
 						? "the critic returned no confident pick, so"
@@ -1849,6 +2126,14 @@ export function createDirectorApi(
 	async function remix(input: {
 		slotId: string;
 		remixPrompt: string;
+		/**
+		 * Explicit frame to re-condition on, overriding the source take's own last
+		 * frame. The cross-shot continuity self-correction passes the PRIOR shot's
+		 * frame here so the remix is anchored on the shot it must match (see
+		 * `agent.ts`'s auto-review loop). Omit for the normal "fix this take against
+		 * its own last frame" remix.
+		 */
+		anchorImageUrl?: string;
 	}): Promise<DirectorResult<{ slotId: string; takeId: string }>> {
 		const before = captureReel();
 		const located = findSlot(input.slotId);
@@ -1866,16 +2151,19 @@ export function createDirectorApi(
 			);
 		}
 
-		// Anchor the remix on the source take's REAL last frame when it's a
+		// Anchor the remix on an EXPLICIT frame when given (continuity: the prior
+		// shot's frame), else on the source take's REAL last frame when it's a
 		// finished, imported take — true img2img re-conditioning. Falls back
 		// (inside buildRemixSpec) to the prior spec's referenceImageUrl when the
 		// take isn't imported yet or the frame can't be decoded.
-		const anchorImageUrl = source.mediaId
-			? await extractTakeLastFrame(
-					editor.media.getAssetById(source.mediaId),
-					source.id,
-				)
-			: undefined;
+		const anchorImageUrl =
+			input.anchorImageUrl ??
+			(source.mediaId
+				? await extractTakeLastFrame(
+						editor.media.getAssetById(source.mediaId),
+						source.id,
+					)
+				: undefined);
 
 		const spec = buildRemixSpec({
 			priorTake: source,
@@ -2822,6 +3110,7 @@ export function createDirectorApi(
 		addClip,
 		// storyboard
 		storyboard,
+		intakeReferences,
 		reserveSlot,
 		setPrompt,
 		// generate
