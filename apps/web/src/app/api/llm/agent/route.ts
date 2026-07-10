@@ -40,6 +40,10 @@ const DEFAULT_KIMI_MODEL = "kimi-k2.6";
 /** Non-streaming per-turn output budget (thinking + text + tool calls). */
 const DEFAULT_MAX_TOKENS = 16000;
 
+/** Hard ceiling on caller-requested output — this relay bills the server's own
+ *  provider key, so an unbounded `max_tokens` is a cost-abuse lever. */
+const MAX_OUTPUT_TOKENS = 32000;
+
 /** The request body the browser-side agent loop sends for one model turn. */
 interface AgentRelayRequest {
 	messages: Anthropic.MessageParam[];
@@ -100,7 +104,10 @@ export async function POST(req: Request) {
 				body.model?.trim() ||
 				process.env.DIRECTOR_MODEL?.trim() ||
 				(useKimi ? DEFAULT_KIMI_MODEL : DEFAULT_MODEL),
-			max_tokens: body.max_tokens ?? DEFAULT_MAX_TOKENS,
+			max_tokens: Math.min(
+				body.max_tokens ?? DEFAULT_MAX_TOKENS,
+				MAX_OUTPUT_TOKENS,
+			),
 			// Adaptive thinking + high effort are Opus-4.8 knobs (budget_tokens /
 			// temperature / top_p / top_k all 400 there). Kimi's Anthropic-compatible
 			// endpoint is cleanest WITHOUT them — no thinking blocks to echo back

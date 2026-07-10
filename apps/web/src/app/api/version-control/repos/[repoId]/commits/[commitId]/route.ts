@@ -4,6 +4,7 @@ import { commits } from "@/lib/db/schema-version-control";
 import { auth } from "@/lib/auth/server";
 import { headers } from "next/headers";
 import { eq, and } from "drizzle-orm";
+import { checkRepoAccess } from "@/lib/db/version-control-utils";
 
 export async function GET(
 	_request: NextRequest,
@@ -16,6 +17,9 @@ export async function GET(
 		}
 
 		const { repoId, commitId } = await params;
+		if (!(await checkRepoAccess(repoId, session.user.id))) {
+			return NextResponse.json({ error: "Not found" }, { status: 404 });
+		}
 
 		const result = await db
 			.select()
@@ -30,6 +34,9 @@ export async function GET(
 		return NextResponse.json(result[0]);
 	} catch (error) {
 		console.error("Error getting commit:", error);
-		return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+		return NextResponse.json(
+			{ error: "Internal server error" },
+			{ status: 500 },
+		);
 	}
 }

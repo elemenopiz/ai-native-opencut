@@ -5,6 +5,7 @@ import { branches } from "@/lib/db/schema-version-control";
 import { auth } from "@/lib/auth/server";
 import { headers } from "next/headers";
 import { eq, and } from "drizzle-orm";
+import { checkRepoAccess } from "@/lib/db/version-control-utils";
 
 const updateBranchSchema = z.object({
 	headCommitId: z.string().optional(),
@@ -23,6 +24,10 @@ export async function PUT(
 		}
 
 		const { repoId, name } = await params;
+		if (!(await checkRepoAccess(repoId, session.user.id))) {
+			return NextResponse.json({ error: "Not found" }, { status: 404 });
+		}
+
 		const body = await request.json();
 		const parsed = updateBranchSchema.safeParse(body);
 		if (!parsed.success) {
@@ -37,7 +42,10 @@ export async function PUT(
 		return NextResponse.json({ ok: true });
 	} catch (error) {
 		console.error("Error updating branch:", error);
-		return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+		return NextResponse.json(
+			{ error: "Internal server error" },
+			{ status: 500 },
+		);
 	}
 }
 
@@ -52,9 +60,15 @@ export async function DELETE(
 		}
 
 		const { repoId, name } = await params;
+		if (!(await checkRepoAccess(repoId, session.user.id))) {
+			return NextResponse.json({ error: "Not found" }, { status: 404 });
+		}
 
 		if (name === "main") {
-			return NextResponse.json({ error: "Cannot delete main branch" }, { status: 400 });
+			return NextResponse.json(
+				{ error: "Cannot delete main branch" },
+				{ status: 400 },
+			);
 		}
 
 		await db
@@ -64,6 +78,9 @@ export async function DELETE(
 		return NextResponse.json({ ok: true });
 	} catch (error) {
 		console.error("Error deleting branch:", error);
-		return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+		return NextResponse.json(
+			{ error: "Internal server error" },
+			{ status: 500 },
+		);
 	}
 }
