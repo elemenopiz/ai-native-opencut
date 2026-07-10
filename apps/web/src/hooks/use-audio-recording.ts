@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useEditor } from "@/hooks/use-editor";
 import { buildUploadAudioElement } from "@/lib/timeline/element-utils";
 import { toast } from "sonner";
@@ -27,6 +27,34 @@ export function useAudioRecording() {
 	const audioContextRef = useRef<AudioContext | null>(null);
 	const startTimeRef = useRef<number>(0);
 	const pausedDurationRef = useRef<number>(0);
+
+	// Release the mic, AudioContext and level-meter interval if the component
+	// unmounts while a recording is still in progress (cleanup otherwise only
+	// runs from recorder.onstop, which fires solely on an explicit stop).
+	useEffect(() => {
+		return () => {
+			if (timerRef.current) {
+				clearInterval(timerRef.current);
+				timerRef.current = null;
+			}
+			if (
+				mediaRecorderRef.current &&
+				mediaRecorderRef.current.state !== "inactive"
+			) {
+				mediaRecorderRef.current.stop();
+			}
+			mediaRecorderRef.current = null;
+			if (streamRef.current) {
+				streamRef.current.getTracks().forEach((t) => t.stop());
+				streamRef.current = null;
+			}
+			if (audioContextRef.current) {
+				audioContextRef.current.close();
+				audioContextRef.current = null;
+			}
+			analyserRef.current = null;
+		};
+	}, []);
 
 	const startRecording = useCallback(async () => {
 		try {
@@ -71,7 +99,9 @@ export function useAudioRecording() {
 			pausedDurationRef.current = 0;
 
 			timerRef.current = setInterval(() => {
-				const elapsed = (Date.now() - startTimeRef.current - pausedDurationRef.current) / 1000;
+				const elapsed =
+					(Date.now() - startTimeRef.current - pausedDurationRef.current) /
+					1000;
 
 				const levels: number[] = [];
 				if (analyserRef.current) {
@@ -94,7 +124,12 @@ export function useAudioRecording() {
 				}));
 			}, 50);
 
-			setState((prev) => ({ ...prev, isRecording: true, isPaused: false, duration: 0 }));
+			setState((prev) => ({
+				...prev,
+				isRecording: true,
+				isPaused: false,
+				duration: 0,
+			}));
 		} catch (err) {
 			toast.error("Could not access microphone", {
 				description: err instanceof Error ? err.message : "Permission denied",
@@ -125,7 +160,10 @@ export function useAudioRecording() {
 		}
 	}, []);
 
-	const stopRecording = useCallback(async (): Promise<{ blob: Blob; duration: number } | null> => {
+	const stopRecording = useCallback(async (): Promise<{
+		blob: Blob;
+		duration: number;
+	} | null> => {
 		return new Promise((resolve) => {
 			const recorder = mediaRecorderRef.current;
 			if (!recorder || recorder.state === "inactive") {
