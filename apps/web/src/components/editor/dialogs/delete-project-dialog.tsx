@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -25,6 +26,14 @@ export function DeleteProjectDialog({
 	const count = projectNames.length;
 	const isSingle = count === 1;
 	const singleName = isSingle ? projectNames[0] : null;
+
+	const [confirmText, setConfirmText] = useState("");
+	// Reset the confirmation each time the dialog opens/closes so a prior "DELETE"
+	// can't carry over and pre-arm the button on the next open.
+	useEffect(() => {
+		if (!isOpen) setConfirmText("");
+	}, [isOpen]);
+	const canDelete = confirmText === "DELETE";
 
 	return (
 		<Dialog open={isOpen} onOpenChange={onOpenChange}>
@@ -67,6 +76,9 @@ export function DeleteProjectDialog({
 							placeholder="DELETE"
 							size="lg"
 							variant="destructive"
+							value={confirmText}
+							onChange={(e) => setConfirmText(e.target.value)}
+							autoFocus
 						/>
 					</div>
 				</DialogBody>
@@ -74,7 +86,11 @@ export function DeleteProjectDialog({
 					<Button variant="outline" onClick={() => onOpenChange(false)}>
 						Cancel
 					</Button>
-					<Button variant="destructive" onClick={onConfirm}>
+					<Button
+						variant="destructive"
+						onClick={onConfirm}
+						disabled={!canDelete}
+					>
 						Delete project
 					</Button>
 				</DialogFooter>
