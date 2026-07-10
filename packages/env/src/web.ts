@@ -21,6 +21,10 @@ const webEnvSchema = z.object({
 	UPSTASH_REDIS_REST_URL: z.url().default("http://localhost:8079"),
 	UPSTASH_REDIS_REST_TOKEN: z.string().default("example_token"),
 
+	// Comma-separated allowlist of admin emails. During soft launch (no role
+	// system yet) these accounts may grant credits via POST /api/admin/credits/grant.
+	ADMIN_EMAILS: z.string().default(""),
+
 	// Analytics (optional)
 	NEXT_PUBLIC_GA_MEASUREMENT_ID: z.string().default(""),
 

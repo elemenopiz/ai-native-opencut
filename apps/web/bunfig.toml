@@ -1,0 +1,5 @@
+# Load .env.local for `bun test`. Bun skips .env.local when NODE_ENV=test (set by
+# `bun test`), but the DB-backed credit tests need DATABASE_URL from it. The
+# preload populates process.env before any test imports @byorn/env.
+[test]
+preload = ["./scripts/test-env-preload.ts"]

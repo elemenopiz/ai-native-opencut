@@ -12,6 +12,8 @@ import { takes, generationSets } from "@/lib/db/schema-studio";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth/server";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { holdFor, release, settle } from "@/lib/credits/ledger";
+import { STUDIO_REF_TYPE } from "@/lib/credits/metering";
 
 export async function GET(
 	_req: Request,
@@ -52,6 +54,28 @@ export async function GET(
 		const result = await pollVideo(jobId);
 
 		if (result.status === "completed" || result.status === "failed") {
+			// Credits: this is the async settlement point for a video job. The hold
+			// was placed at submit time keyed by the set id; settle the EXACT reserved
+			// amount on success, release it on failure (never charge for a failure).
+			// Both are keyed by setId, so a retried/duplicated poll can't double-charge
+			// or double-refund. `holdFor` returns null once the hold is closed.
+			const held = await holdFor(session.user.id, ownTake.setId);
+			if (held != null && held > 0) {
+				if (result.status === "completed") {
+					await settle(session.user.id, held, {
+						refType: STUDIO_REF_TYPE,
+						refId: ownTake.setId,
+						idempotencyKey: `${ownTake.setId}:settle`,
+					}).catch((err) => console.error("Failed to settle credits:", err));
+				} else {
+					await release(session.user.id, held, {
+						refType: STUDIO_REF_TYPE,
+						refId: ownTake.setId,
+						idempotencyKey: `${ownTake.setId}:release`,
+					}).catch((err) => console.error("Failed to release credits:", err));
+				}
+			}
+
 			let videoUrl = result.videoUrl ?? null;
 
 			// Seedance video URLs expire ~24h. On success, copy the bytes into our
