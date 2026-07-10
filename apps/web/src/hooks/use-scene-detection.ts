@@ -66,6 +66,7 @@ export function useSceneDetection() {
 				progress: "Extracting frames...",
 			});
 
+			let url: string | null = null;
 			try {
 				const mediaAssets = editor.media.getAssets();
 				const videoAsset = mediaAssets.find((a) => a.type === "video");
@@ -73,7 +74,7 @@ export function useSceneDetection() {
 					throw new Error("No video file found");
 				}
 
-				const url = URL.createObjectURL(videoAsset.file);
+				url = URL.createObjectURL(videoAsset.file);
 				const video = document.createElement("video");
 				video.crossOrigin = "anonymous";
 				video.muted = true;
@@ -193,8 +194,6 @@ export function useSceneDetection() {
 					}
 				}
 
-				URL.revokeObjectURL(url);
-
 				const merged = mergeCloseScenes(detected, interval * 0.6);
 				setScenes(merged);
 
@@ -213,6 +212,9 @@ export function useSceneDetection() {
 				});
 				toast.error("Scene detection failed");
 			} finally {
+				// Release the video blob URL on every exit path (was previously only
+				// revoked on success, leaking on any mid-analysis error).
+				if (url) URL.revokeObjectURL(url);
 				setIsDetecting(false);
 			}
 		},
