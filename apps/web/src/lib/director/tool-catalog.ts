@@ -1065,6 +1065,33 @@ export function toolCatalog(): ToolDescriptor[] {
 					extraCharacters: asExtraCharacters(a),
 				}),
 		},
+		// ── project bible (durable creative memory) ─────────────────────────
+		{
+			name: "getProjectBible",
+			description:
+				"read the persisted Project Bible — the durable style/cast/setting + brief + plan that survives across sessions, plus its checkpoint history.",
+			mutating: false,
+			inputSchema: EMPTY,
+			handler: (d) => d.getProjectBible(),
+		},
+		{
+			name: "revertBibleCheckpoint",
+			description:
+				"revert the Project Bible to an earlier checkpoint (a specific toVersion, else the last change) and re-hydrate the reel's consistency/plan/brief from it.",
+			mutating: true,
+			inputSchema: {
+				type: "object",
+				properties: {
+					toVersion: { type: "number" },
+				},
+			},
+			handler: (d, a) => {
+				const toVersion = numOrUndefined(a.toVersion);
+				return d.revertBibleCheckpoint(
+					toVersion != null ? { toVersion } : undefined,
+				);
+			},
+		},
 		// ── edit (all time fields SECONDS) ──────────────────────────────────
 		{
 			name: "trim",

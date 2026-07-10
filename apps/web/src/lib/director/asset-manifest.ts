@@ -33,6 +33,7 @@ export const ASSET_ROLES = [
 	"logo",
 	"face-anchor",
 	"b-roll",
+	"screen-rec",
 ] as const;
 export type AssetRole = (typeof ASSET_ROLES)[number];
 

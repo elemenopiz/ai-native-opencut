@@ -499,6 +499,7 @@ async function executeTool(
 			action === "getLibraryManifest" ||
 			action === "getBackends" ||
 			action === "getBrief" ||
+			action === "getProjectBible" ||
 			action === "intakeReferences")
 	) {
 		observation = `${result.message} DATA:${JSON.stringify(result.data)}`;
