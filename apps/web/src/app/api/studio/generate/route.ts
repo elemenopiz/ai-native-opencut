@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
+import { headers } from "next/headers";
+import { auth } from "@/lib/auth/server";
 import type {
 	VideoResolution,
 	VideoOrientation,
@@ -25,6 +27,12 @@ const MAX_SEED = 2_147_483_647;
 
 export async function POST(req: Request) {
 	try {
+		// Paid generation — bills our provider keys, so require a signed-in user.
+		const session = await auth.api.getSession({ headers: await headers() });
+		if (!session?.user) {
+			return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+		}
+
 		// Register the routed generation backends (idempotent). The unified
 		// generator dispatches through this registry; without it the router has
 		// nothing to resolve to.
@@ -64,7 +72,6 @@ export async function POST(req: Request) {
 			generateAudio,
 			personaId,
 			consistencyMode = "high",
-			userId,
 		} = body;
 
 		if (!prompt?.trim()) {
@@ -90,6 +97,14 @@ export async function POST(req: Request) {
 				where: eq(personas.id, personaId),
 			});
 			if (!persona) {
+				return NextResponse.json(
+					{ error: "Persona not found" },
+					{ status: 404 },
+				);
+			}
+			// Only the persona's owner may drive generation with it (anonymously
+			// created personas — userId null — stay usable by any signed-in user).
+			if (persona.userId && persona.userId !== session.user.id) {
 				return NextResponse.json(
 					{ error: "Persona not found" },
 					{ status: 404 },
@@ -143,7 +158,7 @@ export async function POST(req: Request) {
 		const setId = nanoid();
 		await db.insert(generationSets).values({
 			id: setId,
-			userId: userId ?? null,
+			userId: session.user.id,
 			prompt: finalPrompt,
 			referenceImageUrl: finalReferenceImageUrl,
 			baseSeed: effectiveSeed,
