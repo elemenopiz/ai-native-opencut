@@ -23,6 +23,9 @@ import {
 } from "@/lib/studio/generate-voiceover-take";
 import { buildUploadAudioElement } from "@/lib/timeline/element-utils";
 import { useBackgroundTasksStore } from "@/stores/background-tasks-store";
+import { useVoiceConsentStore } from "@/stores/voice-consent-store";
+import { captureConsent } from "@/lib/director/voice-consent-service";
+import { consentPhraseFor } from "@/lib/director/voice-consent";
 import { cn } from "@/utils/ui";
 import { toast } from "sonner";
 import {
@@ -164,6 +167,25 @@ export function VoiceoverView() {
 	const [clonedVoiceName, setClonedVoiceName] = useState<string | null>(null);
 	const [isUploading, setIsUploading] = useState(false);
 	const fileInputRef = useRef<HTMLInputElement>(null);
+
+	// Voice-clone CONSENT gate (Flow D #1). A freshly-cloned voice is UNUSABLE
+	// until the speaker records a consent statement containing the required
+	// phrase. `pendingClone` holds a cloned-but-unconsented voice; `clonedVoicePath`
+	// is only set (usable) once consent verifies, so nothing here can generate
+	// speech from an unconsented clone.
+	const registerClone = useVoiceConsentStore((s) => s.registerClone);
+	const revokeProfileConsent = useVoiceConsentStore(
+		(s) => s.revokeProfileConsent,
+	);
+	const [pendingClone, setPendingClone] = useState<{
+		profileId: string;
+		name: string;
+		referencePath: string;
+		phrase: string;
+	} | null>(null);
+	const [consentBusy, setConsentBusy] = useState(false);
+	const [consentError, setConsentError] = useState<string | null>(null);
+	const consentFileInputRef = useRef<HTMLInputElement>(null);
 
 	// Sarvam engine state
 	const [sarvamSpeaker, setSarvamSpeaker] = useState(SARVAM_DEFAULT_SPEAKER);
@@ -583,24 +605,90 @@ export function VoiceoverView() {
 		toast.success("Voiceover added to timeline");
 	}, [editor, generatedBlob, landVoiceoverAudio]);
 
-	// Upload voice sample for cloning (local engine only)
-	const handleUploadVoice = useCallback(async (file: File) => {
-		setIsUploading(true);
-		setError(null);
-		try {
-			const result = await aiClient.cloneVoice(
-				file,
-				file.name.replace(/\.[^.]+$/, ""),
-			);
-			setClonedVoicePath(result.path);
-			setClonedVoiceName(result.name);
-			toast.success(`Voice "${result.name}" ready for cloning`);
-		} catch (err) {
-			setError(err instanceof Error ? err.message : "Voice cloning failed");
-		} finally {
-			setIsUploading(false);
-		}
-	}, []);
+	// Upload voice sample for cloning (local engine only). The clone is NOT usable
+	// yet — it enters the consent gate as `pending`; the speaker must record a
+	// consent statement before it can generate speech.
+	const handleUploadVoice = useCallback(
+		async (file: File) => {
+			setIsUploading(true);
+			setError(null);
+			setConsentError(null);
+			try {
+				const result = await aiClient.cloneVoice(
+					file,
+					file.name.replace(/\.[^.]+$/, ""),
+				);
+				const profile = registerClone({
+					name: result.name,
+					referencePath: result.path,
+				});
+				// Gate: do NOT set clonedVoicePath (usable) — hold it pending consent.
+				setPendingClone({
+					profileId: profile.id,
+					name: result.name,
+					referencePath: result.path,
+					phrase: consentPhraseFor(result.name),
+				});
+				toast.info(
+					`Voice "${result.name}" cloned — consent required before use`,
+				);
+			} catch (err) {
+				setError(err instanceof Error ? err.message : "Voice cloning failed");
+			} finally {
+				setIsUploading(false);
+			}
+		},
+		[registerClone],
+	);
+
+	// Consent capture: verify the recorded consent statement contains the required
+	// phrase (via the app's Whisper transcription), then activate the clone.
+	const handleGrantConsent = useCallback(
+		async (consentAudio: File) => {
+			if (!pendingClone) return;
+			setConsentBusy(true);
+			setConsentError(null);
+			try {
+				const res = await captureConsent({
+					profileId: pendingClone.profileId,
+					consentAudio,
+					phrase: pendingClone.phrase,
+					grantedBy: pendingClone.name,
+				});
+				if (!res.ok) {
+					setConsentError(res.reason ?? "Consent verification failed.");
+					return;
+				}
+				// Consent recorded — the clone is now usable.
+				setClonedVoicePath(pendingClone.referencePath);
+				setClonedVoiceName(pendingClone.name);
+				setPendingClone(null);
+				toast.success(`Consent recorded — "${pendingClone.name}" ready to use`);
+			} catch (err) {
+				setConsentError(
+					err instanceof Error ? err.message : "Consent verification failed.",
+				);
+			} finally {
+				setConsentBusy(false);
+			}
+		},
+		[pendingClone],
+	);
+
+	// Remove / revoke the active or pending clone — immediately disables it.
+	const handleRemoveClone = useCallback(() => {
+		const profileId =
+			pendingClone?.profileId ??
+			(clonedVoicePath
+				? useVoiceConsentStore.getState().getByReference(clonedVoicePath)?.id
+				: undefined);
+		if (profileId)
+			revokeProfileConsent(profileId, { reason: "removed by user" });
+		setClonedVoicePath(null);
+		setClonedVoiceName(null);
+		setPendingClone(null);
+		setConsentError(null);
+	}, [pendingClone, clonedVoicePath, revokeProfileConsent]);
 
 	// Can generate?
 	const canGenerate =
@@ -907,19 +995,75 @@ export function VoiceoverView() {
 									<div className="flex items-center gap-2">
 										<span className="size-1.5 rounded-full bg-green-500" />
 										<span className="text-[11px] font-medium">
-											Cloned: {clonedVoiceName}
+											Cloned (consented): {clonedVoiceName}
 										</span>
 									</div>
 									<button
 										type="button"
 										className="text-[10px] text-destructive hover:text-destructive/80"
-										onClick={() => {
-											setClonedVoicePath(null);
-											setClonedVoiceName(null);
-										}}
+										onClick={handleRemoveClone}
 									>
 										Remove
 									</button>
+								</div>
+							) : pendingClone ? (
+								// CONSENT GATE: a cloned voice cannot be used until the speaker
+								// records a consent statement containing the required phrase.
+								<div className="flex flex-col gap-2 rounded-md bg-amber-500/10 border border-amber-500/20 px-2.5 py-2">
+									<div className="flex items-center justify-between">
+										<div className="flex items-center gap-2">
+											<span className="size-1.5 rounded-full bg-amber-500" />
+											<span className="text-[11px] font-medium">
+												Consent required: {pendingClone.name}
+											</span>
+										</div>
+										<button
+											type="button"
+											className="text-[10px] text-destructive hover:text-destructive/80"
+											onClick={handleRemoveClone}
+										>
+											Cancel
+										</button>
+									</div>
+									<p className="text-[10px] text-muted-foreground leading-relaxed">
+										To use this cloned voice, the speaker must record themselves
+										reading this consent statement aloud:
+									</p>
+									<p className="rounded bg-muted/60 px-2 py-1.5 text-[10px] italic leading-relaxed">
+										“{pendingClone.phrase}”
+									</p>
+									<Button
+										variant="outline"
+										size="sm"
+										className="w-full text-[10px] h-7"
+										disabled={consentBusy}
+										onClick={() => consentFileInputRef.current?.click()}
+									>
+										{consentBusy ? (
+											<>
+												<Spinner className="size-3 mr-1" />
+												Verifying consent...
+											</>
+										) : (
+											"Upload consent recording"
+										)}
+									</Button>
+									{consentError && (
+										<p className="text-[10px] text-destructive leading-relaxed">
+											{consentError}
+										</p>
+									)}
+									<input
+										ref={consentFileInputRef}
+										type="file"
+										accept=".wav,.mp3,.flac,.ogg,.m4a"
+										className="hidden"
+										onChange={(e) => {
+											const file = e.target.files?.[0];
+											if (file) handleGrantConsent(file);
+											e.target.value = "";
+										}}
+									/>
 								</div>
 							) : (
 								<div className="flex flex-col gap-1.5">
@@ -948,7 +1092,8 @@ export function VoiceoverView() {
 										</Badge>
 									</div>
 									<p className="text-[9px] text-muted-foreground">
-										Upload 10-30s audio to clone a specific voice.
+										Upload 10-30s audio to clone a specific voice. You'll be
+										asked for a spoken consent statement before it can be used.
 									</p>
 									<input
 										ref={fileInputRef}
