@@ -5,6 +5,7 @@ import { commits } from "@/lib/db/schema-version-control";
 import { auth } from "@/lib/auth/server";
 import { headers } from "next/headers";
 import { eq, desc } from "drizzle-orm";
+import { checkRepoAccess } from "@/lib/db/version-control-utils";
 
 const createCommitSchema = z.object({
 	id: z.string(),
@@ -36,6 +37,10 @@ export async function POST(
 		}
 
 		const { repoId } = await params;
+		if (!(await checkRepoAccess(repoId, session.user.id))) {
+			return NextResponse.json({ error: "Not found" }, { status: 404 });
+		}
+
 		const body = await request.json();
 
 		// Support batch push (array of commits)
@@ -84,6 +89,10 @@ export async function GET(
 		}
 
 		const { repoId } = await params;
+		if (!(await checkRepoAccess(repoId, session.user.id))) {
+			return NextResponse.json({ error: "Not found" }, { status: 404 });
+		}
+
 		const { searchParams } = new URL(request.url);
 		const limitParam = parseInt(searchParams.get("limit") || "50", 10);
 		const offsetParam = parseInt(searchParams.get("offset") || "0", 10);

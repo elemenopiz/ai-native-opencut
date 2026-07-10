@@ -6,6 +6,7 @@ import { auth } from "@/lib/auth/server";
 import { headers } from "next/headers";
 import { eq } from "drizzle-orm";
 import { generateUUID } from "@/utils/id";
+import { checkRepoAccess } from "@/lib/db/version-control-utils";
 
 const createTagSchema = z.object({
 	id: z.string().optional(),
@@ -26,6 +27,10 @@ export async function POST(
 		}
 
 		const { repoId } = await params;
+		if (!(await checkRepoAccess(repoId, session.user.id))) {
+			return NextResponse.json({ error: "Not found" }, { status: 404 });
+		}
+
 		const body = await request.json();
 		const parsed = createTagSchema.safeParse(body);
 		if (!parsed.success) {
@@ -44,7 +49,10 @@ export async function POST(
 		return NextResponse.json(tag, { status: 201 });
 	} catch (error) {
 		console.error("Error creating tag:", error);
-		return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+		return NextResponse.json(
+			{ error: "Internal server error" },
+			{ status: 500 },
+		);
 	}
 }
 
@@ -59,10 +67,17 @@ export async function GET(
 		}
 
 		const { repoId } = await params;
+		if (!(await checkRepoAccess(repoId, session.user.id))) {
+			return NextResponse.json({ error: "Not found" }, { status: 404 });
+		}
+
 		const result = await db.select().from(tags).where(eq(tags.repoId, repoId));
 		return NextResponse.json(result);
 	} catch (error) {
 		console.error("Error listing tags:", error);
-		return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+		return NextResponse.json(
+			{ error: "Internal server error" },
+			{ status: 500 },
+		);
 	}
 }

@@ -11,6 +11,7 @@ import { auth } from "@/lib/auth/server";
 import { headers } from "next/headers";
 import { eq } from "drizzle-orm";
 import { generateUUID } from "@/utils/id";
+import { checkRepoAccess } from "@/lib/db/version-control-utils";
 
 const forkSchema = z.object({
 	newProjectId: z.string().min(1),
@@ -33,6 +34,12 @@ export async function POST(
 		}
 
 		const { repoId } = await params;
+		// Only repos the caller can see (own, or public) may be forked — never
+		// another user's private repo, whose full history the fork would copy.
+		if (!(await checkRepoAccess(repoId, session.user.id))) {
+			return NextResponse.json({ error: "Not found" }, { status: 404 });
+		}
+
 		const body = await request.json();
 		const parsed = forkSchema.safeParse(body);
 		if (!parsed.success) {
@@ -47,7 +54,10 @@ export async function POST(
 			.limit(1);
 
 		if (sourceRepos.length === 0) {
-			return NextResponse.json({ error: "Source repo not found" }, { status: 404 });
+			return NextResponse.json(
+				{ error: "Source repo not found" },
+				{ status: 404 },
+			);
 		}
 
 		const sourceRepo = sourceRepos[0];
@@ -74,10 +84,13 @@ export async function POST(
 			.where(eq(commits.repoId, repoId));
 
 		for (const commit of sourceCommits) {
-			await db.insert(commits).values({
-				...commit,
-				repoId: newRepoId,
-			}).onConflictDoNothing();
+			await db
+				.insert(commits)
+				.values({
+					...commit,
+					repoId: newRepoId,
+				})
+				.onConflictDoNothing();
 		}
 
 		// Copy branches
@@ -120,6 +133,9 @@ export async function POST(
 		);
 	} catch (error) {
 		console.error("Error forking repo:", error);
-		return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+		return NextResponse.json(
+			{ error: "Internal server error" },
+			{ status: 500 },
+		);
 	}
 }

@@ -4,6 +4,7 @@ import { tags } from "@/lib/db/schema-version-control";
 import { auth } from "@/lib/auth/server";
 import { headers } from "next/headers";
 import { eq, and } from "drizzle-orm";
+import { checkRepoAccess } from "@/lib/db/version-control-utils";
 
 export async function DELETE(
 	_request: NextRequest,
@@ -16,6 +17,10 @@ export async function DELETE(
 		}
 
 		const { repoId, name } = await params;
+		if (!(await checkRepoAccess(repoId, session.user.id))) {
+			return NextResponse.json({ error: "Not found" }, { status: 404 });
+		}
+
 		await db
 			.delete(tags)
 			.where(and(eq(tags.repoId, repoId), eq(tags.name, name)));
@@ -23,6 +28,9 @@ export async function DELETE(
 		return NextResponse.json({ ok: true });
 	} catch (error) {
 		console.error("Error deleting tag:", error);
-		return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+		return NextResponse.json(
+			{ error: "Internal server error" },
+			{ status: 500 },
+		);
 	}
 }

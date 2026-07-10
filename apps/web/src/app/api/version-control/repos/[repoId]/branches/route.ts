@@ -6,6 +6,7 @@ import { auth } from "@/lib/auth/server";
 import { headers } from "next/headers";
 import { eq } from "drizzle-orm";
 import { generateUUID } from "@/utils/id";
+import { checkRepoAccess } from "@/lib/db/version-control-utils";
 
 const createBranchSchema = z.object({
 	id: z.string().optional(),
@@ -28,6 +29,10 @@ export async function POST(
 		}
 
 		const { repoId } = await params;
+		if (!(await checkRepoAccess(repoId, session.user.id))) {
+			return NextResponse.json({ error: "Not found" }, { status: 404 });
+		}
+
 		const body = await request.json();
 		const parsed = createBranchSchema.safeParse(body);
 		if (!parsed.success) {
@@ -49,7 +54,10 @@ export async function POST(
 		return NextResponse.json(branch, { status: 201 });
 	} catch (error) {
 		console.error("Error creating branch:", error);
-		return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+		return NextResponse.json(
+			{ error: "Internal server error" },
+			{ status: 500 },
+		);
 	}
 }
 
@@ -64,6 +72,10 @@ export async function GET(
 		}
 
 		const { repoId } = await params;
+		if (!(await checkRepoAccess(repoId, session.user.id))) {
+			return NextResponse.json({ error: "Not found" }, { status: 404 });
+		}
+
 		const result = await db
 			.select()
 			.from(branches)
@@ -72,6 +84,9 @@ export async function GET(
 		return NextResponse.json(result);
 	} catch (error) {
 		console.error("Error listing branches:", error);
-		return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+		return NextResponse.json(
+			{ error: "Internal server error" },
+			{ status: 500 },
+		);
 	}
 }
