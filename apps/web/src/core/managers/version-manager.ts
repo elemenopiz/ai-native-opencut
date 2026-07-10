@@ -13,10 +13,17 @@ import type {
 } from "@/types/version";
 import type { TProject } from "@/types/project";
 import type { TScene } from "@/types/timeline";
-import { VersionStorage, computeDelta } from "@/services/storage/version-storage";
+import {
+	VersionStorage,
+	computeDelta,
+} from "@/services/storage/version-storage";
 import { diffProjects } from "@/services/diff/project-diff";
 import { generateCommitThumbnail } from "@/services/version/thumbnail-generator";
-import { mergeBranches, cherryPick, type CherryPickResult } from "@/services/merge/merge-engine";
+import {
+	mergeBranches,
+	cherryPick,
+	type CherryPickResult,
+} from "@/services/merge/merge-engine";
 import { ConflictResolver } from "@/services/merge/conflict-resolver";
 import { generateUUID } from "@/utils/id";
 
@@ -126,6 +133,9 @@ export class VersionManager {
 	// ─── Change Tracking ──────────────────────────────────────────────────────
 
 	private startChangeTracking(): void {
+		// Tear down any prior subscriptions first so a re-entrant initialize()
+		// doesn't discard the old unsubscribe fns and leak the listeners.
+		this.stopChangeTracking();
 		this.unsubscribeHandlers = [
 			this.editor.scenes.subscribe(() => {
 				this.markDirty();
@@ -152,7 +162,10 @@ export class VersionManager {
 
 	// ─── Commit Operations ────────────────────────────────────────────────────
 
-	async commit(message: string, options?: { tag?: string; isAutoCommit?: boolean }): Promise<Commit> {
+	async commit(
+		message: string,
+		options?: { tag?: string; isAutoCommit?: boolean },
+	): Promise<Commit> {
 		if (!this.storage) throw new Error("Version control not initialized");
 
 		const project = this.editor.project.getActive();
@@ -175,7 +188,9 @@ export class VersionManager {
 		let delta = null;
 
 		if (this.lastCommitId) {
-			const parentSnapshot = await this.storage.reconstructSnapshot(this.lastCommitId);
+			const parentSnapshot = await this.storage.reconstructSnapshot(
+				this.lastCommitId,
+			);
 			if (parentSnapshot) {
 				// Compute diff for summary
 				const parentProject = this.snapshotToProject(parentSnapshot, project);
@@ -248,7 +263,9 @@ export class VersionManager {
 		return this.storage.getCommit(commitId);
 	}
 
-	async getSnapshot(commitId: string): Promise<SerializedVersionSnapshot | null> {
+	async getSnapshot(
+		commitId: string,
+	): Promise<SerializedVersionSnapshot | null> {
 		if (!this.storage) return null;
 		return this.storage.reconstructSnapshot(commitId);
 	}
@@ -281,7 +298,10 @@ export class VersionManager {
 			project.currentSceneId = snapshot.currentSceneId;
 
 			// 4. Update scenes manager
-			this.editor.scenes.setScenes({ scenes, activeSceneId: snapshot.currentSceneId });
+			this.editor.scenes.setScenes({
+				scenes,
+				activeSceneId: snapshot.currentSceneId,
+			});
 
 			// 5. Reset playback
 			this.editor.playback.seek({ time: 0 });
@@ -315,7 +335,10 @@ export class VersionManager {
 	/**
 	 * Diff between two commits.
 	 */
-	async diff(commitIdA: string, commitIdB: string): Promise<TimelineDiff | null> {
+	async diff(
+		commitIdA: string,
+		commitIdB: string,
+	): Promise<TimelineDiff | null> {
 		if (!this.storage) return null;
 
 		const snapshotA = await this.storage.reconstructSnapshot(commitIdA);
@@ -336,7 +359,9 @@ export class VersionManager {
 	async diffWorkingState(): Promise<TimelineDiff | null> {
 		if (!this.storage || !this.lastCommitId) return null;
 
-		const lastSnapshot = await this.storage.reconstructSnapshot(this.lastCommitId);
+		const lastSnapshot = await this.storage.reconstructSnapshot(
+			this.lastCommitId,
+		);
 		if (!lastSnapshot) return null;
 
 		const project = this.editor.project.getActive();
@@ -353,7 +378,9 @@ export class VersionManager {
 	async createBranch(name: string, fromCommitId?: string): Promise<Branch> {
 		if (!this.storage) throw new Error("Version control not initialized");
 		if (!VersionManager.BRANCH_NAME_RE.test(name)) {
-			throw new Error("Branch name must be alphanumeric with hyphens/underscores, starting with a letter or number");
+			throw new Error(
+				"Branch name must be alphanumeric with hyphens/underscores, starting with a letter or number",
+			);
 		}
 
 		const existing = await this.storage.getBranchByName(name);
@@ -400,7 +427,8 @@ export class VersionManager {
 	async deleteBranch(name: string): Promise<void> {
 		if (!this.storage) throw new Error("Version control not initialized");
 		if (name === "main") throw new Error("Cannot delete the main branch");
-		if (name === this.currentBranchName) throw new Error("Cannot delete the current branch");
+		if (name === this.currentBranchName)
+			throw new Error("Cannot delete the current branch");
 
 		const branch = await this.storage.getBranchByName(name);
 		if (!branch) throw new Error(`Branch "${name}" not found`);
@@ -412,7 +440,9 @@ export class VersionManager {
 	async renameBranch(oldName: string, newName: string): Promise<void> {
 		if (!this.storage) throw new Error("Version control not initialized");
 		if (!VersionManager.BRANCH_NAME_RE.test(newName)) {
-			throw new Error("Branch name must be alphanumeric with hyphens/underscores");
+			throw new Error(
+				"Branch name must be alphanumeric with hyphens/underscores",
+			);
 		}
 
 		const branch = await this.storage.getBranchByName(oldName);
@@ -431,13 +461,17 @@ export class VersionManager {
 		this.notifyStatus();
 	}
 
-	async updateBranch(name: string, updates: { description?: string; color?: string }): Promise<void> {
+	async updateBranch(
+		name: string,
+		updates: { description?: string; color?: string },
+	): Promise<void> {
 		if (!this.storage) throw new Error("Version control not initialized");
 
 		const branch = await this.storage.getBranchByName(name);
 		if (!branch) throw new Error(`Branch "${name}" not found`);
 
-		if (updates.description !== undefined) branch.description = updates.description;
+		if (updates.description !== undefined)
+			branch.description = updates.description;
 		if (updates.color !== undefined) branch.color = updates.color;
 
 		await this.storage.saveBranch(branch);
@@ -474,7 +508,10 @@ export class VersionManager {
 		if (result.conflicts.length > 0) {
 			// Store resolver for interactive conflict resolution
 			const currentSnapshot = this.captureSnapshot();
-			this.activeConflictResolver = new ConflictResolver(result, currentSnapshot);
+			this.activeConflictResolver = new ConflictResolver(
+				result,
+				currentSnapshot,
+			);
 		}
 
 		return result;
@@ -506,7 +543,10 @@ export class VersionManager {
 			project.scenes = scenes;
 			project.settings = mergedSnapshot.settings;
 			project.currentSceneId = mergedSnapshot.currentSceneId;
-			this.editor.scenes.setScenes({ scenes, activeSceneId: mergedSnapshot.currentSceneId });
+			this.editor.scenes.setScenes({
+				scenes,
+				activeSceneId: mergedSnapshot.currentSceneId,
+			});
 			this.editor.playback.seek({ time: 0 });
 			this.editor.command.clear();
 		} finally {
@@ -515,7 +555,8 @@ export class VersionManager {
 		}
 
 		// Create merge commit
-		const commitMessage = message ?? `Merge ${sourceBranchName} into ${this.currentBranchName}`;
+		const commitMessage =
+			message ?? `Merge ${sourceBranchName} into ${this.currentBranchName}`;
 		const commit = await this.commit(commitMessage);
 
 		this.activeConflictResolver = null;
@@ -675,10 +716,13 @@ export class VersionManager {
 			const changeCount = diff?.totalChanges ?? 0;
 			if (changeCount === 0) return;
 
-			await this.commit(`Auto-save: ${changeCount} change${changeCount !== 1 ? "s" : ""}`, {
-				isAutoCommit: true,
-				tag: undefined,
-			});
+			await this.commit(
+				`Auto-save: ${changeCount} change${changeCount !== 1 ? "s" : ""}`,
+				{
+					isAutoCommit: true,
+					tag: undefined,
+				},
+			);
 		} catch (err) {
 			console.warn("Auto-commit failed:", err);
 		}
@@ -688,14 +732,19 @@ export class VersionManager {
 
 	async rebase(
 		startCommitId: string,
-		actions: Array<{ commitId: string; action: "pick" | "squash" | "drop" | "reword"; newMessage?: string }>,
+		actions: Array<{
+			commitId: string;
+			action: "pick" | "squash" | "drop" | "reword";
+			newMessage?: string;
+		}>,
 	): Promise<void> {
 		if (!this.storage) throw new Error("Version control not initialized");
 
 		// Walk the commit chain from HEAD to startCommit
 		const chain = await this.storage.getCommitChain(this.lastCommitId!, 500);
 		const startIdx = chain.findIndex((c) => c.id === startCommitId);
-		if (startIdx === -1) throw new Error("Start commit not found in current branch history");
+		if (startIdx === -1)
+			throw new Error("Start commit not found in current branch history");
 
 		// Commits to rebase: from startCommit to HEAD (reverse order for applying)
 		const toRebase = chain.slice(0, startIdx).reverse();
@@ -716,7 +765,9 @@ export class VersionManager {
 				// Merge this commit's snapshot into the pending one
 				if (pendingSquash) {
 					// Keep the pending commit, just update its snapshot to this one's
-					const latestSnapshot = await this.storage.reconstructSnapshot(commit.id);
+					const latestSnapshot = await this.storage.reconstructSnapshot(
+						commit.id,
+					);
 					if (latestSnapshot) {
 						pendingSquash.snapshot = latestSnapshot;
 						pendingSquash.isKeyframe = true;
@@ -744,7 +795,10 @@ export class VersionManager {
 				delta: null,
 				isKeyframe: true,
 				keyframeAncestorId: null,
-				message: action === "reword" && act?.newMessage ? act.newMessage : commit.message,
+				message:
+					action === "reword" && act?.newMessage
+						? act.newMessage
+						: commit.message,
 			};
 
 			if (action === "pick" || action === "reword") {
@@ -800,7 +854,10 @@ export class VersionManager {
 		high: number;
 	} | null = null;
 
-	async bisectStart(goodCommitId: string, badCommitId: string): Promise<string> {
+	async bisectStart(
+		goodCommitId: string,
+		badCommitId: string,
+	): Promise<string> {
 		if (!this.storage) throw new Error("Version control not initialized");
 
 		// Get all commits between good and bad
@@ -825,7 +882,11 @@ export class VersionManager {
 		return mid.id;
 	}
 
-	async bisectGood(): Promise<{ done: boolean; commitId: string; remaining: number }> {
+	async bisectGood(): Promise<{
+		done: boolean;
+		commitId: string;
+		remaining: number;
+	}> {
 		if (!this.bisectState) throw new Error("No bisect in progress");
 
 		// Current commit is good — problem is between low and current
@@ -833,7 +894,11 @@ export class VersionManager {
 		return this.bisectStep();
 	}
 
-	async bisectBad(): Promise<{ done: boolean; commitId: string; remaining: number }> {
+	async bisectBad(): Promise<{
+		done: boolean;
+		commitId: string;
+		remaining: number;
+	}> {
 		if (!this.bisectState) throw new Error("No bisect in progress");
 
 		// Current commit is bad — problem is between current and high
@@ -841,7 +906,11 @@ export class VersionManager {
 		return this.bisectStep();
 	}
 
-	private async bisectStep(): Promise<{ done: boolean; commitId: string; remaining: number }> {
+	private async bisectStep(): Promise<{
+		done: boolean;
+		commitId: string;
+		remaining: number;
+	}> {
 		const bs = this.bisectState!;
 		const remaining = bs.high - bs.low;
 
@@ -862,12 +931,18 @@ export class VersionManager {
 		this.bisectState = null;
 	}
 
-	getBisectState(): { active: boolean; remaining: number; currentCommitId: string | null } {
-		if (!this.bisectState) return { active: false, remaining: 0, currentCommitId: null };
+	getBisectState(): {
+		active: boolean;
+		remaining: number;
+		currentCommitId: string | null;
+	} {
+		if (!this.bisectState)
+			return { active: false, remaining: 0, currentCommitId: null };
 		return {
 			active: true,
 			remaining: this.bisectState.high - this.bisectState.low,
-			currentCommitId: this.bisectState.commits[this.bisectState.currentIdx]?.id ?? null,
+			currentCommitId:
+				this.bisectState.commits[this.bisectState.currentIdx]?.id ?? null,
 		};
 	}
 
@@ -909,7 +984,8 @@ export class VersionManager {
 		if (!this.storage) throw new Error("Version control not initialized");
 
 		const stashes = await this.storage.getAllStashes();
-		if (index < 0 || index >= stashes.length) throw new Error("Stash index out of range");
+		if (index < 0 || index >= stashes.length)
+			throw new Error("Stash index out of range");
 
 		await this.applyStashSnapshot(stashes[index].snapshot);
 	}
@@ -923,7 +999,8 @@ export class VersionManager {
 		if (!this.storage) throw new Error("Version control not initialized");
 
 		const stashes = await this.storage.getAllStashes();
-		if (index < 0 || index >= stashes.length) throw new Error("Stash index out of range");
+		if (index < 0 || index >= stashes.length)
+			throw new Error("Stash index out of range");
 
 		await this.storage.deleteStash(stashes[index].id);
 	}
@@ -943,7 +1020,10 @@ export class VersionManager {
 		project.scenes = scenes;
 		project.settings = snapshot.settings;
 		project.currentSceneId = snapshot.currentSceneId;
-		this.editor.scenes.setScenes({ scenes, activeSceneId: snapshot.currentSceneId });
+		this.editor.scenes.setScenes({
+			scenes,
+			activeSceneId: snapshot.currentSceneId,
+		});
 		this.dirty = true;
 		this.notifyStatus();
 	}
@@ -981,8 +1061,10 @@ export class VersionManager {
 					}
 					return t;
 				}),
-				createdAt: s.createdAt instanceof Date ? s.createdAt.toISOString() : s.createdAt,
-				updatedAt: s.updatedAt instanceof Date ? s.updatedAt.toISOString() : s.updatedAt,
+				createdAt:
+					s.createdAt instanceof Date ? s.createdAt.toISOString() : s.createdAt,
+				updatedAt:
+					s.updatedAt instanceof Date ? s.updatedAt.toISOString() : s.updatedAt,
 			})),
 			settings: { ...project.settings },
 			currentSceneId: project.currentSceneId,
