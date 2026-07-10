@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DeleteAccountDialog } from "@/components/auth/delete-account-dialog";
 import { CreditsSection } from "@/components/auth/credits-section";
+import { VerifyEmailBanner } from "@/components/auth/verify-email-banner";
 
 export default function AccountPage() {
 	const { data: session, isPending } = useSession();
@@ -50,6 +51,8 @@ export default function AccountPage() {
 						Manage your account details and sign-in.
 					</p>
 				</div>
+
+				<VerifyEmailBanner />
 
 				<Card>
 					<CardHeader>

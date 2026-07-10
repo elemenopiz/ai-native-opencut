@@ -25,6 +25,13 @@ const webEnvSchema = z.object({
 	// system yet) these accounts may grant credits via POST /api/admin/credits/grant.
 	ADMIN_EMAILS: z.string().default(""),
 
+	// Transactional email (password reset + email verification). Optional —
+	// without RESEND_API_KEY the app logs the action link to the server console
+	// instead of sending (dev-friendly, never throws). EMAIL_FROM must be a
+	// verified sender on your Resend account in production.
+	RESEND_API_KEY: z.string().default(""),
+	EMAIL_FROM: z.string().default("Byorn <noreply@byorn.app>"),
+
 	// Analytics (optional)
 	NEXT_PUBLIC_GA_MEASUREMENT_ID: z.string().default(""),
 
