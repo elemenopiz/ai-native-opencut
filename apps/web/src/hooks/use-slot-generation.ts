@@ -205,6 +205,66 @@ export function useSlotGeneration() {
 		],
 	);
 
+	/**
+	 * N-way compare — fan ONE spec across several backends at once, landing one
+	 * take per backend as parallel alternates in the slot's stack. Each take is
+	 * pinned to its backend (`spec.model = backendId` → `preferredBackendId`), so
+	 * the route stamps that backend's provenance/cost and identity is held per
+	 * backend by seed-lock. This is the mechanic Firefly can't do: side-by-side
+	 * model comparison where every result stays a versioned take on the timeline
+	 * instead of collapsing to one flat clip at import.
+	 */
+	const generateAcrossBackends = useCallback(
+		async (params: {
+			elementId: string;
+			spec: GenerationSpec;
+			backendIds: string[];
+		}): Promise<{ ok: number; failed: number }> => {
+			const projectId = getActiveProjectId();
+			if (!projectId) return { ok: 0, failed: 0 };
+			const ids = params.backendIds.filter(Boolean);
+			if (ids.length === 0) return { ok: 0, failed: 0 };
+			const channel = channelForElement(params.elementId);
+
+			const results = await Promise.all(
+				ids.map((backendId) =>
+					generationScheduler.submit(channel, () =>
+						runOneTake({
+							elementId: params.elementId,
+							spec: { ...params.spec, model: backendId },
+							projectId,
+						}),
+					),
+				),
+			);
+
+			const ok = results.filter((r) => r.success).length;
+			const failed = results.length - ok;
+
+			// Fill the slot immediately with the first successful backend (request
+			// order) when nothing is active yet — same non-destructive rule as
+			// single-backend generation; alternates from other backends stay.
+			if (slotHasNoActiveTake(params.elementId)) {
+				const firstSuccess = results.find((r) => r.success);
+				if (firstSuccess) {
+					editor.timeline.selectTake({
+						elementId: params.elementId,
+						takeId: firstSuccess.takeId,
+					});
+				}
+			}
+
+			return { ok, failed };
+		},
+		[
+			getActiveProjectId,
+			runOneTake,
+			slotHasNoActiveTake,
+			channelForElement,
+			editor,
+		],
+	);
+
 	/** Collect every generative slot on the timeline that has a prompt. */
 	const listPromptedSlots = useCallback((): SlotRef[] => {
 		const slots: SlotRef[] = [];
@@ -253,6 +313,7 @@ export function useSlotGeneration() {
 
 	return {
 		generateIntoSlot,
+		generateAcrossBackends,
 		generateAllSlots,
 		listPromptedSlots,
 	};
