@@ -52,7 +52,6 @@ export async function POST(req: Request) {
 			generateAudio?: boolean;
 			personaId?: string;
 			consistencyMode?: "high" | "fast";
-			userId?: string;
 			/** Manual model pin → the router's `preferredBackendId` (a backend id).
 			 *  Absent ⇒ auto-route (defaults to Seedance for video). */
 			model?: string;
