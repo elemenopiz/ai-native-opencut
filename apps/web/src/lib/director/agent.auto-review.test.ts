@@ -11,7 +11,7 @@
 import { describe, expect, it } from "bun:test";
 import { autoReviewSlot, type AgentToolStep, type CritiqueFn } from "./agent";
 import type { DirectorApi } from "./director-api";
-import type { CriticVerdict } from "./vision-critic";
+import type { ContinuityContext, CriticVerdict } from "./vision-critic";
 
 interface FakeOpts {
 	reviewOk?: boolean;
@@ -20,6 +20,8 @@ interface FakeOpts {
 	rerollTakeId?: string;
 	rerollOk?: boolean;
 	correctedStatus?: string;
+	/** Per-slot frame marker, so a continuity test can tell the prior shot's frame apart. */
+	frameFor?: (slotId: string) => string;
 }
 
 function makeDirector(opts: FakeOpts = {}) {
@@ -27,13 +29,19 @@ function makeDirector(opts: FakeOpts = {}) {
 	const calls = {
 		setPrompt: [] as Array<{ slotId: string; prompt: string }>,
 		reroll: [] as Array<{ slotId: string; alternatives?: number }>,
-		remix: [] as Array<{ slotId: string; remixPrompt: string }>,
+		remix: [] as Array<{
+			slotId: string;
+			remixPrompt: string;
+			anchorImageUrl?: string;
+		}>,
 		chooseTake: [] as Array<{ slotId: string; takeId?: string }>,
 		review: 0,
+		reviewInputs: [] as Array<{ slotId: string; frames?: number }>,
 	};
 	const director = {
-		reviewTake: async (input: { slotId: string }) => {
+		reviewTake: async (input: { slotId: string; frames?: number }) => {
 			calls.review++;
+			calls.reviewInputs.push({ slotId: input.slotId, frames: input.frames });
 			return opts.reviewOk === false
 				? { ok: false, message: "Take is generating, not ready to review yet." }
 				: {
@@ -45,7 +53,11 @@ function makeDirector(opts: FakeOpts = {}) {
 							prompt: opts.prompt ?? "a red convertible on a beach",
 							status: "ready",
 							frameCount: 1,
-							frames: ["data:image/jpeg;base64,AAAA"],
+							frames: [
+								opts.frameFor
+									? opts.frameFor(input.slotId)
+									: "data:image/jpeg;base64,AAAA",
+							],
 						},
 					};
 		},
@@ -69,8 +81,18 @@ function makeDirector(opts: FakeOpts = {}) {
 				data: { slotId: input.slotId, takeIds: [takeId] },
 			};
 		},
-		remix: async (input: { slotId: string; remixPrompt: string }) => {
-			calls.remix.push(input);
+		remix: async (input: {
+			slotId: string;
+			remixPrompt: string;
+			anchorImageUrl?: string;
+		}) => {
+			calls.remix.push({
+				slotId: input.slotId,
+				remixPrompt: input.remixPrompt,
+				...(input.anchorImageUrl !== undefined
+					? { anchorImageUrl: input.anchorImageUrl }
+					: {}),
+			});
 			return {
 				ok: true,
 				message: "remixed",
@@ -118,6 +140,20 @@ function sequenceCritique(verdicts: CriticVerdict[]): {
 		return verdicts[Math.min(i++, verdicts.length - 1)];
 	};
 	return { fn, intents };
+}
+
+/** A critic that records the continuity CONTEXT it was handed on each call. */
+function contextCritique(verdicts: CriticVerdict[]): {
+	fn: CritiqueFn;
+	contexts: (ContinuityContext | undefined)[];
+} {
+	const contexts: (ContinuityContext | undefined)[] = [];
+	let i = 0;
+	const fn: CritiqueFn = async (_intent, _frames, context) => {
+		contexts.push(context);
+		return verdicts[Math.min(i++, verdicts.length - 1)];
+	};
+	return { fn, contexts };
 }
 
 const base = { slotId: "slot1", shortId: "s1", threshold: 0.5 };
@@ -245,5 +281,64 @@ describe("autoReviewSlot", () => {
 		expect(calls.reroll).toHaveLength(1);
 		expect(calls.chooseTake).toHaveLength(0);
 		expect(calls.review).toBe(1);
+	});
+
+	it("flags a continuity break and remixes anchored on the prior shot's frame", async () => {
+		const { director, calls } = makeDirector({
+			prompt: "shot 2: Mara walks into the cafe",
+			frameFor: (slotId) => `prior-frame:${slotId}`,
+		});
+		const bible =
+			"palette: warm amber; recurring cast: Mara (freckled, teal jacket)";
+		const { fn, contexts } = contextCritique([
+			{
+				verdict: "remix-for-continuity",
+				reason: "Mara is in a red coat, not the teal jacket of the prior shot",
+				revisedPrompt: "put Mara back in the teal jacket",
+			},
+			{ verdict: "pass", reason: "matches now" },
+		]);
+		const steps: AgentToolStep[] = [];
+
+		await autoReviewSlot({
+			...base,
+			director,
+			steps,
+			critique: fn,
+			priorSlotId: "slot0",
+			bible,
+		});
+
+		// The prior shot's last frame was fetched (frames:1) before critiquing.
+		expect(calls.reviewInputs).toContainEqual({ slotId: "slot0", frames: 1 });
+		// The critic saw the prior frame + bible as continuity context.
+		expect(contexts[0]).toEqual({ priorFrame: "prior-frame:slot0", bible });
+		// The correction remixes THIS slot, anchored on the PRIOR shot's frame,
+		// with the bible descriptors folded into the delta.
+		expect(calls.remix).toHaveLength(1);
+		expect(calls.remix[0].slotId).toBe("slot1");
+		expect(calls.remix[0].anchorImageUrl).toBe("prior-frame:slot0");
+		expect(calls.remix[0].remixPrompt).toContain("teal jacket");
+		expect(calls.remix[0].remixPrompt).toContain("hold continuity");
+		// Continuity fixes are in-place remixes (never rerolls), and the fix is kept.
+		expect(calls.reroll).toHaveLength(0);
+		expect(calls.chooseTake).toEqual([{ slotId: "slot1", takeId: "take2" }]);
+	});
+
+	it("reviews without continuity context when there is no prior shot", async () => {
+		const { director, calls } = makeDirector();
+		const { fn, contexts } = contextCritique([
+			{ verdict: "pass", reason: "ok" },
+		]);
+		const steps: AgentToolStep[] = [];
+
+		await autoReviewSlot({ ...base, director, steps, critique: fn });
+
+		expect(contexts[0]).toBeUndefined();
+		expect(calls.remix).toHaveLength(0);
+		// Only the one review of the target slot — no prior-frame fetch.
+		expect(calls.reviewInputs).toEqual([
+			{ slotId: "slot1", frames: undefined },
+		]);
 	});
 });

@@ -42,6 +42,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { DirectorApi } from "./director-api";
 import type { StoryboardPlan } from "./storyboard-plan";
+import { styleBibleDescriptors } from "./storyboard-plan";
 import type { ReviewTakeData } from "./types";
 import { PLAYBOOKS } from "@/lib/studio/playbooks";
 import { createShortIdMap, type ShortIdMap } from "./short-id";
@@ -62,11 +63,12 @@ import {
 	type ToolHandler,
 } from "./tool-catalog";
 import {
+	buildCriticSystemPrompt,
 	buildCriticUserBlocks,
-	CRITIC_SYSTEM_PROMPT,
 	dataUrlToImageBlock,
 	parseVerdict,
 	wantsAutoReview,
+	type ContinuityContext,
 	type CriticVerdict,
 } from "./vision-critic";
 
@@ -692,19 +694,24 @@ function recordAutoStep(
 	onStep?.(step);
 }
 
-/** A critic step: judge a take's frames against its intent → structured verdict. */
+/**
+ * A critic step: judge a take's frames against its intent → structured verdict.
+ * The optional {@link ContinuityContext} (a prior shot's frame + style bible)
+ * turns on cross-shot continuity judging and the `remix-for-continuity` verdict.
+ */
 export type CritiqueFn = (
 	intent: string,
 	frames: string[],
+	context?: ContinuityContext,
 ) => Promise<CriticVerdict>;
 
 /** The production critic: one tool-less relay call → a parsed {@link CriticVerdict}. */
-const relayCritique: CritiqueFn = async (intent, frames) => {
+const relayCritique: CritiqueFn = async (intent, frames, context) => {
 	const turn = await callAgentRelay({
 		messages: [
-			{ role: "user", content: buildCriticUserBlocks(intent, frames) },
+			{ role: "user", content: buildCriticUserBlocks(intent, frames, context) },
 		],
-		system: CRITIC_SYSTEM_PROMPT,
+		system: buildCriticSystemPrompt(Boolean(context?.priorFrame)),
 		tools: [],
 	});
 	return parseVerdict(textOf(turn.content));
@@ -730,9 +737,45 @@ export async function autoReviewSlot(opts: {
 	steps: AgentToolStep[];
 	onStep?: (step: AgentToolStep) => void;
 	critique?: CritiqueFn;
+	/**
+	 * The PREVIOUS shot's slot id, when this slot follows another in the reel.
+	 * Its last frame is decoded once and fed to the critic so it can judge
+	 * CROSS-SHOT continuity; on a continuity miss the corrective remix is anchored
+	 * on that same frame. Omit for the first shot (no continuity to hold).
+	 */
+	priorSlotId?: string;
+	/** Rendered style-bible descriptors (see `styleBibleDescriptors`) the reel must hold. */
+	bible?: string;
 }): Promise<void> {
-	const { director, slotId, shortId, threshold, steps, onStep } = opts;
+	const {
+		director,
+		slotId,
+		shortId,
+		threshold,
+		steps,
+		onStep,
+		priorSlotId,
+		bible,
+	} = opts;
 	const critique = opts.critique ?? relayCritique;
+
+	// Cross-shot continuity: decode the PRIOR shot's last frame once (reused every
+	// attempt) so the critic can compare this shot against it. A prior shot that
+	// isn't reviewable yet simply turns continuity judging off for this slot.
+	let priorFrame: string | undefined;
+	if (priorSlotId) {
+		const priorReview = await director.reviewTake({
+			slotId: priorSlotId,
+			frames: 1,
+		});
+		if (priorReview.ok && priorReview.data) {
+			const f = priorReview.data.frames;
+			priorFrame = f[f.length - 1];
+		}
+	}
+	const context: ContinuityContext | undefined = priorFrame
+		? { priorFrame, ...(bible ? { bible } : {}) }
+		: undefined;
 
 	for (let attempt = 0; attempt < MAX_AUTO_REVIEW_ATTEMPTS; attempt++) {
 		// 1. SEE the current take.
@@ -742,7 +785,7 @@ export async function autoReviewSlot(opts: {
 		// 2. Critic verdict — a relay failure must not derail the user's turn.
 		let verdict: CriticVerdict;
 		try {
-			verdict = await critique(review.data.prompt, review.data.frames);
+			verdict = await critique(review.data.prompt, review.data.frames, context);
 		} catch (err) {
 			recordAutoStep(
 				steps,
@@ -759,7 +802,9 @@ export async function autoReviewSlot(opts: {
 			steps,
 			onStep,
 			"reviewTake",
-			`Reviewed slot ${shortId}: ${verdict.verdict}${verdict.reason ? ` — ${verdict.reason}` : ""}`,
+			`Reviewed slot ${shortId}: ${verdict.verdict}${verdict.reason ? ` — ${verdict.reason}` : ""}${
+				verdict.temporalIssue ? ` [motion: ${verdict.temporalIssue}]` : ""
+			}`,
 			true,
 		);
 
@@ -793,6 +838,22 @@ export async function autoReviewSlot(opts: {
 			director.setPrompt({ slotId, prompt: verdict.revisedPrompt });
 			const res = await director.reroll({ slotId, alternatives: 1 });
 			correctedTakeId = res.data?.takeIds?.[0];
+			message = res.message;
+			corrected = res.ok;
+		} else if (verdict.verdict === "remix-for-continuity") {
+			// Continuity miss: remix anchored on the PRIOR shot's frame (not this
+			// take's own), with the bible descriptors folded into the delta so the
+			// fix pulls the shot back onto the reel's look. `priorFrame` is present
+			// here — a continuity verdict only comes from a continuity-enabled call.
+			const remixPrompt = bible
+				? `${verdict.revisedPrompt} — hold continuity: ${bible}`
+				: verdict.revisedPrompt;
+			const res = await director.remix({
+				slotId,
+				remixPrompt,
+				anchorImageUrl: priorFrame,
+			});
+			correctedTakeId = res.data?.takeId;
 			message = res.message;
 			corrected = res.ok;
 		} else {
@@ -1141,7 +1202,15 @@ async function runDirectorAgentFrontier(opts: {
 		if (slotIds.length === 0) return result;
 		const threshold = approvalThreshold();
 		const map = reelShortIdMap(director);
+		// Reel order + style bible drive CROSS-SHOT continuity: each shot is
+		// reviewed against the shot BEFORE it in timeline order, holding the plan's
+		// bible. The first shot has no predecessor, so it gets a plain review.
+		const reel = director.getReel();
+		const order = reel.slots.map((s) => s.id);
+		const bible = reel.plan ? styleBibleDescriptors(reel.plan.bible) : "";
 		for (const slotId of slotIds) {
+			const idx = order.indexOf(slotId);
+			const priorSlotId = idx > 0 ? order[idx - 1] : undefined;
 			await autoReviewSlot({
 				director,
 				slotId,
@@ -1149,6 +1218,8 @@ async function runDirectorAgentFrontier(opts: {
 				threshold,
 				steps: result.steps,
 				onStep,
+				...(priorSlotId ? { priorSlotId } : {}),
+				...(bible ? { bible } : {}),
 			});
 		}
 		return result;

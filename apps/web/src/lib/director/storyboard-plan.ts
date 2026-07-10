@@ -149,6 +149,33 @@ export function bibleToConsistencyInput(
 	};
 }
 
+/**
+ * Render a {@link StyleBible} into a compact one-line descriptor string — the
+ * reel's look stated as "palette: ...; lens/mood: ...; setting: ...; recurring
+ * cast: ...". Used by the vision critic's CROSS-SHOT continuity review (the
+ * descriptors a later shot must hold) and to seed a continuity remix's delta.
+ * Returns "" when the bible carries nothing describable, so callers can treat an
+ * empty string as "no bible to enforce". Pure and side-effect free.
+ */
+export function styleBibleDescriptors(bible: StyleBible | undefined): string {
+	if (!bible) return "";
+	const parts = [
+		bible.palette?.trim() && `palette: ${bible.palette.trim()}`,
+		bible.lensMood?.trim() && `lens/mood: ${bible.lensMood.trim()}`,
+		bible.setting?.trim() && `setting: ${bible.setting.trim()}`,
+	].filter((p): p is string => Boolean(p));
+	const cast = (bible.characters ?? [])
+		.map((c) =>
+			c.name?.trim()
+				? `${c.name.trim()} (${c.descriptor?.trim() ?? ""})`
+				: c.descriptor?.trim(),
+		)
+		.filter((c): c is string => Boolean(c))
+		.join(", ");
+	if (cast) parts.push(`recurring cast: ${cast}`);
+	return parts.join("; ");
+}
+
 // ── Editor-keyed registry ────────────────────────────────────────────────────
 //
 // One reel has one active storyboard plan, held for the lifetime of the editor

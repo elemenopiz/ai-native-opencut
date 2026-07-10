@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
 	bibleToConsistencyInput,
 	buildStoryboardPlan,
+	styleBibleDescriptors,
 	type StyleBible,
 } from "./storyboard-plan";
 
@@ -98,5 +99,34 @@ describe("bibleToConsistencyInput", () => {
 		expect(
 			bibleToConsistencyInput({ palette: "   ", setting: "", characters: [] }),
 		).toBeUndefined();
+	});
+});
+
+describe("styleBibleDescriptors", () => {
+	it("renders palette, lens/mood, setting, and recurring cast into one line", () => {
+		const bible: StyleBible = {
+			palette: "warm amber highlights, teal shadows",
+			lensMood: "anamorphic, shallow depth of field",
+			setting: "a rain-slick city at night",
+			characters: [
+				{ name: "Mara", descriptor: "freckled, teal jacket" },
+				{ name: "The Stranger", descriptor: "tall, grey coat" },
+			],
+		};
+		expect(styleBibleDescriptors(bible)).toBe(
+			"palette: warm amber highlights, teal shadows; lens/mood: anamorphic, shallow depth of field; setting: a rain-slick city at night; recurring cast: Mara (freckled, teal jacket), The Stranger (tall, grey coat)",
+		);
+	});
+
+	it("omits absent fields and trims whitespace", () => {
+		expect(styleBibleDescriptors({ palette: "  moody blues  " })).toBe(
+			"palette: moody blues",
+		);
+	});
+
+	it("returns an empty string for an empty or missing bible", () => {
+		expect(styleBibleDescriptors(undefined)).toBe("");
+		expect(styleBibleDescriptors({})).toBe("");
+		expect(styleBibleDescriptors({ palette: "   ", characters: [] })).toBe("");
 	});
 });
