@@ -87,37 +87,41 @@ export async function generateThumbnails({
 		formats: ALL_FORMATS,
 	});
 
-	const videoTrack = await input.getPrimaryVideoTrack();
-	if (!videoTrack) {
-		throw new Error("No video track found in the file");
-	}
-
-	const canDecode = await videoTrack.canDecode();
-	if (!canDecode) {
-		throw new Error("Video codec not supported for decoding");
-	}
-
-	const sink = new VideoSampleSink(videoTrack);
-	const thumbnails: string[] = [];
-
-	for await (const frame of sink.samplesAtTimestamps(timesInSeconds)) {
-		if (!frame) continue;
-		try {
-			thumbnails.push(
-				renderToThumbnailDataUrl({
-					width: videoTrack.displayWidth,
-					height: videoTrack.displayHeight,
-					draw: ({ context, width, height }) => {
-						frame.draw(context, 0, 0, width, height);
-					},
-				}),
-			);
-		} finally {
-			frame.close();
+	try {
+		const videoTrack = await input.getPrimaryVideoTrack();
+		if (!videoTrack) {
+			throw new Error("No video track found in the file");
 		}
-	}
 
-	return thumbnails;
+		const canDecode = await videoTrack.canDecode();
+		if (!canDecode) {
+			throw new Error("Video codec not supported for decoding");
+		}
+
+		const sink = new VideoSampleSink(videoTrack);
+		const thumbnails: string[] = [];
+
+		for await (const frame of sink.samplesAtTimestamps(timesInSeconds)) {
+			if (!frame) continue;
+			try {
+				thumbnails.push(
+					renderToThumbnailDataUrl({
+						width: videoTrack.displayWidth,
+						height: videoTrack.displayHeight,
+						draw: ({ context, width, height }) => {
+							frame.draw(context, 0, 0, width, height);
+						},
+					}),
+				);
+			} finally {
+				frame.close();
+			}
+		}
+
+		return thumbnails;
+	} finally {
+		input.dispose();
+	}
 }
 
 export async function generateThumbnail({
@@ -215,23 +219,38 @@ export async function processMediaAssets({
 			} else if (fileType === "video") {
 				try {
 					const videoInfo = await getVideoInfo({ videoFile: file });
-					duration = videoInfo.duration;
+					// Decoders can report NaN/Infinity/0 for some containers; leave
+					// duration undefined so consumers fall back to a sane default
+					// instead of building an element with an invalid duration.
+					duration =
+						Number.isFinite(videoInfo.duration) && videoInfo.duration > 0
+							? videoInfo.duration
+							: undefined;
 					width = videoInfo.width;
 					height = videoInfo.height;
 					fps = Number.isFinite(videoInfo.fps)
 						? Math.round(videoInfo.fps)
 						: undefined;
 
+					// Clamp the grab time to the clip: a fixed 1s offset yields no
+					// frame (and a silent failure) for sub-second videos.
+					const thumbTime =
+						duration && duration > 0 ? Math.min(1, duration / 2) : 0;
 					thumbnailUrl = await generateThumbnail({
 						videoFile: file,
-						timeInSeconds: 1,
+						timeInSeconds: thumbTime,
 					});
 				} catch (error) {
 					console.warn("Video processing failed", error);
 				}
 			} else if (fileType === "audio") {
 				// For audio, we don't set width/height/fps (they'll be undefined)
-				duration = await getMediaDuration({ file });
+				try {
+					const d = await getMediaDuration({ file });
+					duration = Number.isFinite(d) && d > 0 ? d : undefined;
+				} catch (error) {
+					console.warn("Audio processing failed", error);
+				}
 			}
 
 			processedAssets.push({
