@@ -6,6 +6,7 @@ import { renderPersonaStill } from "@/lib/studio/persona-still";
 import type { ImageSize } from "@/lib/studio/image-generator";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth/server";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
 // POST — render a per-shot reference still of this persona in a new scene via
 // gpt-image-2 /images/edits. The returned imageUrl becomes the Seedance
@@ -20,6 +21,14 @@ export async function POST(
 		if (!session?.user) {
 			return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 		}
+
+		// Cap paid still rendering per account (both burst and daily volume).
+		const limited = await enforceRateLimit({
+			name: "studio:persona-still",
+			request: req,
+			userId: session.user.id,
+		});
+		if (limited) return limited;
 
 		const { id } = await params;
 		const body = (await req.json()) as {

@@ -13,6 +13,7 @@ import { db } from "@/lib/db";
 import { takes, generationSets } from "@/lib/db/schema-studio";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth/server";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
 export async function POST(
 	_req: Request,
@@ -24,6 +25,14 @@ export async function POST(
 		if (!session?.user) {
 			return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 		}
+
+		// Cap paid 1080p promotion per account (both burst and daily volume).
+		const limited = await enforceRateLimit({
+			name: "studio:promote",
+			request: _req,
+			userId: session.user.id,
+		});
+		if (limited) return limited;
 
 		const { takeId } = await params;
 

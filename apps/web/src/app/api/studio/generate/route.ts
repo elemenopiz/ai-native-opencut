@@ -20,6 +20,7 @@ import { composePersonaVideoPrompt } from "@/lib/studio/personas";
 import { STILL_SIZE_BY_ORIENTATION } from "@/lib/studio/options";
 import { db } from "@/lib/db";
 import { generationSets, personas, takes } from "@/lib/db/schema-studio";
+import { enforceRateLimit } from "@/lib/rate-limit";
 import type { GenerationSpec, Provenance, TakeCost } from "@/types/timeline";
 
 /** Max value BytePlus accepts for a seed (signed 32-bit). */
@@ -32,6 +33,14 @@ export async function POST(req: Request) {
 		if (!session?.user) {
 			return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 		}
+
+		// Cap paid generation per account (both burst and daily volume).
+		const limited = await enforceRateLimit({
+			name: "studio:generate",
+			request: req,
+			userId: session.user.id,
+		});
+		if (limited) return limited;
 
 		// Register the routed generation backends (idempotent). The unified
 		// generator dispatches through this registry; without it the router has
