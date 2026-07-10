@@ -6,6 +6,7 @@ import { getRulerConfig, shouldShowLabel } from "@/lib/timeline/ruler-utils";
 import { useScrollPosition } from "@/hooks/timeline/use-scroll-position";
 import { TimelineTick } from "./timeline-tick";
 import { BeatTicks } from "./beat-ticks";
+import { MarkerTicks } from "./marker-ticks";
 
 interface TimelineRulerProps {
 	zoomLevel: number;
@@ -122,6 +123,7 @@ export function TimelineRuler({
 			>
 				{timelineTicks}
 				<BeatTicks zoomLevel={zoomLevel} />
+				<MarkerTicks zoomLevel={zoomLevel} />
 			</div>
 		</div>
 	);
