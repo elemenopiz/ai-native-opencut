@@ -38,7 +38,12 @@ export function UndoHistoryPanel({ className }: { className?: string }) {
 									? "bg-primary/10 text-primary font-medium"
 									: "hover:bg-accent/50 text-muted-foreground",
 							)}
-							onClick={() => editor.command.undoTo(i)}
+							onClick={() =>
+								// undoTo(target) leaves `target` commands applied, so keep the
+								// clicked command (index i) by passing i + 1; clicking the
+								// current/last row is then a no-op.
+								editor.command.undoTo(i + 1)
+							}
 						>
 							<span className="text-[8px] text-muted-foreground mr-1">
 								#{i + 1}
