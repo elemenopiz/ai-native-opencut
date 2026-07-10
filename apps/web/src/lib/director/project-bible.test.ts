@@ -290,6 +290,39 @@ describe("project bible — editor capture + hydration", () => {
 		expect(getStoredConsistencyContext(fake.editor)).toEqual(ctxA); // replaced
 		expect(getStoredPlan(fake.editor)).toBeUndefined(); // cleared
 	});
+
+	it("hydration is FAIL-SAFE on corrupt/legacy bible data (never throws → project still loads)", () => {
+		// The hydration hook sits in the central project-load path
+		// (editor-provider → after loadProject). If it could throw on a malformed
+		// bible, a single corrupt record would break project load entirely. It must
+		// not: hydration does zero parsing — it just moves references into WeakMaps.
+		const fake = makeFakeEditor();
+
+		// A bible with structurally wrong fields (string where an object is
+		// expected, a garbage plan, junk extra keys) — the kind of thing a legacy
+		// migration or a hand-edited IndexedDB record could produce.
+		const corruptBible = {
+			version: "not-a-number",
+			consistencyContext: "should-be-an-object",
+			plan: 42,
+			garbage: { nested: [1, 2, 3] },
+		} as unknown as ProjectBible;
+		fake.editor.project.setProjectBible({ bible: corruptBible });
+
+		// The whole point: this call is what runs on every project load.
+		expect(() => hydrateDirectorStateFromBible(fake.editor)).not.toThrow();
+		// The corrupt sub-objects are stored verbatim (they are truthy), never
+		// parsed here — any real defect surfaces lazily at a consumer, not at load.
+		expect(getStoredPlan(fake.editor)).toBe(42 as unknown as StoryboardPlan);
+
+		// An entirely missing bible is likewise safe and clears the caches.
+		fake.editor.project.setProjectBible({
+			bible: undefined as unknown as ProjectBible,
+		});
+		expect(() => hydrateDirectorStateFromBible(fake.editor)).not.toThrow();
+		expect(getStoredConsistencyContext(fake.editor)).toBeUndefined();
+		expect(getStoredPlan(fake.editor)).toBeUndefined();
+	});
 });
 
 // ── vertical slice: write-through via the Director API, then reload ───────────
