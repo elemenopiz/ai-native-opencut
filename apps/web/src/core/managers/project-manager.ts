@@ -607,6 +607,9 @@ export class ProjectManager {
 		if (!this.active) return;
 		this.active = { ...this.active, directorBrief: brief };
 		this.editor.save.markDirty();
+		// Notify subscribers so a brief write (Director verb OR human Bible edit) is
+		// reactive — the Bible panel re-renders through `editor.project.subscribe`.
+		this.notify();
 	}
 
 	/**
@@ -629,6 +632,10 @@ export class ProjectManager {
 		if (!this.active) return;
 		this.active = { ...this.active, projectBible: bible };
 		this.editor.save.markDirty();
+		// Notify subscribers so a bible write-through (Director verb OR human Bible
+		// edit / checkpoint restore) is reactive — the Bible panel re-renders
+		// through `editor.project.subscribe`, reflecting Director activity live.
+		this.notify();
 	}
 
 	getSavedProjects(): TProjectMetadata[] {
