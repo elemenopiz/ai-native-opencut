@@ -32,6 +32,7 @@ import type { ConsistencyContext } from "./consistency-prompt";
 import type { StoryboardPlan, StyleBible } from "./storyboard-plan";
 import type { DerivedReference } from "./reference-intake";
 import type { ReelSpend, ShotAllocation } from "./budget";
+import type { LibraryManifest } from "./asset-manifest";
 
 // Re-export the canonical generative types so Director consumers have a single
 // import site. These are NOT redefined — they live in `@/types/timeline`.
@@ -208,6 +209,15 @@ export interface ProjectInfo {
 	assetCount: number;
 	/** A few recent asset names + ids, capped for prompt size. */
 	recentAssets: { id: string; name: string }[];
+	/**
+	 * Faceted, role-aware digest of the whole media library (see
+	 * `asset-manifest.ts`) — TIER-0 grounding that gives the Director STANDING
+	 * awareness of every asset (counts by role, named heroes, face-anchors, a
+	 * searchable tail) instead of only the last few by recency. `manifest.digest`
+	 * is the one-line string folded into the system prompt. Degrades to
+	 * media-type counts + recent names when no Understanding Pass data is wired.
+	 */
+	manifest: LibraryManifest;
 }
 
 /**

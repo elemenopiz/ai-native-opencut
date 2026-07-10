@@ -467,6 +467,14 @@ export function toolCatalog(): ToolDescriptor[] {
 			handler: (d) => d.getProjectInfo(),
 		},
 		{
+			name: "getLibraryManifest",
+			description:
+				"re-read the faceted MEDIA-LIBRARY manifest: counts by role (hero/product/logo/face-anchor/b-roll), a few named heroes with captions + their FULL media ids, face-anchor personas, and a searchable-tail pointer. The one-line digest is already in your system prompt (the LIBRARY line) — call this only to re-check the library mid-task (e.g. after uploads) or to get a hero's exact mediaId for addClip. Use searchMedia to find any specific untitled shot.",
+			mutating: false,
+			inputSchema: EMPTY,
+			handler: (d) => d.getLibraryManifest(),
+		},
+		{
 			name: "getBackends",
 			description:
 				"list the generation models available now — each with modality, safety tier, seed-lock/reference-edit support, and a RELATIVE cost tier (cheap/standard/premium). Use to pick a backendId: drafts on cheap, final/hero on premium, persona-critical on a seed-lock-capable model.",
