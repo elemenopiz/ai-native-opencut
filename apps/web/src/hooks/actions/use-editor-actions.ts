@@ -216,6 +216,7 @@ export function useEditorActions() {
 				elements: elementsToSplit,
 				splitTime: currentTime,
 				retainSide: "left",
+				rippleEnabled: rippleEditingEnabled,
 			});
 		},
 		undefined,

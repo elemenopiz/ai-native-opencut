@@ -51,7 +51,7 @@ export class SplitElementsCommand extends Command {
 				return track;
 			}
 
-			let leftVisibleDurationForRipple: number | null = null;
+			let discardedDurationForRipple: number | null = null;
 
 			let elements = track.elements.flatMap((element) => {
 				const shouldSplit = elementsToSplit.some(
@@ -82,6 +82,9 @@ export class SplitElementsCommand extends Command {
 				});
 
 				if (this.retainSide === "left") {
+					if (this.rippleEnabled && elementsToSplit.length === 1) {
+						discardedDurationForRipple = rightVisibleDuration;
+					}
 					return [
 						{
 							...element,
@@ -95,7 +98,7 @@ export class SplitElementsCommand extends Command {
 
 				if (this.retainSide === "right") {
 					if (this.rippleEnabled && elementsToSplit.length === 1) {
-						leftVisibleDurationForRipple = leftVisibleDuration;
+						discardedDurationForRipple = leftVisibleDuration;
 					}
 					const newId = generateUUID();
 					this.rightSideElements.push({
@@ -142,11 +145,11 @@ export class SplitElementsCommand extends Command {
 				];
 			});
 
-			if (this.rippleEnabled && leftVisibleDurationForRipple !== null) {
+			if (this.rippleEnabled && discardedDurationForRipple !== null) {
 				elements = rippleShiftElements({
 					elements,
 					afterTime: this.splitTime,
-					shiftAmount: leftVisibleDurationForRipple,
+					shiftAmount: discardedDurationForRipple,
 				});
 			}
 
