@@ -9,7 +9,10 @@ import { Slider } from "@/components/ui/slider";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Add01Icon, Cancel01Icon } from "@hugeicons/core-free-icons";
 import { useEditor } from "@/hooks/use-editor";
-import { getAllAudioEffectDefinitions, type AudioEffectType } from "@/lib/audio/audio-effects";
+import {
+	getAllAudioEffectDefinitions,
+	type AudioEffectType,
+} from "@/lib/audio/audio-effects";
 
 interface TrackAudioEffect {
 	id: string;
@@ -24,12 +27,16 @@ interface AudioEffectsChainProps {
 	className?: string;
 }
 
-export function AudioEffectsChainPanel({ trackId, trackType, className }: AudioEffectsChainProps) {
+export function AudioEffectsChainPanel({
+	trackId,
+	trackType,
+	className,
+}: AudioEffectsChainProps) {
 	const editor = useEditor();
 	const track = editor.timeline.getTrackById({ trackId });
-	if (!track || (trackType !== "audio" && trackType !== "video")) return null;
-
-	const effects: TrackAudioEffect[] = (track as any).audioEffects ?? [];
+	// NB: hooks below must run unconditionally (Rules of Hooks) — the early
+	// return is placed AFTER them. Keep `effects` null-safe for that reason.
+	const effects: TrackAudioEffect[] = (track as any)?.audioEffects ?? [];
 
 	const handleAdd = useCallback(
 		(type: AudioEffectType) => {
@@ -88,6 +95,8 @@ export function AudioEffectsChainPanel({ trackId, trackType, className }: AudioE
 		[effects, trackId, editor],
 	);
 
+	if (!track || (trackType !== "audio" && trackType !== "video")) return null;
+
 	const availableEffects = getAllAudioEffectDefinitions();
 
 	return (
@@ -112,7 +121,9 @@ export function AudioEffectsChainPanel({ trackId, trackType, className }: AudioE
 								type="button"
 								className={cn(
 									"size-3 rounded-full border-2",
-									effect.enabled ? "bg-primary border-primary" : "bg-transparent border-muted-foreground",
+									effect.enabled
+										? "bg-primary border-primary"
+										: "bg-transparent border-muted-foreground",
 								)}
 								onClick={() => handleToggle(effect.id)}
 							/>
@@ -136,7 +147,9 @@ export function AudioEffectsChainPanel({ trackId, trackType, className }: AudioE
 								</div>
 								<Slider
 									value={[effect.params[param.key] ?? param.default]}
-									onValueChange={([v]) => handleParamChange(effect.id, param.key, v)}
+									onValueChange={([v]) =>
+										handleParamChange(effect.id, param.key, v)
+									}
 									min={param.min}
 									max={param.max}
 									step={param.step}
