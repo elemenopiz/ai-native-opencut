@@ -90,9 +90,9 @@ export const useKeybindingsStore = create<KeybindingsState>()(
 				set({ keybindingsEnabled: false });
 			},
 
-		importKeybindings: (config: KeybindingConfig) => {
-			for (const [key] of Object.entries(config)) {
-				if (typeof key !== "string" || key.length === 0) {
+			importKeybindings: (config: KeybindingConfig) => {
+				for (const [key] of Object.entries(config)) {
+					if (typeof key !== "string" || key.length === 0) {
 						throw new Error(`Invalid key format: ${key}`);
 					}
 				}
@@ -169,13 +169,21 @@ function generateKeybindingString(ev: KeyboardEvent): ShortcutKey | null {
 		return `${modifierKey}+${key}` as ShortcutKey;
 	}
 
-	if (isDOMElement(target) && isTypableDOMElement({ element: target as HTMLElement }))
+	if (
+		isDOMElement(target) &&
+		isTypableDOMElement({ element: target as HTMLElement })
+	)
 		return null;
 
 	return `${key}` as ShortcutKey;
 }
 
-function getPressedKey(ev: KeyboardEvent): string | null {
+// Exported so the shortcut RECORDER (app/shortcuts/page.tsx) encodes a combo the
+// exact same way the matcher does — same modifier order and special-key
+// normalization — instead of hand-rolling a divergent format that never matches.
+// (The recorder must NOT use generateKeybindingString, whose typable-target
+// guards would drop shift/plain-key combos while the capture field is focused.)
+export function getPressedKey(ev: KeyboardEvent): string | null {
 	const key = (ev.key ?? "").toLowerCase();
 	const code = ev.code ?? "";
 
@@ -210,7 +218,7 @@ function getPressedKey(ev: KeyboardEvent): string | null {
 	return null;
 }
 
-function getActiveModifier(ev: KeyboardEvent): string | null {
+export function getActiveModifier(ev: KeyboardEvent): string | null {
 	const modifierKeys = {
 		ctrl: isAppleDevice() ? ev.metaKey : ev.ctrlKey,
 		alt: ev.altKey,

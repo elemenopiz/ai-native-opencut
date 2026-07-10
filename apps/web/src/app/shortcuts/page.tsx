@@ -6,8 +6,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { ACTIONS, type TAction, type TActionCategory } from "@/lib/actions/definitions";
-import { useKeybindingsStore } from "@/stores/keybindings-store";
+import {
+	ACTIONS,
+	type TAction,
+	type TActionCategory,
+} from "@/lib/actions/definitions";
+import {
+	getActiveModifier,
+	getPressedKey,
+	useKeybindingsStore,
+} from "@/stores/keybindings-store";
+import type { ShortcutKey } from "@/types/keybinding";
 import { cn } from "@/utils/ui";
 
 const CATEGORIES: { key: TActionCategory; label: string }[] = [
@@ -24,26 +33,33 @@ const CATEGORIES: { key: TActionCategory; label: string }[] = [
 
 export default function ShortcutsPage() {
 	const [search, setSearch] = useState("");
-	const [activeCategory, setActiveCategory] = useState<TActionCategory | "all">("all");
+	const [activeCategory, setActiveCategory] = useState<TActionCategory | "all">(
+		"all",
+	);
 	const [editingAction, setEditingAction] = useState<TAction | null>(null);
 
 	const filteredActions = useMemo(() => {
-		const entries = Object.entries(ACTIONS) as [TAction, typeof ACTIONS[TAction]][];
+		const entries = Object.entries(ACTIONS) as [
+			TAction,
+			(typeof ACTIONS)[TAction],
+		][];
 		return entries.filter(([action, def]) => {
-			if (activeCategory !== "all" && def.category !== activeCategory) return false;
+			if (activeCategory !== "all" && def.category !== activeCategory)
+				return false;
 			if (search) {
 				const q = search.toLowerCase();
-				return (
-					action.includes(q) ||
-					def.description.toLowerCase().includes(q)
-				);
+				return action.includes(q) || def.description.toLowerCase().includes(q);
 			}
 			return true;
 		});
 	}, [search, activeCategory]);
 
 	return (
-		<BasePage maxWidth="6xl" title="Keyboard Shortcuts" description="Customize keyboard shortcuts for all editor actions.">
+		<BasePage
+			maxWidth="6xl"
+			title="Keyboard Shortcuts"
+			description="Customize keyboard shortcuts for all editor actions."
+		>
 			<div className="flex flex-col gap-6">
 				<div className="flex gap-4 items-center">
 					<Input
@@ -96,7 +112,9 @@ export default function ShortcutsPage() {
 								action={action}
 								description={def.description}
 								category={def.category}
-								defaultShortcuts={"defaultShortcuts" in def ? def.defaultShortcuts ?? [] : []}
+								defaultShortcuts={
+									"defaultShortcuts" in def ? (def.defaultShortcuts ?? []) : []
+								}
 								isEditing={editingAction === action}
 								onStartEdit={() => setEditingAction(action)}
 								onStopEdit={() => setEditingAction(null)}
@@ -136,19 +154,20 @@ function ShortcutRow({
 			e.preventDefault();
 			e.stopPropagation();
 
-			const parts: string[] = [];
-			if (e.ctrlKey || e.metaKey) parts.push("ctrl");
-			if (e.shiftKey) parts.push("shift");
-			if (e.altKey) parts.push("alt");
+			// Encode exactly like the matcher (getActiveModifier + getPressedKey) so
+			// the recorded combo actually fires — same modifier order and special-key
+			// normalization. getPressedKey returns null while only a modifier is held,
+			// so keep waiting for the real key.
+			const modifierKey = getActiveModifier(e.nativeEvent);
+			const key = getPressedKey(e.nativeEvent);
+			if (!key) return;
 
-			const key = e.key.toLowerCase();
-			if (!["control", "shift", "alt", "meta"].includes(key)) {
-				parts.push(key);
-				const combo = parts.join("+");
-				setCapturedKeys(combo);
-				useKeybindingsStore.getState().updateKeybinding(combo as any, action);
-				setTimeout(onStopEdit, 300);
-			}
+			const combo = (
+				modifierKey ? `${modifierKey}+${key}` : key
+			) as ShortcutKey;
+			setCapturedKeys(combo);
+			useKeybindingsStore.getState().updateKeybinding(combo, action);
+			setTimeout(onStopEdit, 300);
 		},
 		[action, onStopEdit],
 	);
@@ -181,7 +200,10 @@ function ShortcutRow({
 					</button>
 				)}
 			</div>
-			<Badge variant="outline" className="text-[9px] px-1.5 py-0 justify-self-start">
+			<Badge
+				variant="outline"
+				className="text-[9px] px-1.5 py-0 justify-self-start"
+			>
 				{category}
 			</Badge>
 		</div>
