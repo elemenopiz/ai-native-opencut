@@ -118,9 +118,15 @@ export class PlaybackManager {
 
 	shuttleForward(): void {
 		const now = Date.now();
-		if (this.shuttleDirection === "forward" && now - this.lastShuttlePress < 500) {
+		if (
+			this.shuttleDirection === "forward" &&
+			now - this.lastShuttlePress < 500
+		) {
 			const idx = PlaybackManager.SHUTTLE_SPEEDS.indexOf(this.shuttleSpeed);
-			this.shuttleSpeed = PlaybackManager.SHUTTLE_SPEEDS[Math.min(idx + 1, PlaybackManager.SHUTTLE_SPEEDS.length - 1)];
+			this.shuttleSpeed =
+				PlaybackManager.SHUTTLE_SPEEDS[
+					Math.min(idx + 1, PlaybackManager.SHUTTLE_SPEEDS.length - 1)
+				];
 		} else {
 			this.shuttleSpeed = 1;
 		}
@@ -133,9 +139,15 @@ export class PlaybackManager {
 
 	shuttleReverse(): void {
 		const now = Date.now();
-		if (this.shuttleDirection === "reverse" && now - this.lastShuttlePress < 500) {
+		if (
+			this.shuttleDirection === "reverse" &&
+			now - this.lastShuttlePress < 500
+		) {
 			const idx = PlaybackManager.SHUTTLE_SPEEDS.indexOf(this.shuttleSpeed);
-			this.shuttleSpeed = PlaybackManager.SHUTTLE_SPEEDS[Math.min(idx + 1, PlaybackManager.SHUTTLE_SPEEDS.length - 1)];
+			this.shuttleSpeed =
+				PlaybackManager.SHUTTLE_SPEEDS[
+					Math.min(idx + 1, PlaybackManager.SHUTTLE_SPEEDS.length - 1)
+				];
 		} else {
 			this.shuttleSpeed = 1;
 		}
@@ -238,6 +250,11 @@ export class PlaybackManager {
 			);
 		}
 
-		this.playbackTimer = requestAnimationFrame(this.updateTime);
+		// The end-of-playback and reverse-shuttle branches above call pause()/
+		// shuttleStop(), which clear isPlaying and null the timer. Don't resurrect
+		// a stale RAF handle after playback has already stopped this tick.
+		if (this.isPlaying) {
+			this.playbackTimer = requestAnimationFrame(this.updateTime);
+		}
 	};
 }

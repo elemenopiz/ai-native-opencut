@@ -4,6 +4,18 @@ import { nanoid } from "nanoid";
 import { db } from "@/lib/db";
 import { personas } from "@/lib/db/schema-studio";
 
+// Safely rehydrate a stored JSON array; a malformed row degrades to [] rather
+// than throwing and 500-ing the entire list request.
+function parseRefImageUrls(raw: string | null): string[] {
+	if (!raw) return [];
+	try {
+		const parsed = JSON.parse(raw);
+		return Array.isArray(parsed) ? (parsed as string[]) : [];
+	} catch {
+		return [];
+	}
+}
+
 // Shape returned to the client — refImageUrls rehydrated from JSON to an array.
 function serialize(p: typeof personas.$inferSelect) {
 	return {
@@ -11,7 +23,7 @@ function serialize(p: typeof personas.$inferSelect) {
 		name: p.name,
 		descriptor: p.descriptor,
 		anchorImageUrl: p.anchorImageUrl,
-		refImageUrls: p.refImageUrls ? (JSON.parse(p.refImageUrls) as string[]) : [],
+		refImageUrls: parseRefImageUrls(p.refImageUrls),
 		seed: p.seed,
 		createdAt: p.createdAt,
 	};
@@ -30,7 +42,8 @@ export async function POST(req: Request) {
 			userId?: string;
 		};
 
-		const { name, descriptor, anchorImageUrl, refImageUrls, seed, userId } = body;
+		const { name, descriptor, anchorImageUrl, refImageUrls, seed, userId } =
+			body;
 		if (!name?.trim() || !descriptor?.trim() || !anchorImageUrl?.trim()) {
 			return NextResponse.json(
 				{ error: "name, descriptor and anchorImageUrl are required" },
@@ -46,14 +59,17 @@ export async function POST(req: Request) {
 				name: name.trim(),
 				descriptor: descriptor.trim(),
 				anchorImageUrl,
-				refImageUrls: refImageUrls?.length ? JSON.stringify(refImageUrls) : null,
+				refImageUrls: refImageUrls?.length
+					? JSON.stringify(refImageUrls)
+					: null,
 				seed: seed ?? null,
 			})
 			.returning();
 
 		return NextResponse.json({ persona: serialize(row) });
 	} catch (err) {
-		const message = err instanceof Error ? err.message : "Failed to create persona";
+		const message =
+			err instanceof Error ? err.message : "Failed to create persona";
 		return NextResponse.json({ error: message }, { status: 500 });
 	}
 }
@@ -68,16 +84,15 @@ export async function GET(req: Request) {
 		// anonymous bucket (userId IS NULL). Never fall through to an unscoped
 		// query: that would return every user's personas to a no-userId caller.
 		const rows = await db.query.personas.findMany({
-			where: userId
-				? eq(personas.userId, userId)
-				: isNull(personas.userId),
+			where: userId ? eq(personas.userId, userId) : isNull(personas.userId),
 			orderBy: [desc(personas.createdAt)],
 			limit: 100,
 		});
 
 		return NextResponse.json({ personas: rows.map(serialize) });
 	} catch (err) {
-		const message = err instanceof Error ? err.message : "Failed to fetch personas";
+		const message =
+			err instanceof Error ? err.message : "Failed to fetch personas";
 		return NextResponse.json({ error: message }, { status: 500 });
 	}
 }

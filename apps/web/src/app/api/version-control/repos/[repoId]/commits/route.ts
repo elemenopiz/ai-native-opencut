@@ -50,20 +50,26 @@ export async function POST(
 				);
 			}
 
-			await db.insert(commits).values({
-				...parsed.data,
-				repoId,
-				authorId: session.user.id,
-				authorName: session.user.name,
-				authorAvatar: session.user.image,
-				createdAt: new Date(),
-			}).onConflictDoNothing();
+			await db
+				.insert(commits)
+				.values({
+					...parsed.data,
+					repoId,
+					authorId: session.user.id,
+					authorName: session.user.name,
+					authorAvatar: session.user.image,
+					createdAt: new Date(),
+				})
+				.onConflictDoNothing();
 		}
 
 		return NextResponse.json({ pushed: commitList.length }, { status: 201 });
 	} catch (error) {
 		console.error("Error pushing commits:", error);
-		return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+		return NextResponse.json(
+			{ error: "Internal server error" },
+			{ status: 500 },
+		);
 	}
 }
 
@@ -79,8 +85,13 @@ export async function GET(
 
 		const { repoId } = await params;
 		const { searchParams } = new URL(request.url);
-		const limit = Math.min(parseInt(searchParams.get("limit") || "50", 10), 200);
-		const offset = parseInt(searchParams.get("offset") || "0", 10);
+		const limitParam = parseInt(searchParams.get("limit") || "50", 10);
+		const offsetParam = parseInt(searchParams.get("offset") || "0", 10);
+		const limit = Math.min(
+			Number.isNaN(limitParam) ? 50 : Math.max(limitParam, 1),
+			200,
+		);
+		const offset = Number.isNaN(offsetParam) ? 0 : Math.max(offsetParam, 0);
 
 		const result = await db
 			.select()
@@ -93,6 +104,9 @@ export async function GET(
 		return NextResponse.json(result);
 	} catch (error) {
 		console.error("Error listing commits:", error);
-		return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+		return NextResponse.json(
+			{ error: "Internal server error" },
+			{ status: 500 },
+		);
 	}
 }

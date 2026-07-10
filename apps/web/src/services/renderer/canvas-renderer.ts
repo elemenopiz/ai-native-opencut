@@ -28,12 +28,16 @@ async function ensureWatermarkLogo(): Promise<void> {
 				// Fallback for environments without createImageBitmap
 				const img = new Image();
 				const url = URL.createObjectURL(blob);
-				await new Promise<void>((resolve, reject) => {
-					img.onload = () => resolve();
-					img.onerror = reject;
-					img.src = url;
-				});
-				watermarkLogo = img;
+				try {
+					await new Promise<void>((resolve, reject) => {
+						img.onload = () => resolve();
+						img.onerror = reject;
+						img.src = url;
+					});
+					watermarkLogo = img;
+				} finally {
+					URL.revokeObjectURL(url);
+				}
 			}
 		} catch (err) {
 			console.warn("Failed to load watermark logo:", err);
