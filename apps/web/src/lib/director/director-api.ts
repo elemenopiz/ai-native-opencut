@@ -1537,6 +1537,7 @@ export function createDirectorApi(
 		// to presenting both takes (never throws the comparison away).
 		let winner: string | undefined;
 		let autoPicked = false;
+		let winnerReason: string | undefined;
 		if (critic && ready.length >= 2) {
 			try {
 				const pick = await critic.pickBest({
@@ -1555,6 +1556,22 @@ export function createDirectorApi(
 					});
 					winner = pick.takeId;
 					autoPicked = true;
+					winnerReason = pick.reason?.trim() || undefined;
+
+					// LEARN from the auto-pick: fold WHICH backend/look won (and why) into
+					// the durable brief so future shots inherit the preference — the same
+					// brief-writing path `chooseTake` uses (task item 3).
+					const winningBackend = produced.find(
+						(p) => p.takeId === pick.takeId,
+					)?.backendId;
+					const snippet = briefSnippet(baseSpec.prompt);
+					const note =
+						"A/B auto-pick" +
+						(winningBackend ? `: backend "${winningBackend}" won` : "") +
+						(snippet ? ` for "${snippet}"` : "") +
+						(winnerReason ? ` — ${winnerReason}` : "") +
+						".";
+					persistBrief(applyBriefPatch(readBrief(), { notes: [note] }));
 				}
 			} catch {
 				/* critic unavailable/failed → present both (graceful degradation) */
@@ -1562,7 +1579,9 @@ export function createDirectorApi(
 		}
 
 		const message = autoPicked
-			? `Compared ${ids.length} backends on slot "${input.slotId}"; the vision critic auto-picked the winning take.`
+			? `Compared ${ids.length} backends on slot "${input.slotId}"; the vision critic auto-picked the winning take${
+					winnerReason ? ` — ${winnerReason}` : ""
+				}.`
 			: `Compared ${ids.length} backends on slot "${input.slotId}" — ${ready.length} take(s) ready; ${
 					critic
 						? "the critic returned no confident pick, so"

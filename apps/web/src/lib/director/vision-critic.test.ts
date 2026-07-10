@@ -1,9 +1,14 @@
 import { describe, expect, it } from "bun:test";
 import {
+	buildPickUserBlocks,
 	dataUrlToImageBlock,
+	parsePick,
 	parseVerdict,
+	pickLabel,
 	wantsAutoReview,
 } from "./vision-critic";
+
+const IMG = "data:image/jpeg;base64,AAAA";
 
 describe("parseVerdict", () => {
 	it("parses a pass verdict", () => {
@@ -112,6 +117,74 @@ describe("dataUrlToImageBlock", () => {
 		expect(dataUrlToImageBlock("data:image/svg+xml;base64,AAAA")).toBeNull();
 		expect(dataUrlToImageBlock("data:image/jpeg;base64,")).toBeNull();
 		expect(dataUrlToImageBlock("garbage")).toBeNull();
+	});
+});
+
+describe("pickLabel", () => {
+	it("labels the first 26 candidates A–Z, then wraps with a suffix", () => {
+		expect(pickLabel(0)).toBe("A");
+		expect(pickLabel(1)).toBe("B");
+		expect(pickLabel(25)).toBe("Z");
+		expect(pickLabel(26)).toBe("A1");
+		expect(pickLabel(27)).toBe("B1");
+	});
+});
+
+describe("buildPickUserBlocks", () => {
+	it("emits the intent, a marker per candidate, and its image blocks", () => {
+		const blocks = buildPickUserBlocks("a red kite", [
+			{ label: "A", frames: [IMG] },
+			{ label: "B", frames: [IMG, IMG] },
+		]);
+		// intent text + (marker + 1 image) + (marker + 2 images)
+		expect(blocks).toHaveLength(1 + 2 + 3);
+		expect(blocks[0]).toMatchObject({ type: "text" });
+		expect((blocks[0] as { text: string }).text).toContain("a red kite");
+		expect(blocks.filter((b) => b.type === "image")).toHaveLength(3);
+		expect((blocks[1] as { text: string }).text).toContain("Candidate A");
+	});
+
+	it("skips a candidate whose frames are all undecodable", () => {
+		const blocks = buildPickUserBlocks("x", [
+			{ label: "A", frames: ["not-a-data-url"] },
+			{ label: "B", frames: [IMG] },
+		]);
+		// Only candidate B contributes a marker + image; A is dropped entirely.
+		expect(blocks.filter((b) => b.type === "image")).toHaveLength(1);
+		const text = blocks
+			.filter((b) => b.type === "text")
+			.map((b) => (b as { text: string }).text)
+			.join("\n");
+		expect(text).not.toContain("Candidate A");
+		expect(text).toContain("Candidate B");
+	});
+});
+
+describe("parsePick", () => {
+	const labels = ["A", "B"];
+
+	it("returns the winning label and reason", () => {
+		expect(parsePick('{"winner":"B","reason":"sharper"}', labels)).toEqual({
+			label: "B",
+			reason: "sharper",
+		});
+	});
+
+	it("matches labels case-insensitively and via synonym keys", () => {
+		expect(parsePick('{"winner":"a"}', labels)?.label).toBe("A");
+		expect(parsePick('{"pick":"B"}', labels)?.label).toBe("B");
+	});
+
+	it("returns null for an explicit null / missing / invalid winner", () => {
+		expect(parsePick('{"winner":null,"reason":"tie"}', labels)).toBeNull();
+		expect(parsePick('{"reason":"no winner field"}', labels)).toBeNull();
+		expect(parsePick('{"winner":"C"}', labels)).toBeNull();
+	});
+
+	it("returns null on unparseable output (degrades to present-both)", () => {
+		expect(parsePick("the model rambled with no json", labels)).toBeNull();
+		expect(parsePick("{ broken ,,, }", labels)).toBeNull();
+		expect(parsePick("", labels)).toBeNull();
 	});
 });
 

@@ -994,6 +994,27 @@ function textOf(content: Anthropic.ContentBlock[]): string {
 }
 
 /**
+ * One tool-less vision model round-trip through the SAME stateless relay the
+ * agent/critic use: a system prompt + user content blocks (text + images) → the
+ * assistant's text reply. This is the `VisionRelay` the take-critic adapter
+ * (`take-critic-adapter.ts`) is wired with in `use-director`, so `compareTake`'s
+ * auto-pick rides the exact relay path `reviewTake`'s critic does.
+ */
+export async function callVisionRelay(request: {
+	system: string;
+	content: Anthropic.ContentBlockParam[];
+	signal?: AbortSignal;
+}): Promise<string> {
+	const turn = await callAgentRelay({
+		messages: [{ role: "user", content: request.content }],
+		system: request.system,
+		tools: [],
+		signal: request.signal,
+	});
+	return textOf(turn.content);
+}
+
+/**
  * System prompt for the frontier brain. Built ONCE per user turn (not per
  * model call) so the prefix stays byte-stable across the loop for prompt
  * caching; the reel listing inside it is therefore a snapshot — live state

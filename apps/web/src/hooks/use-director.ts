@@ -8,6 +8,9 @@ import {
 	type DirectorApi,
 } from "@/lib/director/director-api";
 import { createStudioExecutor } from "@/lib/director/studio-executor";
+import { callVisionRelay } from "@/lib/director/agent";
+import { createVisionTakeCritic } from "@/lib/director/take-critic-adapter";
+import { extractTakeFrames } from "@/lib/media/last-frame";
 
 /**
  * Read-through to the client-safe backend catalog (`GET /api/studio/backends`) —
@@ -32,9 +35,10 @@ async function fetchBackendCatalog(
  * surfaces it only when the Director toggle is on.
  *
  * `backends` powers cost/quality-aware model routing (the `getBackends` verb and
- * the `backendId` pins on generate/reroll/compareTake). No `critic` is wired yet
- * — until D1's vision critic lands, `compareTake` presents both takes for the
- * user to choose (graceful no-op).
+ * the `backendId` pins on generate/reroll/compareTake). `critic` wires D1's vision
+ * critic (via `createVisionTakeCritic`) to the real relay + frame extraction, so
+ * `compareTake` AUTO-PICKS the winning A/B take; if the relay/vision call fails it
+ * degrades to presenting both takes for the user to choose.
  */
 export function useDirector(): DirectorApi {
 	const editor = useEditor();
@@ -43,6 +47,16 @@ export function useDirector(): DirectorApi {
 			createDirectorApi(editor, {
 				executor: createStudioExecutor(editor),
 				backends: fetchBackendCatalog,
+				critic: createVisionTakeCritic({
+					relay: callVisionRelay,
+					extractFrames: ({ takeId, mediaId }) =>
+						mediaId
+							? extractTakeFrames(editor.media.getAssetById(mediaId), {
+									count: 3,
+									name: takeId,
+								})
+							: Promise.resolve([]),
+				}),
 			}),
 		[editor],
 	);
