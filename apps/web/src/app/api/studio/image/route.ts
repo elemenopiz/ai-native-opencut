@@ -11,6 +11,18 @@ import { imageStills } from "@/lib/db/schema-studio";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth/server";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { DEFAULT_BACKEND_ID } from "@/lib/studio/backends/registry";
+import { costFor } from "@/lib/credits/cost-table";
+import {
+	InsufficientCredits,
+	release,
+	reserve,
+	settle,
+} from "@/lib/credits/ledger";
+import {
+	insufficientCreditsResponse,
+	STUDIO_REF_TYPE,
+} from "@/lib/credits/metering";
 
 export async function POST(req: Request) {
 	try {
@@ -44,7 +56,47 @@ export async function POST(req: Request) {
 			);
 		}
 
-		const results = await generateReferenceImage({ prompt, size, quality, n });
+		// Credits: image generation is synchronous — reserve the server-computed
+		// cost BEFORE the paid provider call, settle on success, release on any
+		// failure. The image route always renders via GPT Image (the default image
+		// backend); cost is flat per image × n.
+		const imageBackendId = DEFAULT_BACKEND_ID.image;
+		const creditCost = costFor(imageBackendId, "image", { count: n });
+		const chargeId = nanoid();
+		try {
+			await reserve(session.user.id, creditCost, {
+				refType: STUDIO_REF_TYPE,
+				refId: chargeId,
+				idempotencyKey: `${chargeId}:reserve`,
+				metadata: { backendId: imageBackendId, count: n },
+			});
+		} catch (err) {
+			if (err instanceof InsufficientCredits) {
+				return insufficientCreditsResponse(err);
+			}
+			throw err;
+		}
+
+		let results: Awaited<ReturnType<typeof generateReferenceImage>>;
+		try {
+			results = await generateReferenceImage({ prompt, size, quality, n });
+		} catch (err) {
+			await release(session.user.id, creditCost, {
+				refType: STUDIO_REF_TYPE,
+				refId: chargeId,
+				idempotencyKey: `${chargeId}:release`,
+			}).catch(() => {});
+			throw err;
+		}
+
+		if (creditCost > 0) {
+			await settle(session.user.id, creditCost, {
+				refType: STUDIO_REF_TYPE,
+				refId: chargeId,
+				idempotencyKey: `${chargeId}:settle`,
+				metadata: { backendId: imageBackendId, count: n },
+			});
+		}
 
 		// gpt-image-2 returns base64; rehost into R2 so the still has a stable,
 		// publicly-fetchable URL (needed as an image-to-video reference, and so

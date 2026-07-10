@@ -7,6 +7,8 @@ import type {
 	VideoMode,
 } from "@/lib/studio/provider-adapter";
 import { waitForJobTerminal } from "@/stores/generation-status-store";
+import { gateOn402 } from "@/lib/credits/client-gate";
+import { useCreditsStore } from "@/stores/credits-store";
 
 export type GenerationStatus =
 	| "idle"
@@ -146,6 +148,11 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 				});
 
 				if (!res.ok) {
+					// Insufficient credits (402) → open the "Out of credits" modal.
+					if (await gateOn402(res)) {
+						setStatus("error");
+						return;
+					}
 					const data = (await res.json()) as { error?: string };
 					throw new Error(data.error ?? "Submission failed");
 				}
@@ -175,6 +182,8 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 
 				if (data.status === "completed") {
 					setStatus("done");
+					// Sync backends settle inline — refresh the header balance pill.
+					void useCreditsStore.getState().refresh();
 					return;
 				}
 
@@ -183,6 +192,8 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 				setStatus(
 					outcome === "done" ? "done" : outcome === "error" ? "error" : "idle",
 				);
+				// Async video settled/released on completion — refresh the balance.
+				void useCreditsStore.getState().refresh();
 			} catch (err) {
 				setStatus("error");
 				setError(err instanceof Error ? err.message : "Generation failed");

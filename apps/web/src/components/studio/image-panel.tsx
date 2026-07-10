@@ -20,13 +20,12 @@ import {
 	type ImagePresetId,
 } from "@/lib/studio/image-presets";
 import { ImageLightbox } from "@/components/studio/image-lightbox";
-import {
-	STUDIO_IMAGE_DND_TYPE,
-	type StudioImageDrag,
-} from "@/lib/studio/dnd";
+import { STUDIO_IMAGE_DND_TYPE, type StudioImageDrag } from "@/lib/studio/dnd";
 import { useStudioSettingsStore } from "@/stores/studio-settings-store";
 import { useEditor } from "@/hooks/use-editor";
 import { addItemsToProjectMedia } from "@/lib/studio/add-to-editor";
+import { gateOn402 } from "@/lib/credits/client-gate";
+import { useCreditsStore } from "@/stores/credits-store";
 import { toast } from "sonner";
 
 /** OpenAI returns up to a handful per call; fan out for big batches. */
@@ -58,15 +57,21 @@ const QUALITIES: { value: ImageQuality; label: string }[] = [
 
 export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 	// Sticky size/quality — last choice persists as the default.
-	const { imageSize: size, imageQuality: quality, set: setSettings } =
-		useStudioSettingsStore();
+	const {
+		imageSize: size,
+		imageQuality: quality,
+		set: setSettings,
+	} = useStudioSettingsStore();
 	const editor = useEditor();
 	const [presetId, setPresetId] = useState<ImagePresetId>("freeform");
 	const [prompt, setPrompt] = useState("");
 	const [n, setN] = useState(4);
 	const [panels, setPanels] = useState(6);
 	const [generating, setGenerating] = useState(false);
-	const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+	const [progress, setProgress] = useState<{
+		done: number;
+		total: number;
+	} | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [stills, setStills] = useState<GeneratedStill[]>([]);
 	const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
@@ -130,16 +135,28 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 						const res = await fetch("/api/studio/image", {
 							method: "POST",
 							headers: { "Content-Type": "application/json" },
-							body: JSON.stringify({ prompt: finalPrompt, size, quality, n: chunkN }),
+							body: JSON.stringify({
+								prompt: finalPrompt,
+								size,
+								quality,
+								n: chunkN,
+							}),
 						});
 						if (!res.ok) {
-							const data = await res.json() as { error?: string };
+							// Insufficient credits (402) → open the "Out of credits" modal.
+							if (await gateOn402(res)) {
+								setError("Out of credits");
+								return;
+							}
+							const data = (await res.json()) as { error?: string };
 							throw new Error(data.error ?? "Image generation failed");
 						}
-						const data = await res.json() as { images: GeneratedStill[] };
+						const data = (await res.json()) as { images: GeneratedStill[] };
 						setStills((prev) => [...data.images, ...prev]);
 						received += data.images.length;
 						setProgress({ done: received, total });
+						// Paid image settled server-side — refresh the header balance pill.
+						void useCreditsStore.getState().refresh();
 						// Drop them into Assets as they arrive (fire-and-forget).
 						void importStillsToAssets(data.images);
 					} catch (err) {
@@ -183,8 +200,8 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 					{presetId === "storyboard"
 						? "Scene"
 						: presetId === "character-sheet"
-						? "Character"
-						: "Prompt"}
+							? "Character"
+							: "Prompt"}
 				</Label>
 				<Textarea
 					placeholder={preset.placeholder}
@@ -221,7 +238,10 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 			<div className="grid grid-cols-2 gap-3">
 				<div className="space-y-1.5">
 					<Label className="text-xs">Size</Label>
-					<Select value={size} onValueChange={(v) => setSettings({ imageSize: v as ImageSize })}>
+					<Select
+						value={size}
+						onValueChange={(v) => setSettings({ imageSize: v as ImageSize })}
+					>
 						<SelectTrigger className="h-8 text-xs">
 							<SelectValue />
 						</SelectTrigger>
@@ -236,7 +256,12 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 				</div>
 				<div className="space-y-1.5">
 					<Label className="text-xs">Quality</Label>
-					<Select value={quality} onValueChange={(v) => setSettings({ imageQuality: v as ImageQuality })}>
+					<Select
+						value={quality}
+						onValueChange={(v) =>
+							setSettings({ imageQuality: v as ImageQuality })
+						}
+					>
 						<SelectTrigger className="h-8 text-xs">
 							<SelectValue />
 						</SelectTrigger>
@@ -271,7 +296,8 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 						))}
 					</div>
 					<p className="text-xs text-muted-foreground">
-						Generate a batch, then scroll through and drag your pick to the visionboard.
+						Generate a batch, then scroll through and drag your pick to the
+						visionboard.
 					</p>
 				</div>
 			)}
@@ -291,16 +317,14 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 					{generating
 						? "Generating…"
 						: presetId === "storyboard"
-						? "Generate board"
-						: presetId === "character-sheet"
-						? "Generate sheet"
-						: "Generate"}
+							? "Generate board"
+							: presetId === "character-sheet"
+								? "Generate sheet"
+								: "Generate"}
 				</Button>
 			</div>
 
-			{error && (
-				<p className="text-xs text-destructive">{error}</p>
-			)}
+			{error && <p className="text-xs text-destructive">{error}</p>}
 
 			{/* Gallery — drag a tile to the visionboard, or click to scroll through */}
 			{stills.length > 0 && (
@@ -320,7 +344,10 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 									imageStillId: still.id,
 									imageUrl: still.imageUrl,
 								};
-								e.dataTransfer.setData(STUDIO_IMAGE_DND_TYPE, JSON.stringify(payload));
+								e.dataTransfer.setData(
+									STUDIO_IMAGE_DND_TYPE,
+									JSON.stringify(payload),
+								);
 								e.dataTransfer.effectAllowed = "copy";
 							}}
 							onClick={() => setLightboxIndex(i)}
@@ -348,7 +375,9 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 									>
 										Use as reference
 									</Button>
-									<span className="text-[10px] text-white/70">click to expand · drag to board</span>
+									<span className="text-[10px] text-white/70">
+										click to expand · drag to board
+									</span>
 								</div>
 							)}
 						</div>

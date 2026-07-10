@@ -1,6 +1,8 @@
 import type { EditorCore } from "@/core";
 import { processMediaAssets } from "@/lib/media/processing";
 import { composePromptWithCamera } from "@/lib/studio/camera-presets";
+import { gateOn402 } from "@/lib/credits/client-gate";
+import { useCreditsStore } from "@/stores/credits-store";
 import { waitForJobTerminal } from "@/stores/generation-status-store";
 import type { GenerationSpec, Provenance, TakeCost } from "@/types/timeline";
 
@@ -110,6 +112,15 @@ export async function generateTakeMedia({
 			}),
 		});
 		if (!res.ok) {
+			// Insufficient credits (402): open the "Out of credits" modal and fail
+			// this take cleanly. No provider spend happened server-side.
+			if (await gateOn402(res)) {
+				return {
+					status: "failed",
+					error: "Out of credits",
+					errorStatus: 402,
+				};
+			}
 			// Capture the reliable HTTP status (and any structured provider error
 			// code) at the boundary instead of discarding it — the executor threads
 			// `errorStatus` into `classifyFailure`, whose status branch decides
@@ -154,6 +165,10 @@ export async function generateTakeMedia({
 			videoUrl!,
 			spec.prompt || "take",
 		);
+		// A completed generation settled its hold server-side — pull the fresh
+		// balance so the header pill reflects the spend.
+		void useCreditsStore.getState().refresh();
+
 		return {
 			status: "ready",
 			mediaId,

@@ -58,6 +58,8 @@ import { useAssetsPanelStore } from "@/stores/assets-panel-store";
 import { useBoardStore } from "@/stores/board-store";
 import { SaveArrangementDialog } from "@/components/arrangements/save-arrangement-dialog";
 import { AccountMenu } from "@/components/auth/account-menu";
+import { CreditBalancePill } from "@/components/editor/credit-balance-pill";
+import { OutOfCreditsDialog } from "@/components/editor/dialogs/out-of-credits-dialog";
 
 export function EditorHeader() {
 	const toggleBoard = useBoardStore((s) => s.toggle);
@@ -139,6 +141,7 @@ export function EditorHeader() {
 				</Button>
 				<ExportButton />
 				<ThemeToggle />
+				<CreditBalancePill />
 				<AccountMenu />
 			</nav>
 			<VersionControlDrawer
@@ -146,6 +149,7 @@ export function EditorHeader() {
 				onOpenChange={setVcDrawerOpen}
 			/>
 			<ViralityScoreModal open={viralityOpen} onOpenChange={setViralityOpen} />
+			<OutOfCreditsDialog />
 		</header>
 	);
 }
