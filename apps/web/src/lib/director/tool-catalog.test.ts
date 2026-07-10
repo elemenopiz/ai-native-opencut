@@ -64,6 +64,17 @@ describe("asSpecOverride", () => {
 		});
 		expect(asSpecOverride({ consistencyMode: "medium" })).toBeUndefined();
 	});
+
+	it("pins a backend: backendId → spec.model (the router's preferredBackendId)", () => {
+		expect(asSpecOverride({ backendId: "byteplus-seedance" })).toEqual({
+			model: "byteplus-seedance",
+		});
+		// A raw `model` is also accepted, but an explicit `backendId` wins.
+		expect(asSpecOverride({ model: "kling" })).toEqual({ model: "kling" });
+		expect(
+			asSpecOverride({ backendId: "premium-x", model: "cheap-y" }),
+		).toEqual({ model: "premium-x" });
+	});
 });
 
 describe("asShots per-shot spec", () => {

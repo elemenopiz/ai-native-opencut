@@ -119,6 +119,10 @@ export function asSpecOverride(v: unknown): SpecOverride | undefined {
 	if (o.consistencyMode === "high" || o.consistencyMode === "fast")
 		out.consistencyMode = o.consistencyMode;
 	if (o.personaId != null) out.personaId = String(o.personaId);
+	// Per-shot model pin → `spec.model` (the router's `preferredBackendId`).
+	// Agent-facing key is `backendId`; a raw `model` is also accepted.
+	if (o.backendId != null) out.model = String(o.backendId);
+	else if (o.model != null) out.model = String(o.model);
 	return Object.keys(out).length ? out : undefined;
 }
 
@@ -287,6 +291,17 @@ const slotIdProp: JSONSchema = {
 };
 
 /**
+ * Optional model pin — a backend id from `getBackends` (the router's
+ * `preferredBackendId`). Shared by `generate`/`reroll` and the per-shot spec.
+ * Omit to let the router auto-select by intent.
+ */
+const backendIdProp: JSONSchema = {
+	type: "string",
+	description:
+		"Optional backend id from getBackends to pin this generation to a specific model. POLICY: drafts/iteration on a cheap-tier backend, final/hero shots on premium, persona/identity-critical shots on a seed-lock-capable backend. Omit to auto-route by intent.",
+};
+
+/**
  * Per-shot generation override — the fields that turn a plain text-to-video
  * slot into a CONDITIONED shot. Attach to `storyboard` shots, `reserveSlot`, or
  * `setPrompt`. Every field is optional; omit for a default text-to-video slot.
@@ -345,6 +360,7 @@ const slotSpecSchema: JSONSchema = {
 			description:
 				"Persona consistency tier: high = per-shot reference still (default), fast = anchor image directly.",
 		},
+		backendId: backendIdProp,
 	},
 	additionalProperties: false,
 };
@@ -352,8 +368,10 @@ const slotSpecSchema: JSONSchema = {
 // ── the catalog ───────────────────────────────────────────────────────────────
 
 /**
- * The 26 Director verbs, one descriptor each — including `export`, which maps to
- * `director-api.ts`'s `exportReel`.
+ * The Director verbs, one descriptor each — including `export` (maps to
+ * `director-api.ts`'s `exportReel`) and the model-routing surface: `getBackends`
+ * to read the catalog, `backendId` on generate/reroll, and `compareTake` to A/B
+ * two backends.
  */
 export function toolCatalog(): ToolDescriptor[] {
 	return [
@@ -403,6 +421,30 @@ export function toolCatalog(): ToolDescriptor[] {
 			mutating: false,
 			inputSchema: EMPTY,
 			handler: (d) => d.getProjectInfo(),
+		},
+		{
+			name: "getBackends",
+			description:
+				"list the generation models available now — each with modality, safety tier, seed-lock/reference-edit support, and a RELATIVE cost tier (cheap/standard/premium). Use to pick a backendId: drafts on cheap, final/hero on premium, persona-critical on a seed-lock-capable model.",
+			mutating: false,
+			inputSchema: {
+				type: "object",
+				properties: {
+					modality: {
+						type: "string",
+						enum: ["video", "image"],
+						description: "Filter to one modality; omit for all.",
+					},
+				},
+				additionalProperties: false,
+			},
+			handler: (d, a) =>
+				d.getBackends({
+					modality:
+						a.modality === "video" || a.modality === "image"
+							? a.modality
+							: undefined,
+				}),
 		},
 		// ── storyboard ──────────────────────────────────────────────────────
 		{
@@ -548,12 +590,14 @@ export function toolCatalog(): ToolDescriptor[] {
 						maximum: 4,
 						description: "takes to produce per slot (1-4).",
 					},
+					backendId: backendIdProp,
 				},
 			},
 			handler: (d, a) =>
 				d.generate({
 					slotIds: Array.isArray(a.slotIds) ? a.slotIds.map(str) : "all",
 					alternatives: numOr(a.alternatives, 1),
+					backendId: strOrUndefined(a.backendId),
 				}),
 		},
 		{
@@ -570,6 +614,7 @@ export function toolCatalog(): ToolDescriptor[] {
 						minimum: 1,
 						maximum: 4,
 					},
+					backendId: backendIdProp,
 				},
 				required: ["slotId"],
 			},
@@ -577,6 +622,33 @@ export function toolCatalog(): ToolDescriptor[] {
 				d.reroll({
 					slotId: str(a.slotId),
 					alternatives: numOr(a.alternatives, 1),
+					backendId: strOrUndefined(a.backendId),
+				}),
+		},
+		{
+			name: "compareTake",
+			description:
+				"A/B one slot across TWO backends: render the same shot on each and auto-pick the better take if a vision critic is available, else add both as takes for you to choose. Costs 2x a single generate — subject to the cost gate. Use for hero/final shots worth the extra spend.",
+			mutating: true,
+			inputSchema: {
+				type: "object",
+				properties: {
+					slotId: slotIdProp,
+					backendIds: {
+						type: "array",
+						items: { type: "string" },
+						minItems: 2,
+						maxItems: 2,
+						description:
+							"Exactly two distinct backend ids (from getBackends) to compare.",
+					},
+				},
+				required: ["slotId", "backendIds"],
+			},
+			handler: (d, a) =>
+				d.compareTake({
+					slotId: str(a.slotId),
+					backendIds: Array.isArray(a.backendIds) ? a.backendIds.map(str) : [],
 				}),
 		},
 		{

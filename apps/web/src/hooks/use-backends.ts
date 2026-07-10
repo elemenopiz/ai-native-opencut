@@ -28,6 +28,10 @@ export interface BackendInfo {
 	supportsOmniReference: boolean;
 	supportsLastFrame: boolean;
 	supportsReferenceEdits: boolean;
+	/** Normalized credits for a nominal generation (relative-cost ranking aid). */
+	relativeCost: number;
+	/** Cost bucket vs. the cheapest available backend of this modality. */
+	costTier: "cheap" | "standard" | "premium";
 }
 
 /**
