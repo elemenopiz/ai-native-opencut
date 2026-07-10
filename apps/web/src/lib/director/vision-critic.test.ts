@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
+	buildCriticSystemPrompt,
+	buildCriticUserBlocks,
 	dataUrlToImageBlock,
 	parseVerdict,
 	wantsAutoReview,
@@ -79,6 +81,137 @@ describe("parseVerdict", () => {
 		expect(parseVerdict("{ not valid json ,,, }").verdict).toBe("pass");
 		expect(parseVerdict('{"verdict":"maybe?"}').verdict).toBe("pass");
 		expect(parseVerdict("").verdict).toBe("pass");
+	});
+
+	// ── temporal / motion coherence ─────────────────────────────────────────
+	it("carries a temporalIssue on a corrective verdict", () => {
+		expect(
+			parseVerdict(
+				'{"verdict":"reroll-with-delta","reason":"morphs","temporalIssue":"face identity drifts between frames","revisedPrompt":"a steady portrait, consistent face"}',
+			),
+		).toEqual({
+			verdict: "reroll-with-delta",
+			reason: "morphs",
+			revisedPrompt: "a steady portrait, consistent face",
+			temporalIssue: "face identity drifts between frames",
+		});
+	});
+
+	it("keeps a temporalIssue even on a pass (borderline motion is logged)", () => {
+		expect(
+			parseVerdict(
+				'{"verdict":"pass","reason":"on brief","temporalIssue":"slight hand flicker"}',
+			),
+		).toEqual({
+			verdict: "pass",
+			reason: "on brief",
+			temporalIssue: "slight hand flicker",
+		});
+	});
+
+	it("accepts the motionIssue alias for a temporal issue", () => {
+		expect(
+			parseVerdict(
+				'{"verdict":"remix-with-anchor","motionIssue":"left hand warps","revisedPrompt":"steady the left hand"}',
+			).temporalIssue,
+		).toBe("left hand warps");
+	});
+
+	it("omits temporalIssue when motion is clean", () => {
+		expect(parseVerdict('{"verdict":"pass","reason":"clean"}')).toEqual({
+			verdict: "pass",
+			reason: "clean",
+		});
+	});
+
+	// ── cross-shot continuity ───────────────────────────────────────────────
+	it("parses a remix-for-continuity verdict and keeps its delta", () => {
+		expect(
+			parseVerdict(
+				'{"verdict":"remix-for-continuity","reason":"outfit changed","revisedPrompt":"match the teal jacket of the previous shot"}',
+			),
+		).toEqual({
+			verdict: "remix-for-continuity",
+			reason: "outfit changed",
+			revisedPrompt: "match the teal jacket of the previous shot",
+		});
+	});
+
+	it("normalizes continuity synonyms without being swallowed by 'remix'", () => {
+		// "remix-for-continuity" contains "remix" — continuity must win.
+		expect(
+			parseVerdict('{"verdict":"remix-for-continuity","revisedPrompt":"x"}')
+				.verdict,
+		).toBe("remix-for-continuity");
+		expect(
+			parseVerdict('{"verdict":"continuity","revisedPrompt":"match palette"}')
+				.verdict,
+		).toBe("remix-for-continuity");
+	});
+
+	it("fails SAFE to pass when a continuity verdict has no delta", () => {
+		expect(
+			parseVerdict('{"verdict":"remix-for-continuity","reason":"drifted"}')
+				.verdict,
+		).toBe("pass");
+	});
+});
+
+describe("buildCriticSystemPrompt", () => {
+	it("always instructs motion/temporal judging", () => {
+		const base = buildCriticSystemPrompt(false);
+		expect(base).toMatch(/MOTION/i);
+		expect(base).toMatch(/temporalIssue/);
+	});
+
+	it("adds continuity rules + the remix-for-continuity verdict only when enabled", () => {
+		const base = buildCriticSystemPrompt(false);
+		const cont = buildCriticSystemPrompt(true);
+		expect(base).not.toMatch(/remix-for-continuity/);
+		expect(base).not.toMatch(/CROSS-SHOT CONTINUITY/);
+		expect(cont).toMatch(/CROSS-SHOT CONTINUITY/);
+		expect(cont).toMatch(/remix-for-continuity/);
+	});
+});
+
+describe("buildCriticUserBlocks", () => {
+	const frame = (n: number) => `data:image/jpeg;base64,AAA${n}`;
+
+	it("puts intent first, then the frames, for a plain review", () => {
+		const blocks = buildCriticUserBlocks("a red car", [frame(1), frame(2)]);
+		expect(blocks[0].type).toBe("text");
+		expect((blocks[0] as { text: string }).text).toContain("a red car");
+		// no prior-shot language
+		expect((blocks[0] as { text: string }).text).not.toContain("PREVIOUS shot");
+		expect(blocks.filter((b) => b.type === "image")).toHaveLength(2);
+	});
+
+	it("pushes the prior-shot frame FIRST and surfaces the bible for a continuity review", () => {
+		const blocks = buildCriticUserBlocks("shot 2", [frame(1), frame(2)], {
+			priorFrame: frame(0),
+			bible: "palette: warm amber; recurring cast: Mara (freckled)",
+		});
+		const intro = (blocks[0] as { text: string }).text;
+		expect(intro).toContain("STYLE BIBLE");
+		expect(intro).toContain("Mara (freckled)");
+		expect(intro).toContain("PREVIOUS shot");
+		// prior frame is the FIRST image block, ahead of this shot's 2 frames.
+		const images = blocks.filter((b) => b.type === "image");
+		expect(images).toHaveLength(3);
+		expect((images[0] as { source: { data: string } }).source.data).toBe(
+			"AAA0",
+		);
+	});
+
+	it("ignores continuity context when the prior frame can't be decoded", () => {
+		const blocks = buildCriticUserBlocks("shot 2", [frame(1)], {
+			priorFrame: "https://example.com/not-a-data-url.jpg",
+			bible: "palette: warm",
+		});
+		const intro = (blocks[0] as { text: string }).text;
+		expect(intro).not.toContain("PREVIOUS shot");
+		expect(intro).not.toContain("STYLE BIBLE");
+		expect(blocks.filter((b) => b.type === "image")).toHaveLength(1);
 	});
 });
 

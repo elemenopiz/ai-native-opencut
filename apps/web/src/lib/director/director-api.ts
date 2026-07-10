@@ -1587,6 +1587,14 @@ export function createDirectorApi(
 	async function remix(input: {
 		slotId: string;
 		remixPrompt: string;
+		/**
+		 * Explicit frame to re-condition on, overriding the source take's own last
+		 * frame. The cross-shot continuity self-correction passes the PRIOR shot's
+		 * frame here so the remix is anchored on the shot it must match (see
+		 * `agent.ts`'s auto-review loop). Omit for the normal "fix this take against
+		 * its own last frame" remix.
+		 */
+		anchorImageUrl?: string;
 	}): Promise<DirectorResult<{ slotId: string; takeId: string }>> {
 		const before = captureReel();
 		const located = findSlot(input.slotId);
@@ -1604,16 +1612,19 @@ export function createDirectorApi(
 			);
 		}
 
-		// Anchor the remix on the source take's REAL last frame when it's a
+		// Anchor the remix on an EXPLICIT frame when given (continuity: the prior
+		// shot's frame), else on the source take's REAL last frame when it's a
 		// finished, imported take — true img2img re-conditioning. Falls back
 		// (inside buildRemixSpec) to the prior spec's referenceImageUrl when the
 		// take isn't imported yet or the frame can't be decoded.
-		const anchorImageUrl = source.mediaId
-			? await extractTakeLastFrame(
-					editor.media.getAssetById(source.mediaId),
-					source.id,
-				)
-			: undefined;
+		const anchorImageUrl =
+			input.anchorImageUrl ??
+			(source.mediaId
+				? await extractTakeLastFrame(
+						editor.media.getAssetById(source.mediaId),
+						source.id,
+					)
+				: undefined);
 
 		const spec = buildRemixSpec({
 			priorTake: source,
