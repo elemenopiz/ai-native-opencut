@@ -2,6 +2,8 @@ import { webEnv } from "@byorn/env/web";
 import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { searchCcMixter } from "@/lib/sounds/ccmixter";
+import type { SoundEffect } from "@/types/sounds";
 
 const searchParamsSchema = z.object({
 	q: z.string().max(500, "Query too long").optional(),
@@ -122,6 +124,56 @@ function transformFreesoundResult(
 	};
 }
 
+/**
+ * Freesound songs = CC0-licensed music only (commercial-safe, no attribution),
+ * skipping short one-shots. Mirrors the effects fetch but with music tag filters
+ * and no 30s duration cap. Best-effort: any failure resolves to an empty page.
+ */
+async function searchFreesoundSongs({
+	query,
+	page,
+	pageSize,
+	apiKey,
+}: {
+	query?: string;
+	page: number;
+	pageSize: number;
+	apiKey: string;
+}): Promise<{ results: SoundEffect[]; count: number; hasNext: boolean }> {
+	const params = new URLSearchParams({
+		query: query || "",
+		token: apiKey,
+		page: page.toString(),
+		page_size: pageSize.toString(),
+		sort: query?.trim() ? "score" : "downloads_desc",
+		fields:
+			"id,name,description,url,previews,download,duration,filesize,type,channels,bitrate,bitdepth,samplerate,username,tags,license,created,num_downloads,avg_rating,num_ratings",
+	});
+	// CC0 only → commercial-safe, no attribution. Skip one-shots (min 20s).
+	params.append("filter", 'license:"Creative Commons 0"');
+	params.append("filter", "duration:[20.0 TO *]");
+	if (!query?.trim()) {
+		params.append(
+			"filter",
+			"tag:music OR tag:song OR tag:instrumental OR tag:loop OR tag:soundtrack OR tag:beat OR tag:melody OR tag:theme",
+		);
+	}
+
+	const response = await fetch(
+		`https://freesound.org/apiv2/search/text/?${params.toString()}`,
+	);
+	if (!response.ok) return { results: [], count: 0, hasNext: false };
+
+	const parsed = freesoundResponseSchema.safeParse(await response.json());
+	if (!parsed.success) return { results: [], count: 0, hasNext: false };
+
+	return {
+		results: parsed.data.results.map(transformFreesoundResult),
+		count: parsed.data.count,
+		hasNext: !!parsed.data.next,
+	};
+}
+
 export async function GET(request: NextRequest) {
 	try {
 		const { limited } = await checkRateLimit({ request });
@@ -164,14 +216,59 @@ export async function GET(request: NextRequest) {
 		} = validationResult.data;
 
 		if (type === "songs") {
-			return NextResponse.json(
-				{
-					error: "Songs are not available yet",
-					message:
-						"Song search functionality is coming soon. Try searching for sound effects instead.",
-				},
-				{ status: 501 },
-			);
+			// Free, commercially-usable music: Freesound (CC0) + ccMixter (CC-BY/
+			// BY-SA/CC0, NC filtered out). Both are best-effort — a failure or a
+			// missing Freesound key just yields fewer results, never an error.
+			const clientApiKey = request.headers.get("x-freesound-api-key");
+			const songsApiKey = clientApiKey || webEnv.FREESOUND_API_KEY;
+
+			const [fsSettled, ccSettled] = await Promise.allSettled([
+				songsApiKey
+					? searchFreesoundSongs({
+							query,
+							page,
+							pageSize,
+							apiKey: songsApiKey,
+						})
+					: Promise.resolve({
+							results: [] as SoundEffect[],
+							count: 0,
+							hasNext: false,
+						}),
+				searchCcMixter({ query, page, pageSize }),
+			]);
+
+			const fs =
+				fsSettled.status === "fulfilled"
+					? fsSettled.value
+					: { results: [] as SoundEffect[], count: 0, hasNext: false };
+			const cc =
+				ccSettled.status === "fulfilled"
+					? ccSettled.value
+					: { results: [] as SoundEffect[], count: 0, hasNext: false };
+
+			// Interleave so neither source dominates the top of the feed.
+			const merged: SoundEffect[] = [];
+			const max = Math.max(fs.results.length, cc.results.length);
+			for (let i = 0; i < max; i++) {
+				const a = fs.results[i];
+				const b = cc.results[i];
+				if (a) merged.push(a);
+				if (b) merged.push(b);
+			}
+
+			const hasNext = fs.hasNext || cc.hasNext;
+			return NextResponse.json({
+				count: fs.count + cc.count,
+				next: hasNext ? `page=${page + 1}` : null,
+				previous: page > 1 ? `page=${page - 1}` : null,
+				results: merged,
+				query: query || "",
+				type: "songs",
+				page,
+				pageSize,
+				sort,
+			});
 		}
 
 		const baseUrl = "https://freesound.org/apiv2/search/text/";
