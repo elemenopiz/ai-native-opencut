@@ -500,6 +500,7 @@ async function executeTool(
 			action === "getBackends" ||
 			action === "getBrief" ||
 			action === "getProjectBible" ||
+			action === "getVoiceProfiles" ||
 			action === "intakeReferences")
 	) {
 		observation = `${result.message} DATA:${JSON.stringify(result.data)}`;

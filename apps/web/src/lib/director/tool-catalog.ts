@@ -1365,6 +1365,120 @@ export function toolCatalog(): ToolDescriptor[] {
 				);
 			},
 		},
+		// ── Flow D: human approval gates ────────────────────────────────────
+		{
+			name: "approveHeroShot",
+			description:
+				"HERO-SHOT APPROVAL GATE (Flow D): record the human's approval of a shot's take as THE hero. Selects that take active and writes the decision + rationale into the durable Project Bible (approvals ledger + brief note) so future shots inherit the choice and downstream treats it as the approved hero. Pass the shot's slotId, optionally a takeId or 0-based index (else the active/most-recent-ready take), and a one-line rationale (WHY it earned approval). Only call when the human has actually approved — rejection means NOT calling this (nothing is recorded).",
+			mutating: true,
+			inputSchema: {
+				type: "object",
+				properties: {
+					slotId: slotIdProp,
+					takeId: { type: "string", description: "Short take id to approve." },
+					index: { type: "integer", description: "0-based take index." },
+					rationale: {
+						type: "string",
+						description:
+							"One-line reason this shot earned hero approval — recorded into the Bible.",
+					},
+				},
+				required: ["slotId"],
+			},
+			handler: (d, a) =>
+				d.approveHeroShot({
+					slotId: str(a.slotId),
+					takeId: strOrUndefined(a.takeId),
+					index: numOrUndefined(a.index),
+					rationale: strOrUndefined(a.rationale),
+				}),
+		},
+		{
+			name: "approveFinalCut",
+			description:
+				"FINAL-CUT APPROVAL GATE (Flow D): record the human's sign-off on the whole reel before export/render finalization. Writes the approval + a summary of what shipped into the Project Bible (approvals ledger + brief note). A SOFT gate — call it before `export` when the human approves the cut. (A manual UI Export is itself the human's approval and is never blocked.)",
+			mutating: true,
+			inputSchema: {
+				type: "object",
+				properties: {
+					summary: {
+						type: "string",
+						description:
+							"Optional short summary of what's approved (defaults to shot count + duration).",
+					},
+					rationale: {
+						type: "string",
+						description: "Optional one-line reason, recorded into the Bible.",
+					},
+				},
+				additionalProperties: false,
+			},
+			handler: (d, a) =>
+				d.approveFinalCut({
+					summary: strOrUndefined(a.summary),
+					rationale: strOrUndefined(a.rationale),
+				}),
+		},
+		{
+			name: "getVoiceProfiles",
+			description:
+				"read the cloned-voice CONSENT registry: each cloned voice and its consent status (pending / consented / revoked). A cloned voice is UNUSABLE for TTS until consented. Use to tell the user why a clone can't be used yet — consent is captured by the human in the Voiceover panel (you cannot grant it).",
+			mutating: false,
+			inputSchema: EMPTY,
+			handler: (d) => d.getVoiceProfiles(),
+		},
+		{
+			name: "revokeVoiceConsent",
+			description:
+				"revoke consent for a cloned voice (by its profileId from getVoiceProfiles) — immediately disables it for all TTS/voice-lock. Use when the user asks to stop using their cloned voice.",
+			mutating: true,
+			inputSchema: {
+				type: "object",
+				properties: {
+					profileId: {
+						type: "string",
+						description: "The voice profile id from getVoiceProfiles.",
+					},
+					reason: {
+						type: "string",
+						description: "Optional revocation reason.",
+					},
+				},
+				required: ["profileId"],
+			},
+			handler: (d, a) =>
+				d.revokeVoiceConsent({
+					profileId: str(a.profileId),
+					reason: strOrUndefined(a.reason),
+				}),
+		},
+		{
+			name: "seedStyleFromUnderstanding",
+			description:
+				"adopt an asset's understood LOOK (palette / lens-mood / setting) as the Project Bible's styleBible. Additive + checkpointed, and it NEVER clobbers a human-set styleBible (an existing look is preserved and the read is logged as a note unless force is set). Pass the FULL mediaId of the asset whose look to adopt. Use when the user says 'match my footage's look'.",
+			mutating: true,
+			inputSchema: {
+				type: "object",
+				properties: {
+					mediaId: {
+						type: "string",
+						description:
+							"FULL media-library asset id whose style read to adopt.",
+					},
+					force: {
+						type: "boolean",
+						description:
+							"Set true to overwrite an existing styleBible (default false — preserve a human-set look).",
+					},
+				},
+				required: ["mediaId"],
+			},
+			handler: (d, a) =>
+				d.seedStyleFromUnderstanding({
+					mediaId: str(a.mediaId),
+					force: boolOrUndefined(a.force),
+				}),
+		},
 		// ── edit (all time fields SECONDS) ──────────────────────────────────
 		{
 			name: "trim",
