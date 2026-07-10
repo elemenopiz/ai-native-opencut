@@ -241,3 +241,116 @@ export function wantsAutoReview(
 	if (settingEnabled) return true;
 	return AUTO_REVIEW_RE.test(userMessage);
 }
+
+// ── A/B pick critic (compareTake) ────────────────────────────────────────────
+//
+// The sibling of the single-take verdict above: instead of judging ONE take
+// against its intent, the pick critic is shown SEVERAL candidate takes (each a
+// short label + its frames) and names the one that best realizes the intent. It
+// is the model half of `compareTake`'s auto-pick — the pure framing/parsing lives
+// here (unit-testable, no network); the relay call + frame extraction live in
+// `take-critic-adapter.ts`.
+
+/** One labeled candidate in an A/B(/C…) pick: a short label plus its decoded frames. */
+export interface PickCandidate {
+	/** Short stable label the model refers to ("A", "B", …). */
+	label: string;
+	/** Decoded frames as base64 `data:` image URLs, first → last. */
+	frames: string[];
+}
+
+/** The pick critic's structured decision: the winning label + a one-line why (or null = no confident pick). */
+export interface CriticPick {
+	label: string;
+	reason?: string;
+}
+
+/** System prompt for the tool-less "pick the best candidate" model call. */
+export const PICK_SYSTEM_PROMPT = [
+	"You are a STRICT visual critic for an AI video reel. You are shown an INTENT (the prompt every candidate was meant to realize) and SEVERAL candidate takes, each introduced by a short label (A, B, …) followed by 1–3 frames sampled from that candidate in order (first → last).",
+	"All candidates render the SAME intent from different models. Pick the SINGLE candidate that best realizes the intent — most faithful to the subject/scene, fewest artifacts (deformed hands/faces, garbled text, empty/black/duplicated frames), best overall quality. Judge fidelity to the intent, not raw prettiness.",
+	"Reply with ONE minified JSON object and nothing else:",
+	'{"winner":"<label>"|null,"reason":"<one sentence>"}',
+	"Rules:",
+	'- "winner": the label (e.g. "A") of the best candidate.',
+	"- Use null ONLY when the candidates are genuinely indistinguishable in quality — prefer naming a winner.",
+	"Never invent detail the intent did not ask for.",
+].join("\n");
+
+/** Deterministic short label for the Nth candidate: A, B, …, Z, then A1, B1, … */
+export function pickLabel(index: number): string {
+	const letter = String.fromCharCode(65 + (index % 26));
+	const wrap = Math.floor(index / 26);
+	return wrap === 0 ? letter : `${letter}${wrap}`;
+}
+
+/**
+ * Build the user-turn content for a pick call: the intent as text, then, for each
+ * candidate, a "Candidate <label>:" text marker followed by its frames as image
+ * blocks (first → last). Candidates whose frames are all undecodable contribute
+ * only their marker; a candidate with no frames at all is skipped entirely.
+ */
+export function buildPickUserBlocks(
+	intent: string,
+	candidates: PickCandidate[],
+): Anthropic.ContentBlockParam[] {
+	const blocks: Anthropic.ContentBlockParam[] = [
+		{
+			type: "text",
+			text: `INTENT (what every candidate must realize):\n${intent || "(no prompt set)"}\n\nThe candidates and their frames follow. Judge each against the intent and reply with the JSON winner.`,
+		},
+	];
+	for (const candidate of candidates) {
+		const imageBlocks = candidate.frames
+			.map(dataUrlToImageBlock)
+			.filter((b): b is Anthropic.ImageBlockParam => b !== null);
+		if (imageBlocks.length === 0) continue;
+		blocks.push({
+			type: "text",
+			text: `Candidate ${candidate.label} (${imageBlocks.length} frame${
+				imageBlocks.length === 1 ? "" : "s"
+			}, first → last):`,
+		});
+		blocks.push(...imageBlocks);
+	}
+	return blocks;
+}
+
+/**
+ * Parse a pick-critic model reply into a {@link CriticPick}, or `null` when there
+ * is no confident, VALID pick. Fails SAFE to null (⇒ `compareTake` presents both
+ * takes) on: unparseable output, an explicit `null`/missing winner, or a winner
+ * whose label isn't one of `validLabels`. Label matching is case-insensitive.
+ */
+export function parsePick(
+	text: string,
+	validLabels: string[],
+): CriticPick | null {
+	const json = firstJsonObject(text);
+	if (!json) return null;
+
+	let obj: Record<string, unknown>;
+	try {
+		obj = JSON.parse(json) as Record<string, unknown>;
+	} catch {
+		return null;
+	}
+
+	const rawWinner = obj.winner ?? obj.label ?? obj.pick ?? obj.best;
+	const winner = String(rawWinner ?? "")
+		.toUpperCase()
+		.trim();
+	if (!winner || winner === "NULL") return null;
+
+	const match = validLabels.find((l) => l.toUpperCase() === winner);
+	if (!match) return null;
+
+	const reason =
+		typeof obj.reason === "string" && obj.reason.trim()
+			? obj.reason.trim()
+			: typeof obj.critique === "string" && obj.critique.trim()
+				? obj.critique.trim()
+				: undefined;
+
+	return { label: match, reason };
+}
