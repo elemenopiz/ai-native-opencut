@@ -13,7 +13,13 @@ import {
 import type { NumberKeyframe } from "@/types/animation";
 import type { VideoElement } from "@/types/timeline";
 
-export type TrackingStatus = "idle" | "extracting" | "tracking" | "applying" | "done" | "error";
+export type TrackingStatus =
+	| "idle"
+	| "extracting"
+	| "tracking"
+	| "applying"
+	| "done"
+	| "error";
 
 export interface UseMotionTrackingReturn {
 	status: TrackingStatus;
@@ -51,14 +57,19 @@ export function useMotionTracking(): UseMotionTrackingReturn {
 			setTrack(null);
 			cancelRef.current = false;
 
+			let objectUrl: string | null = null;
 			try {
-				const opts: TrackingOptions = { ...DEFAULT_TRACKING_OPTIONS, ...options };
+				const opts: TrackingOptions = {
+					...DEFAULT_TRACKING_OPTIONS,
+					...options,
+				};
 				const tracks = editor.timeline.getTracks();
 				const tlTrack = tracks.find((t) => t.id === trackId);
 				if (!tlTrack) throw new Error("Track not found");
 
 				const element = tlTrack.elements.find((e) => e.id === elementId);
-				if (!element || element.type !== "video") throw new Error("Element must be a video");
+				if (!element || element.type !== "video")
+					throw new Error("Element must be a video");
 
 				const videoEl = element as VideoElement;
 				if (!videoEl.mediaId) throw new Error("Video has no media source");
@@ -67,7 +78,8 @@ export function useMotionTracking(): UseMotionTrackingReturn {
 				if (!media?.file) throw new Error("Media file not available");
 
 				const video = document.createElement("video");
-				video.src = URL.createObjectURL(media.file);
+				objectUrl = URL.createObjectURL(media.file);
+				video.src = objectUrl;
 				video.muted = true;
 				video.playsInline = true;
 
@@ -83,19 +95,32 @@ export function useMotionTracking(): UseMotionTrackingReturn {
 
 				const sampleInterval = opts.sampleInterval;
 				const totalFrames = Math.ceil(duration / sampleInterval);
-				const templateW = Math.max(16, Math.floor(region.width * opts.templateScale));
-				const templateH = Math.max(16, Math.floor(region.height * opts.templateScale));
+				const templateW = Math.max(
+					16,
+					Math.floor(region.width * opts.templateScale),
+				);
+				const templateH = Math.max(
+					16,
+					Math.floor(region.height * opts.templateScale),
+				);
 
 				canvas.width = video.videoWidth;
 				canvas.height = video.videoHeight;
 
 				video.currentTime = 0;
-				await new Promise<void>((r) => { video.onseeked = () => r(); });
+				await new Promise<void>((r) => {
+					video.onseeked = () => r();
+				});
 
 				ctx.drawImage(video, 0, 0);
 				const firstFrame = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-				const template = extractGrayscalePatch(firstFrame, region, templateW, templateH);
+				const template = extractGrayscalePatch(
+					firstFrame,
+					region,
+					templateW,
+					templateH,
+				);
 
 				const frames: TrackingFrame[] = [];
 				let lastX = region.x + region.width / 2;
@@ -112,7 +137,9 @@ export function useMotionTracking(): UseMotionTrackingReturn {
 
 					const time = i * sampleInterval;
 					video.currentTime = Math.min(time, duration);
-					await new Promise<void>((r) => { video.onseeked = () => r(); });
+					await new Promise<void>((r) => {
+						video.onseeked = () => r();
+					});
 
 					ctx.drawImage(video, 0, 0);
 					const frameData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -124,18 +151,40 @@ export function useMotionTracking(): UseMotionTrackingReturn {
 						height: region.height + opts.searchRadius * 2,
 					};
 
-					const searchW = Math.max(16, Math.floor(searchRegion.width * opts.templateScale));
-					const searchH = Math.max(16, Math.floor(searchRegion.height * opts.templateScale));
+					const searchW = Math.max(
+						16,
+						Math.floor(searchRegion.width * opts.templateScale),
+					);
+					const searchH = Math.max(
+						16,
+						Math.floor(searchRegion.height * opts.templateScale),
+					);
 
-					const searchPatch = extractGrayscalePatch(frameData, searchRegion, searchW, searchH);
+					const searchPatch = extractGrayscalePatch(
+						frameData,
+						searchRegion,
+						searchW,
+						searchH,
+					);
 
 					const match = findBestMatch(
-						template, searchPatch, templateW, templateH, searchW, searchH,
+						template,
+						searchPatch,
+						templateW,
+						templateH,
+						searchW,
+						searchH,
 						Math.floor(opts.searchRadius * opts.templateScale),
 					);
 
-					const newX = searchRegion.x + searchRegion.width / 2 + match.offsetX / opts.templateScale;
-					const newY = searchRegion.y + searchRegion.height / 2 + match.offsetY / opts.templateScale;
+					const newX =
+						searchRegion.x +
+						searchRegion.width / 2 +
+						match.offsetX / opts.templateScale;
+					const newY =
+						searchRegion.y +
+						searchRegion.height / 2 +
+						match.offsetY / opts.templateScale;
 
 					frames.push({
 						time,
@@ -164,6 +213,9 @@ export function useMotionTracking(): UseMotionTrackingReturn {
 				setProgress(100);
 				setStatus("done");
 			} catch (err) {
+				// Release the object URL on the failure path too (success/cancel
+				// paths revoke inline).
+				if (objectUrl) URL.revokeObjectURL(objectUrl);
 				setStatus("error");
 				setError(err instanceof Error ? err.message : "Motion tracking failed");
 			}
@@ -223,11 +275,23 @@ export function useMotionTracking(): UseMotionTrackingReturn {
 				};
 			}
 
-			element.animations = { channels };
+			// Route through the command bus so the applied keyframes are undoable
+			// and trigger reactive updates (direct mutation bypasses both).
+			editor.timeline.updateElements({
+				updates: [
+					{
+						trackId: track.trackId,
+						elementId: track.elementId,
+						updates: { animations: { channels } },
+					},
+				],
+			});
 			setStatus("done");
 		} catch (err) {
 			setStatus("error");
-			setError(err instanceof Error ? err.message : "Failed to apply tracking data");
+			setError(
+				err instanceof Error ? err.message : "Failed to apply tracking data",
+			);
 		}
 	}, [track, editor]);
 
