@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, mock } from "bun:test";
-import { commits, projectRepositories } from "@/lib/db/schema-version-control";
+import {
+	branches,
+	commits,
+	projectRepositories,
+	tags,
+} from "@/lib/db/schema-version-control";
 
 /**
  * Regression coverage for two bughunt fixes on the version-control routes:
@@ -85,6 +90,7 @@ mock.module("next/headers", () => ({ headers: async () => new Headers() }));
 const { GET: commitsGET } = await import("../commits/route");
 const { POST: syncPOST } = await import("../sync/route");
 const { POST: tagsPOST } = await import("../tags/route");
+const { POST: forkPOST } = await import("../fork/route");
 
 function jsonRequest(body: unknown, url = "http://localhost/x") {
 	return {
@@ -288,5 +294,87 @@ describe("tags POST — write-authorization on a public repo (H1)", () => {
 		);
 		expect(res.status).toBe(401);
 		expect(state.inserts).toHaveLength(0);
+	});
+});
+
+describe("fork POST — commits are re-keyed and references remapped", () => {
+	// Regression: the fork used to insert copied commits keeping their original
+	// GLOBAL primary-key id, so onConflictDoNothing silently dropped every one
+	// and branch/tag references dangled at the source repo's commits.
+	beforeEach(() => {
+		const c1 = { id: "c1", repoId: "repo-1", parentId: null, message: "first" };
+		const c2 = {
+			id: "c2",
+			repoId: "repo-1",
+			parentId: "c1",
+			message: "second",
+		};
+		state.rowsFor = (table: unknown) => {
+			if (table === projectRepositories)
+				return [
+					{
+						id: "repo-1",
+						userId: "owner-1",
+						isPublic: false,
+						defaultBranch: "main",
+					},
+				];
+			if (table === commits) return [c1, c2];
+			if (table === branches)
+				return [
+					{
+						id: "b1",
+						repoId: "repo-1",
+						name: "main",
+						headCommitId: "c2",
+						createdFromCommitId: "c1",
+					},
+				];
+			if (table === tags)
+				return [
+					{
+						id: "t1",
+						repoId: "repo-1",
+						commitId: "c1",
+						name: "v1",
+						type: "custom",
+					},
+				];
+			return [];
+		};
+	});
+
+	it("copies commits with fresh ids and remaps parent/branch/tag references", async () => {
+		const res = await forkPOST(
+			jsonRequest({ newProjectId: "proj-2", name: "Fork" }),
+			params("repo-1"),
+		);
+		expect(res.status).toBe(201);
+
+		const commitInserts = state.inserts.filter((i) => i.table === commits);
+		expect(commitInserts).toHaveLength(2);
+
+		const byMessage = (msg: string) =>
+			commitInserts.find(
+				(i) => (i.values as { message: string }).message === msg,
+			)?.values as { id: string; parentId: string | null };
+		const first = byMessage("first");
+		const second = byMessage("second");
+
+		// New ids, never the source ids (the collision that silently dropped them).
+		expect(first.id).not.toBe("c1");
+		expect(second.id).not.toBe("c2");
+		// The child's parent pointer is remapped to the copied parent, not "c1".
+		expect(second.parentId).toBe(first.id);
+
+		const branchInsert = state.inserts.find((i) => i.table === branches)
+			?.values as { headCommitId: string; createdFromCommitId: string | null };
+		expect(branchInsert.headCommitId).toBe(second.id);
+		expect(branchInsert.createdFromCommitId).toBe(first.id);
+
+		const tagInsert = state.inserts.find((i) => i.table === tags)?.values as {
+			commitId: string;
+		};
+		expect(tagInsert.commitId).toBe(first.id);
 	});
 });

@@ -77,23 +77,35 @@ export async function POST(
 			updatedAt: new Date(),
 		});
 
-		// Copy all commits (they reference media by hash, no duplication needed)
+		// Copy all commits (they reference media by hash, no duplication needed).
+		// Commit ids are the table's GLOBAL primary key, so the fork must re-key
+		// every commit; reusing the source ids would collide with the existing
+		// rows. Build an old→new id map first, then remap all intra-history
+		// references so parents/branch heads/tags point at the copied commits.
 		const sourceCommits = await db
 			.select()
 			.from(commits)
 			.where(eq(commits.repoId, repoId));
 
+		const commitIdMap = new Map<string, string>();
 		for (const commit of sourceCommits) {
-			await db
-				.insert(commits)
-				.values({
-					...commit,
-					repoId: newRepoId,
-				})
-				.onConflictDoNothing();
+			commitIdMap.set(commit.id, generateUUID());
+		}
+		const remapCommitId = <T extends string | null>(id: T): T =>
+			(id ? (commitIdMap.get(id) ?? id) : id) as T;
+
+		for (const commit of sourceCommits) {
+			await db.insert(commits).values({
+				...commit,
+				id: commitIdMap.get(commit.id) as string,
+				repoId: newRepoId,
+				parentId: remapCommitId(commit.parentId),
+				mergeParentId: remapCommitId(commit.mergeParentId),
+				keyframeAncestorId: remapCommitId(commit.keyframeAncestorId),
+			});
 		}
 
-		// Copy branches
+		// Copy branches (re-key their head/created-from commit references)
 		const sourceBranches = await db
 			.select()
 			.from(branches)
@@ -104,10 +116,12 @@ export async function POST(
 				...branch,
 				id: generateUUID(),
 				repoId: newRepoId,
+				headCommitId: remapCommitId(branch.headCommitId),
+				createdFromCommitId: remapCommitId(branch.createdFromCommitId),
 			});
 		}
 
-		// Copy tags
+		// Copy tags (re-key their commit reference)
 		const sourceTags = await db
 			.select()
 			.from(tags)
@@ -118,6 +132,7 @@ export async function POST(
 				...tag,
 				id: generateUUID(),
 				repoId: newRepoId,
+				commitId: remapCommitId(tag.commitId),
 			});
 		}
 
