@@ -119,7 +119,6 @@ export const lumaBackend: GenerationBackend = {
 		resolutions: ["480p", "720p", "1080p"],
 		orientations: ["landscape", "portrait", "square"],
 		durationRangeSec: { min: 5, max: 9 },
-		modes: ["text-to-video", "image-to-video"],
 		// No documented seed parameter on the generations endpoint.
 		supportsSeedLock: false,
 		// `character_ref` / `image_ref` (UNVERIFIED exact shape) — genuine

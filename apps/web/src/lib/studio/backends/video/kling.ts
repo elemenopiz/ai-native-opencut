@@ -167,7 +167,6 @@ export const klingBackend: GenerationBackend = {
 		orientations: ["landscape", "portrait", "square"],
 		// Kling v1/v1.6 only accept discrete 5s or 10s durations.
 		durationRangeSec: { min: 5, max: 10 },
-		modes: ["text-to-video", "image-to-video"],
 		// No documented seed parameter on the public text2video/image2video
 		// endpoints (UNVERIFIED — some Kling model versions may expose one).
 		supportsSeedLock: false,

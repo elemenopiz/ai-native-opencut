@@ -128,7 +128,6 @@ export const pikaBackend: GenerationBackend = {
 		resolutions: ["720p", "1080p"],
 		orientations: ["landscape", "portrait", "square"],
 		durationRangeSec: { min: 5, max: 10 },
-		modes: ["text-to-video", "image-to-video"],
 		// `seed` is a documented integer field on both endpoints.
 		supportsSeedLock: true,
 		// Real Pika feature (Pikascenes), but wired as a separate fal model id

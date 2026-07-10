@@ -131,7 +131,6 @@ export const runwayBackend: GenerationBackend = {
 		resolutions: ["480p", "720p", "1080p"],
 		orientations: ["landscape", "portrait", "square"],
 		durationRangeSec: { min: 5, max: 10 },
-		modes: ["text-to-video", "image-to-video"],
 		// Seed accepted on image_to_video/text_to_video, max 4294967295 per the
 		// 2024-11-06 changelog — a real, documented reproducibility knob.
 		supportsSeedLock: true,

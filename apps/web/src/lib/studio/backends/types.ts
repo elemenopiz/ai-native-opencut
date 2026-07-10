@@ -49,7 +49,6 @@ export interface BackendCapabilities {
 	resolutions?: VideoResolution[];
 	orientations?: VideoOrientation[];
 	durationRangeSec?: { min: number; max: number };
-	modes?: VideoMode[];
 	// Image-oriented
 	sizes?: ImageSize[];
 	qualities?: ImageQuality[];

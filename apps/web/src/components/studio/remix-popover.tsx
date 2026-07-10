@@ -31,21 +31,22 @@
  * Self-contained: pure UI + the pure `buildRemixSpec` builder. No stores, no
  * provider calls, no timeline mutations.
  *
+ * WIRED:
+ *  1. `components/editor/panels/properties/generative-clip-properties.tsx`'s
+ *     `SpecSection` renders this beside the "Re-roll · +1 take" button and
+ *     enqueues via `useSlotGeneration().generateIntoSlot` — a remix lands as a
+ *     new take on the same slot, exactly like a re-roll but with the
+ *     delta-composed, seed-locked spec.
+ *  3. That call site resolves the active take's REAL last frame via
+ *     `extractTakeLastFrame` (`lib/media/last-frame.ts`) and passes it as
+ *     `anchorImageUrl`, so a manual remix re-conditions on the finished video's
+ *     final frame instead of the original reference still — matching the agent
+ *     path in `director-api.ts`'s `remix` verb.
+ *
  * WIRING TODO (separate reviewed pass — do not wire here):
- *  1. `components/editor/panels/properties/generative-clip-properties.tsx`,
- *     `TakeThumb` (or next to the "Re-roll · +1 take" button in
- *     `SpecSection`): render `<RemixPopover take={take} onRemix={({ spec }) =>
- *     generateIntoSlot({ elementId: element.id, spec, alternatives: 1 })} />`
- *     using the `useSlotGeneration` hook already imported there — a remix then
- *     lands as a new take on the same slot, exactly like a re-roll but with
- *     the delta-composed, seed-locked spec.
  *  2. Optionally `components/studio/take-card.tsx` (studio panel takes):
  *     same pattern in the hover action overlay, enqueueing via
  *     `use-studio-generation`'s submit path with the built spec.
- *  3. Once a "grab last frame from a completed take" utility exists, pass it
- *     as `anchorImageUrl` so remixes re-condition on the finished video's
- *     final frame instead of the original reference still (see the matching
- *     TODO in `lib/studio/remix.ts`).
  */
 
 import { useState } from "react";

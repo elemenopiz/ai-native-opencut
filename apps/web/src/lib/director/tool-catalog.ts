@@ -304,8 +304,8 @@ const slotSpecSchema: JSONSchema = {
 // ── the catalog ───────────────────────────────────────────────────────────────
 
 /**
- * The 25 Director verbs, one descriptor each. The `export` verb is intentionally
- * omitted — it is not wired (see `director-api.ts`'s `exportReel`).
+ * The 26 Director verbs, one descriptor each — including `export`, which maps to
+ * `director-api.ts`'s `exportReel`.
  */
 export function toolCatalog(): ToolDescriptor[] {
 	return [
