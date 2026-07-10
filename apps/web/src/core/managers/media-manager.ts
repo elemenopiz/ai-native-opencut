@@ -119,6 +119,19 @@ export class MediaManager {
 
 		if (elementsToRemove.length > 0) {
 			this.editor.timeline.deleteElements({ elements: elementsToRemove });
+			// Drop the now-deleted elements from the selection so it doesn't keep
+			// stale refs to elements that no longer exist.
+			const removed = new Set(
+				elementsToRemove.map((e) => `${e.trackId}:${e.elementId}`),
+			);
+			const selection = this.editor.selection.getSelectedElements();
+			if (selection.some((s) => removed.has(`${s.trackId}:${s.elementId}`))) {
+				this.editor.selection.setSelectedElements({
+					elements: selection.filter(
+						(s) => !removed.has(`${s.trackId}:${s.elementId}`),
+					),
+				});
+			}
 		}
 
 		try {
@@ -140,9 +153,7 @@ export class MediaManager {
 
 			const proxyPromises = mediaAssets
 				.filter((a) => a.proxy)
-				.map((a) =>
-					this.loadProxyForAsset({ assetId: a.id, projectId }),
-				);
+				.map((a) => this.loadProxyForAsset({ assetId: a.id, projectId }));
 			await Promise.all(proxyPromises);
 
 			this.notify();
@@ -337,9 +348,7 @@ export class MediaManager {
 			const proxyUrl = URL.createObjectURL(proxyFile);
 
 			this.assets = this.assets.map((a) =>
-				a.id === assetId
-					? { ...a, proxyFile, proxyUrl }
-					: a,
+				a.id === assetId ? { ...a, proxyFile, proxyUrl } : a,
 			);
 			this.notify();
 		} catch (error) {
