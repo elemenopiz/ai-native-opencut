@@ -297,3 +297,111 @@ moving progress-dependent global initializers into the transition function):
 | `window-slice.frag.glsl` | `windowslice.glsl` | gre |
 | `wipe-down.frag.glsl` | `wipeDown.glsl` | Jake Nelson |
 | `wipe-up.frag.glsl` | `wipeUp.glsl` | Jake Nelson |
+
+---
+
+## chrisguttandin/web-audio-beat-detector — MIT
+
+Copyright (c) 2026 Christoph Guttandin. Source:
+https://github.com/chrisguttandin/web-audio-beat-detector
+
+```
+MIT License
+
+Copyright (c) 2026 Christoph Guttandin
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+```
+
+Used as an npm dependency (not adapted source):
+
+- `apps/web/src/hooks/use-beat-detection.ts` — tempo (BPM) and beat-offset
+  estimation via the library's `guess()` API; our beat grid is derived from
+  that tempo. The legacy energy-peak detector remains as a fallback.
+
+---
+
+## jwagner/smartcrop.js — MIT
+
+Copyright (c) 2016 Jonas Wagner. Source: https://github.com/jwagner/smartcrop.js
+
+```
+Copyright (c) 2016 Jonas Wagner
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+```
+
+Used as an npm dependency (not adapted source):
+
+- `apps/web/src/lib/reframe/smartcrop-fallback.ts` — content-aware crop
+  selection on sampled video frames, used as the auto-reframe fallback when
+  face detection finds no faces or the face service is unreachable.
+
+---
+
+## Signalsmith Audio / signalsmith-stretch — MIT
+
+Copyright (c) Signalsmith Audio Ltd (Geraint Luff). Source:
+https://signalsmith-audio.co.uk/code/stretch/ (npm: `signalsmith-stretch`,
+JS/WASM release of the Signalsmith Stretch library)
+
+```
+MIT License
+
+Copyright (c) Geraint Luff / Signalsmith Audio Ltd
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+```
+
+Used as an npm dependency (not adapted source):
+
+- Installed for time-stretch / pitch-preserving playback work (AudioWorklet
+  WASM node); integration is implemented separately from this notice.
