@@ -12,6 +12,7 @@
 
 import { webEnv } from "@byorn/env/web";
 import { nanoid } from "nanoid";
+import { fetchWithTimeout, MEDIA_TIMEOUT_MS } from "@/lib/studio/fetch-timeout";
 import type {
 	BackendRequest,
 	CostEstimate,
@@ -68,12 +69,15 @@ function mapQualityToRenderingSpeed(quality?: ImageQuality): string {
 }
 
 async function fetchReferenceBlob(url: string): Promise<Blob> {
-	const res = await fetch(url);
+	// Reference image download — media bytes, so the longer budget applies.
+	const res = await fetchWithTimeout(url, { timeoutMs: MEDIA_TIMEOUT_MS });
 	if (!res.ok) {
 		throw new Error(`Failed to fetch reference image (${res.status})`);
 	}
 	const buf = await res.arrayBuffer();
-	return new Blob([buf], { type: res.headers.get("content-type") ?? "image/png" });
+	return new Blob([buf], {
+		type: res.headers.get("content-type") ?? "image/png",
+	});
 }
 
 export const ideogramBackend: GenerationBackend = {
@@ -105,7 +109,11 @@ export const ideogramBackend: GenerationBackend = {
 	async submit(req: BackendRequest): Promise<SubmitResult> {
 		const key = webEnv.IDEOGRAM_API_KEY;
 		if (!key) {
-			return { jobId: "", status: "failed", error: "IDEOGRAM_API_KEY is not configured" };
+			return {
+				jobId: "",
+				status: "failed",
+				error: "IDEOGRAM_API_KEY is not configured",
+			};
 		}
 
 		try {
@@ -119,11 +127,16 @@ export const ideogramBackend: GenerationBackend = {
 				form.append("character_reference_images", blob, "reference.png");
 			}
 
-			const res = await fetch(`${IDEOGRAM_BASE}/v1/ideogram-v3/generate`, {
-				method: "POST",
-				headers: { "Api-Key": key },
-				body: form,
-			});
+			// Synchronous generation (QUALITY tier can be slow) — media budget.
+			const res = await fetchWithTimeout(
+				`${IDEOGRAM_BASE}/v1/ideogram-v3/generate`,
+				{
+					method: "POST",
+					headers: { "Api-Key": key },
+					body: form,
+					timeoutMs: MEDIA_TIMEOUT_MS,
+				},
+			);
 
 			if (!res.ok) {
 				const text = await res.text();

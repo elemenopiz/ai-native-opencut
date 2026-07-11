@@ -11,6 +11,7 @@
  */
 
 import { webEnv } from "@byorn/env/web";
+import { fetchWithTimeout, MEDIA_TIMEOUT_MS } from "@/lib/studio/fetch-timeout";
 import {
 	computeHash,
 	uploadMedia,
@@ -45,17 +46,65 @@ export async function rehostToR2(
 export function isRehostedUrl(url: string | null | undefined): boolean {
 	if (!url) return false;
 	if (webEnv.R2_PUBLIC_BASE_URL && url.startsWith(publicBase())) return true;
-	return url.includes("r2.cloudflarestorage.com") || url.includes("X-Amz-Signature");
+	return (
+		url.includes("r2.cloudflarestorage.com") || url.includes("X-Amz-Signature")
+	);
 }
 
-/** Decode a data: URL or fetch a remote URL into raw bytes. */
-export async function fetchBytes(url: string): Promise<ArrayBuffer> {
+/** Generated clips are short (≤ ~12s); 200MB comfortably bounds even 1080p
+ *  output while keeping a hostile/buggy provider URL from ballooning memory
+ *  on the hot poll route. */
+const MAX_FETCH_BYTES = 200 * 1024 * 1024;
+
+/**
+ * Decode a data: URL or fetch a remote URL into raw bytes.
+ *
+ * Remote fetches are bounded in both time and size (this runs inside request
+ * handlers — the poll route rehosts finished videos through it). Same pattern
+ * as the sounds proxy: reject on content-length, then enforce the cap again
+ * while reading (the header can be missing or wrong). Failures throw; callers
+ * that rehost best-effort keep their provider-URL fallback.
+ */
+export async function fetchBytes(
+	url: string,
+	opts: { timeoutMs?: number; maxBytes?: number } = {},
+): Promise<ArrayBuffer> {
 	if (url.startsWith("data:")) {
 		const b64 = url.slice(url.indexOf(",") + 1);
 		const buf = Buffer.from(b64, "base64");
 		return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
 	}
-	const res = await fetch(url);
+	const maxBytes = opts.maxBytes ?? MAX_FETCH_BYTES;
+	const res = await fetchWithTimeout(url, {
+		timeoutMs: opts.timeoutMs ?? MEDIA_TIMEOUT_MS,
+	});
 	if (!res.ok) throw new Error(`fetch bytes failed ${res.status}`);
-	return res.arrayBuffer();
+
+	const contentLength = Number(res.headers.get("content-length"));
+	if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+		res.body?.cancel().catch(() => {});
+		throw new Error(`fetch bytes exceeded ${maxBytes} byte limit`);
+	}
+	if (!res.body) return res.arrayBuffer();
+
+	const reader = res.body.getReader();
+	const chunks: Uint8Array[] = [];
+	let received = 0;
+	while (true) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		received += value.byteLength;
+		if (received > maxBytes) {
+			await reader.cancel().catch(() => {});
+			throw new Error(`fetch bytes exceeded ${maxBytes} byte limit`);
+		}
+		chunks.push(value);
+	}
+	const out = new Uint8Array(received);
+	let offset = 0;
+	for (const chunk of chunks) {
+		out.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+	return out.buffer;
 }

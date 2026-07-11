@@ -28,6 +28,7 @@
 
 import { webEnv } from "@byorn/env/web";
 import { estimateVideoCredits } from "@/lib/studio/backends/cost";
+import { fetchWithTimeout } from "@/lib/studio/fetch-timeout";
 import type {
 	BackendRequest,
 	CostEstimate,
@@ -84,7 +85,7 @@ function decodeJobId(jobId: string): {
 async function falFetch<T>(path: string, init?: RequestInit): Promise<T> {
 	const key = apiKey();
 	if (!key) throw new Error("FAL_KEY is not configured");
-	const res = await fetch(`${falBase()}${path}`, {
+	const res = await fetchWithTimeout(`${falBase()}${path}`, {
 		...init,
 		headers: {
 			...init?.headers,

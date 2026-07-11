@@ -13,6 +13,7 @@
 
 import { webEnv } from "@byorn/env/web";
 import { nanoid } from "nanoid";
+import { fetchWithTimeout, MEDIA_TIMEOUT_MS } from "@/lib/studio/fetch-timeout";
 import type {
 	BackendRequest,
 	CostEstimate,
@@ -90,13 +91,20 @@ export const googleImagenBackend: GenerationBackend = {
 
 	estimateCost(req: BackendRequest): CostEstimate {
 		const credits = CREDITS_BY_QUALITY[req.quality ?? "high"] ?? 12;
-		return { credits, basis: `Imagen 4 (${mapQualityToImageSize(req.quality)})` };
+		return {
+			credits,
+			basis: `Imagen 4 (${mapQualityToImageSize(req.quality)})`,
+		};
 	},
 
 	async submit(req: BackendRequest): Promise<SubmitResult> {
 		const key = webEnv.GEMINI_API_KEY;
 		if (!key) {
-			return { jobId: "", status: "failed", error: "GEMINI_API_KEY is not configured" };
+			return {
+				jobId: "",
+				status: "failed",
+				error: "GEMINI_API_KEY is not configured",
+			};
 		}
 
 		try {
@@ -112,14 +120,19 @@ export const googleImagenBackend: GenerationBackend = {
 				},
 			};
 
-			const res = await fetch(`${GEMINI_BASE}/models/${IMAGEN_MODEL}:predict`, {
-				method: "POST",
-				headers: {
-					"x-goog-api-key": key,
-					"Content-Type": "application/json",
+			// Sync generation returning inline base64 image bytes — media budget.
+			const res = await fetchWithTimeout(
+				`${GEMINI_BASE}/models/${IMAGEN_MODEL}:predict`,
+				{
+					timeoutMs: MEDIA_TIMEOUT_MS,
+					method: "POST",
+					headers: {
+						"x-goog-api-key": key,
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify(body),
 				},
-				body: JSON.stringify(body),
-			});
+			);
 
 			if (!res.ok) {
 				const text = await res.text();

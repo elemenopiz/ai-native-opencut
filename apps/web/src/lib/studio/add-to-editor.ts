@@ -1,5 +1,6 @@
 import type { EditorCore } from "@/core";
 import { processMediaAssets } from "@/lib/media/processing";
+import { fetchWithTimeout, MEDIA_TIMEOUT_MS } from "@/lib/studio/fetch-timeout";
 import { buildElementFromMedia } from "@/lib/timeline/element-utils";
 import { TIMELINE_CONSTANTS } from "@/constants/timeline-constants";
 import type { PendingClip } from "@/stores/studio-handoff-store";
@@ -34,8 +35,10 @@ export async function addItemsToProjectMedia({
 
 	for (const item of items) {
 		try {
-			const res = await fetch(
+			// Whole-media download through the proxy — media budget.
+			const res = await fetchWithTimeout(
 				`/api/studio/proxy?url=${encodeURIComponent(item.url)}`,
+				{ timeoutMs: MEDIA_TIMEOUT_MS },
 			);
 			if (!res.ok) throw new Error(`fetch failed ${res.status}`);
 
@@ -50,7 +53,9 @@ export async function addItemsToProjectMedia({
 				: `${item.name}.${ext}`;
 			// Providers sometimes serve generated media as octet-stream; coerce to
 			// the right family so the editor doesn't reject it as unsupported.
-			const type = blob.type.startsWith(expectedPrefix) ? blob.type : fallbackType;
+			const type = blob.type.startsWith(expectedPrefix)
+				? blob.type
+				: fallbackType;
 			const file = new File([blob], fileName, { type });
 
 			const [processed] = await processMediaAssets({ files: [file] });
@@ -63,7 +68,11 @@ export async function addItemsToProjectMedia({
 			if (mediaId) mediaIds.push(mediaId);
 			added++;
 		} catch (err) {
-			console.error("Failed to add studio item to project media:", item.url, err);
+			console.error(
+				"Failed to add studio item to project media:",
+				item.url,
+				err,
+			);
 			failed++;
 		}
 	}
@@ -98,8 +107,10 @@ export async function addClipsToEditor({
 	for (let i = 0; i < clips.length; i++) {
 		const clip = clips[i];
 		try {
-			const res = await fetch(
+			// Whole-video download through the proxy — media budget.
+			const res = await fetchWithTimeout(
 				`/api/studio/proxy?url=${encodeURIComponent(clip.videoUrl)}`,
+				{ timeoutMs: MEDIA_TIMEOUT_MS },
 			);
 			if (!res.ok) throw new Error(`fetch failed ${res.status}`);
 
@@ -141,7 +152,11 @@ export async function addClipsToEditor({
 
 			added++;
 		} catch (err) {
-			console.error("Failed to add studio clip to timeline:", clip.videoUrl, err);
+			console.error(
+				"Failed to add studio clip to timeline:",
+				clip.videoUrl,
+				err,
+			);
 			failed++;
 		} finally {
 			onProgress?.(i + 1, clips.length);

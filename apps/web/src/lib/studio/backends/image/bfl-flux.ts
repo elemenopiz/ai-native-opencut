@@ -18,6 +18,7 @@
 
 import { webEnv } from "@byorn/env/web";
 import { nanoid } from "nanoid";
+import { fetchWithTimeout, MEDIA_TIMEOUT_MS } from "@/lib/studio/fetch-timeout";
 import type {
 	BackendRequest,
 	CostEstimate,
@@ -45,7 +46,13 @@ interface BflSubmitResponse {
 }
 
 interface BflPollResponse {
-	status: "Ready" | "Pending" | "Error" | "Request Moderated" | "Content Moderated" | "Task not found";
+	status:
+		| "Ready"
+		| "Pending"
+		| "Error"
+		| "Request Moderated"
+		| "Content Moderated"
+		| "Task not found";
 	result?: { sample?: string };
 }
 
@@ -62,7 +69,8 @@ function mapSizeToAspectRatio(size?: ImageSize): string {
 }
 
 async function fetchAsBase64(url: string): Promise<string> {
-	const res = await fetch(url);
+	// Reference image download — media bytes, so the longer budget applies.
+	const res = await fetchWithTimeout(url, { timeoutMs: MEDIA_TIMEOUT_MS });
 	if (!res.ok) {
 		throw new Error(`Failed to fetch reference image (${res.status})`);
 	}
@@ -72,7 +80,7 @@ async function fetchAsBase64(url: string): Promise<string> {
 
 /** One GET against BFL's returned `polling_url`, mapped to our PollResult. */
 async function pollOnce(pollingUrl: string, key: string): Promise<PollResult> {
-	const res = await fetch(pollingUrl, {
+	const res = await fetchWithTimeout(pollingUrl, {
 		headers: { accept: "application/json", "x-key": key },
 	});
 	if (!res.ok) {
@@ -141,13 +149,20 @@ export const bflFluxBackend: GenerationBackend = {
 	},
 
 	estimateCost(_req: BackendRequest): CostEstimate {
-		return { credits: CREDITS, basis: "FLUX1.1 [pro] Ultra (fixed quality tier)" };
+		return {
+			credits: CREDITS,
+			basis: "FLUX1.1 [pro] Ultra (fixed quality tier)",
+		};
 	},
 
 	async submit(req: BackendRequest): Promise<SubmitResult> {
 		const key = webEnv.BFL_API_KEY;
 		if (!key) {
-			return { jobId: "", status: "failed", error: "BFL_API_KEY is not configured" };
+			return {
+				jobId: "",
+				status: "failed",
+				error: "BFL_API_KEY is not configured",
+			};
 		}
 
 		try {
@@ -165,7 +180,7 @@ export const bflFluxBackend: GenerationBackend = {
 				body.aspect_ratio = mapSizeToAspectRatio(req.size);
 			}
 
-			const submitRes = await fetch(`${BFL_BASE}/${endpoint}`, {
+			const submitRes = await fetchWithTimeout(`${BFL_BASE}/${endpoint}`, {
 				method: "POST",
 				headers: {
 					accept: "application/json",
@@ -186,7 +201,11 @@ export const bflFluxBackend: GenerationBackend = {
 
 			const data = (await submitRes.json()) as BflSubmitResponse;
 			if (!data.polling_url) {
-				return { jobId: "", status: "failed", error: "BFL response missing polling_url" };
+				return {
+					jobId: "",
+					status: "failed",
+					error: "BFL response missing polling_url",
+				};
 			}
 
 			const settled = await pollUntilSettledOrBudget(data.polling_url, key);
@@ -205,7 +224,11 @@ export const bflFluxBackend: GenerationBackend = {
 	async poll(jobId: string): Promise<PollResult> {
 		const key = webEnv.BFL_API_KEY;
 		if (!key) {
-			return { jobId, status: "failed", error: "BFL_API_KEY is not configured" };
+			return {
+				jobId,
+				status: "failed",
+				error: "BFL_API_KEY is not configured",
+			};
 		}
 		try {
 			return await pollOnce(jobId, key);

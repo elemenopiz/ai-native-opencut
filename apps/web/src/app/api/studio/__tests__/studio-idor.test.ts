@@ -116,11 +116,13 @@ const fakeDb = {
 	},
 	// Thenable select chain — covers every shape the routes use:
 	//   sets GET:   db.select().from(takes).where(..).orderBy(..)          → await
-	//   board GET:  db.select().from(boardItems).where(..).orderBy(..)     → await
+	//   board GET:  db.select({..}).from(boardItems).leftJoin(..)×3
+	//                 .where(..).orderBy(..)                               → await
 	//   board POST: db.select().from(boardItems).where(..).orderBy(..).limit(1)
 	select() {
 		const q: Record<string, unknown> = {
 			from: () => q,
+			leftJoin: () => q,
 			where: (cond: unknown) => {
 				state.lastWhere = cond;
 				return q;
@@ -346,6 +348,81 @@ describe("board GET — per-user tenancy (no shared board)", () => {
 		expect(res.status).toBe(200);
 		// The query carried an ownerId predicate — never an unscoped table read.
 		expect(state.lastWhere).toBeDefined();
+	});
+
+	// The N+1 rewrite (single leftJoin query) must keep the EXACT response
+	// shape of the old per-item lookups: image items carry `image` with
+	// take/set null; take items carry `take`+`set` with image null.
+	it("preserves the enriched response shape for image and take items", async () => {
+		const imageItem = {
+			id: "b-img",
+			ownerId: "owner-1",
+			kind: "image",
+			takeId: null,
+			imageStillId: "i1",
+			position: 0,
+			notes: null,
+		};
+		const takeItem = {
+			id: "b-take",
+			ownerId: "owner-1",
+			kind: "take",
+			takeId: "t1",
+			imageStillId: null,
+			position: 1,
+			notes: "keep",
+		};
+		const take = { id: "t1", setId: "s1", ownerId: "owner-1" };
+		const set = { id: "s1", userId: "owner-1", prompt: "p" };
+		const image = { id: "i1", userId: "owner-1", prompt: "still" };
+		state.selectReturns = [
+			{ item: imageItem, take: null, set: null, image },
+			{ item: takeItem, take, set, image: null },
+		];
+
+		const res = await boardGET();
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as {
+			items: Array<Record<string, unknown>>;
+		};
+		expect(body.items).toHaveLength(2);
+
+		// Image item: spreads the board item, carries image, nulls take/set.
+		expect(body.items[0]).toEqual({
+			...imageItem,
+			image,
+			take: null,
+			set: null,
+		});
+		// Take item: spreads the board item, carries take+set, nulls image.
+		expect(body.items[1]).toEqual({ ...takeItem, take, set, image: null });
+	});
+
+	it("nulls the set when a take item's take did not resolve", async () => {
+		const orphanItem = {
+			id: "b-orphan",
+			ownerId: "owner-1",
+			kind: "take",
+			takeId: "t-gone",
+			imageStillId: null,
+			position: 0,
+			notes: null,
+		};
+		// leftJoin misses: take and set come back null from the join row.
+		state.selectReturns = [
+			{ item: orphanItem, take: null, set: null, image: null },
+		];
+
+		const res = await boardGET();
+		const body = (await res.json()) as {
+			items: Array<Record<string, unknown>>;
+		};
+		expect(body.items[0]).toEqual({
+			...orphanItem,
+			take: null,
+			set: null,
+			image: null,
+		});
 	});
 });
 

@@ -4,6 +4,7 @@ import type {
 	VideoOrientation,
 } from "@/lib/studio/provider-adapter";
 import { addClipsToEditor } from "@/lib/studio/add-to-editor";
+import { fetchWithTimeout } from "@/lib/studio/fetch-timeout";
 
 /**
  * Native "Multiframe" generation. Seedance itself caps at two frames per call
@@ -32,7 +33,9 @@ async function generateSegment(
 	lastFrame: string,
 	base: MultiframeBase,
 ): Promise<string | null> {
-	const res = await fetch("/api/studio/generate", {
+	// Give the client budget headroom above the route's maxDuration (120s).
+	const res = await fetchWithTimeout("/api/studio/generate", {
+		timeoutMs: 150_000,
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({
@@ -57,7 +60,10 @@ async function generateSegment(
 
 	for (let i = 0; i < MAX_POLLS; i++) {
 		await sleep(POLL_INTERVAL_MS);
-		const poll = await fetch(`/api/studio/generate/${data.jobId}`);
+		// Poll can rehost the finished video server-side before answering.
+		const poll = await fetchWithTimeout(`/api/studio/generate/${data.jobId}`, {
+			timeoutMs: 60_000,
+		});
 		if (!poll.ok) continue;
 		const j = (await poll.json()) as {
 			status: string;

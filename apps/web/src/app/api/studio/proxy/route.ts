@@ -12,6 +12,10 @@ import {
 // DNS resolution + IP-literal parsing require the Node runtime (not Edge).
 export const runtime = "nodejs";
 
+// Streams the whole generated video through this function; matches the
+// client's 120s media budget in lib/studio/fetch-timeout.ts.
+export const maxDuration = 120;
+
 /** Max redirect hops to chase before giving up (prevents redirect loops). */
 const MAX_REDIRECT_HOPS = 3;
 

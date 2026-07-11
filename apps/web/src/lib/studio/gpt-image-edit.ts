@@ -12,6 +12,7 @@
  */
 
 import { webEnv } from "@byorn/env/web";
+import { fetchWithTimeout, MEDIA_TIMEOUT_MS } from "@/lib/studio/fetch-timeout";
 import { canRehost, fetchBytes, rehostToR2 } from "@/lib/studio/media-storage";
 import type { ImageSize } from "@/lib/studio/image-generator";
 
@@ -58,7 +59,9 @@ export async function renderGptImageEdit(
 	}
 
 	// No explicit Content-Type — fetch sets the multipart boundary itself.
-	const res = await fetch(`${OPENAI_BASE}/images/edits`, {
+	// Sync edit returning inline base64 image bytes — media budget.
+	const res = await fetchWithTimeout(`${OPENAI_BASE}/images/edits`, {
+		timeoutMs: MEDIA_TIMEOUT_MS,
 		method: "POST",
 		headers: { Authorization: `Bearer ${key}` },
 		body: form,

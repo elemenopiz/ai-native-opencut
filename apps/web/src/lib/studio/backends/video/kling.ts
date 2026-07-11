@@ -21,6 +21,7 @@
 import { createHmac } from "node:crypto";
 import { webEnv } from "@byorn/env/web";
 import { estimateVideoCredits } from "@/lib/studio/backends/cost";
+import { fetchWithTimeout } from "@/lib/studio/fetch-timeout";
 import type {
 	BackendRequest,
 	CostEstimate,
@@ -138,7 +139,7 @@ async function klingRequest(
 		throw new Error("KLING_ACCESS_KEY / KLING_SECRET_KEY are not configured");
 	}
 	const token = signKlingJwt(ak, sk);
-	const res = await fetch(`${klingBase()}${path}`, {
+	const res = await fetchWithTimeout(`${klingBase()}${path}`, {
 		...init,
 		headers: {
 			...init.headers,

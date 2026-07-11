@@ -1,5 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { webEnv } from "@byorn/env/web";
+import { enforceRateLimit } from "@/lib/rate-limit";
+
+/** Don't hold the route handler open on a slow/hung Pexels upstream. */
+const PEXELS_TIMEOUT_MS = 10_000;
 
 /**
  * Pexels image search proxy.
@@ -14,6 +18,15 @@ import { webEnv } from "@byorn/env/web";
 
 export async function GET(request: NextRequest) {
 	try {
+		// This route is anonymous and (by default) spends the server-wide
+		// PEXELS_API_KEY, which has a hard 200 req/hr upstream quota — rate-limit
+		// per IP so one caller can't burn the shared budget for everyone.
+		const limited = await enforceRateLimit({
+			name: "images:search",
+			request,
+		});
+		if (limited) return limited;
+
 		const { searchParams } = new URL(request.url);
 		const query = searchParams.get("q") || "";
 		const perPageRaw = Number(searchParams.get("per_page") || "6");
@@ -59,12 +72,28 @@ export async function GET(request: NextRequest) {
 			orientation,
 		});
 
-		const response = await fetch(
-			`https://api.pexels.com/v1/search?${params.toString()}`,
-			{
-				headers: { Authorization: apiKey },
-			},
-		);
+		// Outbound timeout: a hung upstream must not pin this handler open.
+		let response: Response;
+		try {
+			response = await fetch(
+				`https://api.pexels.com/v1/search?${params.toString()}`,
+				{
+					headers: { Authorization: apiKey },
+					signal: AbortSignal.timeout(PEXELS_TIMEOUT_MS),
+				},
+			);
+		} catch (err) {
+			const timedOut =
+				err instanceof DOMException && err.name === "TimeoutError";
+			return NextResponse.json(
+				{
+					error: timedOut
+						? "Image search timed out contacting Pexels"
+						: "Image search could not reach Pexels",
+				},
+				{ status: timedOut ? 504 : 502 },
+			);
+		}
 
 		if (!response.ok) {
 			return NextResponse.json(
