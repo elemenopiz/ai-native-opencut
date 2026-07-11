@@ -212,6 +212,128 @@ describe("ledger — release", () => {
 	});
 });
 
+describe("ledger — release clamps to the open hold (settle/sweep race)", () => {
+	it("release after a full settle (different keys) is a no-op — simulated settle-then-sweep", async () => {
+		const userId = await makeUser();
+		await grant(userId, 100, { reason: "test" });
+		// Second hold proves the raced release can't eat other reservations.
+		await reserve(userId, 30, {
+			refType: "test",
+			refId: "job-r1",
+			idempotencyKey: "job-r1:reserve",
+		});
+		await reserve(userId, 20, {
+			refType: "test",
+			refId: "job-r2",
+			idempotencyKey: "job-r2:reserve",
+		});
+
+		// The #3 race: the sweep read holdFor (30, open) BEFORE the poll route's
+		// settle landed, then calls release with its own `:sweep` key. Without the
+		// in-transaction re-check both decrement `reserved` (30 twice), inflating
+		// spendable at job-r2's expense.
+		await settle(userId, 30, {
+			refType: "test",
+			refId: "job-r1",
+			idempotencyKey: "job-r1:settle",
+		});
+		await release(userId, 30, {
+			refType: "test",
+			refId: "job-r1",
+			idempotencyKey: "job-r1:sweep", // different key — idempotency alone can't catch it
+		});
+
+		const acct = await getAccount(userId);
+		expect(acct.balance).toBe(70); // settle charged once
+		expect(acct.reserved).toBe(20); // job-r2's hold untouched
+		expect(acct.spendable).toBe(50); // NOT inflated by a double-decrement
+	});
+
+	it("release after a release (different keys) can't double-free", async () => {
+		const userId = await makeUser();
+		await grant(userId, 100, { reason: "test" });
+		await reserve(userId, 30, {
+			refType: "test",
+			refId: "job-rr",
+			idempotencyKey: "job-rr:reserve",
+		});
+		await reserve(userId, 20, {
+			refType: "test",
+			refId: "job-rr2",
+			idempotencyKey: "job-rr2:reserve",
+		});
+
+		// Poll route releases a failed job; the sweep then releases the same hold
+		// under its own key.
+		await release(userId, 30, {
+			refType: "test",
+			refId: "job-rr",
+			idempotencyKey: "job-rr:release",
+		});
+		await release(userId, 30, {
+			refType: "test",
+			refId: "job-rr",
+			idempotencyKey: "job-rr:sweep",
+		});
+
+		const acct = await getAccount(userId);
+		expect(acct.reserved).toBe(20); // only job-rr freed, exactly once
+		expect(acct.spendable).toBe(80);
+	});
+
+	it("partial settle then release-the-difference still works (persona-still pattern)", async () => {
+		const userId = await makeUser();
+		await grant(userId, 100, { reason: "test" });
+		await reserve(userId, 4, {
+			refType: "test",
+			refId: "job-diff",
+			idempotencyKey: "job-diff:reserve",
+		});
+
+		await settle(userId, 3, {
+			refType: "test",
+			refId: "job-diff",
+			idempotencyKey: "job-diff:settle",
+		});
+		await release(userId, 1, {
+			refType: "test",
+			refId: "job-diff",
+			idempotencyKey: "job-diff:release-diff",
+		});
+
+		const acct = await getAccount(userId);
+		expect(acct.balance).toBe(97); // charged the exact routed cost
+		expect(acct.reserved).toBe(0); // over-hold fully freed — clamp didn't block it
+		expect(acct.spendable).toBe(97);
+	});
+
+	it("over-asking release frees only what the hold still has open", async () => {
+		const userId = await makeUser();
+		await grant(userId, 100, { reason: "test" });
+		await reserve(userId, 30, {
+			refType: "test",
+			refId: "job-over",
+			idempotencyKey: "job-over:reserve",
+		});
+		await reserve(userId, 50, {
+			refType: "test",
+			refId: "job-other",
+			idempotencyKey: "job-other:reserve",
+		});
+
+		// Buggy/hostile caller asks to release more than job-over ever held.
+		await release(userId, 80, {
+			refType: "test",
+			refId: "job-over",
+			idempotencyKey: "job-over:release",
+		});
+
+		const acct = await getAccount(userId);
+		expect(acct.reserved).toBe(50); // job-other's hold survives
+		expect(acct.spendable).toBe(50);
+	});
+});
+
 describe("ledger — grant", () => {
 	it("is idempotent on its derived key", async () => {
 		const userId = await makeUser();

@@ -254,6 +254,17 @@ export interface ReleaseOptions {
  * DEBIT — a failed generation is never charged. When an idempotencyKey is given
  * it appends a delta=0 "release" marker (a record, not a charge) that both makes
  * the release idempotent and closes the hold for {@link holdFor}.
+ *
+ * RACE GUARD: the amount actually freed is clamped, UNDER THE ACCOUNT LOCK, to
+ * what is still open for this refId (reserved − settled − already released).
+ * Two paths can race on one hold with DIFFERENT idempotency keys — e.g. the
+ * poll route settles (`:settle`) while the stale-hold sweep releases
+ * (`:sweep`). Without the clamp both would decrement `reserved`, double-freeing
+ * the hold and inflating spendable. With it, whichever commits second sees the
+ * hold already consumed and no-ops (a marker row is still written so the
+ * caller's key stays idempotent). Legitimate partial releases (settle a smaller
+ * actual cost, then release the difference) are unaffected: the difference is
+ * exactly what remains open.
  */
 export async function release(
 	userId: string,
@@ -277,7 +288,46 @@ export async function release(
 					spendable: Math.max(0, balance - reserved),
 				};
 			}
+		}
 
+		// Re-derive the still-open portion of this hold inside the transaction
+		// (the lockAccount above serializes us against a concurrent settle/release
+		// on the same account, so this read can't interleave with one).
+		const refRows = await tx
+			.select({
+				reason: creditLedger.reason,
+				delta: creditLedger.delta,
+				metadata: creditLedger.metadata,
+			})
+			.from(creditLedger)
+			.where(
+				and(
+					eq(creditLedger.userId, userId),
+					eq(creditLedger.refId, opts.refId),
+				),
+			);
+
+		let openHold = 0;
+		for (const row of refRows) {
+			const meta = row.metadata as {
+				hold?: unknown;
+				released?: unknown;
+			} | null;
+			if (row.reason === "reserve" && typeof meta?.hold === "number") {
+				openHold += meta.hold;
+			} else if (row.reason === "settle") {
+				openHold -= Math.max(0, -row.delta);
+			} else if (
+				row.reason === "release" &&
+				typeof meta?.released === "number"
+			) {
+				openHold -= meta.released;
+			}
+		}
+
+		const effective = Math.max(0, Math.min(credits, openHold));
+
+		if (opts.idempotencyKey) {
 			await tx.insert(creditLedger).values({
 				id: generateUUID(),
 				userId,
@@ -287,11 +337,11 @@ export async function release(
 				refType: opts.refType ?? null,
 				refId: opts.refId,
 				idempotencyKey: opts.idempotencyKey,
-				metadata: { released: credits },
+				metadata: { released: effective, requested: credits },
 			});
 		}
 
-		const newReserved = Math.max(0, reserved - credits);
+		const newReserved = Math.max(0, reserved - effective);
 
 		await tx
 			.update(creditAccounts)

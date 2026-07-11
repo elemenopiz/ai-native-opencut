@@ -55,24 +55,49 @@ export async function GET(
 
 		if (result.status === "completed" || result.status === "failed") {
 			// Credits: this is the async settlement point for a video job. The hold
-			// was placed at submit time keyed by the set id; settle the EXACT reserved
-			// amount on success, release it on failure (never charge for a failure).
-			// Both are keyed by setId, so a retried/duplicated poll can't double-charge
-			// or double-refund. `holdFor` returns null once the hold is closed.
-			const held = await holdFor(session.user.id, ownTake.setId);
+			// was placed at submit time keyed by the TAKE id (a per-job charge id);
+			// settle the EXACT reserved amount on success, release it on failure
+			// (never charge for a failure). Idempotency keys derive from the hold
+			// key, so a retried/duplicated poll can't double-charge or double-refund.
+			// `holdFor` returns null once the hold is closed.
+			//
+			// Legacy fallback: holds reserved before the per-job charge id change
+			// were keyed by setId. Honor them ONLY for non-promoted takes — a
+			// promoted take shares its draft's set, and settling/releasing by setId
+			// from a promoted job would consume the DRAFT's hold.
+			let holdKey = ownTake.id;
+			let held = await holdFor(session.user.id, holdKey);
+			if ((held == null || held <= 0) && ownTake.status !== "promoted") {
+				holdKey = ownTake.setId;
+				held = await holdFor(session.user.id, holdKey);
+			}
 			if (held != null && held > 0) {
-				if (result.status === "completed") {
-					await settle(session.user.id, held, {
-						refType: STUDIO_REF_TYPE,
-						refId: ownTake.setId,
-						idempotencyKey: `${ownTake.setId}:settle`,
-					}).catch((err) => console.error("Failed to settle credits:", err));
-				} else {
-					await release(session.user.id, held, {
-						refType: STUDIO_REF_TYPE,
-						refId: ownTake.setId,
-						idempotencyKey: `${ownTake.setId}:release`,
-					}).catch((err) => console.error("Failed to release credits:", err));
+				// Settlement must COMMIT before we report a terminal status. If it
+				// fails, tell the client the job is still processing so it polls
+				// again — settle/release are idempotent, so the retry is safe. (The
+				// old fire-and-forget `.catch(console.error)` reported "completed"
+				// anyway: the client stopped polling, the hold leaked, and the sweep
+				// later REFUNDED a successful job.)
+				try {
+					if (result.status === "completed") {
+						await settle(session.user.id, held, {
+							refType: STUDIO_REF_TYPE,
+							refId: holdKey,
+							idempotencyKey: `${holdKey}:settle`,
+						});
+					} else {
+						await release(session.user.id, held, {
+							refType: STUDIO_REF_TYPE,
+							refId: holdKey,
+							idempotencyKey: `${holdKey}:release`,
+						});
+					}
+				} catch (err) {
+					console.error(
+						`Failed to ${result.status === "completed" ? "settle" : "release"} credits (will retry on next poll):`,
+						err,
+					);
+					return NextResponse.json({ status: "processing" });
 				}
 			}
 

@@ -18,6 +18,7 @@ import {
 import { renderPersonaStill } from "@/lib/studio/persona-still";
 import { composePersonaVideoPrompt } from "@/lib/studio/personas";
 import { STILL_SIZE_BY_ORIENTATION } from "@/lib/studio/options";
+import { DEFAULT_BACKEND_ID } from "@/lib/studio/backends/registry";
 import { db } from "@/lib/db";
 import { generationSets, personas, takes } from "@/lib/db/schema-studio";
 import { enforceRateLimit } from "@/lib/rate-limit";
@@ -147,13 +148,73 @@ export async function POST(req: Request) {
 				// Balanced ("high"): render a fresh per-shot reference still. This is
 				// routed through the multi-provider image backends (GPT Image / Gemini
 				// / …), feeding the persona's anchor + uploaded photos as references.
-				const still = await renderPersonaStill({
-					anchorImageUrl: persona.anchorImageUrl,
-					refImageUrls,
-					scenePrompt: prompt,
-					descriptor: persona.descriptor,
-					size: STILL_SIZE_BY_ORIENTATION[orientation],
+				//
+				// Credits: this is a PAID image call, metered separately from the
+				// video below (its own chargeId), mirroring personas/[id]/still —
+				// reserve the default image backend's cost (the max of the tiers, so
+				// the hold always covers the routed charge) BEFORE rendering, settle
+				// the exact routed-backend cost on success, release the over-hold
+				// difference, and release fully on failure. Without this, a direct
+				// API/MCP caller gets free image generation even at 0 balance.
+				const stillReserveCost = costFor(DEFAULT_BACKEND_ID.image, "image", {
+					count: 1,
 				});
+				const stillChargeId = nanoid();
+				try {
+					await meteredReserve(session.user.id, stillReserveCost, {
+						refType: STUDIO_REF_TYPE,
+						refId: stillChargeId,
+						idempotencyKey: `${stillChargeId}:reserve`,
+						metadata: { kind: "persona-still", personaId },
+					});
+				} catch (err) {
+					if (err instanceof InsufficientCredits) {
+						return insufficientCreditsResponse(err);
+					}
+					throw err;
+				}
+
+				let still: Awaited<ReturnType<typeof renderPersonaStill>>;
+				try {
+					still = await renderPersonaStill({
+						anchorImageUrl: persona.anchorImageUrl,
+						refImageUrls,
+						scenePrompt: prompt,
+						descriptor: persona.descriptor,
+						size: STILL_SIZE_BY_ORIENTATION[orientation],
+					});
+				} catch (err) {
+					await meteredRelease(session.user.id, stillReserveCost, {
+						refType: STUDIO_REF_TYPE,
+						refId: stillChargeId,
+						idempotencyKey: `${stillChargeId}:release`,
+					}).catch(() => {});
+					throw err;
+				}
+
+				const stillActualCost = costFor(still.backendId, "image", {
+					count: 1,
+				});
+				if (stillActualCost > 0) {
+					await meteredSettle(session.user.id, stillActualCost, {
+						refType: STUDIO_REF_TYPE,
+						refId: stillChargeId,
+						idempotencyKey: `${stillChargeId}:settle`,
+						metadata: { backendId: still.backendId, kind: "persona-still" },
+					});
+				}
+				if (stillReserveCost > stillActualCost) {
+					await meteredRelease(
+						session.user.id,
+						stillReserveCost - stillActualCost,
+						{
+							refType: STUDIO_REF_TYPE,
+							refId: stillChargeId,
+							idempotencyKey: `${stillChargeId}:release-diff`,
+						},
+					).catch(() => {});
+				}
+
 				finalReferenceImageUrl = still.imageUrl;
 			}
 		}
@@ -257,17 +318,21 @@ export async function POST(req: Request) {
 		// computed SERVER-SIDE from the routed backend + clip length; the client
 		// never supplies a price. Hold it against the account (402 if the user
 		// can't afford it) so we never bill a provider we can't cover. Keyed by
-		// setId so the async completion path (generate/[jobId]) settles/releases
-		// this exact hold and a retried callback can't double-charge.
+		// the take id — a PER-JOB charge id minted before dispatch — so the async
+		// completion path (generate/[jobId]) settles/releases exactly THIS job's
+		// hold. (Keying by setId was wrong: promote inserts its 1080p take into
+		// the same set, so polling the promoted job could settle/release the
+		// draft's hold.)
+		const takeId = nanoid();
 		const creditCost = costFor(route.backend.id, "video", {
 			seconds: duration,
 		});
 		try {
 			await meteredReserve(session.user.id, creditCost, {
 				refType: STUDIO_REF_TYPE,
-				refId: setId,
-				idempotencyKey: `${setId}:reserve`,
-				metadata: { backendId: route.backend.id, seconds: duration },
+				refId: takeId,
+				idempotencyKey: `${takeId}:reserve`,
+				metadata: { backendId: route.backend.id, seconds: duration, setId },
 			});
 		} catch (err) {
 			if (err instanceof InsufficientCredits) {
@@ -277,15 +342,13 @@ export async function POST(req: Request) {
 		}
 
 		let result: Awaited<ReturnType<typeof route.backend.submit>>;
-		let takeId: string;
 		try {
 			result = await route.backend.submit(normalized.request);
 			if (result.status === "failed") {
 				throw new Error(result.error ?? "Generation failed");
 			}
 
-			// Persist the take
-			takeId = nanoid();
+			// Persist the take (its id doubles as the credit-hold charge id)
 			await db.insert(takes).values({
 				id: takeId,
 				setId,
@@ -301,8 +364,8 @@ export async function POST(req: Request) {
 			if (result.status === "completed" && creditCost > 0) {
 				await meteredSettle(session.user.id, creditCost, {
 					refType: STUDIO_REF_TYPE,
-					refId: setId,
-					idempotencyKey: `${setId}:settle`,
+					refId: takeId,
+					idempotencyKey: `${takeId}:settle`,
 					metadata: { backendId: route.backend.id },
 				});
 			}
@@ -310,8 +373,8 @@ export async function POST(req: Request) {
 			// Never charge for a failed dispatch/persist — refund the hold.
 			await meteredRelease(session.user.id, creditCost, {
 				refType: STUDIO_REF_TYPE,
-				refId: setId,
-				idempotencyKey: `${setId}:release`,
+				refId: takeId,
+				idempotencyKey: `${takeId}:release`,
 			}).catch(() => {});
 			throw err;
 		}
