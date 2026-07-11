@@ -204,3 +204,96 @@ Referenced from this project (a curated map of open-source video tooling):
 - `apps/web/src/lib/captions/caption-presets.ts` — the caption-preset taxonomy
   and active-word configuration shape were informed by vanta's caption-template
   catalog. No source copied verbatim.
+
+---
+
+## gl-transitions/gl-transitions — MIT
+
+Copyright (c) 2017-present gl-transitions contributors.
+Source: https://github.com/gl-transitions/gl-transitions
+
+```
+MIT License
+
+Copyright (c) 2017-present gl-transitions contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+Each transition shader is additionally MIT-licensed by its individual author,
+as declared in the header comment of each file (preserved in our vendored
+copies).
+
+Files vendored from this project's `transitions/` directory into
+`apps/web/src/lib/transitions/shaders/gl/` (verbatim copies with author/license
+headers preserved; adapted onto our WebGL renderer contract at registration
+time by `apps/web/src/lib/transitions/gl-transitions-adapter.ts`; two files —
+`circle-crop.frag.glsl` and `pixelize.frag.glsl` — carry a marked minimal edit
+moving progress-dependent global initializers into the transition function):
+
+| Vendored file (`shaders/gl/`) | Upstream shader | Author |
+|---|---|---|
+| `angular.frag.glsl` | `angular.glsl` | Fernando Kuteken |
+| `bounce.frag.glsl` | `Bounce.glsl` | Adrian Purser |
+| `burn.frag.glsl` | `burn.glsl` | gre |
+| `butterfly-wave.frag.glsl` | `ButterflyWaveScrawler.glsl` | mandubian |
+| `circle-crop.frag.glsl` | `CircleCrop.glsl` | fkuteken |
+| `circle-open.frag.glsl` | `circleopen.glsl` | gre |
+| `circle.frag.glsl` | `circle.glsl` | Fernando Kuteken |
+| `color-phase.frag.glsl` | `colorphase.glsl` | gre |
+| `cross-warp.frag.glsl` | `crosswarp.glsl` | Eke Péter |
+| `cross-zoom.frag.glsl` | `CrossZoom.glsl` | rectalogic |
+| `crosshatch.frag.glsl` | `crosshatch.glsl` | pthrasher |
+| `cube.frag.glsl` | `cube.glsl` | gre |
+| `directional-warp.frag.glsl` | `directionalwarp.glsl` | pschroen |
+| `directional-wipe.frag.glsl` | `directionalwipe.glsl` | gre |
+| `doom-screen.frag.glsl` | `DoomScreenTransition.glsl` | Zeh Fernando |
+| `doorway.frag.glsl` | `doorway.glsl` | gre |
+| `dreamy-zoom.frag.glsl` | `DreamyZoom.glsl` | Zeh Fernando |
+| `dreamy.frag.glsl` | `Dreamy.glsl` | mikolalysenko |
+| `fade-color.frag.glsl` | `fadecolor.glsl` | gre |
+| `fade-grayscale.frag.glsl` | `fadegrayscale.glsl` | gre |
+| `fly-eye.frag.glsl` | `flyeye.glsl` | gre |
+| `glitch-displace.frag.glsl` | `GlitchDisplace.glsl` | Matt DesLauriers |
+| `glitch-memories.frag.glsl` | `GlitchMemories.glsl` | Gunnar Roth |
+| `grid-flip.frag.glsl` | `GridFlip.glsl` | TimDonselaar |
+| `heart.frag.glsl` | `heart.glsl` | gre |
+| `hexagonalize.frag.glsl` | `hexagonalize.glsl` | Fernando Kuteken |
+| `kaleidoscope.frag.glsl` | `kaleidoscope.glsl` | nwoeanhinnogaehr |
+| `linear-blur.frag.glsl` | `LinearBlur.glsl` | gre |
+| `mosaic.frag.glsl` | `Mosaic.glsl` | Xaychru |
+| `perlin.frag.glsl` | `perlin.glsl` | Rich Harris |
+| `pinwheel.frag.glsl` | `pinwheel.glsl` | Mr Speaker |
+| `pixelize.frag.glsl` | `pixelize.glsl` | gre |
+| `polka-dots-curtain.frag.glsl` | `PolkaDotsCurtain.glsl` | bobylito |
+| `radial.frag.glsl` | `Radial.glsl` | Xaychru |
+| `random-squares.frag.glsl` | `randomsquares.glsl` | gre |
+| `ripple.frag.glsl` | `ripple.glsl` | gre |
+| `rotate-scale-vanish.frag.glsl` | `RotateScaleVanish.glsl` | Mark Craig |
+| `simple-zoom.frag.glsl` | `SimpleZoom.glsl` | 0gust1 |
+| `squares-wire.frag.glsl` | `squareswire.glsl` | gre |
+| `swap.frag.glsl` | `swap.glsl` | gre |
+| `swirl.frag.glsl` | `Swirl.glsl` | Sergey Kosarevsky |
+| `undulating-burn-out.frag.glsl` | `undulatingBurnOut.glsl` | pthrasher |
+| `water-drop.frag.glsl` | `WaterDrop.glsl` | Paweł Płóciennik |
+| `wind.frag.glsl` | `wind.glsl` | gre |
+| `window-blinds.frag.glsl` | `windowblinds.glsl` | Fabien Benetou |
+| `window-slice.frag.glsl` | `windowslice.glsl` | gre |
+| `wipe-down.frag.glsl` | `wipeDown.glsl` | Jake Nelson |
+| `wipe-up.frag.glsl` | `wipeUp.glsl` | Jake Nelson |
