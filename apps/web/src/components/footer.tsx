@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
+import byornMark from "@/assets/brand/byorn-mark.png";
 
 const footerLinks = {
 	product: [
@@ -105,18 +106,20 @@ export function Footer() {
 }
 
 /**
- * Byorn brand mark. Renders the iridescent film-reel "b" as a rounded app-tile.
- * The source art is on solid black, so the rounded clip reads as an intentional
- * icon tile on both light and dark surfaces.
+ * Byorn brand mark — the transparent white bear face.
+ *
+ * Imported statically (not a /public string src) so Next serves it from a
+ * content-hashed URL. When the art changes, the URL changes, so browsers and
+ * Next's image optimizer can never serve a stale cached logo.
  */
 export function ByornLogo({ size = 26 }: { size?: number }) {
 	return (
 		<Image
-			src="/byorn-mark-128.png"
+			src={byornMark}
 			alt="Byorn"
 			width={size}
 			height={size}
-			className="shrink-0 rounded-lg"
+			className="shrink-0"
 			style={{ width: size, height: size }}
 		/>
 	);
