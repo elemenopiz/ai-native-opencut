@@ -84,3 +84,53 @@ describe("Pexels search — per_page/page NaN guard", () => {
 		expect(res.status).toBe(400);
 	});
 });
+
+// NOTE: the route is per-IP rate limited (images:search, 10/min). The guard
+// tests above share the `ip:anonymous` key (no x-forwarded-for) and stay well
+// under the burst cap; the tests below pin distinct IPs to avoid crosstalk.
+describe("Pexels search — anonymous abuse guards", () => {
+	function callFromIp(ip: string, qs = "q=cats") {
+		return GET({
+			url: `http://localhost/api/images/search?${qs}`,
+			headers: new Headers({
+				"x-pexels-api-key": "test-key",
+				"x-forwarded-for": ip,
+			}),
+		} as unknown as Parameters<typeof GET>[0]);
+	}
+
+	it("429s an IP that exceeds the per-minute burst cap", async () => {
+		mockFetch();
+		const ip = "203.0.113.9";
+		for (let i = 0; i < 10; i++) {
+			const res = await callFromIp(ip);
+			expect(res.status).toBe(200);
+		}
+		const res = await callFromIp(ip);
+		expect(res.status).toBe(429);
+	});
+
+	it("keeps other IPs unaffected when one IP is limited", async () => {
+		mockFetch();
+		const res = await callFromIp("203.0.113.77");
+		expect(res.status).toBe(200);
+	});
+
+	it("504s when the upstream fetch times out instead of hanging", async () => {
+		globalThis.fetch = (async () => {
+			throw new DOMException("The operation timed out.", "TimeoutError");
+		}) as unknown as typeof fetch;
+		const res = await callFromIp("203.0.113.101");
+		expect(res.status).toBe(504);
+		const body = (await res.json()) as { error: string };
+		expect(body.error).toContain("timed out");
+	});
+
+	it("502s when the upstream is unreachable (non-timeout network error)", async () => {
+		globalThis.fetch = (async () => {
+			throw new TypeError("fetch failed");
+		}) as unknown as typeof fetch;
+		const res = await callFromIp("203.0.113.102");
+		expect(res.status).toBe(502);
+	});
+});

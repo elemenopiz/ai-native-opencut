@@ -10,16 +10,22 @@ import {
 import { auth } from "@/lib/auth/server";
 import { headers } from "next/headers";
 import { eq } from "drizzle-orm";
+import { enforceRateLimit } from "@/lib/rate-limit";
+
+/** Max entities per push array — matches the commits route's batch clamp. */
+const MAX_PUSH_BATCH = 200;
+/** Max total request body (batch of snapshots), pre-checked via content-length. */
+const MAX_BODY_BYTES = 32 * 1024 * 1024;
 
 const syncRequestSchema = z.object({
 	/** Commit IDs the client already has */
 	knownCommitIds: z.array(z.string()),
 	/** New commits to push to server */
-	pushCommits: z.array(z.unknown()).optional(),
+	pushCommits: z.array(z.unknown()).max(MAX_PUSH_BATCH).optional(),
 	/** Branch updates to push */
-	pushBranches: z.array(z.unknown()).optional(),
+	pushBranches: z.array(z.unknown()).max(MAX_PUSH_BATCH).optional(),
 	/** Tag updates to push */
-	pushTags: z.array(z.unknown()).optional(),
+	pushTags: z.array(z.unknown()).max(MAX_PUSH_BATCH).optional(),
 });
 
 /**
@@ -34,6 +40,27 @@ export async function POST(
 		const session = await auth.api.getSession({ headers: await headers() });
 		if (!session?.user) {
 			return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+		}
+
+		// Throttle syncs per account before any body parsing or repo lookups.
+		const limited = await enforceRateLimit({
+			name: "vc:sync",
+			request,
+			userId: session.user.id,
+		});
+		if (limited) return limited;
+
+		// Cheap reject of oversized bodies before json() buffers them.
+		const contentLength = Number(request.headers.get("content-length"));
+		if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
+			return NextResponse.json(
+				{
+					error: "Request body too large",
+					message: `Sync requests are capped at ${MAX_BODY_BYTES / (1024 * 1024)} MB — push in smaller batches.`,
+					maxBytes: MAX_BODY_BYTES,
+				},
+				{ status: 413 },
+			);
 		}
 
 		const { repoId } = await params;

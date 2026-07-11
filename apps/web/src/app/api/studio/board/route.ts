@@ -22,32 +22,32 @@ export async function GET() {
 			return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 		}
 
-		const items = await db
-			.select()
+		// One query for the whole board: left-join the pinned take (+ its parent
+		// set) and the pinned image still, instead of 1-2 lookups PER item (the
+		// old N+1 fanned out under Promise.all and scaled with board size).
+		const rows = await db
+			.select({
+				item: boardItems,
+				take: takes,
+				set: generationSets,
+				image: imageStills,
+			})
 			.from(boardItems)
+			.leftJoin(takes, eq(boardItems.takeId, takes.id))
+			.leftJoin(generationSets, eq(takes.setId, generationSets.id))
+			.leftJoin(imageStills, eq(boardItems.imageStillId, imageStills.id))
 			.where(eq(boardItems.ownerId, session.user.id))
 			.orderBy(boardItems.position);
 
-		const enriched = await Promise.all(
-			items.map(async (item) => {
-				if (item.kind === "image" && item.imageStillId) {
-					const image = await db.query.imageStills.findFirst({
-						where: eq(imageStills.id, item.imageStillId),
-					});
-					return { ...item, image, take: null, set: null };
-				}
-
-				const take = item.takeId
-					? await db.query.takes.findFirst({ where: eq(takes.id, item.takeId) })
-					: null;
-				const set = take
-					? await db.query.generationSets.findFirst({
-							where: eq(generationSets.id, take.setId),
-						})
-					: null;
-				return { ...item, take, set, image: null };
-			}),
-		);
+		// Same response shape as the per-item lookups: an image item carries
+		// `image` (take/set null); everything else carries `take`+`set` (image
+		// null), with `set` only present when the take resolved.
+		const enriched = rows.map(({ item, take, set, image }) => {
+			if (item.kind === "image" && item.imageStillId) {
+				return { ...item, image, take: null, set: null };
+			}
+			return { ...item, take, set: take ? set : null, image: null };
+		});
 
 		return NextResponse.json({ items: enriched });
 	} catch (err) {
