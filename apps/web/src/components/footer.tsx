@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 
 const footerLinks = {
 	product: [
@@ -7,9 +8,7 @@ const footerLinks = {
 		{ label: "Roadmap", href: "/roadmap" },
 		{ label: "Changelog", href: "/changelog" },
 	],
-	resources: [
-		{ label: "Contributors", href: "/contributors" },
-	],
+	resources: [{ label: "Contributors", href: "/contributors" }],
 	legal: [
 		{ label: "Privacy", href: "/privacy" },
 		{ label: "Terms of use", href: "/terms" },
@@ -106,16 +105,18 @@ export function Footer() {
 }
 
 /**
- * Brand mark placeholder. The real logo is intentionally removed for now — this
- * renders a neutral rounded square sized to match the old mark so layouts stay
- * intact. Swap the inner content for an <Image> when the final logo is ready.
+ * Byorn brand mark. Renders the iridescent film-reel "b" as a rounded app-tile.
+ * The source art is on solid black, so the rounded clip reads as an intentional
+ * icon tile on both light and dark surfaces.
  */
 export function ByornLogo({ size = 26 }: { size?: number }) {
 	return (
-		<span
-			aria-label="Byorn"
-			role="img"
-			className="shrink-0 rounded-lg border border-dashed border-border bg-muted/50"
+		<Image
+			src="/byorn-mark-128.png"
+			alt="Byorn"
+			width={size}
+			height={size}
+			className="shrink-0 rounded-lg"
 			style={{ width: size, height: size }}
 		/>
 	);
