@@ -13,6 +13,7 @@ import { useEmbeddingIndexer } from "@/hooks/use-embedding-indexer";
 import { useStudioHandoff } from "@/hooks/use-studio-handoff";
 import { useMcpBridge } from "@/hooks/use-mcp-bridge";
 import { prefetchFontAtlas } from "@/lib/fonts/google-fonts";
+import { attachLocalAISchedulerToEditor } from "@/lib/local-ai/scheduler";
 import { hydrateDirectorStateFromBible } from "@/lib/director/project-bible";
 import { useTranscriptStore } from "@/stores/transcript-store";
 
@@ -152,6 +153,11 @@ function EditorRuntimeBindings({ projectId }: { projectId: string }) {
 		window.addEventListener("beforeunload", handleBeforeUnload);
 		return () => window.removeEventListener("beforeunload", handleBeforeUnload);
 	}, [editor]);
+
+	// Local AI defers to the editor: gate in-browser inference (background
+	// CLIP indexing) on playback/scrub/export being idle. attach() returns
+	// the detach function, which doubles as the effect cleanup.
+	useEffect(() => attachLocalAISchedulerToEditor(editor), [editor]);
 
 	useEditorActions();
 	useKeybindingsListener();

@@ -15,6 +15,7 @@ import {
 	TRANSCRIPTION_MODELS,
 } from "@/constants/transcription-constants";
 import { type LocalAIDevice, pickDevice } from "@/lib/local-ai/device";
+import { WorkerSlot } from "@/lib/local-ai/worker-slot";
 import type {
 	TranscriptionResult,
 	TranscriptionSegment,
@@ -166,22 +167,27 @@ function fallbackDraft(text: string): DraftSegment[] {
 	return [{ text: clean, start: 0, end: 0, words: [] }];
 }
 
-// Keep one warm worker for the session so re-transcribes skip model reload.
-let worker: Worker | null = null;
-function getWorker(): Worker {
-	if (!worker) {
-		worker = new Worker(new URL("./whisper.worker.ts", import.meta.url), {
+// Warm-worker slot: keeps one worker so re-transcribes skip model reload, and
+// idle-unloads it after IDLE_UNLOAD_MS so Whisper's model memory is released
+// once the user is done transcribing — the next use recreates the worker
+// exactly like first use (weights reload from the browser Cache API).
+const workerSlot = new WorkerSlot({
+	createWorker: () =>
+		new Worker(new URL("./whisper.worker.ts", import.meta.url), {
 			type: "module",
-		});
-	}
-	return worker;
-}
+		}),
+});
 
 /**
  * Transcribe a media File entirely on-device. Resolves to the same
  * `TranscriptionResult` shape as the server route (with word timings and an
  * `engine` marker). Throws on decode/model/runtime failure so callers can fall
  * back to a server engine when one is available.
+ *
+ * Deliberately NOT gated on the editor-priority scheduler (unlike LocalClip):
+ * transcription is an explicit user action with a visible progress UI — the
+ * user is actively waiting on it — and it's a single-shot request per file,
+ * so a dispatch-time gate could only delay the start, never yield mid-run.
  */
 export async function transcribeLocally(
 	file: File,
@@ -195,9 +201,57 @@ export async function transcribeLocally(
 	const durationSec = audio.length / SAMPLE_RATE;
 	options.onProgress?.({ stage: "loading-model", progress: 0 });
 
-	const activeWorker = getWorker();
+	// Hold the warm worker for the duration of the transcribe; releasing when
+	// it settles starts the idle-unload countdown (see WorkerSlot).
+	const activeWorker = workerSlot.acquire();
 
-	const output = await new Promise<{ text?: string; chunks?: WhisperChunk[] }>(
+	let output: { text?: string; chunks?: WhisperChunk[] };
+	try {
+		output = await runOnWorker(activeWorker, audio, {
+			modelId,
+			device,
+			language: options.language,
+			onProgress: options.onProgress,
+		});
+	} finally {
+		workerSlot.release();
+	}
+
+	const drafts =
+		output.chunks && output.chunks.length > 0
+			? chunksToDraftSegments(output.chunks)
+			: fallbackDraft(output.text ?? "");
+
+	const segments: TranscriptionSegment[] = drafts.map((draft, index) => ({
+		id: index,
+		text: draft.text,
+		start: draft.start,
+		end: draft.end,
+		words: draft.words,
+	}));
+
+	options.onProgress?.({ stage: "transcribing", progress: 1 });
+
+	return {
+		segments,
+		language: options.language ?? "en",
+		duration: durationSec,
+		engine: "whisper-local",
+	};
+}
+
+/** Post one transcription request and await its result on the given worker. */
+function runOnWorker(
+	activeWorker: Worker,
+	audio: Float32Array,
+	options: {
+		modelId: string;
+		device: LocalAIDevice;
+		language?: string;
+		onProgress?: LocalWhisperOptions["onProgress"];
+	},
+): Promise<{ text?: string; chunks?: WhisperChunk[] }> {
+	return new Promise<{ text?: string; chunks?: WhisperChunk[] }>(
 		(resolve, reject) => {
 			const onMessage = (event: MessageEvent) => {
 				const data = event.data as {
@@ -229,8 +283,11 @@ export async function transcribeLocally(
 					reject(new Error(data.message || "on-device transcription failed"));
 				}
 			};
+			// An ErrorEvent means the worker script itself died — recycle it so
+			// the next transcribe gets a live worker instead of a dead warm one.
 			const onError = (event: ErrorEvent) => {
 				cleanup();
+				workerSlot.recycle(activeWorker);
 				reject(new Error(event.message || "whisper worker crashed"));
 			};
 			function cleanup() {
@@ -242,8 +299,8 @@ export async function transcribeLocally(
 			activeWorker.addEventListener("error", onError);
 			activeWorker.postMessage(
 				{
-					modelId,
-					device,
+					modelId: options.modelId,
+					device: options.device,
 					audio,
 					language: options.language,
 					returnTimestamps: true,
@@ -255,26 +312,4 @@ export async function transcribeLocally(
 			);
 		},
 	);
-
-	const drafts =
-		output.chunks && output.chunks.length > 0
-			? chunksToDraftSegments(output.chunks)
-			: fallbackDraft(output.text ?? "");
-
-	const segments: TranscriptionSegment[] = drafts.map((draft, index) => ({
-		id: index,
-		text: draft.text,
-		start: draft.start,
-		end: draft.end,
-		words: draft.words,
-	}));
-
-	options.onProgress?.({ stage: "transcribing", progress: 1 });
-
-	return {
-		segments,
-		language: options.language ?? "en",
-		duration: durationSec,
-		engine: "whisper-local",
-	};
 }

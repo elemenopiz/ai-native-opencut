@@ -8,10 +8,16 @@
  *
  * Requests are serialized: the worker runs one embed at a time, so callers
  * queue behind each other on a single warm worker instead of racing its
- * message channel.
+ * message channel. Each queued request additionally waits for the editor to
+ * be idle (see scheduler.ts) so inference never competes with playback or
+ * export for the GPU, and the warm worker is unloaded after an idle stretch
+ * (see worker-slot.ts) so model memory is released.
  */
 
 import { pickDevice } from "./device";
+import { type LocalAIScheduler, localAIScheduler } from "./scheduler";
+import type { Timers } from "./timers";
+import { WorkerSlot } from "./worker-slot";
 
 export const LOCAL_CLIP_MODEL_ID = "Xenova/clip-vit-base-patch32";
 
@@ -37,20 +43,35 @@ type ClipWorkPayload =
 	| { kind: "images"; payload: { blobs: Blob[] } };
 
 export class LocalClip {
-	private worker: Worker | null = null;
 	/** Tail of the request chain — each new request awaits the previous one. */
 	private queue: Promise<unknown> = Promise.resolve();
-	private readonly createWorker: () => Worker;
+	/** Warm-worker lifecycle (creation, crash recycle, idle unload). */
+	private readonly slot: WorkerSlot;
+	/** Editor-priority gate awaited before dispatching each queued request. */
+	private readonly scheduler: Pick<LocalAIScheduler, "waitForIdle">;
 
-	constructor(opts: { createWorker?: () => Worker } = {}) {
-		// Injectable factory so tests can drive the client with a fake worker;
-		// the default is the same bundler-visible URL pattern local-whisper uses.
-		this.createWorker =
-			opts.createWorker ??
-			(() =>
-				new Worker(new URL("./clip.worker.ts", import.meta.url), {
-					type: "module",
-				}));
+	constructor(
+		opts: {
+			createWorker?: () => Worker;
+			scheduler?: Pick<LocalAIScheduler, "waitForIdle">;
+			idleUnloadMs?: number;
+			timers?: Timers;
+		} = {},
+	) {
+		// Injectable factory/scheduler/timers so tests can drive the client with
+		// fakes; the worker default is the same bundler-visible URL pattern
+		// local-whisper uses.
+		this.slot = new WorkerSlot({
+			createWorker:
+				opts.createWorker ??
+				(() =>
+					new Worker(new URL("./clip.worker.ts", import.meta.url), {
+						type: "module",
+					})),
+			idleUnloadMs: opts.idleUnloadMs,
+			timers: opts.timers,
+		});
+		this.scheduler = opts.scheduler ?? localAIScheduler;
 	}
 
 	/** Embed texts into L2-normalized CLIP vectors (one per input, in order). */
@@ -70,7 +91,14 @@ export class LocalClip {
 		work: ClipWorkPayload,
 		onProgress?: OnProgress,
 	): Promise<Float32Array[]> {
-		const run = this.queue.then(() => this.request(work, onProgress));
+		const run = this.queue.then(async () => {
+			// The editor owns the GPU: hold each queued embed until playback/
+			// scrubbing/export goes idle. The gate sits between serialized
+			// requests, so an in-flight embed is never aborted — the editor
+			// going busy mid-request just holds whatever is queued behind it.
+			await this.scheduler.waitForIdle();
+			return this.request(work, onProgress);
+		});
 		// Keep the chain alive after failures so the next request still runs.
 		this.queue = run.then(
 			() => undefined,
@@ -79,32 +107,25 @@ export class LocalClip {
 		return run;
 	}
 
-	// Keep one warm worker for the session so re-embeds skip model reload.
-	private getWorker(): Worker {
-		if (!this.worker) {
-			this.worker = this.createWorker();
-		}
-		return this.worker;
-	}
-
-	/**
-	 * Terminate and drop a crashed worker so the next request spawns a fresh
-	 * one. Without this, every request after a worker-script death would post
-	 * into a dead worker and hang forever.
-	 */
-	private recycleWorker(crashed: Worker): void {
-		crashed.terminate();
-		if (this.worker === crashed) {
-			this.worker = null;
-		}
-	}
-
-	private request(
+	private async request(
 		work: ClipWorkPayload,
 		onProgress?: OnProgress,
 	): Promise<Float32Array[]> {
-		const activeWorker = this.getWorker();
+		// Hold the warm worker for the duration of the request; releasing when
+		// it settles starts the idle-unload countdown (see WorkerSlot).
+		const activeWorker = this.slot.acquire();
+		try {
+			return await this.dispatch(activeWorker, work, onProgress);
+		} finally {
+			this.slot.release();
+		}
+	}
 
+	private dispatch(
+		activeWorker: Worker,
+		work: ClipWorkPayload,
+		onProgress?: OnProgress,
+	): Promise<Float32Array[]> {
 		return new Promise<Float32Array[]>((resolve, reject) => {
 			const onMessage = (event: MessageEvent) => {
 				const data = event.data as {
@@ -139,13 +160,13 @@ export class LocalClip {
 			// the next request gets a live worker instead of hanging.
 			const onError = (event: ErrorEvent) => {
 				cleanup();
-				this.recycleWorker(activeWorker);
+				this.slot.recycle(activeWorker);
 				reject(new Error(event.message || "clip worker crashed"));
 			};
 			// Structured-clone failure: the channel is unreliable, treat like a crash.
 			const onMessageError = () => {
 				cleanup();
-				this.recycleWorker(activeWorker);
+				this.slot.recycle(activeWorker);
 				reject(new Error("clip worker message could not be deserialized"));
 			};
 			function cleanup() {

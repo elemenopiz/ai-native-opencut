@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { LOCAL_CLIP_MODEL_ID, LocalClip } from "./local-clip";
+import { type EditorActivitySource, LocalAIScheduler } from "./scheduler";
+import type { Timers } from "./timers";
 
 /** Message the client posts to the worker. */
 type ClipRequest = {
@@ -199,6 +201,216 @@ describe("LocalClip error handling", () => {
 		const vectors = await clip.embedTexts(["ok"]);
 		expect(workersCreated).toBe(2);
 		expect(Array.from(vectors[0])).toEqual([1]);
+	});
+});
+
+/** Controllable activity source standing in for the editor's play/export state. */
+function fakeActivity(initialBusy: boolean) {
+	let busy = initialBusy;
+	const listeners = new Set<() => void>();
+	const source: EditorActivitySource = {
+		getIsBusy: () => busy,
+		subscribe: (listener) => {
+			listeners.add(listener);
+			return () => listeners.delete(listener);
+		},
+	};
+	return {
+		source,
+		setBusy(next: boolean) {
+			busy = next;
+			for (const fn of [...listeners]) fn();
+		},
+	};
+}
+
+/** Manual timers: nothing fires until the test says so. */
+function fakeTimers() {
+	let nextId = 1;
+	const pending = new Map<number, { fn: () => void; ms: number }>();
+	const timers: Timers = {
+		schedule: (fn, ms) => {
+			const id = nextId++;
+			pending.set(id, { fn, ms });
+			return id;
+		},
+		cancel: (handle) => {
+			pending.delete(handle as number);
+		},
+	};
+	return {
+		timers,
+		pending,
+		fire() {
+			const batch = [...pending.values()];
+			pending.clear();
+			for (const { fn } of batch) fn();
+		},
+	};
+}
+
+/** Let queued microtasks/macrotasks (worker replies, queue chaining) run. */
+const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+describe("LocalClip editor-priority scheduling", () => {
+	it("holds a queued request while the editor is busy and dispatches on idle", async () => {
+		const activity = fakeActivity(true);
+		const scheduler = new LocalAIScheduler();
+		scheduler.attach(activity.source);
+
+		const seen: ClipRequest[] = [];
+		const clip = new LocalClip({
+			scheduler,
+			createWorker: () =>
+				fakeWorker((msg) => {
+					seen.push(msg);
+					return { type: "result", payload: { vectors: [[1]] } };
+				}),
+		});
+
+		let resolved = false;
+		const pending = clip.embedTexts(["held"]).then((v) => {
+			resolved = true;
+			return v;
+		});
+		await settle();
+		// Nothing reached the worker while the editor is busy.
+		expect(seen).toHaveLength(0);
+		expect(resolved).toBe(false);
+
+		activity.setBusy(false);
+		const vectors = await pending;
+		expect(seen).toHaveLength(1);
+		expect(Array.from(vectors[0])).toEqual([1]);
+	});
+
+	it("lets an in-flight request finish when the editor goes busy mid-request, holding the next", async () => {
+		const activity = fakeActivity(false);
+		const scheduler = new LocalAIScheduler();
+		scheduler.attach(activity.source);
+
+		// Worker that only replies when the test says so.
+		const posted: Array<() => void> = [];
+		// biome-ignore lint/complexity/noBannedTypes: test double stores raw listeners.
+		const listeners: Record<string, Function[]> = { message: [], error: [] };
+		const worker = {
+			// biome-ignore lint/complexity/noBannedTypes: test double stores raw listeners.
+			addEventListener: (type: string, fn: Function) =>
+				listeners[type]?.push(fn),
+			// biome-ignore lint/complexity/noBannedTypes: matches addEventListener.
+			removeEventListener: (type: string, fn: Function) => {
+				const index = listeners[type]?.indexOf(fn) ?? -1;
+				if (index !== -1) listeners[type]?.splice(index, 1);
+			},
+			terminate: () => {},
+			postMessage: () => {
+				posted.push(() => {
+					for (const fn of [...listeners.message])
+						fn({ data: { type: "result", payload: { vectors: [[7]] } } });
+				});
+			},
+		} as unknown as Worker;
+
+		const clip = new LocalClip({ scheduler, createWorker: () => worker });
+
+		const first = clip.embedTexts(["in-flight"]);
+		await settle();
+		expect(posted).toHaveLength(1);
+
+		// Editor goes busy while the first request is mid-flight.
+		activity.setBusy(true);
+		const second = clip.embedTexts(["queued"]);
+		await settle();
+
+		// The in-flight request is not aborted: delivering its result resolves it.
+		posted[0]();
+		const firstVectors = await first;
+		expect(Array.from(firstVectors[0])).toEqual([7]);
+
+		// The queued request stays held until the editor idles again.
+		await settle();
+		expect(posted).toHaveLength(1);
+
+		activity.setBusy(false);
+		await settle();
+		expect(posted).toHaveLength(2);
+		posted[1]();
+		await second;
+	});
+
+	it("starvation valve releases a held request after the busy cap", async () => {
+		const clock = fakeTimers();
+		const activity = fakeActivity(true);
+		const scheduler = new LocalAIScheduler({ timers: clock.timers });
+		scheduler.attach(activity.source);
+
+		const clip = new LocalClip({
+			scheduler,
+			createWorker: () =>
+				fakeWorker(() => ({ type: "result", payload: { vectors: [[1]] } })),
+		});
+
+		const pending = clip.embedTexts(["starved"]);
+		await settle();
+
+		// Still busy — but the valve fires and lets the request trickle through.
+		clock.fire();
+		const vectors = await pending;
+		expect(Array.from(vectors[0])).toEqual([1]);
+	});
+});
+
+describe("LocalClip idle unload", () => {
+	function makeClip() {
+		const clock = fakeTimers();
+		let workersCreated = 0;
+		let terminations = 0;
+		const clip = new LocalClip({
+			scheduler: new LocalAIScheduler(),
+			timers: clock.timers,
+			createWorker: () => {
+				workersCreated += 1;
+				return fakeWorker(
+					() => ({ type: "result", payload: { vectors: [[1]] } }),
+					{ onTerminate: () => terminations++ },
+				);
+			},
+		});
+		return {
+			clip,
+			clock,
+			created: () => workersCreated,
+			terminated: () => terminations,
+		};
+	}
+
+	it("terminates the warm worker after the idle timeout; next request recreates it", async () => {
+		const c = makeClip();
+		await c.clip.embedTexts(["warm"]);
+		expect(c.created()).toBe(1);
+		expect(c.clock.pending.size).toBe(1);
+
+		c.clock.fire();
+		expect(c.terminated()).toBe(1);
+
+		// Next request spins up a fresh worker exactly like first use.
+		await c.clip.embedTexts(["cold-start"]);
+		expect(c.created()).toBe(2);
+	});
+
+	it("resets the unload countdown on new requests", async () => {
+		const c = makeClip();
+		await c.clip.embedTexts(["one"]);
+		await c.clip.embedTexts(["two"]);
+
+		// Only the latest countdown is pending; the worker stayed warm across
+		// both requests.
+		expect(c.clock.pending.size).toBe(1);
+		expect(c.created()).toBe(1);
+		expect(c.terminated()).toBe(0);
+
+		c.clock.fire();
+		expect(c.terminated()).toBe(1);
 	});
 });
 
