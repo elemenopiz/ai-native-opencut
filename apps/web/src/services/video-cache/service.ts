@@ -13,9 +13,17 @@ interface VideoSinkData {
 	currentFrame: WrappedCanvas | null;
 	nextFrame: WrappedCanvas | null;
 	lastTime: number;
+	lastAccess: number;
 	prefetching: boolean;
 	prefetchPromise: Promise<void> | null;
+	warmPromise: Promise<void> | null;
 }
+
+/** How far ahead of a clip's start a warm() pre-seek is worth doing. */
+export const WARM_LOOKAHEAD_SECONDS = 1.0;
+
+/** A sink read this recently is considered in active use by a renderer. */
+const ACTIVE_USE_WINDOW_MS = 250;
 
 export class VideoCache {
 	private sinks = new Map<string, VideoSinkData>();
@@ -35,9 +43,24 @@ export class VideoCache {
 		const sinkData = this.sinks.get(mediaId);
 		if (!sinkData) return null;
 
+		sinkData.lastAccess = performance.now();
+
+		// A warm() pre-seek may be repositioning the iterator; wait for it so the
+		// two paths never interleave mutations of the same iterator.
+		if (sinkData.warmPromise) {
+			await sinkData.warmPromise;
+		}
+
 		if (sinkData.nextFrame && sinkData.nextFrame.timestamp <= time) {
 			sinkData.currentFrame = sinkData.nextFrame;
 			sinkData.nextFrame = null;
+			// Keep lastTime tracking the newest frame the consumer holds. Without
+			// this, steady playback served entirely by the prefetch fast path leaves
+			// lastTime frozen at the last seek position; once the playhead is >2s
+			// past it, the sequential iterateToTime window below can never match and
+			// any late prefetch escalates to a full seekToTime (keyframe re-seek +
+			// forward decode) — a deterministic mid-playback freeze.
+			sinkData.lastTime = sinkData.currentFrame.timestamp;
 			this.startPrefetch({ sinkData });
 		}
 
@@ -157,17 +180,12 @@ export class VideoCache {
 
 			if (frame) {
 				sinkData.currentFrame = frame;
+				sinkData.lastTime = frame.timestamp;
 
-				// Aggressively fetch next frame immediately to fill buffer
-				// This matches the mediaplayer example which fetches 2 frames on start
-				try {
-					const { value: next } = await sinkData.iterator.next();
-					if (next) {
-						sinkData.nextFrame = next;
-					}
-				} catch (e) {
-					console.warn("Failed to pre-fetch next frame on seek:", e);
-				}
+				// Fill the one-frame buffer in the background. Awaiting a second
+				// decode here doubled the on-screen stall of every seek that happens
+				// mid-render (the render loop awaits this whole call).
+				this.startPrefetch({ sinkData });
 
 				return frame;
 			}
@@ -176,6 +194,59 @@ export class VideoCache {
 		}
 
 		return null;
+	}
+
+	/**
+	 * Position a clip's decoder at `time` before the playhead gets there, so
+	 * crossing into the clip doesn't pay the keyframe re-seek + forward decode
+	 * on the render path (the render loop awaits getFrameAt, so a cold or
+	 * stale-positioned iterator at a clip boundary froze the preview at the
+	 * same spot on every playthrough). Fire-and-forget; safe to call every
+	 * frame — it no-ops when the sink is already positioned, mid-warm, or in
+	 * active use by another clip of the same media.
+	 */
+	async warm({
+		mediaId,
+		file,
+		time,
+	}: {
+		mediaId: string;
+		file: File;
+		time: number;
+	}): Promise<void> {
+		await this.ensureSink({ mediaId, file });
+
+		const sinkData = this.sinks.get(mediaId);
+		if (!sinkData) return;
+
+		if (sinkData.warmPromise) return;
+
+		// Another clip of the same media is actively rendering from this sink —
+		// repositioning its iterator would glitch that clip.
+		if (performance.now() - sinkData.lastAccess < ACTIVE_USE_WINDOW_MS) return;
+
+		// Already showing the right frame, or close enough that the cheap
+		// sequential iterate path will cover it.
+		if (
+			sinkData.currentFrame &&
+			this.isFrameValid({ frame: sinkData.currentFrame, time })
+		) {
+			return;
+		}
+		if (
+			sinkData.iterator &&
+			sinkData.currentFrame &&
+			time >= sinkData.lastTime &&
+			time < sinkData.lastTime + 2.0
+		) {
+			return;
+		}
+
+		const warmPromise = this.seekToTime({ sinkData, time }).then(() => {
+			sinkData.warmPromise = null;
+		});
+		sinkData.warmPromise = warmPromise;
+		await warmPromise;
 	}
 
 	private startPrefetch({ sinkData }: { sinkData: VideoSinkData }): void {
@@ -275,8 +346,10 @@ export class VideoCache {
 				currentFrame: null,
 				nextFrame: null,
 				lastTime: -1,
+				lastAccess: Number.NEGATIVE_INFINITY,
 				prefetching: false,
 				prefetchPromise: null,
+				warmPromise: null,
 			});
 		} catch (error) {
 			console.error(`Failed to initialize video sink for ${mediaId}:`, error);
