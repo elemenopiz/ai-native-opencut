@@ -4,16 +4,44 @@ import { nanoid } from "nanoid";
 import { db } from "@/lib/db";
 import { arrangements } from "@/lib/db/schema-arrangements";
 import { validateArrangement } from "@/lib/arrangements/validate";
+import { enforceRateLimit } from "@/lib/rate-limit";
+
+/**
+ * Hard cap on the raw request body. `validateArrangement` bounds slot/overlay
+ * counts and string lengths, but a couple of fields (transform, background)
+ * pass through as-is, and `req.json()` would otherwise happily parse an
+ * arbitrarily large body before validation runs. A maxed-out legitimate
+ * arrangement is well under this; anything bigger is abuse.
+ */
+const MAX_BODY_BYTES = 512 * 1024;
 
 /**
  * POST /api/arrangements — publish a media-free arrangement, mint a public id.
- * No login required (matches our no-login-to-try posture). The payload is
+ * No login required (matches our no-login-to-try posture), so it is abuse-safe
+ * instead: per-IP rate limit, hard body-size cap, and the payload is
  * validated + normalized server-side before insert, so a share link can never
  * smuggle media or oversized data through.
  */
 export async function POST(req: Request) {
 	try {
-		const body = await req.json();
+		const limited = await enforceRateLimit({
+			name: "arrangements:publish",
+			request: req,
+		});
+		if (limited) return limited;
+
+		const contentLength = Number(req.headers.get("content-length") ?? 0);
+		if (contentLength > MAX_BODY_BYTES) {
+			return NextResponse.json({ error: "Payload too large" }, { status: 413 });
+		}
+
+		// Re-check the actual size — content-length can lie or be absent.
+		const raw = await req.text();
+		if (raw.length > MAX_BODY_BYTES) {
+			return NextResponse.json({ error: "Payload too large" }, { status: 413 });
+		}
+
+		const body = JSON.parse(raw);
 		const arrangement = validateArrangement(body?.arrangement ?? body);
 
 		const id = nanoid(10);
