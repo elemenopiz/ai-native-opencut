@@ -334,6 +334,14 @@ TDD with fake timers/fake stores. Deferred WASM-runtime-fallback from Task 2 rev
 along here if browser verification surfaced it. Commit:
 `feat(local-ai): editor-priority scheduling + idle model unload`.
 
+**As-built deviations (recorded post-review, both approved):** (1) Whisper is NOT gated on the
+scheduler — transcription is an explicit user action with a visible progress bar (holding it up
+to the starvation cap behind a stuck UI is worse than the contention it avoids); Whisper does get
+idle unload + crash recycle via the shared WorkerSlot. (2) Follow-up on backlog (Task 13): the
+Whisper worker protocol has no request correlation, so overlapping transcribes on the shared
+worker cross-resolve — serialize like CLIP or add request IDs before any UI allows concurrent
+transcription.
+
 ---
 
 ## Phase 2 — Cloud TTS + rehoming + feature gates
