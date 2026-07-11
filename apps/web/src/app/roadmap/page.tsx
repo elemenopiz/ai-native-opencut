@@ -59,7 +59,7 @@ const roadmapItems: RoadmapItem[] = [
 	{
 		title: "Audio separation & volume control",
 		description:
-			"Auto-separate audio from video into its own track. Per-clip volume control with draggable dB line on audio elements. Volume changes apply to playback in real-time via Web Audio GainNode. Split audio clips to set different volumes per section.",
+			"Detach a video clip's audio onto its own track, or re-link it back, without losing edits made to the detached copy. Per-clip volume control with draggable dB line on audio elements. Volume changes apply to playback in real-time via Web Audio GainNode. Split audio clips to set different volumes per section.",
 		status: {
 			text: "Completed",
 			type: "complete",

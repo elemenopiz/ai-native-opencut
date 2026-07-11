@@ -8,7 +8,7 @@ import type { ElementAnimations } from "@/types/animation";
 import type { MediaAsset } from "@/types/assets";
 import { canElementHaveAudio } from "@/lib/timeline/element-utils";
 import { canTracktHaveAudio } from "@/lib/timeline";
-import { mediaSupportsAudio } from "@/lib/media/media-utils";
+import { doesElementHaveEnabledAudio } from "@/lib/timeline/audio-separation";
 import { getNumberChannelForPath } from "@/lib/animation/number-channel";
 import {
 	shouldTimeStretch,
@@ -174,7 +174,11 @@ export async function collectAudioElements({
 
 			if (element.type === "video") {
 				const mediaAsset = mediaMap.get(element.mediaId);
-				if (!mediaAsset || !mediaSupportsAudio({ media: mediaAsset })) continue;
+				if (
+					!mediaAsset ||
+					!doesElementHaveEnabledAudio({ element, mediaAsset })
+				)
+					continue;
 
 				pendingElements.push(
 					resolveAudioBufferForVideoElement({
@@ -496,7 +500,7 @@ export async function collectAudioMixSources({
 				const mediaAsset = mediaMap.get(element.mediaId);
 				if (!mediaAsset) continue;
 
-				if (mediaSupportsAudio({ media: mediaAsset })) {
+				if (doesElementHaveEnabledAudio({ element, mediaAsset })) {
 					audioMixSources.push(
 						collectMediaAudioSource({ element, mediaAsset }),
 					);
@@ -558,7 +562,7 @@ export async function collectAudioClips({
 				const mediaAsset = mediaMap.get(element.mediaId);
 				if (!mediaAsset) continue;
 
-				if (mediaSupportsAudio({ media: mediaAsset })) {
+				if (doesElementHaveEnabledAudio({ element, mediaAsset })) {
 					clips.push(
 						collectMediaAudioClip({
 							element,

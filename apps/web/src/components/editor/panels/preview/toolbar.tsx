@@ -3,7 +3,8 @@
 import { useEditor } from "@/hooks/use-editor";
 import { usePlaybackTime } from "@/hooks/use-playback-time";
 import { formatTimeCode } from "@/lib/time";
-import { invokeAction } from "@/lib/actions";
+import { invokeAction, type TAction } from "@/lib/actions";
+import { useKeyboardShortcutsHelp } from "@/hooks/use-keyboard-shortcuts-help";
 import { EditableTimecode } from "@/components/editable-timecode";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,6 +34,12 @@ export function PreviewToolbar({
 	const isPlaying = editor.playback.getIsPlaying();
 	const totalDuration = editor.timeline.getTotalDuration();
 	const fps = editor.project.getActive().settings.fps;
+	const { shortcuts } = useKeyboardShortcutsHelp();
+	const playTooltip = withShortcutHint({
+		tooltip: isPlaying ? "Pause" : "Play",
+		shortcuts,
+		action: "toggle-play",
+	});
 
 	return (
 		<div className="grid grid-cols-[1fr_auto_1fr] items-center pb-3 pt-5 px-5">
@@ -56,6 +63,7 @@ export function PreviewToolbar({
 				variant="text"
 				size="icon"
 				onClick={() => invokeAction("toggle-play")}
+				title={playTooltip}
 			>
 				<HugeiconsIcon icon={isPlaying ? PauseIcon : PlayIcon} />
 			</Button>
@@ -85,6 +93,26 @@ export function PreviewToolbar({
 			</div>
 		</div>
 	);
+}
+
+/** Appends a formatted keyboard-shortcut hint to a tooltip, e.g.
+ *  `"Play" -> "Play (Space or K)"`. Falls back to the plain tooltip when the
+ *  action has no shortcut bound. Mirrors the timeline toolbar's helper of the
+ *  same name (components/editor/panels/timeline/timeline-toolbar.tsx). */
+function withShortcutHint({
+	tooltip,
+	shortcuts,
+	action,
+}: {
+	tooltip: string;
+	shortcuts: ReturnType<typeof useKeyboardShortcutsHelp>["shortcuts"];
+	action: TAction;
+}): string {
+	const shortcut = shortcuts.find((s) => s.action === action);
+	if (!shortcut || shortcut.keys.length === 0) {
+		return tooltip;
+	}
+	return `${tooltip} (${shortcut.keys.join(" or ")})`;
 }
 
 // Isolated leaf: subscribes only to the playhead time (usePlaybackTime), so the

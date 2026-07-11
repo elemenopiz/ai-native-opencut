@@ -7,6 +7,10 @@ import { useElementSelection } from "../timeline/element/use-element-selection";
 import { useKeyframeSelection } from "../timeline/element/use-keyframe-selection";
 import { getElementsAtTime } from "@/lib/timeline";
 import { hasMediaId } from "@/lib/timeline/element-utils";
+import {
+	canToggleSourceAudio,
+	isSourceAudioSeparated,
+} from "@/lib/timeline/audio-separation";
 import { useAIStore } from "@/stores/ai-store";
 import { useSearchStore } from "@/stores/search-store";
 import { useAssetsPanelStore } from "@/stores/assets-panel-store";
@@ -335,55 +339,49 @@ export function useEditorActions() {
 			const results = editor.timeline.getElementsWithTracks({
 				elements: selectedElements,
 			});
+			const mediaAssets = editor.media.getAssets();
 
-			const videoElements = results.filter(
-				({ element }) => element.type === "video",
-			);
+			const eligible = results.filter(({ element }) => {
+				if (element.type !== "video") return false;
+				const mediaAsset = mediaAssets.find(
+					(asset) => asset.id === element.mediaId,
+				);
+				return canToggleSourceAudio(element, mediaAsset);
+			});
 
-			if (videoElements.length === 0) {
+			if (eligible.length === 0) {
 				toast.error("Select a video element to separate its audio");
 				return;
 			}
 
-			for (const { track, element } of videoElements) {
+			const supportsTransaction =
+				editor.command && typeof editor.command.beginTransaction === "function";
+			if (supportsTransaction) editor.command.beginTransaction();
+
+			let didExtract = false;
+			let didRecover = false;
+			for (const { track, element } of eligible) {
 				if (element.type !== "video") continue;
-
-				const mediaAsset = editor.media
-					.getAssets()
-					.find((asset) => asset.id === element.mediaId);
-
-				if (!mediaAsset) continue;
-
-				// Mute video element
-				editor.timeline.updateElements({
-					updates: [
-						{
-							trackId: track.id,
-							elementId: element.id,
-							updates: { muted: true },
-						},
-					],
-				});
-
-				// Insert audio element on a new audio track
-				editor.timeline.insertElement({
-					element: {
-						type: "audio",
-						sourceType: "upload",
-						mediaId: element.mediaId,
-						name: `${element.name} (audio)`,
-						startTime: element.startTime,
-						duration: element.duration,
-						trimStart: element.trimStart,
-						trimEnd: element.trimEnd,
-						sourceDuration: element.sourceDuration,
-						volume: 1,
-					},
-					placement: { mode: "auto" },
+				if (isSourceAudioSeparated({ element })) {
+					didRecover = true;
+				} else {
+					didExtract = true;
+				}
+				editor.timeline.toggleSourceAudioSeparation({
+					trackId: track.id,
+					elementId: element.id,
 				});
 			}
 
-			toast.success("Audio separated to new track");
+			if (supportsTransaction) editor.command.commitTransaction();
+
+			if (didExtract && !didRecover) {
+				toast.success("Audio separated to new track");
+			} else if (didRecover && !didExtract) {
+				toast.success("Audio recovered to video");
+			} else {
+				toast.success("Audio separation toggled");
+			}
 		},
 		undefined,
 	);
