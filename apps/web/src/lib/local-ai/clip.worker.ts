@@ -22,6 +22,7 @@ import {
 	env,
 	RawImage,
 } from "@huggingface/transformers";
+import { l2Normalize } from "./vec";
 
 // Weights are pulled from the HF hub (then cached by the browser). We never
 // look for models on the local server, so this stays a pure client feature.
@@ -102,17 +103,6 @@ async function ensureModels(
 	models = { tokenizer, processor, textModel, visionModel };
 	loadedKey = key;
 	return models;
-}
-
-/** L2-normalize each vector so consumers can use plain dot-product cosine. */
-function l2Normalize(vectors: number[][]): number[][] {
-	return vectors.map((vector) => {
-		let sumSquares = 0;
-		for (const value of vector) sumSquares += value * value;
-		const norm = Math.sqrt(sumSquares);
-		if (norm === 0) return vector.slice();
-		return vector.map((value) => value / norm);
-	});
 }
 
 async function embedTexts(bundle: ClipModels, texts: string[]) {

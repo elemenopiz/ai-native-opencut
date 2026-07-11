@@ -87,6 +87,18 @@ export class LocalClip {
 		return this.worker;
 	}
 
+	/**
+	 * Terminate and drop a crashed worker so the next request spawns a fresh
+	 * one. Without this, every request after a worker-script death would post
+	 * into a dead worker and hang forever.
+	 */
+	private recycleWorker(crashed: Worker): void {
+		crashed.terminate();
+		if (this.worker === crashed) {
+			this.worker = null;
+		}
+	}
+
 	private request(
 		work: ClipWorkPayload,
 		onProgress?: OnProgress,
@@ -123,17 +135,28 @@ export class LocalClip {
 					reject(new Error(data.message || "on-device embedding failed"));
 				}
 			};
+			// An ErrorEvent means the worker script itself died — recycle it so
+			// the next request gets a live worker instead of hanging.
 			const onError = (event: ErrorEvent) => {
 				cleanup();
+				this.recycleWorker(activeWorker);
 				reject(new Error(event.message || "clip worker crashed"));
+			};
+			// Structured-clone failure: the channel is unreliable, treat like a crash.
+			const onMessageError = () => {
+				cleanup();
+				this.recycleWorker(activeWorker);
+				reject(new Error("clip worker message could not be deserialized"));
 			};
 			function cleanup() {
 				activeWorker.removeEventListener("message", onMessage);
 				activeWorker.removeEventListener("error", onError);
+				activeWorker.removeEventListener("messageerror", onMessageError);
 			}
 
 			activeWorker.addEventListener("message", onMessage);
 			activeWorker.addEventListener("error", onError);
+			activeWorker.addEventListener("messageerror", onMessageError);
 			onProgress?.({ stage: "loading-model", progress: 0 });
 			activeWorker.postMessage({
 				...work,

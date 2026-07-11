@@ -9,21 +9,28 @@ type ClipRequest = {
 	device: "webgpu" | "wasm";
 };
 
-/** Messages the worker posts back. */
-type ClipResponse =
+/** Messages the worker posts back, plus a test-only crash directive. */
+type FakeReply =
 	| { type: "load-progress"; payload: unknown }
 	| { type: "result"; payload: { vectors: number[][] } }
-	| { type: "error"; message: string };
+	| { type: "error"; message: string }
+	| { type: "crash"; message: string };
 
 /**
  * Minimal fake Worker: each postMessage is answered (async, like a real
- * worker) with the message(s) `reply` produces for that request.
+ * worker) with the message(s) `reply` produces for that request. A "crash"
+ * reply is delivered to `error` listeners, like a real worker-script death.
  */
 function fakeWorker(
-	reply: (msg: ClipRequest) => ClipResponse | ClipResponse[],
+	reply: (msg: ClipRequest) => FakeReply | FakeReply[],
+	hooks: { onTerminate?: () => void } = {},
 ) {
 	// biome-ignore lint/complexity/noBannedTypes: test double stores raw listeners.
-	const listeners: Record<string, Function[]> = { message: [], error: [] };
+	const listeners: Record<string, Function[]> = {
+		message: [],
+		error: [],
+		messageerror: [],
+	};
 	return {
 		// biome-ignore lint/complexity/noBannedTypes: test double stores raw listeners.
 		addEventListener: (type: string, fn: Function) => {
@@ -36,13 +43,19 @@ function fakeWorker(
 			const index = list.indexOf(fn);
 			if (index !== -1) list.splice(index, 1);
 		},
+		terminate: () => hooks.onTerminate?.(),
 		postMessage: (msg: ClipRequest) => {
 			queueMicrotask(() => {
 				const responses = reply(msg);
 				for (const response of Array.isArray(responses)
 					? responses
 					: [responses]) {
-					for (const fn of [...listeners.message]) fn({ data: response });
+					if (response.type === "crash") {
+						for (const fn of [...listeners.error])
+							fn({ message: response.message });
+					} else {
+						for (const fn of [...listeners.message]) fn({ data: response });
+					}
 				}
 			});
 		},
@@ -50,7 +63,7 @@ function fakeWorker(
 }
 
 describe("LocalClip.embedTexts", () => {
-	it("posts a texts request and resolves normalized Float32Array vectors", async () => {
+	it("posts a texts request and resolves the worker's vectors as Float32Arrays", async () => {
 		const seen: ClipRequest[] = [];
 		const clip = new LocalClip({
 			createWorker: () =>
@@ -159,6 +172,32 @@ describe("LocalClip error handling", () => {
 		await expect(clip.embedTexts(["boom"])).rejects.toThrow("model exploded");
 		// The queue must not stay poisoned after a failed request.
 		const vectors = await clip.embedTexts(["ok"]);
+		expect(Array.from(vectors[0])).toEqual([1]);
+	});
+
+	it("recycles a crashed worker so the next request gets a fresh one", async () => {
+		let workersCreated = 0;
+		let terminations = 0;
+		const clip = new LocalClip({
+			createWorker: () => {
+				workersCreated += 1;
+				const dies = workersCreated === 1;
+				return fakeWorker(
+					() =>
+						dies
+							? { type: "crash", message: "script blew up" }
+							: { type: "result", payload: { vectors: [[1]] } },
+					{ onTerminate: () => terminations++ },
+				);
+			},
+		});
+
+		await expect(clip.embedTexts(["boom"])).rejects.toThrow("script blew up");
+		expect(terminations).toBe(1);
+
+		// The dead worker must not be reused — a fresh one serves the retry.
+		const vectors = await clip.embedTexts(["ok"]);
+		expect(workersCreated).toBe(2);
 		expect(Array.from(vectors[0])).toEqual([1]);
 	});
 });
