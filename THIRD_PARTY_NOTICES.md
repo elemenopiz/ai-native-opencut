@@ -444,12 +444,13 @@ Used as an npm dependency (not adapted source):
 
 ## valenbine/OpenCut-ZHS — MIT
 
-Copyright (c) valenbine and the OpenCut contributors. Source:
-https://github.com/valenbine/OpenCut-ZHS (pinned commit
-`2593e12c4ff0e3649000f03fe00202f2ec941522`)
+Copyright 2025-2026 OpenCut. Source: https://github.com/valenbine/OpenCut-ZHS
+Pinned commit: `2593e12c4ff0e3649000f03fe00202f2ec941522`
 
 ```
 MIT License
+
+Copyright 2025-2026 OpenCut
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -470,6 +471,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
+Two features derive from this repository:
+
+**1. Curve-aware keyframe copy/paste.**
 Design reimplemented (not verbatim source) — the fork's channel/handle animation
 model and WASM `MediaTime` differ from our single-`KeyframeEasing`-per-keyframe
 model, so the curve-aware keyframe copy/paste design was ported to our types:
@@ -482,3 +486,17 @@ model, so the curve-aware keyframe copy/paste design was ported to our types:
 
 Mirrors the fork's `src/commands/timeline/clipboard/paste-keyframes.ts` and
 `src/clipboard/handlers/keyframes.ts`.
+
+**2. Subtitle/caption import.**
+Adapted from the source's `src/subtitles/`
+directory into `apps/web/src/lib/subtitles/`:
+
+| Our file (`lib/subtitles/`) | Upstream file (`src/subtitles/`) | Relationship |
+|---|---|---|
+| `srt.ts` | `srt.ts` | Copied verbatim (import paths only) |
+| `ass.ts` | `ass.ts` | Copied verbatim (import paths only) |
+| `parse.ts` | `parse.ts` | Adapted — added the VTT branch and `.ssa` alias |
+| `types.ts` | `types.ts` | Adapted — primitive unions inlined to match Byorn's `TextElement`; times kept in seconds |
+| `build-subtitle-text-element.ts` | `build-subtitle-text-element.ts` | Reimplemented — maps a cue to Byorn's flat `TextElement` (the source did full canvas text measurement via its own layout utilities we do not have) |
+| `insert.ts` | `insert.ts` | Adapted — uses `EditorCore` timeline commands instead of the source's `BatchCommand` composition |
+| `vtt.ts` | — | Original (the source ships SRT + ASS parsers only) |
