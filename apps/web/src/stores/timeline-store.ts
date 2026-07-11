@@ -5,6 +5,7 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import type { KeyframeClipboardItem } from "@/types/animation";
 import type { ClipboardItem } from "@/types/timeline";
 
 interface TimelineStore {
@@ -18,6 +19,14 @@ interface TimelineStore {
 	setClipboard: (
 		clipboard: {
 			items: ClipboardItem[];
+		} | null,
+	) => void;
+	keyframeClipboard: {
+		items: KeyframeClipboardItem[];
+	} | null;
+	setKeyframeClipboard: (
+		clipboard: {
+			items: KeyframeClipboardItem[];
 		} | null,
 	) => void;
 }
@@ -43,6 +52,12 @@ export const useTimelineStore = create<TimelineStore>()(
 
 			setClipboard: (clipboard) => {
 				set({ clipboard });
+			},
+
+			keyframeClipboard: null,
+
+			setKeyframeClipboard: (keyframeClipboard) => {
+				set({ keyframeClipboard });
 			},
 		}),
 		{
