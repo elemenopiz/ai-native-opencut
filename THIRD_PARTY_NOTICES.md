@@ -164,6 +164,24 @@ seconds-based WebGL architecture):
   video clip's source audio onto its own track, adapted from
   `apps/web/src/timeline/audio-separation/index.ts` and
   `commands/timeline/element/toggle-source-audio-separation.ts`.
+- `apps/web/src/lib/effects/masks/freeform-path.ts` — custom pen-tool freeform-mask
+  path geometry (bezier evaluation, local↔canvas transforms, de Casteljau segment
+  insertion, point-in-polygon coverage), close-ported from
+  `apps/web/src/masks/freeform/path.ts`; the pen-tool UI (`hooks/use-pen-mask.ts`,
+  `stores/pen-mask-store.ts`, `components/editor/panels/preview/pen-mask-handles.tsx`)
+  is a looser reimplementation of `masks/freeform/definition.ts` and
+  `commands/timeline/element/masks/{insert-custom-mask-point,delete-custom-mask-points,toggle-mask-inverted}.ts`.
+- `apps/web/src/lib/effects/definitions/text-mask.ts` and
+  `apps/web/src/lib/effects/masks/text-layout.ts` — text-reveal mask (footage visible
+  through glyph shapes), reimplemented from `masks/builtin/definitions/text.ts`,
+  `masks/types.ts` (`TextMaskParams`), and `masks/components/masks-tab.tsx`
+  (`TextMaskFields`).
+- The WebGL raster→texture→feather mask pipeline that backs both of the above
+  (`apps/web/src/lib/effects/definitions/custom-mask.ts` + `custom-mask-feather.frag.glsl`
+  + `custom-mask-composite.frag.glsl`, and the rasterized-mask branch in
+  `services/renderer/nodes/visual-node.ts`) is **original work on our WebGL/Canvas2D
+  base** — it replaces their non-portable Rust/WASM jump-flood-algorithm feather crate
+  with an offscreen-Canvas2D rasterization + separable GLSL Gaussian feather.
 
 ---
 
