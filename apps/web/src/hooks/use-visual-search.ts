@@ -11,13 +11,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useEditor } from "@/hooks/use-editor";
-import { embeddings, filterToCurrentModel } from "@/lib/local-ai/embeddings";
-import {
-	getAllEmbeddings,
-	getAllStatuses,
-	getIndexedCount,
-} from "@/services/search/embedding-store";
-import type { MediaEmbedding, SearchHit } from "@/lib/search/embedding-types";
+import { embeddings } from "@/lib/local-ai/embeddings";
+import { createSearchIndexCache } from "@/lib/search/search-index-cache";
+import type { SearchHit } from "@/lib/search/embedding-types";
 
 export interface VisualSearchState {
 	hits: SearchHit[];
@@ -56,12 +52,10 @@ export function useVisualSearch() {
 		Record<string, { phase: string; progress: number }>
 	>({});
 	const [hasIndex, setHasIndex] = useState(false);
-	const embeddingsRef = useRef<MediaEmbedding[]>([]);
-	// Raw (unfiltered) store count at the last refresh. The drift check in
-	// search/findSimilar must compare against this, not the filtered cache
-	// length — during the re-index window stale-model records inflate the live
-	// count and a filtered-length comparison would refresh on every keystroke.
-	const indexedTotalRef = useRef(0);
+	// React-free vector cache + staleness signal (see search-index-cache.ts for
+	// why staleness keys off indexed STATUSES, not the store count — the
+	// migration re-index rewrites records in place without changing the count).
+	const [cache] = useState(createSearchIndexCache);
 	const lastQueryRef = useRef<string>("");
 	// Monotonic token so a slower search/findSimilar response can't overwrite the
 	// results of a newer one issued after it.
@@ -69,19 +63,11 @@ export function useVisualSearch() {
 
 	/** Refresh the cached embedding index from IndexedDB. */
 	const refreshIndex = useCallback(async () => {
-		const [all, count, statuses] = await Promise.all([
-			getAllEmbeddings(),
-			getIndexedCount(),
-			getAllStatuses(),
-		]);
-		// Records from a retired vector space (pre-migration "ViT-B-32") rank
-		// meaninglessly against current-model query vectors — hide them until
-		// the background re-index rewrites them.
-		const fresh = filterToCurrentModel(all);
-		embeddingsRef.current = fresh;
-		indexedTotalRef.current = all.length;
-		setIndexedCount(count);
-		setHasIndex(fresh.length > 0);
+		const { records, statuses } = await cache.refresh();
+		// Count searchable (current-model) records only, matching what hits can
+		// actually surface — stale-space records awaiting re-index don't count.
+		setIndexedCount(records.length);
+		setHasIndex(records.length > 0);
 		const inflight: Record<string, { phase: string; progress: number }> = {};
 		for (const s of statuses) {
 			if (s.state === "indexing") {
@@ -89,7 +75,7 @@ export function useVisualSearch() {
 			}
 		}
 		setIndexing(inflight);
-	}, []);
+	}, [cache]);
 
 	/** Run a search query against the cached embedding index. */
 	const search = useCallback(
@@ -106,11 +92,10 @@ export function useVisualSearch() {
 			setIsSearching(true);
 			setError(null);
 			try {
-				// Pick up media indexed since the last refresh. `count` is a
-				// cheap IndexedDB read; only re-read all vectors when it drifts
-				// (e.g. background indexing finished after the last media event).
-				const liveCount = await getIndexedCount();
-				if (indexedTotalRef.current !== liveCount) {
+				// Pick up assets indexed (or migration re-indexed) since the last
+				// refresh. isStale reads only the tiny status store — vectors are
+				// re-read solely when the searchable set actually changed.
+				if (await cache.isStale()) {
 					await refreshIndex();
 				}
 				// Embed the query in-browser through the seam; vectors come back
@@ -125,7 +110,7 @@ export function useVisualSearch() {
 				const byId = new Map(assets.map((a) => [a.id, a]));
 
 				const candidates: SearchHit[] = [];
-				for (const media of embeddingsRef.current) {
+				for (const media of cache.records) {
 					const asset = byId.get(media.mediaId);
 					if (!asset) continue;
 					let bestScore = -Infinity;
@@ -160,7 +145,7 @@ export function useVisualSearch() {
 				if (seq === searchSeqRef.current) setIsSearching(false);
 			}
 		},
-		[editor.media, refreshIndex],
+		[editor.media, refreshIndex, cache],
 	);
 
 	/** Debounced search driven by a query string (use in an input's onChange). */
@@ -179,9 +164,8 @@ export function useVisualSearch() {
 			setIsSearching(true);
 			setError(null);
 			try {
-				const liveCount = await getIndexedCount();
-				if (indexedTotalRef.current !== liveCount) await refreshIndex();
-				const source = embeddingsRef.current.find((m) => m.mediaId === mediaId);
+				if (await cache.isStale()) await refreshIndex();
+				const source = cache.records.find((m) => m.mediaId === mediaId);
 				if (!source || source.frames.length === 0) {
 					if (seq === searchSeqRef.current) setHits([]);
 					return;
@@ -208,7 +192,7 @@ export function useVisualSearch() {
 				const assets = editor.media.getAssets();
 				const byId = new Map(assets.map((a) => [a.id, a]));
 				const candidates: SearchHit[] = [];
-				for (const media of embeddingsRef.current) {
+				for (const media of cache.records) {
 					if (media.mediaId === mediaId) continue;
 					const asset = byId.get(media.mediaId);
 					if (!asset) continue;
@@ -244,7 +228,7 @@ export function useVisualSearch() {
 				if (seq === searchSeqRef.current) setIsSearching(false);
 			}
 		},
-		[editor.media, refreshIndex],
+		[editor.media, refreshIndex, cache],
 	);
 
 	/** Keep the cached index fresh whenever media changes (imports, deletions). */
