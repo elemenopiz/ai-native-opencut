@@ -1,3 +1,4 @@
+import { webEnv } from "@byorn/env/web";
 import { NextResponse } from "next/server";
 import {
 	allBackends,
@@ -33,6 +34,18 @@ export interface ProviderKeyStatus {
 	configured: boolean;
 }
 
+/**
+ * Non-studio provider keys that Next.js API routes read server-side from the
+ * validated web env (`/api/sounds/search`, `/api/images/search`). Reported as
+ * booleans only — same contract as `configured` above, NEVER a value. The
+ * Settings panel uses this instead of reading `process.env.FREESOUND_*` in
+ * the client bundle, where server-only vars are always undefined.
+ */
+export type ServerEnvKey =
+	| "FREESOUND_CLIENT_ID"
+	| "FREESOUND_API_KEY"
+	| "PEXELS_API_KEY";
+
 export function GET() {
 	ensureBackendsRegistered();
 
@@ -47,5 +60,11 @@ export function GET() {
 		}))
 		.sort((a, b) => a.vendor.localeCompare(b.vendor));
 
-	return NextResponse.json({ providers });
+	const serverEnv: Record<ServerEnvKey, boolean> = {
+		FREESOUND_CLIENT_ID: !!webEnv.FREESOUND_CLIENT_ID,
+		FREESOUND_API_KEY: !!webEnv.FREESOUND_API_KEY,
+		PEXELS_API_KEY: !!webEnv.PEXELS_API_KEY,
+	};
+
+	return NextResponse.json({ providers, serverEnv });
 }

@@ -18,9 +18,12 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { aiClient } from "@/lib/ai-client";
-import { getApiKey, getFreesoundHeaders } from "@/lib/api-keys";
+import { getFreesoundHeaders } from "@/lib/api-keys";
 import { useEditor } from "@/hooks/use-editor";
-import { buildLibraryAudioElement, buildTextElement } from "@/lib/timeline/element-utils";
+import {
+	buildLibraryAudioElement,
+	buildTextElement,
+} from "@/lib/timeline/element-utils";
 import type { ReelTemplate, ReelTemplateSegment } from "@/types/ai";
 import type { SoundEffect } from "@/types/sounds";
 import { toast } from "sonner";
@@ -58,7 +61,16 @@ const STORAGE_KEY = "byorn-template-job";
 const RESULT_STORAGE_KEY = "byorn-template-result";
 const POLL_INTERVAL = 2500;
 
-async function searchFreesound(query: string, pageSize = 5): Promise<SoundEffect[]> {
+/**
+ * Search Freesound via our API route. The route resolves the key itself
+ * (client header first, then the server's FREESOUND_API_KEY env var), so the
+ * client never pre-checks key presence — server-only env vars are invisible
+ * to browser code. A 401 means no key is configured anywhere.
+ */
+async function searchFreesound(
+	query: string,
+	pageSize = 5,
+): Promise<SoundEffect[] | "missing-key"> {
 	try {
 		const params = new URLSearchParams({
 			q: query,
@@ -69,6 +81,7 @@ async function searchFreesound(query: string, pageSize = 5): Promise<SoundEffect
 		const res = await fetch(`/api/sounds/search?${params}`, {
 			headers: getFreesoundHeaders(),
 		});
+		if (res.status === 401) return "missing-key";
 		if (!res.ok) return [];
 		const data = await res.json();
 		return data.results ?? [];
@@ -79,11 +92,18 @@ async function searchFreesound(query: string, pageSize = 5): Promise<SoundEffect
 
 function saveJobToStorage(jobId: string, topic: string, style: string) {
 	try {
-		localStorage.setItem(STORAGE_KEY, JSON.stringify({ jobId, topic, style, ts: Date.now() }));
+		localStorage.setItem(
+			STORAGE_KEY,
+			JSON.stringify({ jobId, topic, style, ts: Date.now() }),
+		);
 	} catch {}
 }
 
-function loadJobFromStorage(): { jobId: string; topic: string; style: string } | null {
+function loadJobFromStorage(): {
+	jobId: string;
+	topic: string;
+	style: string;
+} | null {
 	try {
 		const raw = localStorage.getItem(STORAGE_KEY);
 		if (!raw) return null;
@@ -120,7 +140,8 @@ function saveTemplateToHistory(result: ReelTemplate): string {
 		const history = loadTemplateHistory();
 		history.unshift({ id, result, ts: Date.now(), imported: false });
 		// Keep only the most recent
-		if (history.length > MAX_STORED_TEMPLATES) history.length = MAX_STORED_TEMPLATES;
+		if (history.length > MAX_STORED_TEMPLATES)
+			history.length = MAX_STORED_TEMPLATES;
 		localStorage.setItem(RESULT_STORAGE_KEY, JSON.stringify(history));
 	} catch {}
 	return id;
@@ -133,12 +154,14 @@ function loadTemplateHistory(): StoredTemplate[] {
 		const data = JSON.parse(raw);
 		// Migrate from old single-template format
 		if (data && !Array.isArray(data) && data.result) {
-			const migrated: StoredTemplate[] = [{
-				id: `tpl-migrated`,
-				result: data.result,
-				ts: data.ts ?? Date.now(),
-				imported: false,
-			}];
+			const migrated: StoredTemplate[] = [
+				{
+					id: `tpl-migrated`,
+					result: data.result,
+					ts: data.ts ?? Date.now(),
+					imported: false,
+				},
+			];
 			localStorage.setItem(RESULT_STORAGE_KEY, JSON.stringify(migrated));
 			return migrated;
 		}
@@ -215,7 +238,8 @@ export function TemplatePanel({ className }: TemplatePanelProps) {
 		// Register in background tasks widget so it's visible
 		const taskId = `template-resume-${Date.now()}`;
 		bgTaskIdRef.current = taskId;
-		const { addTask: addResumeTask, updateTask: updateResumeTask } = useBackgroundTasksStore.getState();
+		const { addTask: addResumeTask, updateTask: updateResumeTask } =
+			useBackgroundTasksStore.getState();
 		addResumeTask({
 			id: taskId,
 			type: "template-generation",
@@ -232,7 +256,10 @@ export function TemplatePanel({ className }: TemplatePanelProps) {
 				if (cancelled) return;
 
 				if (job.status === "completed" && job.result) {
-					if (intervalHandle) { clearInterval(intervalHandle); intervalHandle = null; }
+					if (intervalHandle) {
+						clearInterval(intervalHandle);
+						intervalHandle = null;
+					}
 					const newId = saveTemplateToHistory(job.result);
 					setTemplateHistory(loadTemplateHistory());
 					setActiveTemplateId(newId);
@@ -244,7 +271,10 @@ export function TemplatePanel({ className }: TemplatePanelProps) {
 						completedAt: Date.now(),
 					});
 				} else if (job.status === "failed") {
-					if (intervalHandle) { clearInterval(intervalHandle); intervalHandle = null; }
+					if (intervalHandle) {
+						clearInterval(intervalHandle);
+						intervalHandle = null;
+					}
 					setError(job.error ?? "Template generation failed");
 					setIsGenerating(false);
 					clearJobStorage();
@@ -344,7 +374,12 @@ export function TemplatePanel({ className }: TemplatePanelProps) {
 		});
 
 		try {
-			const response = await aiClient.startTemplateJob(trimmed, duration, style, language);
+			const response = await aiClient.startTemplateJob(
+				trimmed,
+				duration,
+				style,
+				language,
+			);
 
 			// Direct result (old backend or instant response)
 			if (response.status === "completed" && response.result) {
@@ -366,7 +401,11 @@ export function TemplatePanel({ className }: TemplatePanelProps) {
 			startPolling(response.job_id);
 			updateBgTask(taskId, { progress: "Generating in background..." });
 		} catch (err) {
-			setError(err instanceof Error ? err.message : "Failed to start template generation");
+			setError(
+				err instanceof Error
+					? err.message
+					: "Failed to start template generation",
+			);
 			setIsGenerating(false);
 			updateBgTask(taskId, {
 				status: "error",
@@ -376,166 +415,184 @@ export function TemplatePanel({ className }: TemplatePanelProps) {
 		}
 	}, [topic, duration, style, language, isGenerating, startPolling]);
 
-	const handleImport = useCallback(async (templateToImport: ReelTemplate, storedId: string) => {
+	const handleImport = useCallback(
+		async (templateToImport: ReelTemplate, storedId: string) => {
+			// ── Step 1: Add guide segments to the timeline ──
+			const supportsTransaction =
+				typeof editor.command.beginTransaction === "function";
+			if (supportsTransaction) editor.command.beginTransaction();
 
-		// ── Step 1: Add guide segments to the timeline ──
-		const supportsTransaction = typeof editor.command.beginTransaction === "function";
-		if (supportsTransaction) editor.command.beginTransaction();
+			try {
+				for (const segment of templateToImport.segments) {
+					// Build structured content with all segment info for AI generation
+					const contentParts: string[] = [];
+					if (segment.title) contentParts.push(`[${segment.title}]`);
+					if (segment.visual_description)
+						contentParts.push(`Visual: ${segment.visual_description}`);
+					if (segment.narration)
+						contentParts.push(`Narration: ${segment.narration}`);
+					if (segment.key_message)
+						contentParts.push(`Key: ${segment.key_message}`);
+					if (segment.audio_mood)
+						contentParts.push(`Mood: ${segment.audio_mood}`);
+					const segmentContent = contentParts.join("\n") || segment.title;
 
-		try {
-			for (const segment of templateToImport.segments) {
-				// Build structured content with all segment info for AI generation
-				const contentParts: string[] = [];
-				if (segment.title) contentParts.push(`[${segment.title}]`);
-				if (segment.visual_description) contentParts.push(`Visual: ${segment.visual_description}`);
-				if (segment.narration) contentParts.push(`Narration: ${segment.narration}`);
-				if (segment.key_message) contentParts.push(`Key: ${segment.key_message}`);
-				if (segment.audio_mood) contentParts.push(`Mood: ${segment.audio_mood}`);
-				const segmentContent = contentParts.join("\n") || segment.title;
-
-				const guideElement = buildTextElement({
-					startTime: segment.start_time,
-					raw: {
-						name: `${segment.order}. ${segment.title}`,
-						content: segmentContent,
-						duration: segment.duration,
-						fontSize: 1,
-						fontFamily: "Arial",
-						fontWeight: "normal",
-						color: "transparent",
-						textAlign: "center",
-						hidden: true,
-						opacity: 0,
-						background: {
-							enabled: false,
+					const guideElement = buildTextElement({
+						startTime: segment.start_time,
+						raw: {
+							name: `${segment.order}. ${segment.title}`,
+							content: segmentContent,
+							duration: segment.duration,
+							fontSize: 1,
+							fontFamily: "Arial",
+							fontWeight: "normal",
 							color: "transparent",
+							textAlign: "center",
+							hidden: true,
+							opacity: 0,
+							background: {
+								enabled: false,
+								color: "transparent",
+							},
+							transform: {
+								scale: 1,
+								position: { x: 0, y: 0 },
+								rotate: 0,
+							},
 						},
-						transform: {
-							scale: 1,
-							position: { x: 0, y: 0 },
-							rotate: 0,
-						},
-					},
+					});
+
+					editor.timeline.insertElement({
+						element: guideElement,
+						placement: { mode: "auto", trackType: "text" },
+					});
+				}
+
+				if (supportsTransaction) editor.command.commitTransaction();
+			} catch {
+				if (supportsTransaction) editor.command.rollbackTransaction();
+			}
+
+			// ── Step 2: Try loading background audio (graceful) ──
+			setIsLoadingAudio(true);
+			setAudioStatus("Searching for background audio...");
+
+			try {
+				const query =
+					templateToImport.background_audio?.query ??
+					`${style} ambient background`;
+				let sounds = await searchFreesound(query, 5);
+
+				// The route answers 401 only when neither a browser-stored key nor
+				// the server's FREESOUND_API_KEY env var is configured — the client
+				// can't check the server env itself.
+				if (sounds === "missing-key") {
+					setAudioStatus(
+						"Add a Freesound API key in Settings to auto-import background audio.",
+					);
+					setIsLoadingAudio(false);
+					markTemplateImported(storedId);
+					setTemplateHistory(loadTemplateHistory());
+					return;
+				}
+
+				if (sounds.length === 0) {
+					const fallback = await searchFreesound(
+						templateToImport.background_audio?.tags?.[0] ?? style,
+						5,
+					);
+					if (fallback !== "missing-key") sounds = fallback;
+				}
+
+				if (sounds.length === 0) {
+					setAudioStatus(
+						"No matching audio found. Browse the Sounds tab to add background audio.",
+					);
+					setIsLoadingAudio(false);
+					markTemplateImported(storedId);
+					setTemplateHistory(loadTemplateHistory());
+					return;
+				}
+
+				setAudioStatus("Loading audio to timeline...");
+
+				const targetDuration = templateToImport.total_duration;
+				const sorted = [...sounds].sort((a, b) => {
+					const aDiff = Math.abs(a.duration - targetDuration);
+					const bDiff = Math.abs(b.duration - targetDuration);
+					if (Math.abs(aDiff - bDiff) < 3)
+						return (b.rating ?? 0) - (a.rating ?? 0);
+					return aDiff - bDiff;
 				});
+
+				const bestSound = sorted[0];
+				const audioUrl = bestSound.previewUrl;
+
+				if (!audioUrl) {
+					setAudioStatus("Browse the Sounds tab to add background audio.");
+					setIsLoadingAudio(false);
+					markTemplateImported(storedId);
+					setTemplateHistory(loadTemplateHistory());
+					return;
+				}
+
+				const response = await fetch(audioUrl);
+				if (!response.ok) {
+					setAudioStatus("Browse the Sounds tab to add background audio.");
+					setIsLoadingAudio(false);
+					markTemplateImported(storedId);
+					setTemplateHistory(loadTemplateHistory());
+					return;
+				}
+
+				const arrayBuffer = await response.arrayBuffer();
+				const audioContext = new AudioContext();
+				const buffer = await audioContext.decodeAudioData(arrayBuffer);
+
+				const tracks = editor.timeline.getTracks();
+				const audioTrack = tracks.find((t) => t.type === "audio");
+				const trackId = audioTrack
+					? audioTrack.id
+					: editor.timeline.addTrack({ type: "audio" });
+
+				// Trim audio to match template duration (don't play beyond the video)
+				const sourceDuration = bestSound.duration;
+				const clampedDuration = Math.min(
+					sourceDuration,
+					templateToImport.total_duration,
+				);
+				const trimEnd =
+					sourceDuration > clampedDuration
+						? sourceDuration - clampedDuration
+						: 0;
+
+				const element = buildLibraryAudioElement({
+					sourceUrl: audioUrl,
+					name: `BG: ${bestSound.name}`,
+					duration: clampedDuration,
+					startTime: 0,
+					buffer,
+				});
+				// Override trimEnd and sourceDuration to properly trim the audio
+				(element as Record<string, unknown>).trimEnd = trimEnd;
+				(element as Record<string, unknown>).sourceDuration = sourceDuration;
 
 				editor.timeline.insertElement({
-					element: guideElement,
-					placement: { mode: "auto", trackType: "text" },
+					placement: { mode: "explicit", trackId },
+					element,
 				});
-			}
 
-			if (supportsTransaction) editor.command.commitTransaction();
-		} catch {
-			if (supportsTransaction) editor.command.rollbackTransaction();
-		}
-
-		// ── Step 2: Try loading background audio (graceful) ──
-		setIsLoadingAudio(true);
-		setAudioStatus("Searching for background audio...");
-
-		try {
-			// Check if Freesound API key is configured
-			const hasFreesoundKey = !!(
-				getApiKey("FREESOUND_API_KEY") ||
-				process.env.FREESOUND_API_KEY
-			);
-
-			if (!hasFreesoundKey) {
-				setAudioStatus("Add a Freesound API key in Settings to auto-import background audio.");
-				setIsLoadingAudio(false);
-				markTemplateImported(storedId);
-			setTemplateHistory(loadTemplateHistory());
-				return;
-			}
-
-			const query = templateToImport.background_audio?.query ?? `${style} ambient background`;
-			let sounds = await searchFreesound(query, 5);
-
-			if (sounds.length === 0) {
-				const fallbackQuery = templateToImport.background_audio?.tags?.[0] ?? style;
-				sounds = await searchFreesound(fallbackQuery, 5);
-			}
-
-			if (sounds.length === 0) {
-				setAudioStatus("No matching audio found. Browse the Sounds tab to add background audio.");
-				setIsLoadingAudio(false);
-				markTemplateImported(storedId);
-			setTemplateHistory(loadTemplateHistory());
-				return;
-			}
-
-			setAudioStatus("Loading audio to timeline...");
-
-			const targetDuration = templateToImport.total_duration;
-			const sorted = [...sounds].sort((a, b) => {
-				const aDiff = Math.abs(a.duration - targetDuration);
-				const bDiff = Math.abs(b.duration - targetDuration);
-				if (Math.abs(aDiff - bDiff) < 3) return (b.rating ?? 0) - (a.rating ?? 0);
-				return aDiff - bDiff;
-			});
-
-			const bestSound = sorted[0];
-			const audioUrl = bestSound.previewUrl;
-
-			if (!audioUrl) {
+				setAudioStatus(`Added: ${bestSound.name}`);
+			} catch {
 				setAudioStatus("Browse the Sounds tab to add background audio.");
+			} finally {
 				setIsLoadingAudio(false);
 				markTemplateImported(storedId);
-			setTemplateHistory(loadTemplateHistory());
-				return;
+				setTemplateHistory(loadTemplateHistory());
 			}
-
-			const response = await fetch(audioUrl);
-			if (!response.ok) {
-				setAudioStatus("Browse the Sounds tab to add background audio.");
-				setIsLoadingAudio(false);
-				markTemplateImported(storedId);
-			setTemplateHistory(loadTemplateHistory());
-				return;
-			}
-
-			const arrayBuffer = await response.arrayBuffer();
-			const audioContext = new AudioContext();
-			const buffer = await audioContext.decodeAudioData(arrayBuffer);
-
-			const tracks = editor.timeline.getTracks();
-			const audioTrack = tracks.find((t) => t.type === "audio");
-			const trackId = audioTrack
-				? audioTrack.id
-				: editor.timeline.addTrack({ type: "audio" });
-
-			// Trim audio to match template duration (don't play beyond the video)
-			const sourceDuration = bestSound.duration;
-			const clampedDuration = Math.min(sourceDuration, templateToImport.total_duration);
-			const trimEnd = sourceDuration > clampedDuration
-				? sourceDuration - clampedDuration
-				: 0;
-
-			const element = buildLibraryAudioElement({
-				sourceUrl: audioUrl,
-				name: `BG: ${bestSound.name}`,
-				duration: clampedDuration,
-				startTime: 0,
-				buffer,
-			});
-			// Override trimEnd and sourceDuration to properly trim the audio
-			(element as Record<string, unknown>).trimEnd = trimEnd;
-			(element as Record<string, unknown>).sourceDuration = sourceDuration;
-
-			editor.timeline.insertElement({
-				placement: { mode: "explicit", trackId },
-				element,
-			});
-
-			setAudioStatus(`Added: ${bestSound.name}`);
-		} catch {
-			setAudioStatus("Browse the Sounds tab to add background audio.");
-		} finally {
-			setIsLoadingAudio(false);
-			markTemplateImported(storedId);
-			setTemplateHistory(loadTemplateHistory());
-		}
-	}, [editor, style]);
+		},
+		[editor, style],
+	);
 
 	const handleKeyDown = useCallback(
 		(e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -681,8 +738,8 @@ export function TemplatePanel({ className }: TemplatePanelProps) {
 								Generate a content guide for your reel
 							</p>
 							<p className="text-xs text-muted-foreground/60 mt-1">
-								AI creates a production blueprint with voiceover scripts,
-								visual directions, and background audio
+								AI creates a production blueprint with voiceover scripts, visual
+								directions, and background audio
 							</p>
 						</div>
 					)}
@@ -705,7 +762,9 @@ export function TemplatePanel({ className }: TemplatePanelProps) {
 									key={stored.id}
 									stored={stored}
 									isExpanded={isActive}
-									onToggle={() => setActiveTemplateId(isActive ? null : stored.id)}
+									onToggle={() =>
+										setActiveTemplateId(isActive ? null : stored.id)
+									}
 									onImport={() => handleImport(stored.result, stored.id)}
 									onSaveToIdeas={() => {
 										const summary = `Template: ${stored.result.title}\n${stored.result.segments.map((s) => `${s.order}. ${s.title}: ${s.key_message}`).join("\n")}`;
@@ -715,7 +774,8 @@ export function TemplatePanel({ className }: TemplatePanelProps) {
 									onRemove={() => {
 										removeTemplateFromHistory(stored.id);
 										setTemplateHistory(loadTemplateHistory());
-										if (activeTemplateId === stored.id) setActiveTemplateId(null);
+										if (activeTemplateId === stored.id)
+											setActiveTemplateId(null);
 									}}
 									isLoadingAudio={isLoadingAudio && isActive}
 								/>
@@ -793,7 +853,10 @@ function TemplateHistoryCard({
 						{t.segments.length} seg
 					</Badge>
 					{stored.imported && (
-						<HugeiconsIcon icon={Tick01Icon} className="size-3 text-green-500" />
+						<HugeiconsIcon
+							icon={Tick01Icon}
+							className="size-3 text-green-500"
+						/>
 					)}
 				</div>
 			</div>
@@ -808,7 +871,10 @@ function TemplateHistoryCard({
 						</Badge>
 						{t.background_audio && (
 							<div className="flex items-center gap-1">
-								<HugeiconsIcon icon={MusicNote03Icon} className="size-3 text-muted-foreground" />
+								<HugeiconsIcon
+									icon={MusicNote03Icon}
+									className="size-3 text-muted-foreground"
+								/>
 								<span className="text-[9px] text-muted-foreground">
 									{t.background_audio.mood}
 								</span>
@@ -827,7 +893,10 @@ function TemplateHistoryCard({
 					<div className="flex flex-col gap-1.5 pt-1">
 						{!stored.imported && (
 							<Button
-								onClick={(e) => { e.stopPropagation(); onImport(); }}
+								onClick={(e) => {
+									e.stopPropagation();
+									onImport();
+								}}
 								disabled={isLoadingAudio}
 								className="w-full"
 								size="sm"
@@ -839,7 +908,10 @@ function TemplateHistoryCard({
 									</>
 								) : (
 									<>
-										<HugeiconsIcon icon={ArrowDown01Icon} className="size-3.5 mr-2" />
+										<HugeiconsIcon
+											icon={ArrowDown01Icon}
+											className="size-3.5 mr-2"
+										/>
 										Add to Timeline
 									</>
 								)}
@@ -856,7 +928,10 @@ function TemplateHistoryCard({
 								variant="outline"
 								size="sm"
 								className="flex-1 h-6 text-[9px]"
-								onClick={(e) => { e.stopPropagation(); onSaveToIdeas(); }}
+								onClick={(e) => {
+									e.stopPropagation();
+									onSaveToIdeas();
+								}}
 							>
 								Save to Ideas
 							</Button>
@@ -864,7 +939,10 @@ function TemplateHistoryCard({
 								variant="ghost"
 								size="sm"
 								className="h-6 text-[9px] text-muted-foreground hover:text-destructive"
-								onClick={(e) => { e.stopPropagation(); onRemove(); }}
+								onClick={(e) => {
+									e.stopPropagation();
+									onRemove();
+								}}
 							>
 								Remove
 							</Button>
@@ -897,7 +975,10 @@ function SegmentCard({ segment }: { segment: ReelTemplateSegment }) {
 					<p className="text-xs font-medium truncate">{segment.title}</p>
 				</div>
 				<div className="flex items-center gap-1 shrink-0">
-					<HugeiconsIcon icon={Clock01Icon} className="size-3 text-muted-foreground" />
+					<HugeiconsIcon
+						icon={Clock01Icon}
+						className="size-3 text-muted-foreground"
+					/>
 					<span className="text-[10px] text-muted-foreground">
 						{segment.start_time}s – {segment.end_time}s
 					</span>
@@ -912,7 +993,13 @@ function SegmentCard({ segment }: { segment: ReelTemplateSegment }) {
 						expanded && "rotate-90",
 					)}
 				>
-					<path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+					<path
+						d="M6 4l4 4-4 4"
+						stroke="currentColor"
+						strokeWidth="1.5"
+						strokeLinecap="round"
+						strokeLinejoin="round"
+					/>
 				</svg>
 			</div>
 
@@ -922,58 +1009,99 @@ function SegmentCard({ segment }: { segment: ReelTemplateSegment }) {
 					{segment.key_message?.trim() ? (
 						<div>
 							<div className="flex items-center gap-1 mb-0.5">
-								<HugeiconsIcon icon={SparklesIcon} className="size-3 text-primary" />
-								<p className="text-[10px] font-medium text-primary uppercase tracking-wider">Key Message</p>
+								<HugeiconsIcon
+									icon={SparklesIcon}
+									className="size-3 text-primary"
+								/>
+								<p className="text-[10px] font-medium text-primary uppercase tracking-wider">
+									Key Message
+								</p>
 							</div>
 							<p className="text-xs font-semibold">{segment.key_message}</p>
 						</div>
 					) : (
-						<p className="text-[10px] text-muted-foreground/50 italic">No key message generated</p>
+						<p className="text-[10px] text-muted-foreground/50 italic">
+							No key message generated
+						</p>
 					)}
 					{segment.narration?.trim() ? (
 						<div>
 							<div className="flex items-center gap-1 mb-0.5">
-								<HugeiconsIcon icon={Mic01Icon} className="size-3 text-muted-foreground" />
-								<p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Voiceover Script</p>
+								<HugeiconsIcon
+									icon={Mic01Icon}
+									className="size-3 text-muted-foreground"
+								/>
+								<p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+									Voiceover Script
+								</p>
 							</div>
-							<p className="text-xs text-muted-foreground">{segment.narration}</p>
+							<p className="text-xs text-muted-foreground">
+								{segment.narration}
+							</p>
 						</div>
 					) : (
 						<div>
 							<div className="flex items-center gap-1 mb-0.5">
-								<HugeiconsIcon icon={Mic01Icon} className="size-3 text-muted-foreground/40" />
-								<p className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider">Voiceover Script</p>
+								<HugeiconsIcon
+									icon={Mic01Icon}
+									className="size-3 text-muted-foreground/40"
+								/>
+								<p className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider">
+									Voiceover Script
+								</p>
 							</div>
-							<p className="text-[10px] text-muted-foreground/50 italic">No voiceover script — try regenerating or edit manually</p>
+							<p className="text-[10px] text-muted-foreground/50 italic">
+								No voiceover script — try regenerating or edit manually
+							</p>
 						</div>
 					)}
 					{segment.visual_description?.trim() ? (
 						<div>
 							<div className="flex items-center gap-1 mb-0.5">
-								<HugeiconsIcon icon={ViewIcon} className="size-3 text-muted-foreground" />
-								<p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Visual Direction</p>
+								<HugeiconsIcon
+									icon={ViewIcon}
+									className="size-3 text-muted-foreground"
+								/>
+								<p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+									Visual Direction
+								</p>
 							</div>
-							<p className="text-xs text-muted-foreground italic">{segment.visual_description}</p>
+							<p className="text-xs text-muted-foreground italic">
+								{segment.visual_description}
+							</p>
 						</div>
 					) : (
 						<div>
 							<div className="flex items-center gap-1 mb-0.5">
-								<HugeiconsIcon icon={ViewIcon} className="size-3 text-muted-foreground/40" />
-								<p className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider">Visual Direction</p>
+								<HugeiconsIcon
+									icon={ViewIcon}
+									className="size-3 text-muted-foreground/40"
+								/>
+								<p className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider">
+									Visual Direction
+								</p>
 							</div>
-							<p className="text-[10px] text-muted-foreground/50 italic">No visual description — try regenerating or edit manually</p>
+							<p className="text-[10px] text-muted-foreground/50 italic">
+								No visual description — try regenerating or edit manually
+							</p>
 						</div>
 					)}
 					{segment.audio_mood?.trim() && (
 						<div>
 							<div className="flex items-center gap-1 mb-0.5">
-								<HugeiconsIcon icon={MusicNote03Icon} className="size-3 text-muted-foreground" />
-								<p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Audio Mood</p>
+								<HugeiconsIcon
+									icon={MusicNote03Icon}
+									className="size-3 text-muted-foreground"
+								/>
+								<p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+									Audio Mood
+								</p>
 							</div>
-							<p className="text-xs text-muted-foreground">{segment.audio_mood}</p>
+							<p className="text-xs text-muted-foreground">
+								{segment.audio_mood}
+							</p>
 						</div>
 					)}
-
 				</div>
 			)}
 		</div>

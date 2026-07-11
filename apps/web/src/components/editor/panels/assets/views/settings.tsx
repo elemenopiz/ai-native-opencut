@@ -1145,14 +1145,37 @@ function CrossProjectMemorySection() {
 
 // ----- API Keys Section -----
 
-const API_KEY_FIELDS = [
+/**
+ * Env-provided key status: NEXT_PUBLIC_* vars are inlined into the client
+ * bundle at build time, so their values can be read here directly (envValue).
+ * Server-only vars (FREESOUND_*, PEXELS_*) are NEVER visible to the browser —
+ * `process.env.X` is always undefined in client code — so their configured
+ * status is fetched from GET /api/studio/provider-keys (serverEnvKey), which
+ * reports booleans derived server-side without ever exposing the value.
+ */
+interface ApiKeyField {
+	key: string;
+	label: string;
+	placeholder: string;
+	description: string;
+	/** Env var name shown in the info popover (where to set it). */
+	envVar: string;
+	/** Build-time-inlined value — only meaningful for NEXT_PUBLIC_* vars. */
+	envValue?: string;
+	/** Key in provider-keys' serverEnv map, for server-only vars. */
+	serverEnvKey?: string;
+	info: string;
+	required: boolean;
+}
+
+const API_KEY_FIELDS: ApiKeyField[] = [
 	{
 		key: "FREESOUND_CLIENT_ID",
 		label: "Freesound Client ID",
 		placeholder: "Your client ID",
 		description: "Sound library search",
 		envVar: "FREESOUND_CLIENT_ID",
-		envValue: process.env.FREESOUND_CLIENT_ID || "",
+		serverEnvKey: "FREESOUND_CLIENT_ID",
 		info: "Enables searching and browsing thousands of free sounds from the Freesound library. Get your key at freesound.org/apiv2/apply",
 		required: true,
 	},
@@ -1162,7 +1185,7 @@ const API_KEY_FIELDS = [
 		placeholder: "Your API key",
 		description: "Sound preview and download",
 		envVar: "FREESOUND_API_KEY",
-		envValue: process.env.FREESOUND_API_KEY || "",
+		serverEnvKey: "FREESOUND_API_KEY",
 		info: "Required to preview and download sounds from Freesound. Without this key, the Sounds panel won't return results.",
 		required: true,
 	},
@@ -1172,10 +1195,9 @@ const API_KEY_FIELDS = [
 		placeholder: "sk_...",
 		description: "Indian language transcription, translation & TTS",
 		envVar: "BYORN_SARVAM_API_KEY",
-		envValue:
-			process.env.NEXT_PUBLIC_SARVAM_API_KEY ||
-			process.env.BYORN_SARVAM_API_KEY ||
-			"",
+		// BYORN_SARVAM_API_KEY is read by the Python AI backend, not this app —
+		// it can't be reported here. Only the inlined NEXT_PUBLIC var is visible.
+		envValue: process.env.NEXT_PUBLIC_SARVAM_API_KEY || "",
 		info: "Enables transcription, translation, and text-to-speech for 22 Indian regional languages (Hindi, Bengali, Tamil, Telugu, etc.) via Sarvam AI. Get your key at dashboard.sarvam.ai — free credits on signup.",
 		required: false,
 	},
@@ -1186,10 +1208,8 @@ const API_KEY_FIELDS = [
 		description:
 			"Lightning TTS (15 languages, 80+ voices) & Pulse STT (39 languages)",
 		envVar: "BYORN_SMALLEST_API_KEY",
-		envValue:
-			process.env.NEXT_PUBLIC_SMALLEST_API_KEY ||
-			process.env.BYORN_SMALLEST_API_KEY ||
-			"",
+		// BYORN_SMALLEST_API_KEY is read by the Python AI backend, not this app.
+		envValue: process.env.NEXT_PUBLIC_SMALLEST_API_KEY || "",
 		info: "Enables ultra-low-latency text-to-speech with 80+ natural voices across 15 languages, and speech-to-text supporting 39 languages with speaker diarization and emotion detection. Get your key at app.smallest.ai.",
 		required: false,
 	},
@@ -1199,7 +1219,7 @@ const API_KEY_FIELDS = [
 		placeholder: "Your Pexels API key",
 		description: "Free stock photos for B-roll suggestions",
 		envVar: "PEXELS_API_KEY",
-		envValue: process.env.PEXELS_API_KEY || "",
+		serverEnvKey: "PEXELS_API_KEY",
 		info: "Enables stock photo search in B-roll suggestions. Pexels offers free high-quality photos with 200 requests/hour. Get your key at pexels.com/api — instant signup, no payment required.",
 		required: false,
 	},
@@ -1209,10 +1229,8 @@ const API_KEY_FIELDS = [
 		placeholder: "Your PiAPI key for Seedance 2.0",
 		description: "Text-to-video generation via Seedance 2.0 (ByteDance)",
 		envVar: "BYORN_SEEDANCE_API_KEY",
-		envValue:
-			process.env.NEXT_PUBLIC_SEEDANCE_API_KEY ||
-			process.env.BYORN_SEEDANCE_API_KEY ||
-			"",
+		// BYORN_SEEDANCE_API_KEY is read by the Python AI backend, not this app.
+		envValue: process.env.NEXT_PUBLIC_SEEDANCE_API_KEY || "",
 		info: "Enables AI video generation from text prompts using Seedance 2.0 by ByteDance. Access via PiAPI — get your key at piapi.ai. Supports text-to-video in 16:9, 9:16, 1:1, and more. You can also use local generation without this key.",
 		required: false,
 	},
@@ -1260,6 +1278,24 @@ function APIKeysSection() {
 		}
 	});
 	const [visibleKeys, setVisibleKeys] = useState<Set<string>>(new Set());
+	// Server-side configured status for server-only env vars (booleans only —
+	// the values never reach the browser). See API_KEY_FIELDS doc comment.
+	const [serverEnv, setServerEnv] = useState<Record<string, boolean>>({});
+
+	useEffect(() => {
+		let cancelled = false;
+		fetch("/api/studio/provider-keys")
+			.then((res) => (res.ok ? res.json() : null))
+			.then((data) => {
+				if (!cancelled && data?.serverEnv) setServerEnv(data.serverEnv);
+			})
+			.catch(() => {
+				// Unreachable endpoint just means we can't show "From env" badges.
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
 
 	const toggleVisibility = useCallback((key: string) => {
 		setVisibleKeys((prev) => {
@@ -1308,10 +1344,15 @@ function APIKeysSection() {
 			{API_KEY_FIELDS.map((field) => {
 				const localValue = keys[field.key]?.trim() || "";
 				const envValue = field.envValue?.trim() || "";
+				// Server-only vars: we only ever learn a boolean, never the value.
+				const serverConfigured =
+					!!field.serverEnvKey && !!serverEnv[field.serverEnvKey];
 				const effectiveValue = localValue || envValue;
-				const hasValue = !!effectiveValue;
-				const isFromEnv = !localValue && !!envValue;
-				const isVisible = visibleKeys.has(field.key);
+				const hasValue = !!effectiveValue || serverConfigured;
+				const isFromEnv = !localValue && (!!envValue || serverConfigured);
+				// Only values that actually exist in the browser can be revealed.
+				const canReveal = !!effectiveValue;
+				const isVisible = canReveal && visibleKeys.has(field.key);
 
 				return (
 					<div
@@ -1376,13 +1417,15 @@ function APIKeysSection() {
 								</Popover>
 								{hasValue && (
 									<>
-										<button
-											type="button"
-											className="text-[9px] text-muted-foreground hover:text-foreground px-1"
-											onClick={() => toggleVisibility(field.key)}
-										>
-											{isVisible ? "Hide" : "Show"}
-										</button>
+										{canReveal && (
+											<button
+												type="button"
+												className="text-[9px] text-muted-foreground hover:text-foreground px-1"
+												onClick={() => toggleVisibility(field.key)}
+											>
+												{isVisible ? "Hide" : "Show"}
+											</button>
+										)}
 										{!isFromEnv && (
 											<button
 												type="button"
@@ -1400,9 +1443,12 @@ function APIKeysSection() {
 						{hasValue && !isVisible ? (
 							<div
 								className="w-full rounded-md border bg-muted/30 px-2.5 py-1.5 text-[11px] font-mono text-muted-foreground cursor-default select-none"
-								onClick={() => toggleVisibility(field.key)}
+								onClick={
+									canReveal ? () => toggleVisibility(field.key) : undefined
+								}
 							>
-								{"•".repeat(Math.min(effectiveValue.length, 24))}
+								{/* Server-configured keys have no browser-side value; show a fixed-width mask. */}
+								{"•".repeat(Math.min(effectiveValue.length || 12, 24))}
 							</div>
 						) : (
 							<input
