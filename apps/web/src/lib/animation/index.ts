@@ -29,6 +29,22 @@ export {
 } from "./easing";
 
 export {
+	clampBezierHandleX,
+	clampBezierHandleY,
+	getCubicBezierPoint,
+	sampleBezierCurvePoints,
+	snapBezierHandleValue,
+	updateBezierHandle,
+	BEZIER_HANDLE_X_MIN,
+	BEZIER_HANDLE_X_MAX,
+	BEZIER_HANDLE_Y_MIN,
+	BEZIER_HANDLE_Y_MAX,
+	BEZIER_SNAP_TARGETS,
+	BEZIER_SNAP_THRESHOLD,
+	type BezierHandleId,
+} from "./bezier-graph-math";
+
+export {
 	getElementLocalTime,
 	resolveColorAtTime,
 	resolveNumberAtTime,
