@@ -7,10 +7,9 @@
  * We sign with Node's built-in `crypto` rather than pulling in a JWT library,
  * since this file may only touch `backends/video/`.
  *
- * `KLING_ACCESS_KEY` / `KLING_SECRET_KEY` are not yet in the env schema (owned
- * by another agent), so we read them via `process.env` directly rather than
- * `webEnv` — per the build brief, this avoids a type error without editing
- * the schema package.
+ * `KLING_ACCESS_KEY` / `KLING_SECRET_KEY` come from the validated env schema
+ * (`@byorn/env/web`); empty string means "not configured" and keeps the
+ * adapter inert.
  *
  * Docs: https://kling.ai/document-api/ (text2video / image2video reference).
  * The exact request/response shapes below are reconstructed from the public
@@ -20,6 +19,7 @@
  */
 
 import { createHmac } from "node:crypto";
+import { webEnv } from "@byorn/env/web";
 import { estimateVideoCredits } from "@/lib/studio/backends/cost";
 import type {
 	BackendRequest,
@@ -34,15 +34,15 @@ import type { VideoOrientation } from "@/lib/studio/provider-adapter";
 const DEFAULT_BASE = "https://api.klingai.com";
 
 function klingBase(): string {
-	return process.env.KLING_BASE_URL || DEFAULT_BASE;
+	return webEnv.KLING_BASE_URL || DEFAULT_BASE;
 }
 
 function accessKey(): string | undefined {
-	return process.env.KLING_ACCESS_KEY;
+	return webEnv.KLING_ACCESS_KEY || undefined;
 }
 
 function secretKey(): string | undefined {
-	return process.env.KLING_SECRET_KEY;
+	return webEnv.KLING_SECRET_KEY || undefined;
 }
 
 // ─── JWT (HS256) ────────────────────────────────────────────────────────────
@@ -201,7 +201,7 @@ export const klingBackend: GenerationBackend = {
 			const body: Record<string, unknown> = {
 				// UNVERIFIED: model_name catalog changes frequently; default to the
 				// widely-documented v1.6 id and let ops override via env.
-				model_name: process.env.KLING_MODEL || "kling-v1-6",
+				model_name: webEnv.KLING_MODEL || "kling-v1-6",
 				prompt: req.prompt,
 				mode: modeByResolution(req.resolution),
 				duration: String(req.duration && req.duration > 5 ? 10 : 5),
@@ -224,7 +224,11 @@ export const klingBackend: GenerationBackend = {
 
 			const taskId = data.data?.task_id;
 			if (!taskId) {
-				return { jobId: "", status: "failed", error: "Kling returned no task_id" };
+				return {
+					jobId: "",
+					status: "failed",
+					error: "Kling returned no task_id",
+				};
 			}
 
 			return {

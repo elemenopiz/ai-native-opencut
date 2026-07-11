@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { webEnv } from "@byorn/env/web";
 
 /**
  * Pexels image search proxy.
@@ -37,7 +38,7 @@ export async function GET(request: NextRequest) {
 		// Prefer client header, fall back to server env
 		const apiKey =
 			request.headers.get("x-pexels-api-key")?.trim() ||
-			process.env.PEXELS_API_KEY ||
+			webEnv.PEXELS_API_KEY ||
 			"";
 
 		if (!apiKey) {

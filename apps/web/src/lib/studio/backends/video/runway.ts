@@ -15,12 +15,13 @@
  * shape is thin in the public docs relative to image_to_video, so its fields
  * below are marked UNVERIFIED more heavily than the other two.
  *
- * `RUNWAY_API_KEY` is not yet in the env schema (owned by another agent), so
- * read via `process.env` directly per the build brief.
+ * `RUNWAY_API_KEY` comes from the validated env schema (`@byorn/env/web`); empty
+ * string means "not configured" and keeps the adapter inert.
  *
  * Docs: https://docs.dev.runwayml.com/
  */
 
+import { webEnv } from "@byorn/env/web";
 import { estimateVideoCredits } from "@/lib/studio/backends/cost";
 import type {
 	BackendRequest,
@@ -39,15 +40,15 @@ const DEFAULT_BASE = "https://api.dev.runwayml.com/v1";
 const DEFAULT_VERSION = "2024-11-06";
 
 function runwayBase(): string {
-	return process.env.RUNWAY_BASE_URL || DEFAULT_BASE;
+	return webEnv.RUNWAY_BASE_URL || DEFAULT_BASE;
 }
 
 function apiKey(): string | undefined {
-	return process.env.RUNWAY_API_KEY;
+	return webEnv.RUNWAY_API_KEY || undefined;
 }
 
 function apiVersion(): string {
-	return process.env.RUNWAY_API_VERSION || DEFAULT_VERSION;
+	return webEnv.RUNWAY_API_VERSION || DEFAULT_VERSION;
 }
 
 // As of API version 2024-11-06, `ratio` takes an exact pixel dimension string
@@ -164,7 +165,7 @@ export const runwayBackend: GenerationBackend = {
 			const kind = taskKindFor(req);
 			// UNVERIFIED: default model ids vary by task type and change as Runway
 			// ships new generations; override per-deployment via env.
-			const model = process.env.RUNWAY_MODEL || "gen4_turbo";
+			const model = webEnv.RUNWAY_MODEL || "gen4_turbo";
 
 			let path: string;
 			const body: Record<string, unknown> = {

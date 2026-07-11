@@ -17,12 +17,13 @@
  * be the better path — not implemented, since that's a second endpoint with
  * its own upload/poll lifecycle; flagged UNVERIFIED below.
  *
- * `GEMINI_API_KEY` is not yet in the env schema (owned by another agent), so
- * read via `process.env` directly per the build brief.
+ * `GEMINI_API_KEY` comes from the validated env schema (`@byorn/env/web`); empty
+ * string means "not configured" and keeps the adapter inert.
  *
  * Docs: https://ai.google.dev/gemini-api/docs/veo
  */
 
+import { webEnv } from "@byorn/env/web";
 import { estimateVideoCredits } from "@/lib/studio/backends/cost";
 import type {
 	BackendRequest,
@@ -37,15 +38,15 @@ import type { VideoOrientation } from "@/lib/studio/provider-adapter";
 const DEFAULT_BASE = "https://generativelanguage.googleapis.com/v1beta";
 
 function veoBase(): string {
-	return process.env.GEMINI_BASE_URL || DEFAULT_BASE;
+	return webEnv.GEMINI_BASE_URL || DEFAULT_BASE;
 }
 
 function apiKey(): string | undefined {
-	return process.env.GEMINI_API_KEY;
+	return webEnv.GEMINI_API_KEY || undefined;
 }
 
 function veoModel(): string {
-	return process.env.GEMINI_VEO_MODEL || "veo-3.1-generate-preview";
+	return webEnv.GEMINI_VEO_MODEL || "veo-3.1-generate-preview";
 }
 
 const ASPECT_BY_ORIENTATION: Partial<Record<VideoOrientation, string>> = {
@@ -94,7 +95,10 @@ interface VeoOperation {
 	};
 }
 
-async function veoFetch(path: string, init: RequestInit): Promise<VeoOperation> {
+async function veoFetch(
+	path: string,
+	init: RequestInit,
+): Promise<VeoOperation> {
 	const key = apiKey();
 	if (!key) throw new Error("GEMINI_API_KEY is not configured");
 	const res = await fetch(`${veoBase()}${path}`, {
@@ -170,17 +174,22 @@ export const googleVeoBackend: GenerationBackend = {
 				const refs = await Promise.all(
 					req.referenceImages.map(async (url) => {
 						const inline = await fetchAsInlineData(url);
-						return inline ? { image: { inlineData: inline }, referenceType: "asset" } : undefined;
+						return inline
+							? { image: { inlineData: inline }, referenceType: "asset" }
+							: undefined;
 					}),
 				);
-				const filtered = refs.filter((r): r is NonNullable<typeof r> => Boolean(r));
+				const filtered = refs.filter((r): r is NonNullable<typeof r> =>
+					Boolean(r),
+				);
 				if (filtered.length) instance.referenceImages = filtered;
 			}
 
 			const body = {
 				instances: [instance],
 				parameters: {
-					aspectRatio: ASPECT_BY_ORIENTATION[req.orientation ?? "landscape"] ?? "16:9",
+					aspectRatio:
+						ASPECT_BY_ORIENTATION[req.orientation ?? "landscape"] ?? "16:9",
 					durationSeconds: nearestDuration(req.duration),
 					resolution: req.resolution === "1080p" ? "1080p" : "720p",
 					// UNVERIFIED: default person-generation policy; "allow_adult" is

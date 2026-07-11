@@ -21,6 +21,7 @@
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import Anthropic from "@anthropic-ai/sdk";
+import { webEnv } from "@byorn/env/web";
 import { auth } from "@/lib/auth/server";
 import { enforceRateLimit } from "@/lib/rate-limit";
 
@@ -70,8 +71,8 @@ interface AgentRelayRequest {
 export async function POST(req: Request) {
 	// Provider selection: prefer Kimi (Moonshot) when its key is present — the
 	// zero-setup Director brain — otherwise fall back to Anthropic.
-	const moonshotKey = process.env.MOONSHOT_API_KEY;
-	const anthropicKey = process.env.ANTHROPIC_API_KEY;
+	const moonshotKey = webEnv.MOONSHOT_API_KEY;
+	const anthropicKey = webEnv.ANTHROPIC_API_KEY;
 	const useKimi = Boolean(moonshotKey);
 	const apiKey = useKimi ? moonshotKey : anthropicKey;
 	if (!apiKey) {
@@ -134,7 +135,7 @@ export async function POST(req: Request) {
 	const createParams: Anthropic.MessageCreateParamsNonStreaming = {
 		model:
 			body.model?.trim() ||
-			process.env.DIRECTOR_MODEL?.trim() ||
+			webEnv.DIRECTOR_MODEL.trim() ||
 			(useKimi ? DEFAULT_KIMI_MODEL : DEFAULT_MODEL),
 		max_tokens: Math.min(
 			// Treat 0/negative/NaN as "unset" so a bad caller value can't be sent
