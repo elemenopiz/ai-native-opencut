@@ -88,8 +88,8 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
 		canvas: { width: 1920, height: 1080 },
 		fps: 30,
 		tips: [
-			"Import your video and transcribe it",
-			"Edit the text to cut mistakes and filler words",
+			"Import footage or generate a clip from a prompt",
+			"Trim, arrange, and layer clips on the timeline",
 			"Add subtitles for better engagement",
 			"Export as MP4 high quality",
 		],
