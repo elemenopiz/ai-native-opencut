@@ -41,6 +41,8 @@ export function computeGridLines({ rows, cols }: GridConfig): {
 
 interface PreviewOverlaysState {
 	bookmarks: boolean;
+	/** Compositor frame-time HUD (fps / frame-ms breakdown). Off by default. */
+	perfHud: boolean;
 }
 
 export const PREVIEW_MIN_ZOOM = 0.25;
@@ -95,6 +97,7 @@ interface PreviewState {
 
 const DEFAULT_PREVIEW_OVERLAYS: PreviewOverlaysState = {
 	bookmarks: true,
+	perfHud: false,
 };
 
 /** Persisted slice of `PreviewState` (see `partialize` below). */
@@ -105,9 +108,10 @@ export type PersistedPreviewState = {
 };
 
 /**
- * Migrates persisted `preview-settings` storage to the current (v3) shape.
+ * Migrates persisted `preview-settings` storage to the current (v4) shape.
  * v2 and earlier stored the active guide as `layoutGuide.platform`; v3
- * generalized it to `activeGuideId` and added `gridConfig`. Exported
+ * generalized it to `activeGuideId` and added `gridConfig`; v4 added the
+ * `overlays.perfHud` flag (backfilled from defaults). Exported
  * standalone (rather than inlined in `persist()`) so it's unit-testable
  * without going through zustand's storage rehydration.
  */
@@ -127,7 +131,9 @@ export function migratePreviewState(
 	return {
 		activeGuideId: state?.activeGuideId ?? state?.layoutGuide?.platform ?? null,
 		gridConfig: state?.gridConfig ?? DEFAULT_GRID_CONFIG,
-		overlays: state?.overlays ?? DEFAULT_PREVIEW_OVERLAYS,
+		// Spread defaults first so overlays persisted before a new flag existed
+		// (e.g. perfHud) rehydrate with that flag defined.
+		overlays: { ...DEFAULT_PREVIEW_OVERLAYS, ...state?.overlays },
 	};
 }
 
@@ -191,7 +197,7 @@ export const usePreviewStore = create<PreviewState>()(
 		}),
 		{
 			name: "preview-settings",
-			version: 3,
+			version: 4,
 			migrate: migratePreviewState,
 			partialize: (state) => ({
 				activeGuideId: state.activeGuideId,

@@ -1,4 +1,5 @@
 import type { BaseNode } from "./nodes/base-node";
+import { perfStats } from "./perf-stats";
 
 export type CanvasRendererParams = {
 	width: number;
@@ -136,7 +137,11 @@ export class CanvasRenderer {
 			throw new Error("Failed to get target canvas context");
 		}
 
+		const blitStart = perfStats.enabled ? performance.now() : 0;
 		ctx.drawImage(this.canvas, 0, 0, targetCanvas.width, targetCanvas.height);
+		if (blitStart !== 0) {
+			perfStats.addBlitTime({ ms: performance.now() - blitStart });
+		}
 	}
 
 	private drawWatermark() {

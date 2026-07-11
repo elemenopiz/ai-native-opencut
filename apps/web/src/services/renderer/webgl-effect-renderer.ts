@@ -1,4 +1,5 @@
 import { createOffscreenCanvas } from "./canvas-utils";
+import { perfStats } from "./perf-stats";
 import { applyMultiPassEffect } from "./webgl-utils";
 import type { EffectPassData } from "./webgl-utils";
 
@@ -71,5 +72,11 @@ function applyEffect({
 }
 
 export const webglEffectRenderer = {
-	applyEffect,
+	applyEffect: (params: ApplyEffectParams) => {
+		if (!perfStats.enabled) return applyEffect(params);
+		const start = performance.now();
+		const result = applyEffect(params);
+		perfStats.addEffectTime({ ms: performance.now() - start });
+		return result;
+	},
 };

@@ -69,7 +69,7 @@ describe("migratePreviewState", () => {
 		expect(migratePreviewState(undefined)).toEqual({
 			activeGuideId: null,
 			gridConfig: DEFAULT_GRID_CONFIG,
-			overlays: { bookmarks: true },
+			overlays: { bookmarks: true, perfHud: false },
 		});
 	});
 
@@ -79,7 +79,7 @@ describe("migratePreviewState", () => {
 			overlays: { bookmarks: false },
 		});
 		expect(migrated.activeGuideId).toBe("tiktok");
-		expect(migrated.overlays).toEqual({ bookmarks: false });
+		expect(migrated.overlays).toEqual({ bookmarks: false, perfHud: false });
 		expect(migrated.gridConfig).toEqual(DEFAULT_GRID_CONFIG);
 	});
 
@@ -90,13 +90,25 @@ describe("migratePreviewState", () => {
 		expect(migrated.activeGuideId).toBeNull();
 	});
 
-	test("v3 shape (already migrated) round-trips unchanged", () => {
+	test("v3 shape backfills the v4 perfHud flag and keeps the rest", () => {
 		const v3State = {
 			activeGuideId: "grid" as const,
 			gridConfig: { rows: 5, cols: 7 },
 			overlays: { bookmarks: true },
 		};
-		expect(migratePreviewState(v3State)).toEqual(v3State);
+		expect(migratePreviewState(v3State)).toEqual({
+			...v3State,
+			overlays: { bookmarks: true, perfHud: false },
+		});
+	});
+
+	test("v4 shape (already migrated) round-trips unchanged", () => {
+		const v4State = {
+			activeGuideId: "grid" as const,
+			gridConfig: { rows: 5, cols: 7 },
+			overlays: { bookmarks: false, perfHud: true },
+		};
+		expect(migratePreviewState(v4State)).toEqual(v4State);
 	});
 
 	test("v3 activeGuideId takes precedence over a stale layoutGuide field", () => {
