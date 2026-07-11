@@ -65,6 +65,14 @@ export const RATE_LIMITS = {
 	// Client-error intake. Unauthenticated by design (errors happen logged-out),
 	// so the burst cap is tight; the client also self-caps per page load.
 	"telemetry:error": { perMinute: 10, perDay: 300 },
+	// Anonymous arrangement publish (no-login-to-try posture). Every call inserts
+	// a Postgres row, and publishing is a rare, deliberate human action — keep the
+	// per-IP caps tight.
+	"arrangements:publish": { perMinute: 5, perDay: 50 },
+	// Anonymous remix-counter bump on the /t/[id] landing. More lenient than
+	// publish (a shared link can spread fast); when it trips, the READ still
+	// succeeds — only the counter write is skipped.
+	"arrangements:remix": { perMinute: 30, perDay: 2000 },
 } satisfies Record<string, RateLimitRule>;
 
 export type RateLimitName = keyof typeof RATE_LIMITS;
