@@ -5,16 +5,16 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-	Upload04Icon,
-	AiMicIcon,
-	TextIcon,
-	SparklesIcon,
+	ImageAdd01Icon,
+	AiMagicIcon,
+	FilmRoll01Icon,
+	Download01Icon,
 	Cancel01Icon,
 } from "@hugeicons/core-free-icons";
 import { useAIStore } from "@/stores/ai-store";
 
 interface GuideStep {
-	icon: typeof Upload04Icon;
+	icon: typeof ImageAdd01Icon;
 	title: string;
 	description: string;
 	shortcut?: string;
@@ -22,25 +22,28 @@ interface GuideStep {
 
 const GUIDE_STEPS: GuideStep[] = [
 	{
-		icon: Upload04Icon,
-		title: "Import a video",
-		description: "Drag a file here or use the media panel on the left",
+		icon: ImageAdd01Icon,
+		title: "Feed the Bible",
+		description:
+			"Drop reference images or a character photo — the Project Bible learns your look",
 	},
 	{
-		icon: AiMicIcon,
-		title: "Transcribe it",
-		description: "Click the mic button to convert speech to editable text",
-		shortcut: "Toolbar",
+		icon: AiMagicIcon,
+		title: "Ask the Director",
+		description:
+			"Open the Director tab and ask for a reel — it storyboards and shows the cost before spending",
+		shortcut: "Director tab",
 	},
 	{
-		icon: TextIcon,
-		title: "Edit the transcript",
-		description: "Delete sentences, remove filler words, reorder sections",
+		icon: FilmRoll01Icon,
+		title: "Generate takes",
+		description: "Every clip is re-rollable — don't love one? Re-roll it",
 	},
 	{
-		icon: SparklesIcon,
-		title: "Export your video",
-		description: "Choose a platform preset and export with one click",
+		icon: Download01Icon,
+		title: "Edit and export",
+		description:
+			"Trim, add transitions, grade with LUT color, then export with a platform preset",
 	},
 ];
 
@@ -68,7 +71,7 @@ export function EmptyEditorGuide({
 			<div className="text-center">
 				<h3 className="text-sm font-medium">Get started</h3>
 				<p className="text-xs text-muted-foreground mt-1">
-					Edit video by editing text
+					Direct your first reel
 				</p>
 			</div>
 
@@ -90,7 +93,11 @@ export function EmptyEditorGuide({
 
 			<div className="text-center">
 				<p className="text-[10px] text-muted-foreground">
-					Press <kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">Ctrl+K</kbd> for AI commands
+					Press{" "}
+					<kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">
+						Ctrl+K
+					</kbd>{" "}
+					for AI commands
 				</p>
 			</div>
 
@@ -111,7 +118,9 @@ export function EmptyEditorGuide({
 					<div className="flex items-center justify-between">
 						<h4 className="text-xs font-medium">
 							Ideas{" "}
-							<span className="text-muted-foreground">({savedIdeas.length})</span>
+							<span className="text-muted-foreground">
+								({savedIdeas.length})
+							</span>
 						</h4>
 					</div>
 					<ScrollArea className="flex-1 min-h-0 max-h-40">
@@ -122,7 +131,9 @@ export function EmptyEditorGuide({
 									className="flex items-start gap-2 rounded-md border px-2.5 py-2 text-xs group"
 								>
 									<div className="flex-1 min-w-0">
-										<p className="line-clamp-2 text-foreground">{idea.content}</p>
+										<p className="line-clamp-2 text-foreground">
+											{idea.content}
+										</p>
 										<p className="text-[10px] text-muted-foreground mt-1">
 											{new Date(idea.savedAt).toLocaleDateString(undefined, {
 												month: "short",
