@@ -148,9 +148,9 @@ function BriefSection({ editor, doc }: { editor: EditorType; doc: Doc }) {
 			/>
 			<InlineEdit
 				label="Style line"
-				value={b.styleBible ?? ""}
-				placeholder="One-line style bible (color grade, pacing, framing)"
-				onCommit={(styleBible) => editBrief(editor, { styleBible })}
+				value={b.styleNote ?? ""}
+				placeholder="One-line style note (color grade, pacing, framing)"
+				onCommit={(styleNote) => editBrief(editor, { styleNote })}
 			/>
 			<InlineList
 				label="Do"

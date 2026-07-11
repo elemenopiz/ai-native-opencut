@@ -16,7 +16,7 @@
  *   • `styleBible` — the recurring reel LOOK (palette / lens+mood / setting),
  *     merged field-by-field, newest non-empty wins. The `characters` cast is
  *     DROPPED (project-specific; personas are user-scoped server-side).
- *   • `brief.tone` and `brief.styleBible` (the style line) — newest non-empty wins.
+ *   • `brief.tone` and `brief.styleNote` (the one-line style string) — newest non-empty wins.
  *   • `brief.dos` / `brief.donts` — reusable constraints, unioned + deduped +
  *     bounded (they accumulate across projects).
  *   • `brief.notes` that are EXPLICITLY marked persistent — a note whose text
@@ -33,6 +33,7 @@
  */
 
 import type { DirectorBrief, ProjectBible } from "@/types/project";
+import { migrateLegacyBrief } from "@/lib/director/director-brief";
 import type { StyleBible } from "@/lib/director/storyboard-plan";
 import type { UserBibleDefaults } from "@/types/user-memory";
 
@@ -132,7 +133,7 @@ function promoteBrief(
 	now: number,
 ): DirectorBrief | undefined {
 	const tone = preferNewer(prev?.tone, next?.tone);
-	const styleBible = preferNewer(prev?.styleBible, next?.styleBible);
+	const styleNote = preferNewer(prev?.styleNote, next?.styleNote);
 	const dos = cleanBoundedList([...(prev?.dos ?? []), ...(next?.dos ?? [])]);
 	const donts = cleanBoundedList([
 		...(prev?.donts ?? []),
@@ -146,7 +147,7 @@ function promoteBrief(
 
 	if (
 		!tone &&
-		!styleBible &&
+		!styleNote &&
 		dos.length === 0 &&
 		donts.length === 0 &&
 		notes.length === 0
@@ -155,7 +156,7 @@ function promoteBrief(
 	}
 	return {
 		...(tone ? { tone } : {}),
-		...(styleBible ? { styleBible } : {}),
+		...(styleNote ? { styleNote } : {}),
 		...(dos.length ? { dos } : {}),
 		...(donts.length ? { donts } : {}),
 		...(notes.length ? { notes } : {}),
@@ -178,7 +179,13 @@ export function promoteBibleToUserDefaults(
 		prev?.styleBible,
 		isStyleBibleEmpty(bible?.styleBible) ? undefined : bible?.styleBible,
 	);
-	const brief = promoteBrief(prev?.brief, bible?.brief, now);
+	// Both brief inputs may come from storage written before the styleBible →
+	// styleNote rename — migrate the legacy key on read (one-way).
+	const brief = promoteBrief(
+		migrateLegacyBrief(prev?.brief),
+		migrateLegacyBrief(bible?.brief),
+		now,
+	);
 
 	if (!styleBible && !brief) return prev;
 
@@ -211,11 +218,11 @@ export function isUserBibleDefaultsEmpty(
 ): boolean {
 	if (!defaults) return true;
 	if (!isStyleBibleEmpty(defaults.styleBible)) return false;
-	const b = defaults.brief;
+	const b = migrateLegacyBrief(defaults.brief);
 	if (!b) return true;
 	return (
 		!b.tone?.trim() &&
-		!b.styleBible?.trim() &&
+		!b.styleNote?.trim() &&
 		(b.dos?.length ?? 0) === 0 &&
 		(b.donts?.length ?? 0) === 0 &&
 		(b.notes?.length ?? 0) === 0
@@ -241,15 +248,17 @@ export function seedBibleFromUserDefaults(
 	if (isUserBibleDefaultsEmpty(defaults)) return undefined;
 	const d = defaults as UserBibleDefaults;
 
-	const brief: DirectorBrief | undefined = d.brief
+	// Stored defaults may predate the styleBible → styleNote rename — migrate on read.
+	const dBrief = migrateLegacyBrief(d.brief);
+	const brief: DirectorBrief | undefined = dBrief
 		? {
-				...(d.brief.tone?.trim() ? { tone: d.brief.tone.trim() } : {}),
-				...(d.brief.styleBible?.trim()
-					? { styleBible: d.brief.styleBible.trim() }
+				...(dBrief.tone?.trim() ? { tone: dBrief.tone.trim() } : {}),
+				...(dBrief.styleNote?.trim()
+					? { styleNote: dBrief.styleNote.trim() }
 					: {}),
-				...(d.brief.dos?.length ? { dos: [...d.brief.dos] } : {}),
-				...(d.brief.donts?.length ? { donts: [...d.brief.donts] } : {}),
-				...(d.brief.notes?.length ? { notes: [...d.brief.notes] } : {}),
+				...(dBrief.dos?.length ? { dos: [...dBrief.dos] } : {}),
+				...(dBrief.donts?.length ? { donts: [...dBrief.donts] } : {}),
+				...(dBrief.notes?.length ? { notes: [...dBrief.notes] } : {}),
 				updatedAt: now,
 			}
 		: undefined;
@@ -257,7 +266,7 @@ export function seedBibleFromUserDefaults(
 	const briefHasContent =
 		brief &&
 		(brief.tone ||
-			brief.styleBible ||
+			brief.styleNote ||
 			brief.dos?.length ||
 			brief.donts?.length ||
 			brief.notes?.length);

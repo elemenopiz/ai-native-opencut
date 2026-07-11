@@ -3,7 +3,7 @@
  * {@link DirectorBrief} (defined on `TProject` in `@/types/project`).
  *
  * The brief is the Director's DURABLE memory of the user's creative intent:
- * goal, audience, tone, a style bible, do/don't constraints, and a running list
+ * goal, audience, tone, a one-line style note, do/don't constraints, and a running list
  * of learned one-line notes (stated preferences + chosen-take rationale). Each
  * turn the agent folds a summary of it into its system prompt (see
  * `agent.ts`'s `buildBriefBlock`) and writes back to it via the
@@ -40,11 +40,38 @@ export function isBriefEmpty(brief: DirectorBrief | undefined): boolean {
 		!brief.goal?.trim() &&
 		!brief.audience?.trim() &&
 		!brief.tone?.trim() &&
-		!brief.styleBible?.trim() &&
+		!brief.styleNote?.trim() &&
 		(brief.dos?.length ?? 0) === 0 &&
 		(brief.donts?.length ?? 0) === 0 &&
 		(brief.notes?.length ?? 0) === 0
 	);
+}
+
+/**
+ * The pre-rename shape of a persisted brief: the one-line style string used to
+ * live under `styleBible`, a key that collided with the STRUCTURED
+ * `ProjectBible.styleBible` look (see `lib/director/project-bible.ts`). Briefs
+ * are durable (serialized on `TProject`, and inside cross-project user-memory
+ * defaults), so old records may still carry the legacy key.
+ */
+type LegacyBrief = DirectorBrief & { styleBible?: string };
+
+/**
+ * One-way, on-read migration for briefs persisted before the `styleBible` →
+ * `styleNote` rename. Moves a legacy non-empty `styleBible` string into
+ * `styleNote` (an already-set `styleNote` wins) and drops the legacy key.
+ * Pure; returns the input unchanged (same reference) when no legacy key exists.
+ */
+export function migrateLegacyBrief(
+	brief: DirectorBrief | undefined,
+): DirectorBrief | undefined {
+	if (!brief || !("styleBible" in brief)) return brief;
+	const { styleBible: legacy, ...rest } = brief as LegacyBrief;
+	const migrated = legacy?.trim();
+	if (migrated && !rest.styleNote?.trim()) {
+		return { ...rest, styleNote: migrated };
+	}
+	return rest;
 }
 
 /** Trim, drop empties, and de-duplicate a string list while preserving order. */
@@ -71,7 +98,7 @@ export interface BriefPatch {
 	goal?: string;
 	audience?: string;
 	tone?: string;
-	styleBible?: string;
+	styleNote?: string;
 	/** Constraints to ADD (appended, not replaced). */
 	dos?: string[];
 	donts?: string[];
@@ -105,7 +132,7 @@ export function applyBriefPatch(
 	next.goal = patchScalar(current.goal, patch.goal);
 	next.audience = patchScalar(current.audience, patch.audience);
 	next.tone = patchScalar(current.tone, patch.tone);
-	next.styleBible = patchScalar(current.styleBible, patch.styleBible);
+	next.styleNote = patchScalar(current.styleNote, patch.styleNote);
 
 	if (patch.dos?.length) {
 		next.dos = cleanList([...(current.dos ?? []), ...patch.dos]);
@@ -122,7 +149,7 @@ export function applyBriefPatch(
 	}
 
 	// Drop cleared-to-empty scalar keys so the object stays compact.
-	for (const key of ["goal", "audience", "tone", "styleBible"] as const) {
+	for (const key of ["goal", "audience", "tone", "styleNote"] as const) {
 		if (next[key] == null) delete next[key];
 	}
 
@@ -159,7 +186,7 @@ export function summarizeBrief(brief: DirectorBrief | undefined): string {
 	if (b.goal?.trim()) lines.push(`  GOAL: ${b.goal.trim()}`);
 	if (b.audience?.trim()) lines.push(`  AUDIENCE: ${b.audience.trim()}`);
 	if (b.tone?.trim()) lines.push(`  TONE: ${b.tone.trim()}`);
-	if (b.styleBible?.trim()) lines.push(`  STYLE: ${b.styleBible.trim()}`);
+	if (b.styleNote?.trim()) lines.push(`  STYLE: ${b.styleNote.trim()}`);
 	if (b.dos?.length) lines.push(`  DO: ${b.dos.join("; ")}`);
 	if (b.donts?.length) lines.push(`  DON'T: ${b.donts.join("; ")}`);
 	if (b.notes?.length) {

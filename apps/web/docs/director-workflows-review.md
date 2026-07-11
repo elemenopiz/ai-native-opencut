@@ -5,6 +5,7 @@
 **Reviewer:** final integration pass (single reviewer, post-parallel-build)
 **Spec audited:** `apps/web/docs/reimagined-director-workflows.md`
 **Date:** 2026-07-10
+**Decisions:** the dormant items below were decided 2026-07-11 — see `director-dormant-decisions.md`.
 
 ---
 

@@ -10,6 +10,7 @@ import type {
 	TTimelineViewState,
 } from "@/types/project";
 import type { ExportOptions, ExportResult, ExportState } from "@/types/export";
+import { migrateLegacyBrief } from "@/lib/director/director-brief";
 import { storageService } from "@/services/storage/service";
 import {
 	promoteBibleToUserMemory,
@@ -282,7 +283,9 @@ export class ProjectManager {
 						storageService.deleteProjectMedia({ projectId: id }),
 						storageService.deleteProject({ id }),
 						// Clean up version control database for this project
-						new VersionStorage(id).deleteDatabase().catch(() => {}),
+						new VersionStorage(id)
+							.deleteDatabase()
+							.catch(() => {}),
 					]),
 				),
 			);
@@ -631,10 +634,12 @@ export class ProjectManager {
 	/**
 	 * The active project's persistent DIRECTOR BRIEF (creative intent the Director
 	 * agent reads/writes across turns). Returns an empty brief when unset or when
-	 * no project is active, so callers never branch on `undefined`.
+	 * no project is active, so callers never branch on `undefined`. Briefs stored
+	 * before the `styleBible` → `styleNote` rename are migrated on read (one-way);
+	 * the next brief write persists the migrated shape.
 	 */
 	getDirectorBrief(): DirectorBrief {
-		return this.active?.directorBrief ?? {};
+		return migrateLegacyBrief(this.active?.directorBrief) ?? {};
 	}
 
 	/**

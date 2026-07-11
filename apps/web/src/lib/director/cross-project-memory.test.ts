@@ -25,7 +25,7 @@ function sampleBible(): ProjectBible {
 			goal: "drive signups for the app", // project-specific — must NOT promote
 			audience: "Gen-Z skateboarders", // project-specific — must NOT promote
 			tone: "warm, playful, handheld",
-			styleBible: "warm tones, quick cuts",
+			styleNote: "warm tones, quick cuts",
 			dos: ["keep it handheld", "warm grade"],
 			donts: ["no stock footage"],
 			notes: [
@@ -56,7 +56,7 @@ describe("promoteBibleToUserDefaults — distillation, not blind copy", () => {
 
 		// Durable brief slice promoted.
 		expect(d.brief?.tone).toBe("warm, playful, handheld");
-		expect(d.brief?.styleBible).toBe("warm tones, quick cuts");
+		expect(d.brief?.styleNote).toBe("warm tones, quick cuts");
 		expect(d.brief?.dos).toContain("keep it handheld");
 		expect(d.brief?.donts).toContain("no stock footage");
 
@@ -105,6 +105,28 @@ describe("promoteBibleToUserDefaults — distillation, not blind copy", () => {
 		expect(
 			promoteBibleToUserDefaults(undefined, { version: 0, updatedAt: 0 }),
 		).toBeUndefined();
+	});
+
+	it("migrates a stored brief carrying the legacy `styleBible` string key on read", () => {
+		// A bible persisted BEFORE the brief's styleBible → styleNote rename.
+		const legacyBible = sampleBible();
+		(legacyBible.brief as Record<string, unknown>).styleBible =
+			"legacy warm tones";
+		delete (legacyBible.brief as Record<string, unknown>).styleNote;
+
+		const d = promoteBibleToUserDefaults(undefined, legacyBible, 2000);
+		expect(d?.brief?.styleNote).toBe("legacy warm tones");
+		expect(d?.brief && "styleBible" in d.brief).toBe(false);
+
+		// Stored user defaults with the legacy key seed correctly too.
+		const legacyDefaults = {
+			brief: { styleBible: "legacy grade", updatedAt: 1 },
+			updatedAt: 1,
+		} as unknown as UserBibleDefaults;
+		expect(isUserBibleDefaultsEmpty(legacyDefaults)).toBe(false);
+		const seed = seedBibleFromUserDefaults(legacyDefaults, 42);
+		expect(seed?.brief?.styleNote).toBe("legacy grade");
+		expect(seed?.brief && "styleBible" in seed.brief).toBe(false);
 	});
 
 	it("bounds the promoted lists", () => {
