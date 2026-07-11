@@ -17,6 +17,14 @@ const CATEGORY_ICONS: Record<string, string> = {
 	wipe: "▮",
 	zoom: "⊕",
 	dip: "◻",
+	iris: "◉",
+	morph: "≈",
+	distortion: "∿",
+	burn: "❋",
+	peel: "◲",
+	spin: "↻",
+	cube: "▣",
+	pattern: "▦",
 };
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -25,6 +33,14 @@ const CATEGORY_LABELS: Record<string, string> = {
 	wipe: "Wipe",
 	zoom: "Zoom",
 	dip: "Dip",
+	iris: "Iris",
+	morph: "Morph",
+	distortion: "Distortion",
+	burn: "Burn",
+	peel: "Peel",
+	spin: "Spin",
+	cube: "3D",
+	pattern: "Pattern",
 };
 
 export function TransitionsView() {

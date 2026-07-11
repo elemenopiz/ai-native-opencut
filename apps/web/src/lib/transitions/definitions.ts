@@ -1,5 +1,6 @@
 import type { TransitionDefinition } from "./registry";
 import { registerTransition } from "./registry";
+import { GL_TRANSITIONS } from "./gl-definitions";
 import crossDissolveShader from "./shaders/cross-dissolve.frag.glsl";
 import dipBlackShader from "./shaders/dip-black.frag.glsl";
 import slideLeftShader from "./shaders/slide-left.frag.glsl";
@@ -186,6 +187,9 @@ const BUILTIN_TRANSITIONS: TransitionDefinition[] = [
 
 export function registerDefaultTransitions(): void {
 	for (const definition of BUILTIN_TRANSITIONS) {
+		registerTransition({ definition });
+	}
+	for (const definition of GL_TRANSITIONS) {
 		registerTransition({ definition });
 	}
 }
