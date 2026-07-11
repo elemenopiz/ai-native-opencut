@@ -19,6 +19,11 @@ import { computeDropTarget } from "@/lib/timeline/drop-utils";
 import { getMouseTimeFromClientX } from "@/lib/timeline/drag-utils";
 import { generateUUID } from "@/utils/id";
 import { snapElementEdge, type SnapPoint } from "@/lib/timeline/snap-utils";
+import {
+	buildMoveGroup,
+	snapGroupEdges,
+	type GroupMoveTarget,
+} from "@/lib/timeline/group-move";
 import { getSnapBeats } from "@/stores/beat-grid-store";
 import type {
 	DropTarget,
@@ -167,6 +172,7 @@ export function useElementInteraction({
 	const isShiftHeldRef = useShiftKey();
 	const tracks = editor.timeline.getTracks();
 	const {
+		selectedElements,
 		isElementSelected,
 		selectElement,
 		handleElementClick: handleSelectionClick,
@@ -446,6 +452,70 @@ export function useElementInteraction({
 				return;
 			}
 
+			const isGroupMove =
+				selectedElements.length > 1 &&
+				isElementSelected({
+					trackId: dragState.trackId,
+					elementId: dragState.elementId,
+				});
+
+			if (isGroupMove) {
+				if (!dropTarget.isNewTrack && !tracks[dropTarget.trackIndex]) {
+					endDrag();
+					onSnapPointChange?.(null);
+					return;
+				}
+
+				const anchorRef = {
+					trackId: dragState.trackId,
+					elementId: dragState.elementId,
+				};
+
+				let anchorStartTime = snappedTime;
+				const shouldSnapGroup = snappingEnabled && !isShiftHeldRef.current;
+				if (shouldSnapGroup) {
+					const group = buildMoveGroup({ anchorRef, selectedElements, tracks });
+					if (group) {
+						const groupSnap = snapGroupEdges({
+							group,
+							anchorStartTime: snappedTime,
+							tracks,
+							playheadTime: editor.playback.getCurrentTime(),
+							zoomLevel,
+						});
+						anchorStartTime = groupSnap.snappedAnchorStartTime;
+					}
+				}
+
+				const target: GroupMoveTarget = dropTarget.isNewTrack
+					? { kind: "newTracks", insertIndex: dropTarget.trackIndex }
+					: {
+							kind: "existingTrack",
+							targetTrackId: tracks[dropTarget.trackIndex].id,
+						};
+
+				const anchorOriginalTrackIndex = tracks.findIndex(
+					(track) => track.id === dragState.trackId,
+				);
+				const isNoOpDrop =
+					!dropTarget.isNewTrack &&
+					dropTarget.trackIndex === anchorOriginalTrackIndex &&
+					anchorStartTime === dragState.startElementTime;
+
+				if (!isNoOpDrop) {
+					editor.timeline.moveElements({
+						anchorRef,
+						selectedElements,
+						anchorStartTime,
+						target,
+					});
+				}
+
+				endDrag();
+				onSnapPointChange?.(null);
+				return;
+			}
+
 			if (dropTarget.isNewTrack) {
 				const newTrackId = generateUUID();
 
@@ -494,16 +564,22 @@ export function useElementInteraction({
 		dragState.startMouseY,
 		dragState.trackId,
 		dragState.currentTime,
+		dragState.startElementTime,
 		zoomLevel,
 		tracks,
 		endDrag,
 		onSnapPointChange,
 		editor.timeline,
+		editor.playback,
 		tracksContainerRef,
 		tracksScrollRef,
 		headerRef,
 		rippleEditingEnabled,
 		selectElement,
+		selectedElements,
+		isElementSelected,
+		snappingEnabled,
+		isShiftHeldRef,
 	]);
 
 	useEffect(() => {

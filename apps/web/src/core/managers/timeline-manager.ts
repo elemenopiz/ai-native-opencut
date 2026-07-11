@@ -39,6 +39,8 @@ import {
 	PasteCommand,
 	UpdateElementStartTimeCommand,
 	MoveElementCommand,
+	MoveElementsCommand,
+	ResizeElementsCommand,
 	TracksSnapshotCommand,
 	UpsertKeyframeCommand,
 	RemoveKeyframeCommand,
@@ -54,6 +56,13 @@ import {
 } from "@/lib/commands/timeline";
 import { BatchCommand, PreviewTracker } from "@/lib/commands";
 import type { InsertElementParams } from "@/lib/commands/timeline/element/insert-element";
+import {
+	buildMoveGroup,
+	resolveGroupMove,
+	type ElementRef,
+	type GroupMoveTarget,
+} from "@/lib/timeline/group-move";
+import type { GroupResizeUpdate } from "@/lib/timeline/group-resize";
 
 export class TimelineManager {
 	private listeners = new Set<() => void>();
@@ -173,6 +182,48 @@ export class TimelineManager {
 			createTrack,
 			rippleEnabled,
 		});
+		this.editor.command.execute({ command });
+	}
+
+	/** Multi-select counterpart to `moveElement` — moves every member of
+	 *  `group` (anchor + rest of the selection) together, preserving each
+	 *  member's time offset from the anchor and, for cross-track drags, its
+	 *  relative track position. Returns the moved elements' new refs (to
+	 *  become the new selection), or null when the drop is invalid (out of
+	 *  bounds, type-incompatible target track, or would overlap another
+	 *  element) — callers should treat null as "reject the drop" and leave
+	 *  the timeline untouched, same as the single-element `!dropTarget`
+	 *  guard. */
+	moveElements({
+		anchorRef,
+		selectedElements,
+		anchorStartTime,
+		target,
+	}: {
+		anchorRef: ElementRef;
+		selectedElements: ElementRef[];
+		anchorStartTime: number;
+		target: GroupMoveTarget;
+	}): ElementRef[] | null {
+		const tracks = this.getTracks();
+		const group = buildMoveGroup({ anchorRef, selectedElements, tracks });
+		if (!group) return null;
+
+		const result = resolveGroupMove({ group, tracks, anchorStartTime, target });
+		if (!result) return null;
+
+		const command = new MoveElementsCommand(result);
+		this.editor.command.execute({ command });
+		return result.targetSelection;
+	}
+
+	/** Multi-select counterpart to `updateElementTrim` — applies a resolved
+	 *  group-resize plan (see `lib/timeline/group-resize.ts`) to every member
+	 *  atomically. `updates` is expected to already be the fully clamped
+	 *  result of `computeGroupResize`. */
+	resizeElements({ updates }: { updates: GroupResizeUpdate[] }): void {
+		if (updates.length === 0) return;
+		const command = new ResizeElementsCommand(updates);
 		this.editor.command.execute({ command });
 	}
 
@@ -910,7 +961,15 @@ export class TimelineManager {
 		updates,
 	}: {
 		trackId: string;
-		updates: Partial<{ muted: boolean; hidden: boolean; volume: number; pan: number; solo: boolean; color: string; locked: boolean }>;
+		updates: Partial<{
+			muted: boolean;
+			hidden: boolean;
+			volume: number;
+			pan: number;
+			solo: boolean;
+			color: string;
+			locked: boolean;
+		}>;
 	}): void {
 		const tracks = this.getTracks();
 		const updatedTracks = tracks.map((track) =>
@@ -926,7 +985,10 @@ export class TimelineManager {
 	toggleTrackLock({ trackId }: { trackId: string }): void {
 		const track = this.getTracks().find((t) => t.id === trackId);
 		if (!track) return;
-		this.updateTrack({ trackId, updates: { locked: !(track as any).locked } as any });
+		this.updateTrack({
+			trackId,
+			updates: { locked: !(track as any).locked } as any,
+		});
 	}
 
 	isTrackLocked(trackId: string): boolean {
@@ -934,7 +996,13 @@ export class TimelineManager {
 		return !!(track as any)?.locked;
 	}
 
-	reorderTracks({ fromIndex, toIndex }: { fromIndex: number; toIndex: number }): void {
+	reorderTracks({
+		fromIndex,
+		toIndex,
+	}: {
+		fromIndex: number;
+		toIndex: number;
+	}): void {
 		const currentTracks = this.getTracks();
 		if (fromIndex === toIndex) return;
 		if (fromIndex < 0 || fromIndex >= currentTracks.length) return;
