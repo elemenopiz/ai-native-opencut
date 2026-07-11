@@ -620,6 +620,32 @@ export type UnderstandAssetFn = (
 /** The browser-side endpoint of the stateless server relay (mirrors `agent.ts`). */
 const AGENT_RELAY_URL = "/api/llm/agent";
 
+/**
+ * A relay HTTP failure that CARRIES the `Response`, so upstream policy can
+ * inspect the status without this module knowing about it. The one consumer
+ * today is the credit gate: `understandAssetBatch` routes a 402 through
+ * `gateOn402` (which needs the un-consumed body — hence `response` is attached
+ * unread; the error message reads from a clone). Everything else treats this
+ * like any other transport error.
+ */
+export class UnderstandingRelayError extends Error {
+	constructor(
+		message: string,
+		readonly status: number,
+		readonly response: Response,
+	) {
+		super(message);
+		this.name = "UnderstandingRelayError";
+	}
+}
+
+/** Is this error the paid relay saying "insufficient credits" (HTTP 402)? */
+export function isCreditGateError(
+	err: unknown,
+): err is UnderstandingRelayError {
+	return err instanceof UnderstandingRelayError && err.status === 402;
+}
+
 /** Pull the concatenated text out of an Anthropic assistant content array. */
 function textOfContent(content: unknown): string {
 	if (!Array.isArray(content)) return "";
@@ -662,14 +688,21 @@ export const relayUnderstandAsset: UnderstandAssetFn = async (frames, ctx) => {
 		}),
 	});
 	if (!res.ok) {
-		const body = (await res.json().catch(() => null)) as {
+		// Read the message from a CLONE so `res` itself stays un-consumed — the
+		// credit gate downstream needs to `clone().json()` the original.
+		const body = (await res
+			.clone()
+			.json()
+			.catch(() => null)) as {
 			error?: string;
 			message?: string;
 		} | null;
-		throw new Error(
+		throw new UnderstandingRelayError(
 			`Asset understanding relay error (${res.status}): ${
 				body?.message ?? body?.error ?? "unknown error"
 			}`,
+			res.status,
+			res,
 		);
 	}
 	const body = (await res.json()) as { content?: unknown };

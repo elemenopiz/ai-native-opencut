@@ -13,12 +13,21 @@
  * gated behind {@link isUnderstandingAutorunEnabled} (env flag, default off) — the
  * pipeline is always callable on demand (e.g. by the Asset Manifest builder), it
  * just doesn't fire a paid call on every import unless asked to.
+ *
+ * The PRIMARY trigger is demand-driven: `useDirector` runs
+ * {@link understandAssetBatch} over the not-yet-understood assets when the user
+ * engages the Director (that's the moment the manifest needs grounding). The
+ * ingest autorun above is an opt-in PREFETCH on top, capped per tick. Both
+ * funnel through {@link understandAssetBatch}, which routes a relay 402 through
+ * the client credit gate and stops — being out of credits never blocks import
+ * or editing, the manifest just keeps its media-type-count fallback.
  */
 
 import {
 	type AssetUnderstanding,
 	computeLumaGrid,
 	degradedUnderstanding,
+	isCreditGateError,
 	type LumaGrid,
 	type PersonaRef,
 	pickShotRepresentatives,
@@ -26,6 +35,7 @@ import {
 	segmentShots,
 	type UnderstandAssetFn,
 } from "@/lib/search/asset-understanding";
+import { gateOn402 } from "@/lib/credits/client-gate";
 import {
 	getUnderstanding,
 	saveUnderstanding,
@@ -340,7 +350,11 @@ export async function understandAsset(
 			modelName,
 			hint: options?.hint,
 		});
-	} catch {
+	} catch (err) {
+		// Insufficient credits (402) is POLICY, not transport: rethrow so the
+		// batch runner can open the out-of-credits gate and stop instead of
+		// silently burning through the rest of the queue.
+		if (isCreditGateError(err)) throw err;
 		// Transport error against the paid relay — don't poison the store; a later
 		// retry (or on-demand call) can still produce a real understanding.
 		return null;
@@ -372,20 +386,82 @@ export async function understandAsset(
 }
 
 /**
+ * Assets an `understandAssetBatch` is CURRENTLY processing, across every batch
+ * on the page. Both understanding triggers (the demand-driven Director batch
+ * and the import-time autorun) can run at once, and `understandAsset`'s store
+ * de-dupe only protects against re-billing AFTER a record is persisted — two
+ * concurrent calls on the same asset would both pass the check and both bill.
+ * This set closes that window: a batch skips (doesn't fail) an asset another
+ * batch already has inflight.
+ */
+const inflightBatchIds = new Set<string>();
+
+export interface UnderstandBatchSummary {
+	/** Assets this run attempted (excludes inflight-elsewhere skips and a gated tail). */
+	processed: number;
+	/** Attempts that yielded a persisted understanding record. */
+	understood: number;
+	/** True when the run stopped early on the 402 credit gate. */
+	gated: boolean;
+}
+
+/**
  * Understand many assets sequentially. Sequential on purpose: the VLM relay is
  * rate-limited per account and the user is editing — we don't want to burst it.
+ *
+ * This is the ONE seam where the paid understanding pass meets the credit
+ * system: a relay 402 is routed through `gateOn402` (opens the "Out of
+ * credits" modal, same as every other paid verb) and the batch stops
+ * gracefully — assets already understood keep their records, the rest stay
+ * eligible for a later run, and import/editing is never blocked.
  */
 export async function understandAssetBatch(
 	mediaList: MediaAsset[],
 	options?: UnderstandAssetOptions & {
+		/** Per-asset progress callback (record is null when the asset failed/skipped). */
 		onAssetComplete?: (
 			mediaId: string,
 			record: AssetUnderstanding | null,
 		) => void;
+		/** Checked before each asset — return false to stop (e.g. hook unmounted). */
+		shouldContinue?: () => boolean;
+		/** The 402 handler (default {@link gateOn402}); tests inject a stub. */
+		gate?: (res: Response) => Promise<boolean>;
+		/** The per-asset pass (default {@link understandAsset}); tests inject a stub. */
+		understandOne?: typeof understandAsset;
 	},
-): Promise<void> {
+): Promise<UnderstandBatchSummary> {
+	const gate = options?.gate ?? gateOn402;
+	const understandOne = options?.understandOne ?? understandAsset;
+	const summary: UnderstandBatchSummary = {
+		processed: 0,
+		understood: 0,
+		gated: false,
+	};
 	for (const media of mediaList) {
-		const record = await understandAsset(media, options).catch(() => null);
-		options?.onAssetComplete?.(media.id, record);
+		if (options?.shouldContinue && !options.shouldContinue()) break;
+		if (inflightBatchIds.has(media.id)) continue; // another batch owns it
+		inflightBatchIds.add(media.id);
+		try {
+			const record = await understandOne(media, options);
+			summary.processed += 1;
+			if (record) summary.understood += 1;
+			options?.onAssetComplete?.(media.id, record);
+		} catch (err) {
+			summary.processed += 1;
+			options?.onAssetComplete?.(media.id, null);
+			if (isCreditGateError(err)) {
+				// Out of credits: surface the modal once and stop the whole batch —
+				// every remaining asset would hit the same wall.
+				summary.gated = true;
+				await gate(err.response).catch(() => undefined);
+				break;
+			}
+			// Anything else is a per-asset failure; keep going.
+			console.warn(`[asset-understanding] failed for ${media.id}:`, err);
+		} finally {
+			inflightBatchIds.delete(media.id);
+		}
 	}
+	return summary;
 }
