@@ -16,6 +16,7 @@
  *   base64) — used automatically when `req.referenceImageUrl` is set.
  */
 
+import { webEnv } from "@byorn/env/web";
 import { nanoid } from "nanoid";
 import type {
 	BackendRequest,
@@ -26,9 +27,8 @@ import type {
 } from "@/lib/studio/backends/types";
 import type { ImageSize } from "@/lib/studio/image-generator";
 
-// UNVERIFIED: BFL_API_KEY is not yet declared in `@byorn/env/web`'s schema, so
-// `webEnv.BFL_API_KEY` would fail to type-check. Read straight from
-// `process.env` per the build brief until the schema is extended.
+// BFL_API_KEY comes from the validated env schema (`@byorn/env/web`);
+// empty string means "not configured".
 const BFL_API_KEY_ENV = "BFL_API_KEY";
 
 // Global endpoint; BFL also offers api.eu.bfl.ai / api.us.bfl.ai regional
@@ -137,7 +137,7 @@ export const bflFluxBackend: GenerationBackend = {
 	},
 
 	isAvailable() {
-		return Boolean(process.env[BFL_API_KEY_ENV]);
+		return Boolean(webEnv.BFL_API_KEY);
 	},
 
 	estimateCost(_req: BackendRequest): CostEstimate {
@@ -145,7 +145,7 @@ export const bflFluxBackend: GenerationBackend = {
 	},
 
 	async submit(req: BackendRequest): Promise<SubmitResult> {
-		const key = process.env[BFL_API_KEY_ENV];
+		const key = webEnv.BFL_API_KEY;
 		if (!key) {
 			return { jobId: "", status: "failed", error: "BFL_API_KEY is not configured" };
 		}
@@ -203,7 +203,7 @@ export const bflFluxBackend: GenerationBackend = {
 	// jobId doubles as BFL's `polling_url` (the only handle it accepts back) —
 	// see the module doc comment for why we can't construct our own endpoint.
 	async poll(jobId: string): Promise<PollResult> {
-		const key = process.env[BFL_API_KEY_ENV];
+		const key = webEnv.BFL_API_KEY;
 		if (!key) {
 			return { jobId, status: "failed", error: "BFL_API_KEY is not configured" };
 		}

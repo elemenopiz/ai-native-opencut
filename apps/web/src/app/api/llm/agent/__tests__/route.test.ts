@@ -15,6 +15,7 @@
  * `rate-limit`, `next/headers`, and the Anthropic client at module load).
  */
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
+import { webEnv } from "@byorn/env/web";
 
 interface State {
 	/** The AbortSignal the route passed into `client.messages.stream`. */
@@ -97,15 +98,22 @@ async function drain(res: Response): Promise<string> {
 	return out;
 }
 
+// The route reads keys from the validated `webEnv` object (a module
+// singleton), so tests configure the brain by mutating that object rather
+// than `process.env` (which is only parsed once, at env-module import).
+const savedAnthropicKey = webEnv.ANTHROPIC_API_KEY;
+const savedMoonshotKey = webEnv.MOONSHOT_API_KEY;
+
 beforeEach(() => {
 	state.streamSignal = null;
 	state.streamCreated = 0;
-	process.env.ANTHROPIC_API_KEY = "test-key";
-	delete process.env.MOONSHOT_API_KEY;
+	webEnv.ANTHROPIC_API_KEY = "test-key";
+	webEnv.MOONSHOT_API_KEY = "";
 });
 
 afterEach(() => {
-	delete process.env.ANTHROPIC_API_KEY;
+	webEnv.ANTHROPIC_API_KEY = savedAnthropicKey;
+	webEnv.MOONSHOT_API_KEY = savedMoonshotKey;
 });
 
 test("aborting the client request aborts the upstream stream and tears it down", async () => {

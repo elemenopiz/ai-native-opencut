@@ -10,6 +10,7 @@
  * input (not a style ref), so we wire `req.referenceImageUrl` through it.
  */
 
+import { webEnv } from "@byorn/env/web";
 import { nanoid } from "nanoid";
 import type {
 	BackendRequest,
@@ -20,8 +21,8 @@ import type {
 } from "@/lib/studio/backends/types";
 import type { ImageQuality, ImageSize } from "@/lib/studio/image-generator";
 
-// UNVERIFIED: IDEOGRAM_API_KEY is not yet declared in `@byorn/env/web`'s
-// schema — read straight from `process.env` per the build brief.
+// IDEOGRAM_API_KEY comes from the validated env schema (`@byorn/env/web`);
+// empty string means "not configured".
 const IDEOGRAM_API_KEY_ENV = "IDEOGRAM_API_KEY";
 
 const IDEOGRAM_BASE = "https://api.ideogram.ai";
@@ -93,7 +94,7 @@ export const ideogramBackend: GenerationBackend = {
 	},
 
 	isAvailable() {
-		return Boolean(process.env[IDEOGRAM_API_KEY_ENV]);
+		return Boolean(webEnv.IDEOGRAM_API_KEY);
 	},
 
 	estimateCost(req: BackendRequest): CostEstimate {
@@ -102,7 +103,7 @@ export const ideogramBackend: GenerationBackend = {
 	},
 
 	async submit(req: BackendRequest): Promise<SubmitResult> {
-		const key = process.env[IDEOGRAM_API_KEY_ENV];
+		const key = webEnv.IDEOGRAM_API_KEY;
 		if (!key) {
 			return { jobId: "", status: "failed", error: "IDEOGRAM_API_KEY is not configured" };
 		}

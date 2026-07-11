@@ -75,6 +75,69 @@ const webEnvSchema = z.object({
 	// Model name — defaults to gpt-image-2 (current GPT Image model id)
 	OPENAI_IMAGE_MODEL: z.string().default("gpt-image-2"),
 
+	// ── Director brain: Anthropic / Kimi (server-side relay) ──────────────
+	// Optional — with NEITHER key set, /api/llm/agent returns a machine-readable
+	// 503 ("anthropic_not_configured") and the client agent falls back to the
+	// local Ollama brain (privacy mode). MOONSHOT_API_KEY, when set, wins over
+	// ANTHROPIC_API_KEY (Kimi via Moonshot's Anthropic-compatible endpoint).
+	ANTHROPIC_API_KEY: z.string().default(""),
+	MOONSHOT_API_KEY: z.string().default(""),
+	// Model override for whichever Director brain is active. Empty = the
+	// route's built-in default (claude-opus-4-8 / kimi-k2.6).
+	DIRECTOR_MODEL: z.string().default(""),
+
+	// Pexels stock-photo search (/api/images/search). Optional — callers may
+	// also supply a personal key per request (X-Pexels-Api-Key header from
+	// Settings); with neither, image search returns a 401 with setup help.
+	PEXELS_API_KEY: z.string().default(""),
+
+	// How many trusted reverse proxies sit between the client and the app —
+	// used to pick the real client IP from x-forwarded-for for rate limiting.
+	// Default 1 (a single edge proxy, e.g. Vercel). Invalid values fall back
+	// to 1 rather than failing the boot.
+	TRUSTED_PROXY_HOPS: z.coerce.number().int().min(1).default(1).catch(1),
+
+	// ── Routed partner backends (all optional) ────────────────────────────
+	// Each adapter under src/lib/studio/backends/ stays INERT until its key is
+	// set (isAvailable() gates routing), so a blank key simply disables that
+	// provider. Base-URL/model overrides are optional; empty string = the
+	// adapter's built-in default.
+	//
+	// Kling (Kuaishou) — JWT-signed from an access/secret key pair.
+	KLING_ACCESS_KEY: z.string().default(""),
+	KLING_SECRET_KEY: z.string().default(""),
+	KLING_BASE_URL: z.string().default(""),
+	KLING_MODEL: z.string().default(""),
+	// Google Gemini — ONE key shared by Veo (video), Imagen (image) and
+	// Gemini Flash Image / "Nano Banana" (image).
+	GEMINI_API_KEY: z.string().default(""),
+	GEMINI_BASE_URL: z.string().default(""),
+	GEMINI_VEO_MODEL: z.string().default(""),
+	GEMINI_IMAGEN_MODEL: z.string().default(""),
+	GEMINI_NANO_BANANA_MODEL: z.string().default(""),
+	// Runway (Gen-4 / Aleph).
+	RUNWAY_API_KEY: z.string().default(""),
+	RUNWAY_BASE_URL: z.string().default(""),
+	RUNWAY_API_VERSION: z.string().default(""),
+	RUNWAY_MODEL: z.string().default(""),
+	// Luma (Ray-2 / Dream Machine).
+	LUMA_API_KEY: z.string().default(""),
+	LUMA_BASE_URL: z.string().default(""),
+	LUMA_MODEL: z.string().default(""),
+	// fal.ai — aggregator used for Pika 2.2.
+	FAL_KEY: z.string().default(""),
+	FAL_BASE_URL: z.string().default(""),
+	// Black Forest Labs FLUX (image).
+	BFL_API_KEY: z.string().default(""),
+	// Ideogram 3.0 (image).
+	IDEOGRAM_API_KEY: z.string().default(""),
+
+	// ── Deploy metadata (host-injected, optional) ─────────────────────────
+	// Surfaced by GET /api/health as `sha`. Vercel injects the first one
+	// automatically; set GIT_SHA yourself in Docker/other hosts if you want it.
+	VERCEL_GIT_COMMIT_SHA: z.string().optional(),
+	GIT_SHA: z.string().optional(),
+
 	// ── Payments: Polar (merchant-of-record) ──────────────────────────────
 	// Phase 2 of the credit system. Polar handles global tax/VAT as MoR. The
 	// whole payments surface stays INERT until POLAR_ACCESS_TOKEN and

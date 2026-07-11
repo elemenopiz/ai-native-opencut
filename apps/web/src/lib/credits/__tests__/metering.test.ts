@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, it, mock } from "bun:test";
+import { webEnv as realWebEnv } from "@byorn/env/web";
 
 /**
  * Metering-layer behavior on top of the pure ledger:
@@ -9,13 +10,18 @@ import { afterAll, describe, expect, it, mock } from "bun:test";
  *     less than the reservation — the user is charged EXACTLY the routed cost.
  *
  * Runs against the real local Postgres (bun loads .env.local). The env module is
- * mocked to disable enforcement; `db` only reads `webEnv.DATABASE_URL`, preserved
- * from process.env so the DB still connects.
+ * mocked to disable enforcement, spreading the REAL parsed env so every other
+ * key (DATABASE_URL included) keeps its true value.
  */
 
+// `mock.module` is GLOBAL to the whole `bun test` run (it leaks into every
+// other test file), so the mock must preserve the real parsed env's full shape
+// — a slimmed-down object breaks unrelated tests that read other webEnv keys
+// (e.g. the llm/agent route reading DIRECTOR_MODEL). Spread the real module
+// and override only the flag under test.
 mock.module("@byorn/env/web", () => ({
 	webEnv: {
-		DATABASE_URL: process.env.DATABASE_URL,
+		...realWebEnv,
 		CREDITS_ENFORCED: false,
 	},
 }));

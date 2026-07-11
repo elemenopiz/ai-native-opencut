@@ -19,13 +19,14 @@
  * implemented in this pass — so `supportsLastFrame` / `supportsOmniReference`
  * are honestly `false` here rather than true-but-unwired.
  *
- * `FAL_KEY` is not yet in the env schema (owned by another agent), so read
- * via `process.env` directly per the build brief.
+ * `FAL_KEY` comes from the validated env schema (`@byorn/env/web`); empty
+ * string means "not configured" and keeps the adapter inert.
  *
  * Docs: https://fal.ai/models/fal-ai/pika/v2.2/text-to-video/api and
  * https://fal.ai/models/fal-ai/pika/v2.2/image-to-video/api
  */
 
+import { webEnv } from "@byorn/env/web";
 import { estimateVideoCredits } from "@/lib/studio/backends/cost";
 import type {
 	BackendRequest,
@@ -40,11 +41,11 @@ import type { VideoOrientation } from "@/lib/studio/provider-adapter";
 const DEFAULT_BASE = "https://queue.fal.run/fal-ai/pika/v2.2";
 
 function falBase(): string {
-	return process.env.FAL_BASE_URL || DEFAULT_BASE;
+	return webEnv.FAL_BASE_URL || DEFAULT_BASE;
 }
 
 function apiKey(): string | undefined {
-	return process.env.FAL_KEY;
+	return webEnv.FAL_KEY || undefined;
 }
 
 const ASPECT_BY_ORIENTATION: Record<VideoOrientation, string> = {
@@ -68,9 +69,14 @@ function encodeJobId(subpath: PikaSubpath, requestId: string): string {
 	return `${subpath}:${requestId}`;
 }
 
-function decodeJobId(jobId: string): { subpath: PikaSubpath; requestId: string } {
+function decodeJobId(jobId: string): {
+	subpath: PikaSubpath;
+	requestId: string;
+} {
 	const idx = jobId.indexOf(":");
-	const subpath = (idx >= 0 ? jobId.slice(0, idx) : "text-to-video") as PikaSubpath;
+	const subpath = (
+		idx >= 0 ? jobId.slice(0, idx) : "text-to-video"
+	) as PikaSubpath;
 	const requestId = idx >= 0 ? jobId.slice(idx + 1) : jobId;
 	return { subpath, requestId };
 }

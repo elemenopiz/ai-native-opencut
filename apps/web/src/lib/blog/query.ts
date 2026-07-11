@@ -5,6 +5,7 @@ import type {
 	MarblePostList,
 	MarbleTagList,
 } from "@/types/blog";
+import { webEnv } from "@byorn/env/web";
 import { unified } from "unified";
 import rehypeParse from "rehype-parse";
 import rehypeStringify from "rehype-stringify";
@@ -12,9 +13,11 @@ import rehypeSlug from "rehype-slug";
 import rehypeAutolinkHeadings from "rehype-autolink-headings";
 import rehypeSanitize from "rehype-sanitize";
 
-const url =
-	process.env.NEXT_PUBLIC_MARBLE_API_URL ?? "https://api.marblecms.com";
-const key = process.env.MARBLE_WORKSPACE_KEY || "";
+// Server-only module (used by blog server components) — safe to read the
+// validated env here. Without MARBLE_WORKSPACE_KEY every fetch returns null
+// and the blog renders empty rather than erroring.
+const url = webEnv.NEXT_PUBLIC_MARBLE_API_URL;
+const key = webEnv.MARBLE_WORKSPACE_KEY;
 
 async function fetchFromMarble<T>({
 	endpoint,
