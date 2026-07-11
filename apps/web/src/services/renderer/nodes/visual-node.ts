@@ -20,8 +20,8 @@ import {
 	buildCustomMaskPasses,
 	getCustomMaskFeatherPx,
 	rasterizeCustomMask,
-	resolveCustomMask,
 } from "@/lib/effects/definitions/custom-mask";
+import { rasterizeTextMask } from "@/lib/effects/definitions/text-mask";
 import { webglEffectRenderer } from "../webgl-effect-renderer";
 
 export interface VisualNodeParams {
@@ -223,31 +223,39 @@ export abstract class VisualNode<
 			});
 		}
 
-		if (mask && mask.type === "custom") {
-			// Custom pen-tool path: rasterize the closed bezier path to an alpha
-			// canvas, then feather + composite it into the element frame via the
-			// texture-pass pipeline (see custom-mask.ts). Inactive paths (open or
-			// < 3 points) rasterize to null and leave the element fully visible.
+		if (mask && (mask.type === "custom" || mask.type === "text")) {
+			// Rasterized mask kinds (non-analytic): rasterize to an alpha canvas —
+			// a closed bezier path for "custom", glyph shapes for "text" — then
+			// feather + composite it into the element frame via the shared texture-
+			// pass pipeline (see custom-mask.ts / text-mask.ts). Inactive masks
+			// (open/<3-point paths, blank text) rasterize to null and leave the
+			// element fully visible. `feather`/`inverted` live on the base MaskShape.
 			const roundedWidth = Math.round(scaledWidth);
 			const roundedHeight = Math.round(scaledHeight);
-			const maskCanvas = rasterizeCustomMask({
-				mask,
-				width: roundedWidth,
-				height: roundedHeight,
-			});
+			const maskCanvas =
+				mask.type === "custom"
+					? rasterizeCustomMask({
+							mask,
+							width: roundedWidth,
+							height: roundedHeight,
+						})
+					: rasterizeTextMask({
+							mask,
+							width: roundedWidth,
+							height: roundedHeight,
+						});
 			if (maskCanvas) {
-				const resolved = resolveCustomMask({ mask });
 				currentResult = webglEffectRenderer.applyEffect({
 					source: maskCanvas,
 					width: roundedWidth,
 					height: roundedHeight,
 					passes: buildCustomMaskPasses({
 						featherPx: getCustomMaskFeatherPx({
-							feather: resolved.feather,
+							feather: mask.feather,
 							width: roundedWidth,
 							height: roundedHeight,
 						}),
-						inverted: resolved.inverted,
+						inverted: mask.inverted,
 						source: currentResult,
 					}),
 				});

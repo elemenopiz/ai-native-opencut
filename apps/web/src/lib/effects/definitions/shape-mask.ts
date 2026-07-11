@@ -3,11 +3,11 @@ import type { EffectDefinition, EffectParamValues } from "@/types/effects";
 import type { MaskShape, MaskShapeType } from "@/types/rendering";
 import shapeMaskShader from "./shape-mask.frag.glsl";
 
-// "custom" (pen-tool) masks are not analytic SDF shapes and never render
-// through this effect — they have their own raster-to-texture pipeline
-// (custom-mask.ts). Exclude them so this index stays exhaustive over the
-// analytic shapes only.
-const SHAPE_INDEX: Record<Exclude<MaskShapeType, "custom">, number> = {
+// "custom" (pen-tool) and "text" masks are not analytic SDF shapes and never
+// render through this effect — they have their own raster-to-texture pipelines
+// (custom-mask.ts / text-mask.ts). Exclude them so this index stays exhaustive
+// over the analytic shapes only.
+const SHAPE_INDEX: Record<Exclude<MaskShapeType, "custom" | "text">, number> = {
 	rectangle: 0,
 	ellipse: 1,
 	star: 2,

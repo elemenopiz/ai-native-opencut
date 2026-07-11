@@ -13,10 +13,17 @@ import {
 	resolveCustomMask,
 } from "@/lib/effects/definitions/custom-mask";
 import {
+	createDefaultTextMask,
+	resolveTextMask,
+} from "@/lib/effects/definitions/text-mask";
+import {
 	getClosedStateAfterPointRemoval,
 	removeFreeformPathPoints,
 } from "@/lib/effects/masks/freeform-path";
 import { usePenMaskStore } from "@/stores/pen-mask-store";
+import { FontPicker } from "@/components/ui/font-picker";
+import { Textarea } from "@/components/ui/textarea";
+import { MIN_FONT_SIZE, MAX_FONT_SIZE } from "@/constants/text-constants";
 import {
 	Section,
 	SectionContent,
@@ -38,6 +45,12 @@ const MASK_SHAPES: { type: MaskShape["type"]; label: string }[] = [
 	{ type: "split", label: "Split" },
 	{ type: "cinematic-bars", label: "Bars" },
 	{ type: "custom", label: "Pen" },
+	{ type: "text", label: "Text" },
+];
+
+const MASK_FONT_WEIGHTS: { value: "normal" | "bold"; label: string }[] = [
+	{ value: "normal", label: "Regular" },
+	{ value: "bold", label: "Bold" },
 ];
 
 export function CropMaskSection({
@@ -58,8 +71,11 @@ export function CropMaskSection({
 	const crop = element.crop ?? { top: 0, right: 0, bottom: 0, left: 0 };
 	const mask = element.mask;
 	const isCustom = mask?.type === "custom";
-	const resolvedMask = mask && !isCustom ? resolveMaskShape({ mask }) : null;
+	const isText = mask?.type === "text";
+	const resolvedMask =
+		mask && !isCustom && !isText ? resolveMaskShape({ mask }) : null;
 	const customMask = mask && isCustom ? resolveCustomMask({ mask }) : null;
+	const textMask = mask && isText ? resolveTextMask({ mask }) : null;
 	const isDrawing = drawingElementId === element.id;
 
 	const updateCrop = (updates: Partial<CropRect>) => {
@@ -115,13 +131,36 @@ export function CropMaskSection({
 			return;
 		}
 
+		if (type === "text") {
+			stopDrawing();
+			if (!mask || mask.type !== "text") {
+				editor.timeline.updateElements({
+					updates: [
+						{
+							trackId,
+							elementId: element.id,
+							updates: {
+								mask: {
+									...createDefaultTextMask(),
+									feather: mask?.feather ?? 0,
+									inverted: mask?.inverted ?? false,
+								},
+							},
+						},
+					],
+				});
+			}
+			return;
+		}
+
 		stopDrawing();
 		// Bars use a different default geometry, so reset size when switching to
-		// or from them; also always reset when leaving the pen tool so its
-		// points/closed fields don't leak onto an analytic shape.
+		// or from them; also always reset when leaving the pen or text tools so
+		// their non-analytic fields don't leak onto an analytic shape.
 		const shouldResetGeometry =
 			!mask ||
 			mask.type === "custom" ||
+			mask.type === "text" ||
 			(mask.type === "cinematic-bars") !== (type === "cinematic-bars");
 		const nextMask: MaskShape = shouldResetGeometry
 			? {
@@ -549,6 +588,142 @@ export function CropMaskSection({
 										}
 									>
 										{customMask.inverted ? "Inverted" : "Normal"}
+									</Button>
+								</SectionField>
+							</>
+						)}
+						{isText && textMask && (
+							<>
+								<SectionField label="Text">
+									<Textarea
+										placeholder="Text"
+										value={textMask.text}
+										className="min-h-16 text-sm"
+										onChange={(e) => updateMask({ text: e.target.value })}
+									/>
+								</SectionField>
+								<SectionField label="Font">
+									<FontPicker
+										defaultValue={textMask.fontFamily}
+										onValueChange={(value) => updateMask({ fontFamily: value })}
+									/>
+								</SectionField>
+								<div className="grid grid-cols-2 gap-2">
+									<SectionField label="Size">
+										<NumberField
+											value={textMask.fontSize.toFixed(0)}
+											onChange={(e) => {
+												const n = parseFloat(e.target.value);
+												if (!Number.isNaN(n))
+													updateMask({
+														fontSize: Math.max(
+															MIN_FONT_SIZE,
+															Math.min(MAX_FONT_SIZE, n),
+														),
+													});
+											}}
+											onBlur={() => {}}
+											min={MIN_FONT_SIZE}
+											max={MAX_FONT_SIZE}
+											step={1}
+										/>
+									</SectionField>
+									<SectionField label="Weight">
+										<div className="flex gap-1">
+											{MASK_FONT_WEIGHTS.map((weight) => (
+												<Button
+													key={weight.value}
+													type="button"
+													variant={
+														textMask.fontWeight === weight.value
+															? "secondary"
+															: "ghost"
+													}
+													size="sm"
+													className="h-7 flex-1 text-[10px]"
+													onClick={() =>
+														updateMask({ fontWeight: weight.value })
+													}
+												>
+													{weight.label}
+												</Button>
+											))}
+										</div>
+									</SectionField>
+									<SectionField label="X">
+										<NumberField
+											value={(textMask.centerX * 100).toFixed(0)}
+											onChange={(e) => {
+												const n = parseFloat(e.target.value);
+												if (!Number.isNaN(n))
+													updateMask({
+														centerX: Math.max(-100, Math.min(100, n)) / 100,
+													});
+											}}
+											onBlur={() => {}}
+											min={-100}
+											max={100}
+											step={1}
+										/>
+									</SectionField>
+									<SectionField label="Y">
+										<NumberField
+											value={(textMask.centerY * 100).toFixed(0)}
+											onChange={(e) => {
+												const n = parseFloat(e.target.value);
+												if (!Number.isNaN(n))
+													updateMask({
+														centerY: Math.max(-100, Math.min(100, n)) / 100,
+													});
+											}}
+											onBlur={() => {}}
+											min={-100}
+											max={100}
+											step={1}
+										/>
+									</SectionField>
+									<SectionField label="Rotation">
+										<NumberField
+											value={textMask.rotation.toFixed(0)}
+											onChange={(e) => {
+												const n = parseFloat(e.target.value);
+												if (!Number.isNaN(n))
+													updateMask({
+														rotation: Math.max(-180, Math.min(180, n)),
+													});
+											}}
+											onBlur={() => {}}
+											min={-180}
+											max={180}
+											step={1}
+										/>
+									</SectionField>
+									<SectionField label="Feather">
+										<NumberField
+											value={(textMask.feather * 100).toFixed(0)}
+											onChange={(e) => {
+												const n = parseFloat(e.target.value);
+												if (!Number.isNaN(n))
+													updateMask({
+														feather: Math.max(0, Math.min(100, n)) / 100,
+													});
+											}}
+											onBlur={() => {}}
+											min={0}
+											max={100}
+											step={1}
+										/>
+									</SectionField>
+								</div>
+								<SectionField label="Invert">
+									<Button
+										type="button"
+										variant={textMask.inverted ? "secondary" : "ghost"}
+										size="sm"
+										className="h-7 text-[10px]"
+										onClick={() => updateMask({ inverted: !textMask.inverted })}
+									>
+										{textMask.inverted ? "Inverted" : "Normal"}
 									</Button>
 								</SectionField>
 							</>

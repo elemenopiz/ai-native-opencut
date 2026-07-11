@@ -25,7 +25,12 @@ export type MaskShapeType =
 	// Custom pen-tool freeform bezier path. Unlike the analytic SDF shapes above,
 	// a "custom" mask is defined by `points`/`closed` and is rasterized to an
 	// alpha texture at render time (see lib/effects/definitions/custom-mask.ts).
-	| "custom";
+	| "custom"
+	// Text-reveal mask: footage visible only through glyph shapes. Like "custom",
+	// it is non-analytic — glyphs are rasterized (Canvas2D `fillText`) to an alpha
+	// texture and fed through the same feather/composite passes as the pen mask
+	// (see lib/effects/definitions/text-mask.ts).
+	| "text";
 
 /**
  * A single anchor on a custom pen-tool path. Coordinates are element-local
@@ -65,6 +70,22 @@ export interface MaskShape {
 	points?: MaskPathPoint[];
 	/** Whether a `"custom"` path is closed (only closed paths render a mask). */
 	closed?: boolean;
+	/**
+	 * Content of a `"text"` mask (glyphs the footage shows through). Supports
+	 * newlines for multi-line. Ignored by other shapes. An empty/blank string
+	 * leaves the element fully visible (the mask is inactive).
+	 */
+	text?: string;
+	/** Font family for a `"text"` mask (default "Arial"). */
+	fontFamily?: string;
+	/** Font weight for a `"text"` mask (default "normal"). */
+	fontWeight?: "normal" | "bold";
+	/**
+	 * Font size for a `"text"` mask, in the same point-units as text elements
+	 * (default 15). Mapped to element pixels via FONT_SIZE_SCALE_REFERENCE, so it
+	 * is sized relative to the element like a text element's font size.
+	 */
+	fontSize?: number;
 }
 
 export type BlendMode =
