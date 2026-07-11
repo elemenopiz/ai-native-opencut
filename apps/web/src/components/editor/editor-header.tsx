@@ -35,7 +35,6 @@ import {
 	AIStatusIndicator,
 	type AIStatusInfo,
 } from "@/components/editor/ai/ai-status-indicator";
-import { ViralityScoreModal } from "@/components/editor/virality-score-modal";
 import { useAIStatus } from "@/hooks/use-ai-status";
 import { useAIStore } from "@/stores/ai-store";
 import { aiClient } from "@/lib/ai-client";
@@ -67,7 +66,6 @@ export function EditorHeader() {
 		useAIStatus();
 	const toggleSetupGuide = useAIStore((s) => s.toggleSetupGuide);
 	const [vcDrawerOpen, setVcDrawerOpen] = useState(false);
-	const [viralityOpen, setViralityOpen] = useState(false);
 
 	// Listen for keyboard shortcut events to toggle VC drawer
 	useEffect(() => {
@@ -124,15 +122,6 @@ export function EditorHeader() {
 					variant="outline"
 					size="sm"
 					className="h-8 gap-1.5 text-xs"
-					onClick={() => setViralityOpen(true)}
-				>
-					<HugeiconsIcon icon={SparklesIcon} className="size-3.5" />
-					Virality Score
-				</Button>
-				<Button
-					variant="outline"
-					size="sm"
-					className="h-8 gap-1.5 text-xs"
 					onClick={toggleBoard}
 					title="Zoom out to the reel board"
 				>
@@ -148,7 +137,6 @@ export function EditorHeader() {
 				open={vcDrawerOpen}
 				onOpenChange={setVcDrawerOpen}
 			/>
-			<ViralityScoreModal open={viralityOpen} onOpenChange={setViralityOpen} />
 			<OutOfCreditsDialog />
 		</header>
 	);
