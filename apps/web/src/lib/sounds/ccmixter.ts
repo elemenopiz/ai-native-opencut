@@ -1,3 +1,4 @@
+import { request as httpsRequest } from "node:https";
 import type { SoundEffect } from "@/types/sounds";
 
 /**
@@ -9,6 +10,10 @@ import type { SoundEffect } from "@/types/sounds";
  * Attribution for BY/BY-SA is surfaced via the artist (`username`) + `license`
  * on each item. Files carry a direct `download_url` (no OAuth, unlike Freesound),
  * which we use for both preview playback and timeline import.
+ *
+ * Media URLs are rewritten to our same-origin `/api/sounds/proxy` because
+ * ccMixter's files are hotlink-protected (403 on a cross-site Referer) and
+ * served without CORS headers — direct browser playback/decoding fails.
  */
 
 // Keep ccMixter numeric upload ids from colliding with Freesound ids (which are
@@ -82,6 +87,14 @@ function pickPlayableFile(files?: CcMixterFile[]): CcMixterFile | null {
 	return files.find((f) => f.download_url) ?? null;
 }
 
+/**
+ * Route a ccMixter media URL through our same-origin audio proxy so the
+ * browser can both play it (<audio>) and fetch + decode it for the timeline.
+ */
+function toProxiedMediaUrl(downloadUrl: string): string {
+	return `/api/sounds/proxy?url=${encodeURIComponent(downloadUrl)}`;
+}
+
 function toSoundEffect(upload: CcMixterUpload): SoundEffect | null {
 	if (!upload.upload_id || !isCommerciallyUsable(upload)) return null;
 	const file = pickPlayableFile(upload.files);
@@ -90,14 +103,15 @@ function toSoundEffect(upload: CcMixterUpload): SoundEffect | null {
 	const info = file.file_format_info ?? {};
 	const channels = info.ch === "mono" ? 1 : 2;
 	const samplerate = info.sr ? Number.parseInt(info.sr, 10) * 1000 || 0 : 0;
+	const mediaUrl = toProxiedMediaUrl(file.download_url);
 
 	return {
 		id: CCMIXTER_ID_OFFSET + upload.upload_id,
 		name: upload.upload_name || "Untitled",
 		description: "",
 		url: upload.file_page_url || "",
-		previewUrl: file.download_url,
-		downloadUrl: file.download_url,
+		previewUrl: mediaUrl,
+		downloadUrl: mediaUrl,
 		duration: parsePlaytimeToSeconds(info.ps),
 		filesize: file.file_rawsize ?? 0,
 		type: file.file_nicname || "mp3",
@@ -113,6 +127,47 @@ function toSoundEffect(upload: CcMixterUpload): SoundEffect | null {
 		rating: 0,
 		ratingCount: 0,
 	};
+}
+
+/**
+ * GET a ccMixter API URL via node:https with a raised response-header limit.
+ *
+ * ccMixter mirrors the ENTIRE JSON payload into an `X-JSON` response header
+ * (an old Prototype.js convention) — ~3.5KB per track, so a 20-item page has
+ * ~70KB of headers. That overflows undici's default 16KB header cap and makes
+ * `fetch` throw UND_ERR_HEADERS_OVERFLOW, which is why this helper exists
+ * instead of a plain fetch. Server-only (this module is only imported by the
+ * sounds API route).
+ */
+function getWithBigHeaders(
+	url: string,
+): Promise<{ status: number; body: string }> {
+	return new Promise((resolve, reject) => {
+		const req = httpsRequest(
+			url,
+			{
+				method: "GET",
+				headers: { Accept: "application/json" },
+				maxHeaderSize: 1024 * 1024,
+			},
+			(res) => {
+				const chunks: Buffer[] = [];
+				res.on("data", (chunk: Buffer) => chunks.push(chunk));
+				res.on("end", () =>
+					resolve({
+						status: res.statusCode ?? 0,
+						body: Buffer.concat(chunks).toString("utf8"),
+					}),
+				);
+				res.on("error", reject);
+			},
+		);
+		req.on("error", reject);
+		req.setTimeout(15_000, () =>
+			req.destroy(new Error("ccMixter request timed out")),
+		);
+		req.end();
+	});
 }
 
 /**
@@ -139,12 +194,13 @@ export async function searchCcMixter({
 		if (query?.trim()) params.set("search", query.trim());
 		else params.set("sort", "rank");
 
-		const res = await fetch(`${CCMIXTER_API}?${params.toString()}`, {
-			headers: { Accept: "application/json" },
-		});
-		if (!res.ok) return { results: [], count: 0, hasNext: false };
+		const res = await getWithBigHeaders(`${CCMIXTER_API}?${params.toString()}`);
+		if (res.status < 200 || res.status >= 300) {
+			console.error("ccMixter API error:", res.status);
+			return { results: [], count: 0, hasNext: false };
+		}
 
-		const raw = (await res.json()) as unknown;
+		const raw = JSON.parse(res.body) as unknown;
 		const uploads = Array.isArray(raw) ? (raw as CcMixterUpload[]) : [];
 		const results = uploads
 			.map(toSoundEffect)
@@ -157,7 +213,14 @@ export async function searchCcMixter({
 			count: results.length,
 			hasNext: uploads.length >= pageSize,
 		};
-	} catch {
+	} catch (error) {
+		// Best-effort by design, but log the cause so a dead source is visible in
+		// server logs instead of silently shrinking the Songs feed.
+		console.error(
+			"ccMixter search failed:",
+			error,
+			error instanceof Error ? error.cause : undefined,
+		);
 		return { results: [], count: 0, hasNext: false };
 	}
 }

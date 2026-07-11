@@ -60,6 +60,30 @@ const freesoundResponseSchema = z
 	})
 	.passthrough();
 
+/**
+ * Freesound rejects bad credentials with 401 (missing/invalid token) or 403
+ * (unauthorized token). Surface those as a distinguishable, actionable error
+ * instead of a generic "search failed" so the panel can tell the user to fix
+ * their key.
+ */
+const INVALID_KEY_MESSAGE =
+	"Freesound API key invalid or missing — set it in Settings > API Keys, or update FREESOUND_API_KEY in your .env.local file.";
+
+function isFreesoundAuthError(status: number) {
+	return status === 401 || status === 403;
+}
+
+function invalidApiKeyResponse() {
+	return NextResponse.json(
+		{
+			error: "Freesound API key invalid",
+			code: "invalid_api_key",
+			message: INVALID_KEY_MESSAGE,
+		},
+		{ status: 401 },
+	);
+}
+
 function buildSortParameter({ query, sort }: { query?: string; sort: string }) {
 	if (!query) return `${sort}_desc`;
 	return sort === "score" ? "score" : `${sort}_desc`;
@@ -127,7 +151,8 @@ function transformFreesoundResult(
 /**
  * Freesound songs = CC0-licensed music only (commercial-safe, no attribution),
  * skipping short one-shots. Mirrors the effects fetch but with music tag filters
- * and no 30s duration cap. Best-effort: any failure resolves to an empty page.
+ * and no 30s duration cap. Best-effort: any failure resolves to an empty page,
+ * but an auth failure (bad key) is flagged so the feed can warn the user.
  */
 async function searchFreesoundSongs({
 	query,
@@ -139,7 +164,12 @@ async function searchFreesoundSongs({
 	page: number;
 	pageSize: number;
 	apiKey: string;
-}): Promise<{ results: SoundEffect[]; count: number; hasNext: boolean }> {
+}): Promise<{
+	results: SoundEffect[];
+	count: number;
+	hasNext: boolean;
+	keyInvalid?: boolean;
+}> {
 	const params = new URLSearchParams({
 		query: query || "",
 		token: apiKey,
@@ -162,7 +192,14 @@ async function searchFreesoundSongs({
 	const response = await fetch(
 		`https://freesound.org/apiv2/search/text/?${params.toString()}`,
 	);
-	if (!response.ok) return { results: [], count: 0, hasNext: false };
+	if (!response.ok) {
+		return {
+			results: [],
+			count: 0,
+			hasNext: false,
+			keyInvalid: isFreesoundAuthError(response.status),
+		};
+	}
 
 	const parsed = freesoundResponseSchema.safeParse(await response.json());
 	if (!parsed.success) return { results: [], count: 0, hasNext: false };
@@ -234,6 +271,8 @@ export async function GET(request: NextRequest) {
 							results: [] as SoundEffect[],
 							count: 0,
 							hasNext: false,
+							// Missing key is a configured state, not an auth failure.
+							keyInvalid: false,
 						}),
 				searchCcMixter({ query, page, pageSize }),
 			]);
@@ -257,6 +296,12 @@ export async function GET(request: NextRequest) {
 				if (b) merged.push(b);
 			}
 
+			// Songs stay best-effort (ccMixter results still come back), but a bad
+			// Freesound key is surfaced as a warning so the user can fix it instead
+			// of silently getting a thinner feed.
+			const freesoundKeyInvalid =
+				fsSettled.status === "fulfilled" && fsSettled.value.keyInvalid === true;
+
 			const hasNext = fs.hasNext || cc.hasNext;
 			return NextResponse.json({
 				count: fs.count + cc.count,
@@ -268,6 +313,14 @@ export async function GET(request: NextRequest) {
 				page,
 				pageSize,
 				sort,
+				...(freesoundKeyInvalid
+					? {
+							warning: {
+								code: "invalid_api_key",
+								message: `Freesound results unavailable: ${INVALID_KEY_MESSAGE}`,
+							},
+						}
+					: {}),
 			});
 		}
 
@@ -281,6 +334,7 @@ export async function GET(request: NextRequest) {
 			return NextResponse.json(
 				{
 					error: "Freesound API key not configured",
+					code: "missing_api_key",
 					message:
 						"Set your Freesound API key in Settings > API Keys, or add FREESOUND_API_KEY to your .env.local file.",
 				},
@@ -315,6 +369,11 @@ export async function GET(request: NextRequest) {
 		if (!response.ok) {
 			const errorText = await response.text();
 			console.error("Freesound API error:", response.status, errorText);
+			// 401/403 from Freesound = bad credentials, not a search failure — tell
+			// the user which key is broken and where to fix it.
+			if (isFreesoundAuthError(response.status)) {
+				return invalidApiKeyResponse();
+			}
 			return NextResponse.json(
 				{ error: "Failed to search sounds" },
 				{ status: response.status },
