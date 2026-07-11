@@ -12,7 +12,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useEditor } from "@/hooks/use-editor";
 import { embeddings } from "@/lib/local-ai/embeddings";
-import { createSearchIndexCache } from "@/lib/search/search-index-cache";
+import {
+	createSearchIndexCache,
+	shouldPollForIndex,
+} from "@/lib/search/search-index-cache";
 import type { SearchHit } from "@/lib/search/embedding-types";
 
 export interface VisualSearchState {
@@ -28,6 +31,10 @@ export interface VisualSearchState {
 
 const DEBOUNCE_MS = 300;
 const MIN_QUERY_LEN = 2;
+// Slow poll while the index window is open (see shouldPollForIndex): fast
+// enough that the panel un-disables shortly after a background pass lands,
+// slow enough that the tiny status-store read is negligible.
+const INDEX_POLL_MS = 1500;
 
 /**
  * Cosine similarity for two L2-normalized Float32Arrays == dot product.
@@ -56,6 +63,10 @@ export function useVisualSearch() {
 	// why staleness keys off indexed STATUSES, not the store count — the
 	// migration re-index rewrites records in place without changing the count).
 	const [cache] = useState(createSearchIndexCache);
+	// While true, a slow interval watches for background indexing to land —
+	// the panel disables its input when nothing is searchable, so the
+	// search-time isStale() check alone can never revive it.
+	const [pollActive, setPollActive] = useState(false);
 	const lastQueryRef = useRef<string>("");
 	// Monotonic token so a slower search/findSimilar response can't overwrite the
 	// results of a newer one issued after it.
@@ -63,7 +74,8 @@ export function useVisualSearch() {
 
 	/** Refresh the cached embedding index from IndexedDB. */
 	const refreshIndex = useCallback(async () => {
-		const { records, statuses } = await cache.refresh();
+		const snapshot = await cache.refresh();
+		const { records, statuses } = snapshot;
 		// Count searchable (current-model) records only, matching what hits can
 		// actually surface — stale-space records awaiting re-index don't count.
 		setIndexedCount(records.length);
@@ -75,7 +87,26 @@ export function useVisualSearch() {
 			}
 		}
 		setIndexing(inflight);
-	}, [cache]);
+		const hasIndexableAssets = editor.media
+			.getAssets()
+			.some((a) => a.type === "video" || a.type === "image");
+		setPollActive(shouldPollForIndex(snapshot, hasIndexableAssets));
+	}, [cache, editor.media]);
+
+	// Poll the (tiny) status store while the index window is open, refreshing
+	// only when the searchable set actually changed. Closes itself: once a
+	// refresh sees searchable records and no in-flight work, pollActive flips
+	// false and the interval is torn down.
+	useEffect(() => {
+		if (!pollActive) return;
+		const id = setInterval(() => {
+			cache
+				.isStale()
+				.then((stale) => (stale ? refreshIndex() : undefined))
+				.catch(() => undefined);
+		}, INDEX_POLL_MS);
+		return () => clearInterval(id);
+	}, [pollActive, cache, refreshIndex]);
 
 	/** Run a search query against the cached embedding index. */
 	const search = useCallback(

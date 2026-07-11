@@ -38,9 +38,8 @@ mock.module("@/services/search/embedding-store", () => ({
 
 // Import AFTER the mock is registered so the cache binds the stub store
 // (repo convention: mock.module + dynamic import).
-const { createSearchIndexCache, indexDigest } = await import(
-	"./search-index-cache"
-);
+const { createSearchIndexCache, indexDigest, shouldPollForIndex } =
+	await import("./search-index-cache");
 
 function record(
 	mediaId: string,
@@ -111,6 +110,11 @@ describe("search index cache staleness", () => {
 			"clip-a",
 			"clip-b",
 		]);
+		// Everything the cache serves carries the active backend's provenance.
+		expect(cache.modelName).toBe("clip-vit-b32-web");
+		expect(cache.records.every((r) => r.modelName === cache.modelName)).toBe(
+			true,
+		);
 	});
 
 	it("stays fresh when nothing changed (no per-keystroke churn)", async () => {
@@ -165,12 +169,65 @@ describe("search index cache staleness", () => {
 });
 
 describe("indexDigest", () => {
-	it("is order-independent and keyed on mediaId + createdAt", () => {
+	it("is order-independent and keyed on mediaId + createdAt + frameCount", () => {
 		const a = indexedStatus("a", 1);
 		const b = indexedStatus("b", 2);
 		expect(indexDigest([a, b])).toBe(indexDigest([b, a]));
 		expect(indexDigest([a, b])).not.toBe(
 			indexDigest([a, indexedStatus("b", 3)]),
 		);
+		// Same-millisecond rewrite with a different sampled-frame set still flips
+		// the digest.
+		expect(indexDigest([a])).not.toBe(
+			indexDigest([
+				{ state: "indexed", mediaId: "a", frameCount: 7, createdAt: 1 },
+			]),
+		);
+	});
+});
+
+describe("shouldPollForIndex", () => {
+	const snapshot = (
+		records: MediaEmbedding[],
+		rows: EmbeddingStatus[],
+	): { records: MediaEmbedding[]; statuses: EmbeddingStatus[] } => ({
+		records,
+		statuses: rows,
+	});
+	const freshRecord = record("clip-a", "clip-vit-b32-web", 2_000);
+
+	it("polls while a pass is in flight, even with searchable records", () => {
+		const rows: EmbeddingStatus[] = [
+			indexedStatus("clip-a", 2_000),
+			{
+				state: "indexing",
+				mediaId: "clip-b",
+				progress: 0.5,
+				phase: "embedding",
+			},
+		];
+		expect(shouldPollForIndex(snapshot([freshRecord], rows), true)).toBe(true);
+	});
+
+	it("polls while nothing is searchable but indexable assets exist (pre-status window / all-stale migration)", () => {
+		// Covers both mount-before-first-status-write AND the all-stale library
+		// whose statuses are old "indexed" rows: records are empty either way.
+		expect(shouldPollForIndex(snapshot([], []), true)).toBe(true);
+		expect(
+			shouldPollForIndex(snapshot([], [indexedStatus("clip-a", 1_000)]), true),
+		).toBe(true);
+	});
+
+	it("stops once records are searchable and nothing is in flight", () => {
+		expect(
+			shouldPollForIndex(
+				snapshot([freshRecord], [indexedStatus("clip-a", 2_000)]),
+				true,
+			),
+		).toBe(false);
+	});
+
+	it("never polls an empty project (no indexable assets, nothing in flight)", () => {
+		expect(shouldPollForIndex(snapshot([], []), false)).toBe(false);
 	});
 });

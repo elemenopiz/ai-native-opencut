@@ -33,11 +33,15 @@ import {
  * force a full vector re-read per keystroke while a background pass runs.
  */
 export function indexDigest(statuses: EmbeddingStatus[]): string {
-	return statuses
-		.filter((s) => s.state === "indexed")
-		.map((s) => `${s.mediaId}:${s.createdAt}`)
-		.sort()
-		.join("|");
+	return (
+		statuses
+			.filter((s) => s.state === "indexed")
+			// frameCount hardens the tuple against same-millisecond rewrites where
+			// only the sampled-frame set changed (e.g. trimmed media re-indexed).
+			.map((s) => `${s.mediaId}:${s.createdAt}:${s.frameCount}`)
+			.sort()
+			.join("|")
+	);
 }
 
 export interface SearchIndexSnapshot {
@@ -89,3 +93,25 @@ export function createSearchIndexCache() {
 }
 
 export type SearchIndexCache = ReturnType<typeof createSearchIndexCache>;
+
+/**
+ * Should the hook keep polling the index after this refresh?
+ *
+ * The search-time isStale() check only runs when a search fires, but the
+ * Visual Search panel DISABLES its input while nothing is searchable — so a
+ * background pass (first index or migration re-index) would finish silently
+ * and the panel would stay dead until remount. Poll while the window is open:
+ * a pass is in flight (indexing/pending rows), or nothing is searchable yet
+ * despite indexable assets existing (covers the gap before the auto-indexer's
+ * first status write lands, ~500ms after mount). Each poll tick is a tiny
+ * status-store read gated by isStale(); vectors are only re-read on change.
+ */
+export function shouldPollForIndex(
+	snapshot: SearchIndexSnapshot,
+	hasIndexableAssets: boolean,
+): boolean {
+	const inflight = snapshot.statuses.some(
+		(s) => s.state === "indexing" || s.state === "pending",
+	);
+	return inflight || (snapshot.records.length === 0 && hasIndexableAssets);
+}
