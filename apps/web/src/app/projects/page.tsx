@@ -41,6 +41,7 @@ import {
 	Edit03Icon,
 	ArrowDown02Icon,
 	InformationCircleIcon,
+	UserAdd01Icon,
 } from "@hugeicons/core-free-icons";
 import { OcVideoIcon } from "@byorn/ui/icons";
 import { Label } from "@/components/ui/label";
@@ -61,6 +62,8 @@ import {
 import { DeleteProjectDialog } from "@/components/editor/dialogs/delete-project-dialog";
 import { ProjectInfoDialog } from "@/components/editor/dialogs/project-info-dialog";
 import { RenameProjectDialog } from "@/components/editor/dialogs/rename-project-dialog";
+import { ShareProjectDialog } from "@/components/editor/dialogs/share-project-dialog";
+import { SharedProjectsSection } from "@/components/projects/shared-projects-section";
 import { NewProjectDialog } from "@/components/arrangements/new-project-dialog";
 import { cn } from "@/utils/ui";
 
@@ -107,6 +110,7 @@ export default function ProjectsPage() {
 			<ProjectsHeader />
 			<ProjectsToolbar projectIds={projectsToDisplay.map((p) => p.id)} />
 			<main className="mx-auto px-4 pt-2 pb-6 flex flex-col gap-4">
+				<SharedProjectsSection />
 				{isLoading || !isInitialized ? (
 					<ProjectsSkeleton />
 				) : projectsToDisplay.length === 0 ? (
@@ -538,11 +542,13 @@ function ProjectItem({
 	const [isRenameDialogOpen, setIsRenameDialogOpen] = useState(false);
 	const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 	const [isInfoDialogOpen, setIsInfoDialogOpen] = useState(false);
+	const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
 	const editor = useEditor();
 	const durationLabel = formatProjectDuration({ duration: project.duration });
 	const isMultiSelect = selectedProjectCount > 1;
 	const isGridView = viewMode === "grid";
 
+	const handleShare = () => setIsShareDialogOpen(true);
 	const handleRename = () => setIsRenameDialogOpen(true);
 	const handleDuplicate = async () => {
 		await duplicateProjects({ editor, ids: [project.id] });
@@ -664,6 +670,7 @@ function ProjectItem({
 					isOpen={isDropdownOpen}
 					onOpenChange={setIsDropdownOpen}
 					variant="list"
+					onShareClick={handleShare}
 					onRenameClick={handleRename}
 					onDuplicateClick={handleDuplicate}
 					onDeleteClick={handleDeleteClick}
@@ -705,6 +712,7 @@ function ProjectItem({
 									<ProjectMenu
 										isOpen={isDropdownOpen}
 										onOpenChange={setIsDropdownOpen}
+										onShareClick={handleShare}
 										onRenameClick={handleRename}
 										onDuplicateClick={handleDuplicate}
 										onDeleteClick={handleDeleteClick}
@@ -718,6 +726,7 @@ function ProjectItem({
 					</div>
 				</ContextMenuTrigger>
 				<ProjectContextMenuContent
+					onShareClick={handleShare}
 					onRenameClick={handleRename}
 					onDuplicateClick={handleDuplicate}
 					onDeleteClick={handleDeleteClick}
@@ -747,16 +756,25 @@ function ProjectItem({
 				onOpenChange={setIsInfoDialogOpen}
 				project={project}
 			/>
+
+			<ShareProjectDialog
+				isOpen={isShareDialogOpen}
+				onOpenChange={setIsShareDialogOpen}
+				projectId={project.id}
+				projectName={project.name}
+			/>
 		</>
 	);
 }
 
 function ProjectContextMenuContent({
+	onShareClick,
 	onRenameClick,
 	onDuplicateClick,
 	onDeleteClick,
 	onInfoClick,
 }: {
+	onShareClick: () => void;
 	onRenameClick: () => void;
 	onDuplicateClick: () => void;
 	onDeleteClick: () => void;
@@ -764,6 +782,12 @@ function ProjectContextMenuContent({
 }) {
 	return (
 		<ContextMenuContent>
+			<ContextMenuItem
+				icon={<HugeiconsIcon icon={UserAdd01Icon} />}
+				onClick={onShareClick}
+			>
+				Share
+			</ContextMenuItem>
 			<ContextMenuItem
 				icon={<HugeiconsIcon icon={Edit03Icon} />}
 				onClick={onRenameClick}
@@ -798,6 +822,7 @@ function ProjectMenu({
 	isOpen,
 	onOpenChange,
 	variant = "grid",
+	onShareClick,
 	onRenameClick,
 	onDuplicateClick,
 	onDeleteClick,
@@ -806,6 +831,7 @@ function ProjectMenu({
 	isOpen: boolean;
 	onOpenChange: (open: boolean) => void;
 	variant?: "grid" | "list";
+	onShareClick: () => void;
 	onRenameClick: () => void;
 	onDuplicateClick: () => void;
 	onDeleteClick: () => void;
@@ -830,6 +856,11 @@ function ProjectMenu({
 		}
 		event.preventDefault();
 		event.stopPropagation();
+	};
+
+	const handleShare = () => {
+		onShareClick();
+		onOpenChange(false);
 	};
 
 	const handleRename = () => {
@@ -886,6 +917,10 @@ function ProjectMenu({
 				</Button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent className="w-48" align="end">
+				<DropdownMenuItem onClick={handleShare}>
+					<HugeiconsIcon icon={UserAdd01Icon} />
+					Share
+				</DropdownMenuItem>
 				<DropdownMenuItem onClick={handleRename}>
 					<HugeiconsIcon icon={Edit03Icon} />
 					Rename

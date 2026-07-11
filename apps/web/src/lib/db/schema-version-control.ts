@@ -25,8 +25,12 @@ export const projectRepositories = pgTable(
 		isPublic: boolean("is_public").default(false).notNull(),
 		forkedFromId: text("forked_from_id"),
 		forkedFromCommitId: text("forked_from_commit_id"),
-		createdAt: timestamp("created_at").$defaultFn(() => new Date()).notNull(),
-		updatedAt: timestamp("updated_at").$defaultFn(() => new Date()).notNull(),
+		createdAt: timestamp("created_at")
+			.$defaultFn(() => new Date())
+			.notNull(),
+		updatedAt: timestamp("updated_at")
+			.$defaultFn(() => new Date())
+			.notNull(),
 	},
 	(table) => [
 		index("repo_project_id_idx").on(table.projectId),
@@ -67,7 +71,9 @@ export const commits = pgTable(
 		isAutoCommit: boolean("is_auto_commit").default(false),
 		mergeSourceBranch: text("merge_source_branch"),
 
-		createdAt: timestamp("created_at").$defaultFn(() => new Date()).notNull(),
+		createdAt: timestamp("created_at")
+			.$defaultFn(() => new Date())
+			.notNull(),
 	},
 	(table) => [
 		index("commits_repo_id_idx").on(table.repoId),
@@ -95,7 +101,9 @@ export const branches = pgTable(
 		createdFromBranch: text("created_from_branch"),
 		createdFromCommitId: text("created_from_commit_id"),
 		isProtected: boolean("is_protected").default(false).notNull(),
-		createdAt: timestamp("created_at").$defaultFn(() => new Date()).notNull(),
+		createdAt: timestamp("created_at")
+			.$defaultFn(() => new Date())
+			.notNull(),
 	},
 	(table) => [
 		unique("branch_repo_name_unique").on(table.repoId, table.name),
@@ -119,7 +127,9 @@ export const tags = pgTable(
 		type: text("type").default("custom").notNull(),
 		note: text("note"),
 		createdBy: text("created_by").references(() => users.id),
-		createdAt: timestamp("created_at").$defaultFn(() => new Date()).notNull(),
+		createdAt: timestamp("created_at")
+			.$defaultFn(() => new Date())
+			.notNull(),
 	},
 	(table) => [
 		unique("tag_repo_name_unique").on(table.repoId, table.name),
@@ -142,7 +152,9 @@ export const stashes = pgTable(
 			.references(() => branches.id),
 		snapshotData: jsonb("snapshot_data").notNull(),
 		message: text("message"),
-		createdAt: timestamp("created_at").$defaultFn(() => new Date()).notNull(),
+		createdAt: timestamp("created_at")
+			.$defaultFn(() => new Date())
+			.notNull(),
 	},
 	(table) => [index("stashes_repo_id_idx").on(table.repoId)],
 ).enableRLS();
@@ -158,7 +170,9 @@ export const mediaObjects = pgTable("vc_media_objects", {
 	height: integer("height"),
 	duration: real("duration"),
 	uploadedBy: text("uploaded_by").references(() => users.id),
-	uploadedAt: timestamp("uploaded_at").$defaultFn(() => new Date()).notNull(),
+	uploadedAt: timestamp("uploaded_at")
+		.$defaultFn(() => new Date())
+		.notNull(),
 }).enableRLS();
 
 // ─── Commit ↔ Media References ────────────────────────────────────────────
@@ -173,6 +187,9 @@ export const commitMediaRefs = pgTable(
 			.notNull()
 			.references(() => mediaObjects.hash),
 		mediaId: text("media_id").notNull(),
+		// Denormalized asset display name so a shared-project clone can rebuild
+		// the media library (snapshots only reference assets by id).
+		name: text("name"),
 	},
 	(table) => [
 		index("media_refs_commit_idx").on(table.commitId),
@@ -193,9 +210,65 @@ export const branchPermissions = pgTable(
 			.notNull()
 			.references(() => users.id, { onDelete: "cascade" }),
 		permission: text("permission").notNull(), // "read" | "write" | "admin"
-		createdAt: timestamp("created_at").$defaultFn(() => new Date()).notNull(),
+		createdAt: timestamp("created_at")
+			.$defaultFn(() => new Date())
+			.notNull(),
+	},
+	(table) => [unique("branch_perm_unique").on(table.branchId, table.userId)],
+).enableRLS();
+
+// ─── Project Members (collaboration) ──────────────────────────────────────
+
+// A member row grants a non-owner user access to a repo. The repo owner is
+// projectRepositories.userId and never has a member row — access checks treat
+// ownership as the implicit top role.
+export const projectMembers = pgTable(
+	"project_members",
+	{
+		id: text("id").primaryKey(),
+		repoId: text("repo_id")
+			.notNull()
+			.references(() => projectRepositories.id, { onDelete: "cascade" }),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		role: text("role").default("editor").notNull(), // "editor" | "viewer"
+		invitedBy: text("invited_by").references(() => users.id),
+		createdAt: timestamp("created_at")
+			.$defaultFn(() => new Date())
+			.notNull(),
 	},
 	(table) => [
-		unique("branch_perm_unique").on(table.branchId, table.userId),
+		unique("member_repo_user_unique").on(table.repoId, table.userId),
+		index("members_repo_id_idx").on(table.repoId),
+		index("members_user_id_idx").on(table.userId),
+	],
+).enableRLS();
+
+// ─── Project Invitations ──────────────────────────────────────────────────
+
+// Keyed by lowercased email so a teammate who hasn't signed up yet still gets
+// the invite the first time they log in. One live row per (repo, email):
+// re-inviting flips the existing row back to "pending".
+export const projectInvitations = pgTable(
+	"project_invitations",
+	{
+		id: text("id").primaryKey(),
+		repoId: text("repo_id")
+			.notNull()
+			.references(() => projectRepositories.id, { onDelete: "cascade" }),
+		email: text("email").notNull(),
+		role: text("role").default("editor").notNull(), // "editor" | "viewer"
+		status: text("status").default("pending").notNull(), // "pending" | "accepted" | "declined" | "revoked"
+		invitedBy: text("invited_by").references(() => users.id),
+		createdAt: timestamp("created_at")
+			.$defaultFn(() => new Date())
+			.notNull(),
+		respondedAt: timestamp("responded_at"),
+	},
+	(table) => [
+		unique("invite_repo_email_unique").on(table.repoId, table.email),
+		index("invites_email_idx").on(table.email),
+		index("invites_repo_id_idx").on(table.repoId),
 	],
 ).enableRLS();

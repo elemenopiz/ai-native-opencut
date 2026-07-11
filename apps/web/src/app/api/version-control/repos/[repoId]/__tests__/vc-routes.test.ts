@@ -49,6 +49,14 @@ function makeQuery() {
 			table = t;
 			return q;
 		},
+		// Joined selects still key rowsFor on the FROM table — good enough for
+		// the access helpers' permission lookups, which the tests stub to [].
+		innerJoin() {
+			return q;
+		},
+		leftJoin() {
+			return q;
+		},
 		where() {
 			return q;
 		},

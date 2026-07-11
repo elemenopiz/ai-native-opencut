@@ -2,9 +2,44 @@ import { db } from "@/lib/db";
 import {
 	branches,
 	branchPermissions,
+	projectMembers,
 	projectRepositories,
 } from "./schema-version-control";
 import { eq, and } from "drizzle-orm";
+
+/** Collaboration role a user holds on a repo. Owner ⊃ editor ⊃ viewer. */
+export type RepoRole = "owner" | "editor" | "viewer";
+
+/**
+ * Resolve the collaboration role a user holds on a repo: "owner" for the repo
+ * creator, the project_members role for invited teammates, null for everyone
+ * else. Public visibility is NOT a role — callers that want public-read must
+ * check repo.isPublic themselves (checkRepoAccess already does).
+ */
+export async function getRepoRole(
+	repoId: string,
+	userId: string,
+): Promise<RepoRole | null> {
+	const repos = await db
+		.select({ userId: projectRepositories.userId })
+		.from(projectRepositories)
+		.where(eq(projectRepositories.id, repoId))
+		.limit(1);
+
+	if (repos.length === 0) return null;
+	if (repos[0].userId === userId) return "owner";
+
+	const members = await db
+		.select({ role: projectMembers.role })
+		.from(projectMembers)
+		.where(
+			and(eq(projectMembers.repoId, repoId), eq(projectMembers.userId, userId)),
+		)
+		.limit(1);
+
+	if (members.length === 0) return null;
+	return members[0].role === "viewer" ? "viewer" : "editor";
+}
 
 /**
  * Check if a user can push to a specific branch.
@@ -82,6 +117,24 @@ export async function checkBranchPushPermission(
 		return { allowed: true };
 	}
 
+	// Shared-project editors can push to non-protected branches.
+	const memberRows = await db
+		.select({ role: projectMembers.role })
+		.from(projectMembers)
+		.where(
+			and(eq(projectMembers.repoId, repoId), eq(projectMembers.userId, userId)),
+		)
+		.limit(1);
+	if (memberRows.length > 0) {
+		if (memberRows[0].role === "viewer") {
+			return {
+				allowed: false,
+				reason: "You have view-only access to this project",
+			};
+		}
+		return { allowed: true };
+	}
+
 	// For private repos, check if the user holds any permission on THIS repo's
 	// branches. Scope via branches.repoId — an unscoped userId lookup would leak
 	// cross-repo access (a permission on some OTHER repo would grant entry here).
@@ -119,6 +172,16 @@ export async function checkRepoAccess(
 	const repo = repos[0];
 	if (repo.isPublic) return true;
 	if (repo.userId === userId) return true;
+
+	// Shared-project members (any role) can read the repo.
+	const members = await db
+		.select({ id: projectMembers.id })
+		.from(projectMembers)
+		.where(
+			and(eq(projectMembers.repoId, repoId), eq(projectMembers.userId, userId)),
+		)
+		.limit(1);
+	if (members.length > 0) return true;
 
 	// Check if user has any branch permission in this repo
 	const branchList = await db
@@ -183,6 +246,16 @@ export async function checkRepoWriteAccess(
 
 	if (repos.length === 0) return false;
 	if (repos[0].userId === userId) return true;
+
+	// Shared-project members with the "editor" role can write; viewers cannot.
+	const members = await db
+		.select({ role: projectMembers.role })
+		.from(projectMembers)
+		.where(
+			and(eq(projectMembers.repoId, repoId), eq(projectMembers.userId, userId)),
+		)
+		.limit(1);
+	if (members.length > 0 && members[0].role !== "viewer") return true;
 
 	// Scope the permission lookup to THIS repo's branches (via branches.repoId).
 	const perms = await db
