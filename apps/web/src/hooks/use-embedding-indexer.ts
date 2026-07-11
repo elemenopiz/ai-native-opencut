@@ -12,7 +12,7 @@
 
 import { useEffect, useRef } from "react";
 import { useEditor } from "@/hooks/use-editor";
-import { LOCAL_CLIP_MODEL_NAME } from "@/lib/local-ai/local-clip";
+import { embeddings } from "@/lib/local-ai/embeddings";
 import { indexMedia } from "@/services/search/embedding-service";
 import {
 	isUnderstandingAutorunEnabled,
@@ -48,7 +48,7 @@ export function useEmbeddingIndexer() {
 		// reload. Filtered to the current model: assets indexed by the retired
 		// server backend must NOT count as indexed, so they flow through
 		// indexMedia again and get re-embedded into the local vector space.
-		listIndexedMediaIds(LOCAL_CLIP_MODEL_NAME)
+		listIndexedMediaIds(embeddings.modelName)
 			.then((ids) => {
 				if (cancelled) return;
 				knownIndexedRef.current = new Set(ids);
@@ -81,7 +81,7 @@ export function useEmbeddingIndexer() {
 				inflightSet.add(asset.id);
 				// Fire-and-forget — failures are recorded as EmbeddingStatus "error".
 				// Model name is deliberately left to the service default
-				// (LOCAL_CLIP_MODEL_NAME): overriding it here with the retired
+				// (embeddings.modelName): overriding it here with the retired
 				// backend's "ViT-B-32" would stamp local vectors with the wrong
 				// space and block the automatic re-index of old embeddings.
 				indexMedia(asset)

@@ -31,6 +31,10 @@ const embedTexts = mock(async (texts: string[]) =>
 	texts.map((_, i) => oneHot(i)),
 );
 
+// The service calls the `embeddings` seam, whose local adapter delegates to
+// this singleton — stubbing here exercises the real seam wiring. Mocking the
+// seam module itself would collide with embeddings.test.ts (which needs the
+// real adapter) via cross-file mock.module leakage.
 mock.module("@/lib/local-ai/local-clip", () => ({
 	...realLocalClip,
 	localClip: { embedImages, embedTexts },

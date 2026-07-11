@@ -3,20 +3,21 @@
  *
  * Given a video/image MediaAsset, samples N frames using the same HTML video
  * element + canvas approach as `use-filmstrip.ts` (no WebCodecs dependency),
- * batches them through the in-browser CLIP worker (`localClip`), and persists
- * L2-normalized vectors to the IndexedDB embedding store.
+ * batches them through the embedding seam (`embeddings`, currently backed by
+ * the in-browser CLIP worker), and persists L2-normalized vectors to the
+ * IndexedDB embedding store.
  *
  * Nothing here touches the network: frames are embedded on-device (the CLIP
  * worker only downloads model weights, once) and vectors live entirely in
  * IndexedDB, keeping the privacy-first promise intact.
  *
- * Callers of `localClip.embedImages` should pre-downscale blobs to ~224px —
+ * Callers of `embeddings.embedImages` should pre-downscale blobs to ~224px —
  * CLIP resizes to 224 internally, so anything larger just wastes worker
  * message bandwidth and decode memory. Video frames are sampled at
  * SAMPLE_WIDTH already; image assets are downscaled in `sampleImageFrame`.
  */
 
-import { LOCAL_CLIP_MODEL_NAME, localClip } from "@/lib/local-ai/local-clip";
+import { embeddings } from "@/lib/local-ai/embeddings";
 import {
 	getAllEmbeddings,
 	getEmbedding,
@@ -177,7 +178,7 @@ async function sampleImageFrame(
 }
 
 /**
- * Batch a list of frame blobs through the on-device CLIP worker.
+ * Batch a list of frame blobs through the embedding backend.
  * `onProgress` receives the fraction of frames embedded after each batch.
  * Exported for tests.
  */
@@ -188,7 +189,7 @@ export async function embedBatches(
 	const out: EmbeddingFrame[] = [];
 	for (let i = 0; i < frames.length; i += BATCH_SIZE) {
 		const slice = frames.slice(i, i + BATCH_SIZE);
-		const vectors = await localClip.embedImages(slice.map((f) => f.blob));
+		const vectors = await embeddings.embedImages(slice.map((f) => f.blob));
 		for (let j = 0; j < vectors.length; j++) {
 			out.push({
 				timestampSec: slice[j].timestampSec,
@@ -220,7 +221,7 @@ let labelVectorsPromise: Promise<Float32Array[]> | null = null;
  */
 function getLabelVectors(): Promise<Float32Array[]> {
 	if (!labelVectorsPromise) {
-		labelVectorsPromise = localClip
+		labelVectorsPromise = embeddings
 			.embedTexts(ZERO_SHOT_LABELS.map(labelPrompt))
 			.catch((err) => {
 				labelVectorsPromise = null;
@@ -266,11 +267,11 @@ export async function indexMedia(
 	},
 ): Promise<MediaEmbedding | null> {
 	const intervalSec = options?.intervalSec ?? DEFAULT_SAMPLE_INTERVAL_SEC;
-	// Defaulting to the local model name invalidates every embedding produced
-	// by the retired open_clip backend: its "ViT-B-32" vectors live in a
-	// different space than the Xenova/OpenAI weights, so the model-name check
+	// Defaulting to the active backend's model name invalidates every embedding
+	// produced by the retired open_clip backend: its "ViT-B-32" vectors live in
+	// a different space than the Xenova/OpenAI weights, so the model-name check
 	// below re-indexes those assets instead of ever mixing vector spaces.
-	const modelName = options?.modelName ?? LOCAL_CLIP_MODEL_NAME;
+	const modelName = options?.modelName ?? embeddings.modelName;
 	const report = (p: IndexingProgress) => {
 		options?.onProgress?.(p);
 		setStatus({
