@@ -73,6 +73,22 @@ export const RATE_LIMITS = {
 	// publish (a shared link can spread fast); when it trips, the READ still
 	// succeeds — only the counter write is skipped.
 	"arrangements:remix": { perMinute: 30, perDay: 2000 },
+	// Anonymous Pexels search proxy. The server-side PEXELS_API_KEY has a hard
+	// 200 req/hr upstream quota shared by ALL users, so the per-IP caps stay
+	// tight — one abusive IP must not burn the whole shared budget.
+	"images:search": { perMinute: 10, perDay: 200 },
+	// Version-control WRITE paths (all keyed on the signed-in user).
+	// Commit pushes can arrive in bursts from auto-commit while editing — keep
+	// them generous; each push is also batch-capped in the route itself.
+	"vc:commits": { perMinute: 30, perDay: 2000 },
+	// Bulk sync pushes+pulls in one call; same editing-loop profile as commits.
+	"vc:sync": { perMinute: 30, perDay: 2000 },
+	// Forking copies an entire repo history (commits+branches+tags) — a rare,
+	// deliberate human action that is expensive per call. Very tight.
+	"vc:fork": { perMinute: 3, perDay: 30 },
+	// Media upload buffers the whole file in memory before R2 (up to the route's
+	// 200 MB cap) — bound how often one account can do that.
+	"vc:media": { perMinute: 20, perDay: 300 },
 } satisfies Record<string, RateLimitRule>;
 
 export type RateLimitName = keyof typeof RATE_LIMITS;

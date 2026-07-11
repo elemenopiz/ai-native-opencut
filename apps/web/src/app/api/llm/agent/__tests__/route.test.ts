@@ -14,7 +14,7 @@
  * Modules are mocked BEFORE the handler is imported (it binds `auth`,
  * `rate-limit`, `next/headers`, and the Anthropic client at module load).
  */
-import { afterEach, beforeEach, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, expect, mock, test } from "bun:test";
 import { webEnv } from "@byorn/env/web";
 
 interface State {
@@ -68,9 +68,18 @@ mock.module("@/lib/auth/server", () => ({
 		api: { getSession: async () => ({ user: { id: "u1", name: "U" } }) },
 	},
 }));
+// Snapshot the REAL rate-limit exports (the spread copies current function
+// values) before the no-op mock replaces the module, and restore them in
+// afterAll — bun's mock.module live-overwrites the module registry
+// process-wide, so without the restore every test file that runs after this
+// one sees a rate limiter that never limits (order-dependent 429 failures).
+const realRateLimit = { ...(await import("@/lib/rate-limit")) };
 mock.module("@/lib/rate-limit", () => ({
 	enforceRateLimit: async () => undefined,
 }));
+afterAll(() => {
+	mock.module("@/lib/rate-limit", () => realRateLimit);
+});
 mock.module("next/headers", () => ({ headers: async () => new Headers() }));
 
 const { POST } = await import("../route");

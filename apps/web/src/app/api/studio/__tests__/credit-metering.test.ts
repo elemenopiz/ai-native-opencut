@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterAll, beforeEach, describe, expect, it, mock } from "bun:test";
 
 /**
  * Route-level credit metering for the paid video routes (audit findings #1,
@@ -133,9 +133,18 @@ mock.module("@/lib/auth/server", () => ({
 	auth: { api: { getSession: async () => state.session } },
 }));
 mock.module("next/headers", () => ({ headers: async () => new Headers() }));
+// Snapshot the REAL rate-limit exports (the spread copies current function
+// values) before the no-op mock replaces the module, and restore them in
+// afterAll — bun's mock.module live-overwrites the module registry
+// process-wide, so without the restore every test file that runs after this
+// one sees a rate limiter that never limits (order-dependent 429 failures).
+const realRateLimit = { ...(await import("@/lib/rate-limit")) };
 mock.module("@/lib/rate-limit", () => ({
 	enforceRateLimit: async () => null,
 }));
+afterAll(() => {
+	mock.module("@/lib/rate-limit", () => realRateLimit);
+});
 
 mock.module("@/lib/credits/ledger", () => ({
 	InsufficientCredits: FakeInsufficientCredits,

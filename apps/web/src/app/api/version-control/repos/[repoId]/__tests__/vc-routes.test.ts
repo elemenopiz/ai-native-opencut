@@ -125,6 +125,12 @@ const fakeDb = {
 			},
 		};
 	},
+	// The write routes wrap their inserts in db.transaction(tx => ...); the fake
+	// just runs the callback against itself so `state.inserts` still captures
+	// every write.
+	transaction(fn: (tx: unknown) => Promise<unknown>) {
+		return fn(fakeDb);
+	},
 };
 
 mock.module("@/lib/db", () => ({ db: fakeDb }));
@@ -132,12 +138,19 @@ mock.module("@/lib/auth/server", () => ({
 	auth: { api: { getSession: async () => state.session } },
 }));
 mock.module("next/headers", () => ({ headers: async () => new Headers() }));
+// The media route hashes + uploads to R2; both are stubbed so the size-cap
+// tests never touch storage (and the 413 paths must reject BEFORE these run).
+mock.module("@/services/storage/cloud-media-storage", () => ({
+	computeHash: async () => "hash-1",
+	uploadMedia: async () => "https://r2.example/media/hash-1",
+}));
 
 // Import the handlers only AFTER the mocks are registered.
-const { GET: commitsGET } = await import("../commits/route");
+const { GET: commitsGET, POST: commitsPOST } = await import("../commits/route");
 const { POST: syncPOST } = await import("../sync/route");
 const { POST: tagsPOST } = await import("../tags/route");
 const { POST: forkPOST } = await import("../fork/route");
+const { POST: mediaPOST } = await import("../../../media/route");
 
 function jsonRequest(body: unknown, url = "http://localhost/x") {
 	return {
@@ -413,13 +426,22 @@ describe("fork POST — commits are re-keyed and references remapped", () => {
 		);
 		expect(res.status).toBe(201);
 
+		// Commits now land as ONE chunked multi-row insert (values is an array),
+		// not one insert per commit.
 		const commitInserts = state.inserts.filter((i) => i.table === commits);
-		expect(commitInserts).toHaveLength(2);
+		expect(commitInserts).toHaveLength(1);
+		const commitRows = commitInserts[0].values as Array<{
+			id: string;
+			parentId: string | null;
+			message: string;
+		}>;
+		expect(commitRows).toHaveLength(2);
 
 		const byMessage = (msg: string) =>
-			commitInserts.find(
-				(i) => (i.values as { message: string }).message === msg,
-			)?.values as { id: string; parentId: string | null };
+			commitRows.find((r) => r.message === msg) as {
+				id: string;
+				parentId: string | null;
+			};
 		const first = byMessage("first");
 		const second = byMessage("second");
 
@@ -429,14 +451,182 @@ describe("fork POST — commits are re-keyed and references remapped", () => {
 		// The child's parent pointer is remapped to the copied parent, not "c1".
 		expect(second.parentId).toBe(first.id);
 
-		const branchInsert = state.inserts.find((i) => i.table === branches)
-			?.values as { headCommitId: string; createdFromCommitId: string | null };
-		expect(branchInsert.headCommitId).toBe(second.id);
-		expect(branchInsert.createdFromCommitId).toBe(first.id);
+		const branchRows = state.inserts.find((i) => i.table === branches)
+			?.values as Array<{
+			headCommitId: string;
+			createdFromCommitId: string | null;
+		}>;
+		expect(branchRows).toHaveLength(1);
+		expect(branchRows[0].headCommitId).toBe(second.id);
+		expect(branchRows[0].createdFromCommitId).toBe(first.id);
 
-		const tagInsert = state.inserts.find((i) => i.table === tags)?.values as {
-			commitId: string;
+		const tagRows = state.inserts.find((i) => i.table === tags)
+			?.values as Array<{ commitId: string }>;
+		expect(tagRows).toHaveLength(1);
+		expect(tagRows[0].commitId).toBe(first.id);
+	});
+
+	it("runs every fork write inside one transaction (atomic on failure)", async () => {
+		const res = await forkPOST(
+			jsonRequest({ newProjectId: "proj-3", name: "Fork2" }),
+			params("repo-1"),
+		);
+		expect(res.status).toBe(201);
+		// Repo row + chunked commits + branches + tags all went through the
+		// transaction — the fake counts one insert() call per table.
+		expect(state.inserts.filter((i) => i.table === commits)).toHaveLength(1);
+		expect(
+			state.inserts.filter((i) => i.table === projectRepositories),
+		).toHaveLength(1);
+	});
+});
+
+describe("commits POST — batch and payload caps", () => {
+	// Owned repo so the route reaches the batch validation.
+	beforeEach(() => {
+		state.rowsFor = (table: unknown) => {
+			if (table === projectRepositories)
+				return [{ userId: "owner-1", isPublic: false }];
+			return [];
 		};
-		expect(tagInsert.commitId).toBe(first.id);
+	});
+
+	const validCommit = (id: string, extra: Record<string, unknown> = {}) => ({
+		id,
+		parentId: null,
+		hash: `h-${id}`,
+		message: `m-${id}`,
+		isKeyframe: false,
+		snapshotData: null,
+		deltaData: null,
+		duration: 0,
+		trackCount: 0,
+		elementCount: 0,
+		changeSummary: null,
+		...extra,
+	});
+
+	it("400s (batch too long) past 200 commits, writing nothing", async () => {
+		const batch = Array.from({ length: 201 }, (_, i) => validCommit(`c-${i}`));
+		const res = await commitsPOST(jsonRequest(batch), params("repo-1"));
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as { error: string };
+		expect(body.error).toContain("Too many commits");
+		expect(state.inserts).toHaveLength(0);
+	});
+
+	it("413s when one commit's serialized payload exceeds the cap, writing nothing", async () => {
+		const huge = validCommit("c-big", {
+			snapshotData: { blob: "x".repeat(2 * 1024 * 1024 + 1) },
+		});
+		const res = await commitsPOST(jsonRequest([huge]), params("repo-1"));
+		expect(res.status).toBe(413);
+		const body = (await res.json()) as { error: string };
+		expect(body.error).toContain("Commit payload too large");
+		expect(state.inserts).toHaveLength(0);
+	});
+
+	it("413s (via content-length pre-check) before parsing an oversized body", async () => {
+		const req = {
+			url: "http://localhost/x",
+			json: async () => {
+				throw new Error("json() must not be called past the pre-check");
+			},
+			headers: new Headers({
+				"content-length": String(33 * 1024 * 1024),
+			}),
+		} as unknown as Parameters<typeof commitsPOST>[0];
+		const res = await commitsPOST(req, params("repo-1"));
+		expect(res.status).toBe(413);
+		expect(state.inserts).toHaveLength(0);
+	});
+
+	it("writes a valid batch as ONE multi-row insert and reports the count", async () => {
+		const batch = [validCommit("c-1"), validCommit("c-2")];
+		const res = await commitsPOST(jsonRequest(batch), params("repo-1"));
+		expect(res.status).toBe(201);
+		const body = (await res.json()) as { pushed: number };
+		expect(body.pushed).toBe(2);
+
+		const commitInserts = state.inserts.filter((i) => i.table === commits);
+		expect(commitInserts).toHaveLength(1);
+		expect(commitInserts[0].values as unknown[]).toHaveLength(2);
+	});
+
+	it("rejects invalid commit data with 400 before any write", async () => {
+		const res = await commitsPOST(
+			jsonRequest([{ id: "c-1" }]),
+			params("repo-1"),
+		);
+		expect(res.status).toBe(400);
+		expect(state.inserts).toHaveLength(0);
+	});
+});
+
+describe("media POST — upload size cap (200 MB)", () => {
+	const MAX_MEDIA_BYTES = 200 * 1024 * 1024;
+
+	/** Build a request whose formData yields a File-shaped object of `size` bytes
+	 *  WITHOUT allocating them. arrayBuffer() throws if the cap check missed. */
+	function uploadRequest(size: number, headers = new Headers()) {
+		return {
+			url: "http://localhost/api/version-control/media",
+			headers,
+			formData: async () => ({
+				get: () => ({
+					size,
+					type: "video/mp4",
+					arrayBuffer: async () => {
+						if (size > MAX_MEDIA_BYTES) {
+							throw new Error(
+								"oversized file must be rejected before buffering",
+							);
+						}
+						return new ArrayBuffer(size);
+					},
+				}),
+			}),
+		} as unknown as Parameters<typeof mediaPOST>[0];
+	}
+
+	it("413s (via content-length pre-check) before parsing the multipart body", async () => {
+		const req = {
+			url: "http://localhost/api/version-control/media",
+			headers: new Headers({
+				"content-length": String(MAX_MEDIA_BYTES + 10 * 1024 * 1024),
+			}),
+			formData: async () => {
+				throw new Error("formData() must not be called past the pre-check");
+			},
+		} as unknown as Parameters<typeof mediaPOST>[0];
+		const res = await mediaPOST(req);
+		expect(res.status).toBe(413);
+		const body = (await res.json()) as { error: string; maxBytes: number };
+		expect(body.error).toBe("File too large");
+		expect(body.maxBytes).toBe(MAX_MEDIA_BYTES);
+		expect(state.inserts).toHaveLength(0);
+	});
+
+	it("413s on an oversized file even without content-length, before buffering", async () => {
+		const res = await mediaPOST(uploadRequest(MAX_MEDIA_BYTES + 1));
+		expect(res.status).toBe(413);
+		expect(state.inserts).toHaveLength(0);
+	});
+
+	it("accepts a file under the cap and records it", async () => {
+		// No existing row with this hash → dedup select returns [] → insert.
+		state.rowsFor = () => [];
+		const res = await mediaPOST(uploadRequest(1024));
+		expect(res.status).toBe(201);
+		const body = (await res.json()) as { hash: string; deduplicated: boolean };
+		expect(body.hash).toBe("hash-1");
+		expect(body.deduplicated).toBe(false);
+		expect(state.inserts).toHaveLength(1);
+	});
+
+	it("401s when unauthenticated, before any size handling", async () => {
+		state.session = null;
+		const res = await mediaPOST(uploadRequest(1024));
+		expect(res.status).toBe(401);
 	});
 });

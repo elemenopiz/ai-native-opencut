@@ -19,6 +19,25 @@ const MAX_INLINE_IMAGE_BYTES = 8 * 1024 * 1024; // 8 MB
 
 export const maxDuration = 60;
 
+// The whole file is buffered in memory before rehosting — cap by kind so one
+// request can't balloon the process. Reference stills don't need more than
+// 20 MB; reference videos are short clips, 100 MB matches the sounds proxy.
+const MAX_REFERENCE_IMAGE_BYTES = 20 * 1024 * 1024; // 20 MB
+const MAX_REFERENCE_VIDEO_BYTES = 100 * 1024 * 1024; // 100 MB
+/** Slack for multipart boundary/header overhead in the content-length pre-check. */
+const MULTIPART_OVERHEAD_BYTES = 64 * 1024;
+
+function tooLarge(kind: "image" | "video", maxBytes: number) {
+	return NextResponse.json(
+		{
+			error: "File too large",
+			message: `Reference ${kind}s are capped at ${maxBytes / (1024 * 1024)} MB.`,
+			maxBytes,
+		},
+		{ status: 413 },
+	);
+}
+
 export async function POST(req: Request) {
 	try {
 		// Rehosting media to R2 is an open write path to our object storage —
@@ -35,6 +54,17 @@ export async function POST(req: Request) {
 			userId: session.user.id,
 		});
 		if (limited) return limited;
+
+		// Cheap reject before the multipart body is parsed/buffered at all. The
+		// kind isn't known yet, so this pre-check uses the larger (video) cap;
+		// the exact per-kind cap is enforced on the parsed file below.
+		const contentLength = Number(req.headers.get("content-length"));
+		if (
+			Number.isFinite(contentLength) &&
+			contentLength > MAX_REFERENCE_VIDEO_BYTES + MULTIPART_OVERHEAD_BYTES
+		) {
+			return tooLarge("video", MAX_REFERENCE_VIDEO_BYTES);
+		}
 
 		const form = await req.formData();
 		const file = form.get("file");
@@ -60,7 +90,19 @@ export async function POST(req: Request) {
 			);
 		}
 
+		// Enforce the per-kind cap on the ACTUAL size (content-length can be
+		// absent or wrong): check the File's reported size before buffering,
+		// then the buffer itself.
+		const maxBytes =
+			kind === "video" ? MAX_REFERENCE_VIDEO_BYTES : MAX_REFERENCE_IMAGE_BYTES;
+		if (file.size > maxBytes) {
+			return tooLarge(kind, maxBytes);
+		}
+
 		const bytes = await file.arrayBuffer();
+		if (bytes.byteLength > maxBytes) {
+			return tooLarge(kind, maxBytes);
+		}
 
 		if (canRehost()) {
 			const url = await rehostToR2(bytes, mime);

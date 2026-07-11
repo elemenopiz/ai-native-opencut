@@ -12,11 +12,28 @@ import { headers } from "next/headers";
 import { eq } from "drizzle-orm";
 import { generateUUID } from "@/utils/id";
 import { checkRepoAccess } from "@/lib/db/version-control-utils";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
 const forkSchema = z.object({
 	newProjectId: z.string().min(1),
 	name: z.string().min(1),
 });
+
+/**
+ * Rows per multi-row INSERT. Commits have ~20 columns, so 500 rows stays far
+ * under Postgres's 65535 bind-parameter limit while keeping the round-trip
+ * count low for large histories.
+ */
+const INSERT_CHUNK_SIZE = 500;
+
+async function insertChunked<T>(
+	insert: (rows: T[]) => Promise<unknown>,
+	rows: T[],
+): Promise<void> {
+	for (let i = 0; i < rows.length; i += INSERT_CHUNK_SIZE) {
+		await insert(rows.slice(i, i + INSERT_CHUNK_SIZE));
+	}
+}
 
 /**
  * POST /api/version-control/repos/:repoId/fork
@@ -32,6 +49,14 @@ export async function POST(
 		if (!session?.user) {
 			return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 		}
+
+		// Forking copies an entire history in one request — keep it rare per user.
+		const limited = await enforceRateLimit({
+			name: "vc:fork",
+			request,
+			userId: session.user.id,
+		});
+		if (limited) return limited;
 
 		const { repoId } = await params;
 		// Only repos the caller can see (own, or public) may be forked — never
@@ -62,21 +87,6 @@ export async function POST(
 
 		const sourceRepo = sourceRepos[0];
 
-		// Create new repo
-		const newRepoId = generateUUID();
-		await db.insert(projectRepositories).values({
-			id: newRepoId,
-			projectId: parsed.data.newProjectId,
-			userId: session.user.id,
-			name: parsed.data.name,
-			defaultBranch: sourceRepo.defaultBranch,
-			isPublic: false,
-			forkedFromId: repoId,
-			forkedFromCommitId: null,
-			createdAt: new Date(),
-			updatedAt: new Date(),
-		});
-
 		// Copy all commits (they reference media by hash, no duplication needed).
 		// Commit ids are the table's GLOBAL primary key, so the fork must re-key
 		// every commit; reusing the source ids would collide with the existing
@@ -94,47 +104,70 @@ export async function POST(
 		const remapCommitId = <T extends string | null>(id: T): T =>
 			(id ? (commitIdMap.get(id) ?? id) : id) as T;
 
-		for (const commit of sourceCommits) {
-			await db.insert(commits).values({
-				...commit,
-				id: commitIdMap.get(commit.id) as string,
-				repoId: newRepoId,
-				parentId: remapCommitId(commit.parentId),
-				mergeParentId: remapCommitId(commit.mergeParentId),
-				keyframeAncestorId: remapCommitId(commit.keyframeAncestorId),
-			});
-		}
-
-		// Copy branches (re-key their head/created-from commit references)
 		const sourceBranches = await db
 			.select()
 			.from(branches)
 			.where(eq(branches.repoId, repoId));
 
-		for (const branch of sourceBranches) {
-			await db.insert(branches).values({
-				...branch,
-				id: generateUUID(),
-				repoId: newRepoId,
-				headCommitId: remapCommitId(branch.headCommitId),
-				createdFromCommitId: remapCommitId(branch.createdFromCommitId),
-			});
-		}
-
-		// Copy tags (re-key their commit reference)
 		const sourceTags = await db
 			.select()
 			.from(tags)
 			.where(eq(tags.repoId, repoId));
 
-		for (const tag of sourceTags) {
-			await db.insert(tags).values({
-				...tag,
-				id: generateUUID(),
-				repoId: newRepoId,
-				commitId: remapCommitId(tag.commitId),
+		// All fork writes happen atomically: if any insert fails (or the request
+		// times out mid-copy), the transaction rolls back and no half-copied fork
+		// is left behind. Rows go in as chunked multi-row inserts rather than one
+		// statement per row, so large histories don't pay a round-trip per commit.
+		const newRepoId = generateUUID();
+		await db.transaction(async (tx) => {
+			await tx.insert(projectRepositories).values({
+				id: newRepoId,
+				projectId: parsed.data.newProjectId,
+				userId: session.user.id,
+				name: parsed.data.name,
+				defaultBranch: sourceRepo.defaultBranch,
+				isPublic: false,
+				forkedFromId: repoId,
+				forkedFromCommitId: null,
+				createdAt: new Date(),
+				updatedAt: new Date(),
 			});
-		}
+
+			await insertChunked(
+				(rows) => tx.insert(commits).values(rows),
+				sourceCommits.map((commit) => ({
+					...commit,
+					id: commitIdMap.get(commit.id) as string,
+					repoId: newRepoId,
+					parentId: remapCommitId(commit.parentId),
+					mergeParentId: remapCommitId(commit.mergeParentId),
+					keyframeAncestorId: remapCommitId(commit.keyframeAncestorId),
+				})),
+			);
+
+			// Copy branches (re-key their head/created-from commit references)
+			await insertChunked(
+				(rows) => tx.insert(branches).values(rows),
+				sourceBranches.map((branch) => ({
+					...branch,
+					id: generateUUID(),
+					repoId: newRepoId,
+					headCommitId: remapCommitId(branch.headCommitId),
+					createdFromCommitId: remapCommitId(branch.createdFromCommitId),
+				})),
+			);
+
+			// Copy tags (re-key their commit reference)
+			await insertChunked(
+				(rows) => tx.insert(tags).values(rows),
+				sourceTags.map((tag) => ({
+					...tag,
+					id: generateUUID(),
+					repoId: newRepoId,
+					commitId: remapCommitId(tag.commitId),
+				})),
+			);
+		});
 
 		return NextResponse.json(
 			{
