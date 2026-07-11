@@ -28,8 +28,8 @@ export function Footer() {
 							<span className="text-base font-bold tracking-tight">Byorn</span>
 						</div>
 						<p className="text-muted-foreground text-sm leading-relaxed">
-							Open-source AI video editor. Transcribe, edit by text, clone
-							voices, and generate visuals. Runs locally on your machine.
+							The AI-native video editor. Generate footage with the Director,
+							keep characters consistent, and finish the cut on a real timeline.
 						</p>
 					</div>
 
@@ -97,7 +97,7 @@ export function Footer() {
 						&copy; {new Date().getFullYear()} Byorn
 					</span>
 					<span className="text-xs text-muted-foreground/60">
-						Open source under MIT
+						Built on OpenCut (MIT)
 					</span>
 				</div>
 			</div>
