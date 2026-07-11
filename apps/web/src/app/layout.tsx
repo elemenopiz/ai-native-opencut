@@ -10,6 +10,7 @@ import { Inter } from "next/font/google";
 import { JsonLd } from "@/components/seo/json-ld";
 import { GoogleAnalytics } from "@/components/seo/google-analytics";
 import { SessionExpiredListener } from "@/components/auth/session-expired-listener";
+import { ErrorReporter } from "@/components/observability/error-reporter";
 
 const siteFont = Inter({ subsets: ["latin"] });
 
@@ -52,6 +53,7 @@ export default function RootLayout({
 				>
 					<TooltipProvider>
 						<Toaster />
+						<ErrorReporter />
 						<SessionExpiredListener />
 						<Script
 							src="https://cdn.databuddy.cc/databuddy.js"
