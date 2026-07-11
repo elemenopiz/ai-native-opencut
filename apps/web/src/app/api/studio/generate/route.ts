@@ -284,11 +284,12 @@ export async function POST(req: Request) {
 				throw new Error(result.error ?? "Generation failed");
 			}
 
-			// Persist the take
+			// Persist the take (ownership always stamped from the session)
 			takeId = nanoid();
 			await db.insert(takes).values({
 				id: takeId,
 				setId,
+				ownerId: session.user.id,
 				seed: result.seed ?? effectiveSeed,
 				resolution,
 				providerJobId: result.jobId,

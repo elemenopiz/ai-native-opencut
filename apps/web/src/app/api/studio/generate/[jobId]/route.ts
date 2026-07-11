@@ -44,11 +44,19 @@ export async function GET(
 		if (!ownTake) {
 			return NextResponse.json({ error: "Not found" }, { status: 404 });
 		}
-		const parentSet = await db.query.generationSets.findFirst({
-			where: eq(generationSets.id, ownTake.setId),
-		});
-		if (!parentSet || parentSet.userId !== session.user.id) {
-			return NextResponse.json({ error: "Not found" }, { status: 404 });
+		// Prefer the take's own ownerId (denormalized tenancy column); legacy rows
+		// (NULL, pre-backfill) resolve through the parent set.
+		if (ownTake.ownerId) {
+			if (ownTake.ownerId !== session.user.id) {
+				return NextResponse.json({ error: "Not found" }, { status: 404 });
+			}
+		} else {
+			const parentSet = await db.query.generationSets.findFirst({
+				where: eq(generationSets.id, ownTake.setId),
+			});
+			if (!parentSet || parentSet.userId !== session.user.id) {
+				return NextResponse.json({ error: "Not found" }, { status: 404 });
+			}
 		}
 
 		const result = await pollVideo(jobId);
