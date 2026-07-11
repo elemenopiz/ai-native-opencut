@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import useDeepCompareEffect from "use-deep-compare-effect";
 import { useEditor } from "@/hooks/use-editor";
 import { useRafLoop } from "@/hooks/use-raf-loop";
@@ -18,7 +25,11 @@ import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { Button } from "@/components/ui/button";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { GridTableIcon } from "@hugeicons/core-free-icons";
-import { clampPreviewZoom, usePreviewStore } from "@/stores/preview-store";
+import {
+	clampPreviewZoom,
+	getPlaybackRenderScale,
+	usePreviewStore,
+} from "@/stores/preview-store";
 import { usePreviewCanvasStore } from "@/stores/preview-canvas-store";
 import { PreviewContextMenu } from "./context-menu";
 import { PreviewToolbar } from "./toolbar";
@@ -139,8 +150,11 @@ function PreviewCanvas({
 	const containerSize = useContainerSize({ containerRef: outerContainerRef });
 	const editor = useEditor();
 	const activeProject = editor.project.getActive();
-	const { overlays, zoom, pan, panMode } = usePreviewStore();
+	const { overlays, zoom, pan, panMode, playbackQuality } = usePreviewStore();
 	const [isPanning, setIsPanning] = useState(false);
+	const [isPlaying, setIsPlaying] = useState(() =>
+		editor.playback.getIsPlaying(),
+	);
 	const panDragRef = useRef<{
 		pointerId: number;
 		startClientX: number;
@@ -155,6 +169,15 @@ function PreviewCanvas({
 			fps: activeProject.settings.fps,
 		});
 	}, [nativeWidth, nativeHeight, activeProject.settings.fps]);
+
+	// Play/pause via the discrete channel — NOT the per-frame time tick — so
+	// this component re-renders only on state changes, never 60×/sec.
+	useEffect(() => {
+		const unsubscribe = editor.playback.subscribe(() => {
+			setIsPlaying(editor.playback.getIsPlaying());
+		});
+		return unsubscribe;
+	}, [editor.playback]);
 
 	const displaySize = useMemo(() => {
 		if (
@@ -192,6 +215,54 @@ function PreviewCanvas({
 		}),
 		[displaySize.width, displaySize.height, zoom],
 	);
+
+	// Resolution the frame is composited at. While playing this can drop below
+	// the project's native size (playback quality); paused/scrub-settled frames
+	// always come back to full native res so stills stay crisp. CSS sizing
+	// (zoomedSize) is unaffected — only the backing store shrinks.
+	const renderSize = useMemo(() => {
+		const native = { width: nativeWidth ?? 0, height: nativeHeight ?? 0 };
+		if (!isPlaying || !nativeWidth || !nativeHeight) return native;
+		const scale = getPlaybackRenderScale({
+			quality: playbackQuality,
+			nativeWidth,
+			nativeHeight,
+			displayWidth: displaySize.width,
+			zoom,
+			devicePixelRatio:
+				typeof window === "undefined" ? 1 : window.devicePixelRatio || 1,
+		});
+		if (scale >= 1) return native;
+		return {
+			width: Math.max(2, Math.round(nativeWidth * scale)),
+			height: Math.max(2, Math.round(nativeHeight * scale)),
+		};
+	}, [
+		isPlaying,
+		playbackQuality,
+		nativeWidth,
+		nativeHeight,
+		displaySize.width,
+		zoom,
+	]);
+
+	// Keep the compositor at the render resolution, and force the next rAF to
+	// repaint the current frame: React committing new canvas width/height wiped
+	// the visible canvas, and without bumping the guard the loop would skip the
+	// redraw until the frame index changes. Layout effect so it lands before
+	// the next rAF paints.
+	useLayoutEffect(() => {
+		if (
+			renderer.width !== renderSize.width ||
+			renderer.height !== renderSize.height
+		) {
+			renderer.setSize({
+				width: renderSize.width,
+				height: renderSize.height,
+			});
+		}
+		lastFrameRef.current = -1;
+	}, [renderer, renderSize.width, renderSize.height]);
 
 	useEffect(() => {
 		if (!nativeWidth || displaySize.width === 0) return;
@@ -336,8 +407,13 @@ function PreviewCanvas({
 					>
 						<canvas
 							ref={canvasRef}
-							width={nativeWidth}
-							height={nativeHeight}
+							width={renderSize.width}
+							height={renderSize.height}
+							// Interaction overlays and hit-testing must keep working in
+							// project-canvas coordinates even while the backing store is
+							// downscaled during playback (see preview-coords.ts).
+							data-logical-width={nativeWidth}
+							data-logical-height={nativeHeight}
 							className="block border"
 							style={{
 								width: zoomedSize.width,

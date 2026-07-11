@@ -39,7 +39,18 @@ async function* frameIterator(startTime: number) {
 	}
 }
 
+/** Options each constructed CanvasSink was created with, in creation order. */
+let sinkConstructions: Array<Record<string, unknown>> = [];
+let disposeCalls = 0;
+
+/** Native source dimensions reported by the mock video track. */
+const SOURCE_WIDTH = 3840;
+const SOURCE_HEIGHT = 2160;
+
 class MockCanvasSink {
+	constructor(_track: unknown, options?: Record<string, unknown>) {
+		sinkConstructions.push(options ?? {});
+	}
 	canvases(startTime: number) {
 		seekCalls.push(startTime);
 		return frameIterator(startTime);
@@ -48,9 +59,15 @@ class MockCanvasSink {
 
 class MockInput {
 	async getPrimaryVideoTrack() {
-		return { canDecode: async () => true };
+		return {
+			canDecode: async () => true,
+			displayWidth: SOURCE_WIDTH,
+			displayHeight: SOURCE_HEIGHT,
+		};
 	}
-	dispose() {}
+	dispose() {
+		disposeCalls++;
+	}
 }
 
 mock.module("mediabunny", () => ({
@@ -72,6 +89,8 @@ function flush(): Promise<void> {
 beforeEach(() => {
 	seekCalls = [];
 	slowFrame = null;
+	sinkConstructions = [];
+	disposeCalls = 0;
 });
 
 describe("VideoCache sequential playback", () => {
@@ -145,5 +164,127 @@ describe("VideoCache.warm", () => {
 		// same media must not thrash the live iterator.
 		await cache.warm({ mediaId: "m3", file, time: 30.0 });
 		expect(seekCalls).toEqual([1.0]);
+	});
+});
+
+describe("VideoCache sink tiers", () => {
+	it("keeps the full tier unsized and caps the preview tier's long edge", async () => {
+		const cache = new VideoCache();
+
+		await cache.getFrameAt({ mediaId: "m4", file, time: 0 });
+		await cache.getFrameAt({
+			mediaId: "m4",
+			file,
+			time: 0,
+			tier: "preview",
+			previewMaxSize: 1920,
+		});
+
+		expect(sinkConstructions).toHaveLength(2);
+		// Export/snapshot tier: native decode size (no width/height requested).
+		expect(sinkConstructions[0].width).toBeUndefined();
+		expect(sinkConstructions[0].height).toBeUndefined();
+		// Preview tier: long edge capped, aspect preserved.
+		expect(sinkConstructions[1].width).toBe(1920);
+		expect(sinkConstructions[1].height).toBe(1080);
+	});
+
+	it("does not downsize sources already within the preview cap", async () => {
+		const cache = new VideoCache();
+
+		await cache.getFrameAt({
+			mediaId: "m5",
+			file,
+			time: 0,
+			tier: "preview",
+			previewMaxSize: SOURCE_WIDTH * 2,
+		});
+
+		expect(sinkConstructions).toHaveLength(1);
+		expect(sinkConstructions[0].width).toBeUndefined();
+		expect(sinkConstructions[0].height).toBeUndefined();
+	});
+
+	it("gives each tier its own independent decoder position", async () => {
+		const cache = new VideoCache();
+
+		await cache.getFrameAt({ mediaId: "m6", file, time: 0 });
+		// Same media, preview tier, far position: must seek its OWN sink, not
+		// steal the full tier's iterator.
+		const frame = await cache.getFrameAt({
+			mediaId: "m6",
+			file,
+			time: 10.0,
+			tier: "preview",
+			previewMaxSize: 1920,
+		});
+		expect(frame?.timestamp).toBeCloseTo(10.0, 5);
+		expect(seekCalls).toEqual([0, 10.0]);
+
+		// The full tier's frame at 0 is still cached — no extra seek.
+		const fullFrame = await cache.getFrameAt({ mediaId: "m6", file, time: 0 });
+		expect(fullFrame?.timestamp).toBeCloseTo(0, 5);
+		expect(seekCalls).toEqual([0, 10.0]);
+	});
+
+	it("rebuilds the preview sink when the cap changes", async () => {
+		const cache = new VideoCache();
+
+		await cache.getFrameAt({
+			mediaId: "m7",
+			file,
+			time: 0,
+			tier: "preview",
+			previewMaxSize: 1920,
+		});
+		await cache.getFrameAt({
+			mediaId: "m7",
+			file,
+			time: 0,
+			tier: "preview",
+			previewMaxSize: 3840,
+		});
+
+		expect(sinkConstructions).toHaveLength(2);
+		expect(disposeCalls).toBe(1);
+		expect(cache.getStats().totalSinks).toBe(1);
+	});
+
+	it("clearVideo disposes both tiers", async () => {
+		const cache = new VideoCache();
+
+		await cache.getFrameAt({ mediaId: "m8", file, time: 0 });
+		await cache.getFrameAt({
+			mediaId: "m8",
+			file,
+			time: 0,
+			tier: "preview",
+			previewMaxSize: 1920,
+		});
+		expect(cache.getStats().totalSinks).toBe(2);
+
+		cache.clearVideo({ mediaId: "m8" });
+
+		expect(disposeCalls).toBe(2);
+		expect(cache.getStats().totalSinks).toBe(0);
+	});
+
+	it("clearAll disposes every sink across tiers", async () => {
+		const cache = new VideoCache();
+
+		await cache.getFrameAt({ mediaId: "m9", file, time: 0 });
+		await cache.getFrameAt({
+			mediaId: "m9",
+			file,
+			time: 0,
+			tier: "preview",
+			previewMaxSize: 1920,
+		});
+		await cache.getFrameAt({ mediaId: "m10", file, time: 0 });
+
+		cache.clearAll();
+
+		expect(disposeCalls).toBe(3);
+		expect(cache.getStats().totalSinks).toBe(0);
 	});
 });

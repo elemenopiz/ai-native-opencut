@@ -18,7 +18,16 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { OcSocialIcon } from "@byorn/ui/icons";
 import { Separator } from "@/components/ui/separator";
-import { usePreviewStore } from "@/stores/preview-store";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuLabel,
+	DropdownMenuRadioGroup,
+	DropdownMenuRadioItem,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { usePreviewStore, type PlaybackQuality } from "@/stores/preview-store";
 import { AIToolbar } from "@/components/editor/ai/ai-toolbar";
 
 const ZOOM_STEP = 1.25;
@@ -70,6 +79,8 @@ export function PreviewToolbar({
 
 			<div className="justify-self-end flex items-center gap-2.5">
 				<AIToolbar />
+				<Separator orientation="vertical" className="h-4" />
+				<PlaybackQualityPicker />
 				<Separator orientation="vertical" className="h-4" />
 				<PreviewZoomControls />
 				<Separator orientation="vertical" className="h-4" />
@@ -138,6 +149,60 @@ function PlaybackTimecode({
 			onTimeChange={onTimeChange}
 			className="text-center"
 		/>
+	);
+}
+
+const PLAYBACK_QUALITY_OPTIONS: Array<{
+	value: PlaybackQuality;
+	label: string;
+	shortLabel: string;
+}> = [
+	{ value: "auto", label: "Auto (match display size)", shortLabel: "Auto" },
+	{ value: "full", label: "Full resolution", shortLabel: "Full" },
+	{ value: "half", label: "Half resolution", shortLabel: "1/2" },
+	{ value: "quarter", label: "Quarter resolution", shortLabel: "1/4" },
+];
+
+/** Compositing resolution used while playing; paused frames always render at
+ *  full resolution, so this only trades playback sharpness for frame rate. */
+function PlaybackQualityPicker() {
+	const playbackQuality = usePreviewStore((state) => state.playbackQuality);
+	const setPlaybackQuality = usePreviewStore(
+		(state) => state.setPlaybackQuality,
+	);
+	const active = PLAYBACK_QUALITY_OPTIONS.find(
+		(option) => option.value === playbackQuality,
+	);
+
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger asChild>
+				<Button
+					variant="text"
+					size="sm"
+					className="h-7 px-1 font-mono text-xs"
+					title="Playback quality (paused frames always render full-res)"
+				>
+					{active?.shortLabel ?? "Auto"}
+				</Button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align="end" className="w-56">
+				<DropdownMenuLabel>Playback quality</DropdownMenuLabel>
+				<DropdownMenuSeparator />
+				<DropdownMenuRadioGroup
+					value={playbackQuality}
+					onValueChange={(value) =>
+						setPlaybackQuality({ quality: value as PlaybackQuality })
+					}
+				>
+					{PLAYBACK_QUALITY_OPTIONS.map((option) => (
+						<DropdownMenuRadioItem key={option.value} value={option.value}>
+							{option.label}
+						</DropdownMenuRadioItem>
+					))}
+				</DropdownMenuRadioGroup>
+			</DropdownMenuContent>
+		</DropdownMenu>
 	);
 }
 

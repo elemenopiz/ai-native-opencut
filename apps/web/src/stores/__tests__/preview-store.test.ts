@@ -70,6 +70,7 @@ describe("migratePreviewState", () => {
 			activeGuideId: null,
 			gridConfig: DEFAULT_GRID_CONFIG,
 			overlays: { bookmarks: true },
+			playbackQuality: "auto",
 		});
 	});
 
@@ -90,13 +91,26 @@ describe("migratePreviewState", () => {
 		expect(migrated.activeGuideId).toBeNull();
 	});
 
-	test("v3 shape (already migrated) round-trips unchanged", () => {
+	test("v3 shape (already migrated) round-trips, gaining the v4 default", () => {
 		const v3State = {
 			activeGuideId: "grid" as const,
 			gridConfig: { rows: 5, cols: 7 },
 			overlays: { bookmarks: true },
 		};
-		expect(migratePreviewState(v3State)).toEqual(v3State);
+		expect(migratePreviewState(v3State)).toEqual({
+			...v3State,
+			playbackQuality: "auto",
+		});
+	});
+
+	test("v4 playbackQuality round-trips unchanged", () => {
+		const migrated = migratePreviewState({
+			activeGuideId: null,
+			gridConfig: DEFAULT_GRID_CONFIG,
+			overlays: { bookmarks: true },
+			playbackQuality: "half",
+		});
+		expect(migrated.playbackQuality).toBe("half");
 	});
 
 	test("v3 activeGuideId takes precedence over a stale layoutGuide field", () => {
