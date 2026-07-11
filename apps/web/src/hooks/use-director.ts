@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useEditor } from "@/hooks/use-editor";
 import {
 	createDirectorApi,
@@ -11,6 +11,12 @@ import { createStudioExecutor } from "@/lib/director/studio-executor";
 import { callVisionRelay } from "@/lib/director/agent";
 import { createVisionTakeCritic } from "@/lib/director/take-critic-adapter";
 import { extractTakeFrames } from "@/lib/media/last-frame";
+import {
+	clearUnderstandingCache,
+	manifestUnderstandingLookup,
+	primeUnderstandingCache,
+	styleProbeLookup,
+} from "@/lib/director/understanding-lookup";
 
 /**
  * Read-through to the client-safe backend catalog (`GET /api/studio/backends`) —
@@ -42,11 +48,23 @@ async function fetchBackendCatalog(
  */
 export function useDirector(): DirectorApi {
 	const editor = useEditor();
+	// Populate the synchronous understanding cache the faceted library manifest
+	// reads each turn (`getProjectInfo` → `buildLibraryManifest`). The store is
+	// global (keyed by mediaId, not project-scoped), so priming once on mount
+	// loads every understood asset; cleared on unmount. No-op when the
+	// Understanding Pass autorun is off (empty store ⇒ the manifest falls back
+	// to media-type counts).
+	useEffect(() => {
+		void primeUnderstandingCache();
+		return () => clearUnderstandingCache();
+	}, []);
 	return useMemo(
 		() =>
 			createDirectorApi(editor, {
 				executor: createStudioExecutor(editor),
 				backends: fetchBackendCatalog,
+				understanding: manifestUnderstandingLookup,
+				styleProbe: styleProbeLookup,
 				critic: createVisionTakeCritic({
 					relay: callVisionRelay,
 					extractFrames: ({ takeId, mediaId }) =>

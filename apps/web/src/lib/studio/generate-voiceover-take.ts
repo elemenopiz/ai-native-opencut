@@ -5,6 +5,7 @@ import {
 	voiceLockFragment,
 	type VoiceProfile,
 } from "@/lib/director/consistency-prompt";
+import { assertReferenceUsable } from "@/stores/voice-consent-store";
 import { processMediaAssets } from "@/lib/media/processing";
 import { generateUUID } from "@/utils/id";
 import type { GenerationSpec, TimelineElement } from "@/types/timeline";
@@ -145,6 +146,11 @@ export async function generateVoiceoverTakeMedia({
 	try {
 		const dialogue = spec.prompt.trim();
 		if (!dialogue) return { status: "failed", error: "No dialogue text" };
+		// CONSENT GATE (Flow D #1): a cloned-voice reference may only be spoken once
+		// its profile is `consented`. Throws for a pending/revoked clone — caught
+		// below and surfaced as a failed take, so an unconsented clone never reaches
+		// the TTS backend. A built-in speaker / unknown ref passes.
+		assertReferenceUsable(spec.voiceRef);
 		// Voice-lock: restate the character's vocal identity ahead of every
 		// beat's dialogue — the per-beat analog of `withConsistencyContext`.
 		const text = spec.voiceLock ? `${spec.voiceLock}\n\n${dialogue}` : dialogue;

@@ -56,6 +56,21 @@ import {
 	type StyleBible,
 } from "./storyboard-plan";
 import {
+	buildReelProposal,
+	formatProposalDraft,
+	getStoredProposal,
+	proposalToPlan,
+	reviseProposalShot,
+	sourceNeedsCitation,
+	storeProposal,
+	validateProposal,
+	type AssetResolver,
+	type ProposedShotInput,
+	type ReelProposal,
+	type ResolvedAsset,
+	type ShotRevision,
+} from "./reel-proposal";
+import {
 	formatSpend,
 	getReelSpend,
 	planActionWithinBudget,
@@ -73,6 +88,18 @@ import {
 	type BriefPatch,
 } from "./director-brief";
 import {
+	recordBibleApproval,
+	revertProjectBible,
+	seedStyleBibleFromProbe,
+	syncProjectBible,
+	type RevertResult,
+	type StyleProbeSeedResult,
+} from "./project-bible";
+import type { StyleProbeLookup } from "./understanding-lookup";
+import { useVoiceConsentStore } from "@/stores/voice-consent-store";
+import type { ClonedVoiceProfile } from "./voice-consent";
+import type { BibleApproval } from "@/types/project";
+import {
 	relayDeriveReferences,
 	styleBibleToBriefLine,
 	styleHasContent,
@@ -81,7 +108,11 @@ import {
 } from "./reference-intake";
 import { uploadReferenceFile } from "@/lib/studio/reference-upload";
 import type { MediaAsset } from "@/types/assets";
-import type { DirectorBrief } from "@/types/project";
+import type {
+	DirectorBrief,
+	PersonaRosterEntry,
+	ProjectBible,
+} from "@/types/project";
 import { buildRemixSpec } from "@/lib/studio/remix";
 import {
 	extractTakeLastFrame,
@@ -95,6 +126,11 @@ import {
 	type CostRange,
 } from "@/lib/studio/cost";
 import { createShortIdMap } from "./short-id";
+import {
+	buildLibraryManifest,
+	type AssetUnderstandingLookup,
+	type LibraryManifest,
+} from "./asset-manifest";
 import { aiClient } from "@/lib/ai-client";
 import { getAllEmbeddings } from "@/services/search/embedding-store";
 import { DEFAULT_TEXT_ELEMENT } from "@/constants/text-constants";
@@ -160,6 +196,22 @@ export type {
 	TakeCritic,
 	TakeStatus,
 } from "./types";
+
+export type {
+	AssetRole,
+	AssetUnderstanding,
+	AssetUnderstandingLookup,
+	LibraryManifest,
+} from "./asset-manifest";
+
+export type {
+	AssetCitation,
+	CitationRepair,
+	ProposedShot,
+	ProposedShotInput,
+	ReelProposal,
+	ShotSource,
+} from "./reel-proposal";
 
 /**
  * A timeline element that is a generative slot — i.e. it carries a
@@ -266,6 +318,23 @@ export interface CreateDirectorApiOptions {
 			seed?: number;
 		}) => Promise<{ id: string } | null>;
 	};
+	/**
+	 * "Understanding Pass" seam (see `asset-manifest.ts`). A per-asset lookup that
+	 * returns the role/caption/face understanding for a media id — the data behind
+	 * the faceted library manifest folded into the agent's system prompt. Built by
+	 * a sibling agent; ABSENT ⇒ the manifest DEGRADES GRACEFULLY to media-type
+	 * counts + recent asset names. Pure + injectable, so this ships and is tested
+	 * independently — the same pattern as `executor`/`audio`/`references`.
+	 */
+	understanding?: AssetUnderstandingLookup;
+	/**
+	 * Flow-D follow-up B seam: a per-asset {@link StyleProbe} lookup (palette /
+	 * lens-mood / setting), so `seedStyleFromUnderstanding` can route an
+	 * Understanding-Pass style read into the Bible's `styleBible`. Default in the
+	 * app is `styleProbeLookup` (understanding-lookup.ts); ABSENT ⇒ the verb reports
+	 * there is nothing to seed. Pure + injectable like `understanding`.
+	 */
+	styleProbe?: StyleProbeLookup;
 }
 
 const ok = <T>(message: string, data?: T): DirectorResult<T> => ({
@@ -726,11 +795,30 @@ export function createDirectorApi(
 	const CONTEXT_LIST_CAP = 5;
 
 	/**
+	 * Build the faceted, role-aware {@link LibraryManifest} from CURRENT editor
+	 * state (assets + persona roster) through the injected Understanding Pass
+	 * lookup. Shared by `getProjectInfo` (rides the system prompt) and the
+	 * `getLibraryManifest` verb (re-queryable on demand) so both render one digest.
+	 * Cheap, O(assets) — safe to rebuild every turn like `getProjectInfo` itself.
+	 */
+	function buildManifest(): LibraryManifest {
+		const assets = editor.media.getAssets();
+		const personas = usePersonaStore.getState().personas;
+		return buildLibraryManifest({
+			assets: assets.map((a) => ({ id: a.id, name: a.name, type: a.type })),
+			understanding: options.understanding,
+			personas: personas.map((p) => ({ id: p.id, name: p.name })),
+		});
+	}
+
+	/**
 	 * Compact project-level grounding: canvas/fps settings, the persona roster
-	 * (reusable characters for consistency), and a media-library summary. Read-
-	 * only — no `withDelta`, nothing mutates. Cheap enough to call every turn;
-	 * also folded into the agent's system prompt (see `agent.ts`'s context block)
-	 * so this exists both as prompt grounding AND as a re-queryable verb.
+	 * (reusable characters for consistency), and a faceted media-library MANIFEST
+	 * (counts by role, named heroes, face-anchors, a searchable tail — see
+	 * `asset-manifest.ts`). Read-only — no `withDelta`, nothing mutates. Cheap
+	 * enough to call every turn; also folded into the agent's system prompt (see
+	 * `agent.ts`'s context block) so this exists both as prompt grounding AND as a
+	 * re-queryable verb.
 	 */
 	function getProjectInfo(): DirectorResult<ProjectInfo> {
 		const project = editor.project.getActiveOrNull();
@@ -760,7 +848,21 @@ export function createDirectorApi(
 			recentAssets: assets
 				.slice(-CONTEXT_LIST_CAP)
 				.map((a) => ({ id: a.id, name: a.name })),
+			manifest: buildManifest(),
 		});
+	}
+
+	/**
+	 * Re-query the faceted library MANIFEST on demand (the same digest already in
+	 * the system prompt via `getProjectInfo`). The result `message` IS the one-line
+	 * digest; `data` carries the structured facets (per-role counts, named heroes
+	 * with FULL media ids + captions, face-anchor personas, the searchable tail) so
+	 * the agent can read exact ids/captions after the library changes mid-turn.
+	 * Read-only — nothing mutates.
+	 */
+	function getLibraryManifest(): DirectorResult<LibraryManifest> {
+		const manifest = buildManifest();
+		return ok(manifest.digest, manifest);
 	}
 
 	/**
@@ -856,6 +958,7 @@ export function createDirectorApi(
 	}): DirectorResult<ConsistencyContext> {
 		const before = captureReel();
 		const context = applyConsistencyContext(input);
+		syncBible("setConsistencyContext", "Set reel consistency context");
 		return withDelta(before, ok("Consistency context updated.", context));
 	}
 
@@ -1148,12 +1251,291 @@ export function createDirectorApi(
 			if (seed) applyConsistencyContext(seed);
 		}
 
+		// Write-through to the durable bible (plan + any seeded consistency + roster).
+		syncBible("storyboard", `Storyboarded ${ids.length} shot(s)`);
+
 		return withDelta(
 			before,
 			ok(`Storyboarded ${ids.length} shot(s).${budgetSummary(plan.budget)}`, {
 				slotIds: ids,
 				plan,
 			}),
+		);
+	}
+
+	// ---- PROPOSE-FIRST DRAFTING (Flow B) ----------------------------------
+	//
+	// The inversion of `storyboard`: instead of the human hand-placing clips, the
+	// Director drafts the WHOLE reel as an editable plan that CITES specific library
+	// assets per shot (retrieve), or plans to GENERATE where nothing matches, or
+	// GENERATE-TO-MATCH a cited asset's look. The human reacts to the draft (accept
+	// / revise one line) rather than assembling. See `reel-proposal.ts`.
+	//
+	// THE SAFETY GATE: a plan may cite ONLY asset ids that resolve against the REAL
+	// index. `resolveAssetForCitation` is that gate — existence comes from the media
+	// store, caption/role from the injected Understanding Pass; a fabricated id
+	// resolves to `undefined` and `validateProposal` repairs the shot to `generate`.
+
+	/**
+	 * Resolve a cited mediaId against the REAL index — the single grounding source
+	 * for Flow B. EXISTENCE is the media store (a fabricated id returns `undefined`
+	 * and cannot be cited); the `#N` ref is the asset's 1-based library position;
+	 * caption/role come from the injected Understanding Pass when present (absent ⇒
+	 * the citation is still valid, just captionless — grounding degrades gracefully).
+	 */
+	const resolveAssetForCitation: AssetResolver = (
+		mediaId,
+	): ResolvedAsset | undefined => {
+		const assets = editor.media.getAssets();
+		const index = assets.findIndex((a) => a.id === mediaId);
+		if (index === -1) return undefined;
+		const asset = assets[index];
+		const u = options.understanding?.(mediaId);
+		return {
+			id: asset.id,
+			name: asset.name,
+			ref: `#${index + 1}`,
+			...(u?.caption ? { caption: u.caption } : {}),
+			...(u?.role ? { role: u.role } : {}),
+		};
+	};
+
+	/** Per-shot base (cheapest-tier) USD estimate for budget allocation: library shots cost $0. */
+	function proposalBaseCosts(proposal: ReelProposal): number[] {
+		return proposal.shots.map((s) =>
+			s.source === "library"
+				? 0
+				: estimateSpecCost(buildSpec(s.prompt, s.duration)).high,
+		);
+	}
+
+	/**
+	 * DRAFT the entire reel as an editable, CITED plan (Flow B). Decomposes the
+	 * brief into shots, each with a `source` — `library` (cite a specific asset),
+	 * `generate` (no match — render it), or `generate-to-match` (generate in a cited
+	 * asset's look). Every citation is VALIDATED against the real index before the
+	 * draft is returned: any id that doesn't resolve is repaired to `generate` (never
+	 * silently kept), so the draft can't hallucinate an asset. The draft is stored
+	 * pending — nothing is placed on the timeline until `acceptProposal`. The result
+	 * `message` IS the rendered draft (markdown) the human reacts to; `data.proposal`
+	 * carries the structured plan.
+	 */
+	function proposeReel(input: {
+		shots: ProposedShotInput[];
+		bible?: StyleBible;
+		budgetUsd?: number;
+	}): DirectorResult<{ proposal: ReelProposal; draft: string }> {
+		if (!input.shots || input.shots.length === 0) {
+			return fail("proposeReel requires at least one shot.");
+		}
+
+		// Build the draft (pure), then GROUND it: validate every citation against the
+		// real index and repair any that don't resolve.
+		const built = buildReelProposal({
+			shots: input.shots,
+			bible: input.bible,
+		});
+		const { proposal } = validateProposal(built, resolveAssetForCitation);
+
+		// Allocate a budget across the GENERATE shots (library shots are $0) for the
+		// draft's spend line; the running tracker is ARMED at acceptProposal, not now.
+		if (input.budgetUsd != null && input.budgetUsd > 0) {
+			const tmpPlan = proposalToPlan(proposal);
+			applyBudgetToPlan(tmpPlan, proposalBaseCosts(proposal), input.budgetUsd);
+			proposal.budget = tmpPlan.budget;
+		}
+
+		storeProposal(editor, proposal);
+
+		const draft = formatProposalDraft(proposal);
+		const grounded = proposal.shots.filter((s) =>
+			sourceNeedsCitation(s.source),
+		).length;
+		const headline = `Drafted a ${proposal.shotCount}-shot reel (${grounded} from the library, ${
+			proposal.shotCount - grounded
+		} to generate).${
+			proposal.repairs.length
+				? ` ${proposal.repairs.length} unresolved citation(s) fell back to generate.`
+				: ""
+		}${budgetSummary(proposal.budget)}`;
+
+		return ok(`${headline}\n\n${draft}`, { proposal, draft });
+	}
+
+	/**
+	 * Revise a SINGLE line of the pending draft and leave the rest STABLE — "swap
+	 * shot 2 for the drone pass, colder open" re-plans only shot 2; shots 1 and 3 are
+	 * untouched (preserved by reference). The revised shot's citation is re-validated
+	 * against the real index (a fabricated swap-in id is repaired just like on the
+	 * first draft). Fails if there's no pending draft or the index is out of range.
+	 */
+	function reviseProposal(
+		input: { index: number } & ShotRevision,
+	): DirectorResult<{ proposal: ReelProposal; draft: string }> {
+		const pending = getStoredProposal(editor);
+		if (!pending) {
+			return fail("No draft to revise — call proposeReel first.");
+		}
+		const { index, ...patch } = input;
+		if (!Number.isFinite(index) || index < 1 || index > pending.shots.length) {
+			return fail(
+				`No shot #${index} in the draft (it has ${pending.shots.length} shot(s)).`,
+			);
+		}
+
+		const { proposal, repair, changed } = reviseProposalShot(
+			pending,
+			index,
+			patch,
+			resolveAssetForCitation,
+		);
+		if (!changed) {
+			return fail(`Couldn't revise shot #${index}.`);
+		}
+
+		// Re-allocate the budget across the revised shots so the spend line stays honest.
+		if (proposal.budget) {
+			const tmpPlan = proposalToPlan(proposal);
+			applyBudgetToPlan(
+				tmpPlan,
+				proposalBaseCosts(proposal),
+				proposal.budget.totalBudgetUsd,
+			);
+			proposal.budget = tmpPlan.budget;
+		}
+
+		storeProposal(editor, proposal);
+
+		const draft = formatProposalDraft(proposal);
+		const note = repair ? ` (${repair.reason})` : "";
+		return ok(`Revised shot #${index}${note}.\n\n${draft}`, {
+			proposal,
+			draft,
+		});
+	}
+
+	/**
+	 * ACCEPT the pending draft: materialize every shot IN ORDER — library shots place
+	 * their cited asset via the `addClip` path, generate/generate-to-match shots
+	 * become generative slots (generate-to-match attaches the cited asset as a
+	 * reference image so generation inherits its look). Re-validates citations
+	 * against the CURRENT index first (assets may have changed since drafting), then
+	 * persists the accepted plan as the durable {@link StoryboardPlan}, arms the
+	 * budget, seeds the reel consistency context from the bible, and write-throughs to
+	 * the Project Bible. Clears the pending draft. Fails if there's no draft.
+	 */
+	function acceptProposal(input?: {
+		seedConsistency?: boolean;
+	}): DirectorResult<{ elementIds: string[]; plan: StoryboardPlan }> {
+		const pending = getStoredProposal(editor);
+		if (!pending) {
+			return fail("No draft to accept — call proposeReel first.");
+		}
+
+		// Re-ground against the live index; assets may have been deleted since drafting.
+		const { proposal } = validateProposal(pending, resolveAssetForCitation);
+
+		const before = captureReel();
+		const elementIds: string[] = [];
+		// Materialized copies so we can patch each shot's elementId without mutating
+		// the pending draft until the transaction commits.
+		const materialized = proposal.shots.map((s) => ({ ...s }));
+		let cursor = editor.timeline.getTotalDuration();
+
+		editor.command.beginTransaction();
+		try {
+			for (const shot of materialized) {
+				if (shot.source === "library" && shot.citation) {
+					const res = addClip({
+						mediaId: shot.citation.mediaId,
+						startTime: cursor,
+						duration: shot.duration,
+					});
+					if (res.ok && res.data) {
+						shot.elementId = res.data.elementId;
+						elementIds.push(res.data.elementId);
+						cursor += shot.duration;
+					}
+					// A library citation that can't be placed (e.g. an audio asset) is
+					// skipped rather than aborting the whole accept — the rest still lands.
+					continue;
+				}
+
+				// generate / generate-to-match → a generative slot.
+				const overrides: Partial<GenerationSpec> = {};
+				if (shot.source === "generate-to-match" && shot.citation) {
+					const url = editor.media.getAssetById(shot.citation.mediaId)?.url;
+					// Condition generation on the cited asset's LOOK via omni-reference.
+					if (url) overrides.referenceImages = [url];
+				}
+				const spec = buildSpec(shot.prompt, shot.duration, overrides);
+				const slotId = editor.timeline.addGenerativeSlot({
+					spec,
+					duration: shot.duration,
+					startTime: cursor,
+				});
+				shot.elementId = slotId;
+				elementIds.push(slotId);
+				cursor += shot.duration;
+			}
+		} catch (error) {
+			editor.command.rollbackTransaction();
+			return fail(
+				`acceptProposal failed: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+			);
+		}
+		editor.command.commitTransaction();
+
+		// Persist the accepted draft as the durable plan (read back off getReel().plan).
+		const accepted: ReelProposal = { ...proposal, shots: materialized };
+		const plan = proposalToPlan(accepted);
+		storePlan(editor, plan);
+
+		// Arm the running spend tracker if the draft carried a budget.
+		if (accepted.budget && accepted.budget.totalBudgetUsd > 0) {
+			setReelBudget(editor, accepted.budget.totalBudgetUsd);
+		}
+
+		// Seed the reel consistency context from the bible so every generate shot
+		// inherits the look (unless opted out) — the same path storyboard uses.
+		if (input?.seedConsistency !== false) {
+			const seed = bibleToConsistencyInput(plan.bible);
+			if (seed) applyConsistencyContext(seed);
+		}
+
+		// Write-through to the durable Project Bible (plan + consistency + roster).
+		syncBible(
+			"acceptProposal",
+			`Accepted draft — ${elementIds.length} shot(s)`,
+		);
+
+		// Draft consumed.
+		storeProposal(editor, undefined);
+
+		const libraryCount = materialized.filter(
+			(s) => s.source === "library" && s.elementId,
+		).length;
+		return withDelta(
+			before,
+			ok(
+				`Placed ${elementIds.length} shot(s) from the draft (${libraryCount} from the library, ${
+					elementIds.length - libraryCount
+				} generative).${budgetSummary(plan.budget)} Generate the slots when you're ready.`,
+				{ elementIds, plan },
+			),
+		);
+	}
+
+	/** Read the pending Flow-B draft, if one is open (read-only). */
+	function getProposal(): DirectorResult<ReelProposal | undefined> {
+		const proposal = getStoredProposal(editor);
+		return ok(
+			proposal
+				? formatProposalDraft(proposal)
+				: "No draft proposal is open — call proposeReel to draft one.",
+			proposal,
 		);
 	}
 
@@ -1347,6 +1729,10 @@ export function createDirectorApi(
 				applied.push("recorded the look on the director brief");
 			}
 		}
+
+		// Write-through to the durable bible: the seeded style/consistency, the
+		// locked persona (roster), and the recorded brief all just changed.
+		if (applied.length) syncBible("intakeReferences", "Intook references");
 
 		const headline = applied.length
 			? `Reference intake (${images.length} image${images.length === 1 ? "" : "s"}): ${applied.join("; ")}.`
@@ -2313,6 +2699,31 @@ export function createDirectorApi(
 		return next;
 	}
 
+	/** Compact, durable snapshot of the reusable persona roster for the bible. */
+	function personaRoster(): PersonaRosterEntry[] {
+		return usePersonaStore.getState().personas.map((p) => ({
+			id: p.id,
+			name: p.name,
+			descriptor: p.descriptor,
+		}));
+	}
+
+	/**
+	 * WRITE-THROUGH to the durable {@link ProjectBible}: capture the editor's
+	 * current Director state (brief + consistency context + plan + persona roster),
+	 * checkpoint the prior bible, and persist. Called after every creative-state
+	 * mutation (setConsistencyContext / storyboard / updateBrief / intakeReferences)
+	 * so the persisted bible stays the source of truth the WeakMaps hydrate from.
+	 * Best-effort: a persistence hiccup must never break the verb that triggered it.
+	 */
+	function syncBible(label: string, note?: string): void {
+		try {
+			syncProjectBible(editor, { label, note, personas: personaRoster() });
+		} catch {
+			// swallow — the WeakMap write already succeeded; the bible is a cache-behind.
+		}
+	}
+
 	/** First ~48 chars of a prompt, for compact learned notes. */
 	function briefSnippet(prompt: string | undefined): string {
 		const trimmed = (prompt ?? "").trim();
@@ -2331,7 +2742,272 @@ export function createDirectorApi(
 	 */
 	function updateBrief(patch: BriefPatch): DirectorResult<DirectorBrief> {
 		const next = persistBrief(applyBriefPatch(readBrief(), patch));
+		syncBible("updateBrief", "Updated director brief");
 		return ok("Director brief updated.", next);
+	}
+
+	// ---- PROJECT BIBLE (durable, versioned creative memory) ---------------
+	//
+	// The bible is written through automatically by the creative-state verbs above
+	// (setConsistencyContext / storyboard / updateBrief / intakeReferences). These
+	// two verbs expose the DURABLE artifact itself: read the current bible (with its
+	// checkpoint history) and REVERT to a prior checkpoint — "revert the look to
+	// before the last change" — re-hydrating the session WeakMaps from the restored
+	// state. See `lib/director/project-bible.ts`.
+
+	/** Read the persisted Project Bible (durable creative memory + checkpoint history). */
+	function getProjectBible(): DirectorResult<ProjectBible | undefined> {
+		return ok("Project bible.", editor.project.getProjectBible());
+	}
+
+	/**
+	 * Revert the bible to a prior checkpoint (a specific `toVersion`, else the most
+	 * recent change) and re-hydrate the live consistency/plan state + brief from it.
+	 * Reports a no-op when there is nothing to revert to.
+	 */
+	function revertBibleCheckpoint(input?: {
+		toVersion?: number;
+	}): DirectorResult<RevertResult> {
+		const before = captureReel();
+		const result = revertProjectBible(editor, {
+			...(input?.toVersion != null ? { toVersion: input.toVersion } : {}),
+		});
+		if (!result.reverted) {
+			return fail(
+				input?.toVersion != null
+					? `No checkpoint v${input.toVersion} to revert to.`
+					: "No earlier checkpoint to revert to.",
+			);
+		}
+		return withDelta(
+			before,
+			ok(
+				`Reverted the project bible to checkpoint v${result.toVersion} (now v${result.bible.version}).`,
+				result,
+			),
+		);
+	}
+
+	// ---- FLOW D: human APPROVAL gates -------------------------------------
+	//
+	// The human's job collapses to EXPRESS / REACT / APPROVE. These verbs are the
+	// two creative APPROVE gates (the third, voice-clone consent, lives in the
+	// consent store below). Each approval WRITES ITS RATIONALE INTO THE BIBLE via
+	// the existing durable paths — a brief note (prompt-facing memory) plus a
+	// checkpointed entry in the bible's approvals ledger — so decisions compound.
+	// Rejection is simply NOT calling approve: nothing permanent is recorded.
+
+	/**
+	 * HERO-SHOT approval gate. The human approves a specific shot's take as THE
+	 * hero: the take is selected active (the approval choice), a rationale is
+	 * folded into the durable brief, and a `hero-shot` entry is checkpointed into
+	 * the bible's approvals ledger referencing the slot/take/asset — so the
+	 * manifest/proposals/consistency can treat it as the approved hero.
+	 */
+	function approveHeroShot(input: {
+		slotId: string;
+		takeId?: string;
+		index?: number;
+		rationale?: string;
+	}): DirectorResult<SlotSnapshot> {
+		const before = captureReel();
+		const located = findSlot(input.slotId);
+		if (!located) return fail(`No slot with id "${input.slotId}".`);
+
+		const takes = takesOf(located.element);
+		let take: Take | undefined;
+		if (input.takeId) {
+			take = takes.find((t) => t.id === input.takeId);
+			if (!take) {
+				return fail(`Slot "${input.slotId}" has no take "${input.takeId}".`);
+			}
+		} else if (input.index != null) {
+			take = takes[input.index];
+			if (!take) {
+				return fail(
+					`Slot "${input.slotId}" has no take at index ${input.index} (has ${takes.length}).`,
+				);
+			}
+		} else {
+			take = pickReviewTake(located.element);
+		}
+		if (!take) {
+			return fail(
+				`Slot "${input.slotId}" has no take to approve — generate one first.`,
+			);
+		}
+
+		// Selecting the take IS the approval choice (mirrors chooseTake).
+		editor.timeline.selectTake({ elementId: input.slotId, takeId: take.id });
+
+		const chosenIndex = takes.findIndex((t) => t.id === take.id);
+		const promptSnippet = briefSnippet(located.element.generation.prompt);
+		const rationale = input.rationale?.trim();
+		const takeRef = `take ${chosenIndex + 1}/${takes.length}`;
+		const forPrompt = promptSnippet ? ` — "${promptSnippet}"` : "";
+		const note = `Approved hero shot "${input.slotId}" (${takeRef}${forPrompt})${
+			rationale ? `: ${rationale}` : "."
+		}`;
+		persistBrief(applyBriefPatch(readBrief(), { notes: [note] }));
+
+		const approval: BibleApproval = {
+			kind: "hero-shot",
+			at: Date.now(),
+			...(rationale ? { rationale } : {}),
+			ref: {
+				slotId: input.slotId,
+				takeId: take.id,
+				...(take.mediaId ? { mediaId: take.mediaId } : {}),
+			},
+		};
+		try {
+			recordBibleApproval(editor, approval, {
+				label: "approveHeroShot",
+				note,
+				personas: personaRoster(),
+			});
+		} catch {
+			// best-effort — the take selection + brief note already landed.
+		}
+
+		const updated = findSlot(input.slotId);
+		return withDelta(
+			before,
+			ok(
+				`Approved hero shot "${input.slotId}" (take ${chosenIndex + 1}/${takes.length}).`,
+				updated ? toSnapshot(updated.element) : undefined,
+			),
+		);
+	}
+
+	/**
+	 * FINAL-CUT approval gate — the human's sign-off before export/render
+	 * finalization. Records the approval + a summary of what shipped into the
+	 * bible (approvals ledger + brief note). A SOFT gate: it does not render; the
+	 * Director asks for it before `export`, and the manual UI Export button is
+	 * itself the human approval (not nagged/blocked).
+	 */
+	function approveFinalCut(input?: {
+		summary?: string;
+		rationale?: string;
+	}): DirectorResult<BibleApproval> {
+		const totalDuration = editor.timeline.getTotalDuration();
+		if (totalDuration === 0) {
+			return fail(
+				"Nothing to approve — the timeline is empty. Storyboard and generate some shots first.",
+			);
+		}
+		const slotCount = captureReel().slots.size;
+		const summary =
+			input?.summary?.trim() ||
+			`${slotCount} shot${slotCount === 1 ? "" : "s"}, ${totalDuration.toFixed(1)}s`;
+		const rationale = input?.rationale?.trim();
+		const note = `Approved final cut (${summary})${rationale ? `: ${rationale}` : "."}`;
+		persistBrief(applyBriefPatch(readBrief(), { notes: [note] }));
+
+		const approval: BibleApproval = {
+			kind: "final-cut",
+			at: Date.now(),
+			summary,
+			...(rationale ? { rationale } : {}),
+		};
+		try {
+			recordBibleApproval(editor, approval, {
+				label: "approveFinalCut",
+				note,
+				personas: personaRoster(),
+			});
+		} catch {
+			// best-effort — the brief note already landed.
+		}
+		return ok(`Final cut approved — ${summary}. Ready to export.`, approval);
+	}
+
+	/** True when a final-cut approval is on record in the bible (soft-gate check). */
+	function hasFinalCutApproval(): boolean {
+		try {
+			const bible = editor.project.getProjectBible?.();
+			return (bible?.approvals ?? []).some((a) => a.kind === "final-cut");
+		} catch {
+			return false;
+		}
+	}
+
+	// ---- FLOW D: voice-clone consent (read + revoke; GRANT is UI-only) -----
+	//
+	// Consent is a deliberate HUMAN act (record your voice reading the phrase) and
+	// is captured in the Voiceover panel — the agent must never fabricate it, so
+	// there is no grant verb. The Director can SEE consent status (to tell the user
+	// what's blocking a clone) and REVOKE on request (immediate disable). The gate
+	// itself is enforced in `addVoiceover` + `generateVoiceoverTakeMedia`.
+
+	/** Read the cloned-voice consent registry (status per clone). */
+	function getVoiceProfiles(): DirectorResult<{
+		profiles: ClonedVoiceProfile[];
+	}> {
+		const profiles = useVoiceConsentStore.getState().listProfiles();
+		const pending = profiles.filter(
+			(p) => p.consentStatus !== "consented",
+		).length;
+		return ok(
+			profiles.length === 0
+				? "No cloned voices registered."
+				: `${profiles.length} cloned voice(s); ${pending} not usable until consented.`,
+			{ profiles },
+		);
+	}
+
+	/** Revoke consent for a cloned voice — immediately disables it for all TTS. */
+	function revokeVoiceConsent(input: {
+		profileId: string;
+		reason?: string;
+	}): DirectorResult<{ profile: ClonedVoiceProfile }> {
+		const profile = useVoiceConsentStore
+			.getState()
+			.revokeProfileConsent(input.profileId, {
+				...(input.reason ? { reason: input.reason } : {}),
+			});
+		if (!profile) return fail(`No voice profile "${input.profileId}".`);
+		return ok(
+			`Revoked consent for voice "${profile.name}" — it can no longer be used to generate speech.`,
+			{ profile },
+		);
+	}
+
+	// ---- FLOW D follow-up B: Understanding style probe → styleBible --------
+
+	/**
+	 * Route an Understanding-Pass style read for one asset into the Project Bible's
+	 * `styleBible` — additive + checkpointed, and NEVER clobbering a human-set look
+	 * (an existing styleBible is preserved and the read is logged as a note unless
+	 * `force`). Needs the injected `styleProbe` lookup; absent ⇒ nothing to seed.
+	 */
+	function seedStyleFromUnderstanding(input: {
+		mediaId: string;
+		force?: boolean;
+	}): DirectorResult<StyleProbeSeedResult> {
+		const probe = options.styleProbe?.(input.mediaId);
+		if (!probe) {
+			return fail(
+				`No style read available for "${input.mediaId}" — run the Understanding Pass on it first.`,
+			);
+		}
+		const result = seedStyleBibleFromProbe(editor, probe, {
+			...(input.force ? { force: true } : {}),
+		});
+		if (result.seeded) {
+			return ok(
+				"Seeded the Project Bible's styleBible from the style read.",
+				result,
+			);
+		}
+		if (result.noted) {
+			return ok(
+				"styleBible already set — preserved the human look and logged the style read as a note.",
+				result,
+			);
+		}
+		return fail("The style read was empty — nothing to seed.");
 	}
 
 	/** Serialize the brief as the compact prompt block (see `summarizeBrief`). */
@@ -2468,6 +3144,25 @@ export function createDirectorApi(
 	> {
 		const script = input.script?.trim();
 		if (!script) return fail("addVoiceover requires a non-empty script.");
+
+		// CONSENT GATE (Flow D #1): refuse to speak a cloned voice whose profile is
+		// not `consented`. Server-side-equivalent enforcement in the Director path —
+		// client-side UI gating alone is not a gate. A built-in speaker / unknown
+		// ref passes (see `voice-consent-store`).
+		if (
+			input.voiceRef &&
+			!useVoiceConsentStore.getState().isReferenceUsable(input.voiceRef)
+		) {
+			const profile = useVoiceConsentStore
+				.getState()
+				.getByReference(input.voiceRef);
+			return fail(
+				`Voice clone "${profile?.name ?? input.voiceRef}" is ${
+					profile?.consentStatus ?? "pending"
+				} — it can't be used until the speaker's consent is captured. ` +
+					"Ask the user to record their consent statement in the Voiceover panel first.",
+			);
+		}
 
 		// Timing: prefer syncing to a named shot; else use explicit/derived values.
 		let startTime = input.startTime;
@@ -3086,10 +3781,18 @@ export function createDirectorApi(
 		}
 
 		const megabytes = result.buffer.byteLength / (1024 * 1024);
+		// SOFT final-cut gate (Flow D #3): the Director should get the human's
+		// final-cut sign-off before finalizing. We never hard-block (a manual UI
+		// Export IS the human's approval); we just note a missing approval so the
+		// agent is nudged to call approveFinalCut next time.
+		const finalCutNote = hasFinalCutApproval()
+			? ""
+			: " (note: no final-cut approval on record — call approveFinalCut before export next time).";
 		return ok(
 			`Exported "${project.metadata.name}" — ${options.format.toUpperCase()}, ` +
 				`${megabytes.toFixed(1)} MB, ${durationSeconds.toFixed(1)}s` +
-				(downloaded ? " (downloaded)." : "."),
+				(downloaded ? " (downloaded)." : ".") +
+				finalCutNote,
 			{
 				format: options.format,
 				bytes: result.buffer.byteLength,
@@ -3104,6 +3807,7 @@ export function createDirectorApi(
 		getReel,
 		getSlot,
 		getProjectInfo,
+		getLibraryManifest,
 		getBackends,
 		// media search / placement
 		searchMedia,
@@ -3113,6 +3817,11 @@ export function createDirectorApi(
 		intakeReferences,
 		reserveSlot,
 		setPrompt,
+		// propose-first drafting (Flow B)
+		proposeReel,
+		reviseProposal,
+		acceptProposal,
+		getProposal,
 		// generate
 		estimateGenerateCost,
 		generate,
@@ -3137,6 +3846,15 @@ export function createDirectorApi(
 		getBrief,
 		updateBrief,
 		briefPromptBlock,
+		// project bible (durable, versioned creative memory + checkpoint revert)
+		getProjectBible,
+		revertBibleCheckpoint,
+		// Flow D — human approval gates
+		approveHeroShot,
+		approveFinalCut,
+		getVoiceProfiles,
+		revokeVoiceConsent,
+		seedStyleFromUnderstanding,
 		// edit
 		trim,
 		move,

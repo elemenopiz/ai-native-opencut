@@ -1,6 +1,7 @@
 import type { EditorCore } from "@/core";
 import type {
 	DirectorBrief,
+	ProjectBible,
 	TProject,
 	TProjectMetadata,
 	TProjectSortKey,
@@ -10,6 +11,10 @@ import type {
 } from "@/types/project";
 import type { ExportOptions, ExportResult, ExportState } from "@/types/export";
 import { storageService } from "@/services/storage/service";
+import {
+	promoteBibleToUserMemory,
+	seedProjectBibleFromUserMemory,
+} from "@/services/storage/user-memory-store";
 import { VersionStorage } from "@/services/storage/version-storage";
 import { toast } from "sonner";
 import { generateUUID } from "@/utils/id";
@@ -104,6 +109,17 @@ export class ProjectManager {
 			},
 			version: CURRENT_PROJECT_VERSION,
 		};
+
+		// FLOW E — pre-seed the Director's Project Bible from the user's cross-project
+		// defaults (recurring look + tone), so the Director's first turn already knows
+		// "your" style. Best-effort and non-destructive: absent defaults ⇒ no bible
+		// (exactly as before), and any per-project Director write overrides the seed.
+		try {
+			const seededBible = await seedProjectBibleFromUserMemory();
+			if (seededBible) newProject.projectBible = seededBible;
+		} catch {
+			// Never let a memory hiccup block project creation.
+		}
 
 		this.active = newProject;
 		this.notify();
@@ -292,11 +308,32 @@ export class ProjectManager {
 	}
 
 	closeProject(): void {
+		// FLOW E — distill this project's durable creative preferences up into the
+		// user's cross-project memory before closing (fire-and-forget; a promotion
+		// hiccup must never block closing the project).
+		void this.promoteActiveBibleToUserMemory();
+
 		this.active = null;
 		this.notify();
 
 		this.editor.media.clearAllAssets();
 		this.editor.scenes.clearScenes();
+	}
+
+	/**
+	 * FLOW E — promote the active project's Project Bible into the user-level
+	 * cross-project defaults (best-effort). Distillation, not a blind copy: only the
+	 * recurring look + durable brief slice flows up (see
+	 * `lib/director/cross-project-memory.ts`). No-op without an active bible.
+	 */
+	private async promoteActiveBibleToUserMemory(): Promise<void> {
+		const bible = this.active?.projectBible;
+		if (!bible) return;
+		try {
+			await promoteBibleToUserMemory(bible);
+		} catch {
+			// Best-effort — never surface a memory-persistence hiccup to the caller.
+		}
 	}
 
 	async renameProject({
@@ -501,6 +538,10 @@ export class ProjectManager {
 	async prepareExit(): Promise<void> {
 		if (!this.active) return;
 
+		// FLOW E — distill durable creative preferences up into cross-project memory
+		// on exit (best-effort; independent of the thumbnail step below).
+		await this.promoteActiveBibleToUserMemory();
+
 		try {
 			const didUpdateThumbnail = await this.updateThumbnailFromTimeline();
 			if (didUpdateThumbnail) {
@@ -606,6 +647,35 @@ export class ProjectManager {
 		if (!this.active) return;
 		this.active = { ...this.active, directorBrief: brief };
 		this.editor.save.markDirty();
+		// Notify subscribers so a brief write (Director verb OR human Bible edit) is
+		// reactive — the Bible panel re-renders through `editor.project.subscribe`.
+		this.notify();
+	}
+
+	/**
+	 * The active project's persistent, versioned PROJECT BIBLE (the Director's
+	 * durable creative memory — style, cast, plan, decisions, checkpoint history).
+	 * Returns `undefined` when unset or when no project is active, so callers can
+	 * treat that as "no bible yet". See `lib/director/project-bible.ts`.
+	 */
+	getProjectBible(): ProjectBible | undefined {
+		return this.active?.projectBible;
+	}
+
+	/**
+	 * Replace the active project's bible with `bible` and mark the project dirty so
+	 * the SaveManager persists it (the same durable path as `setDirectorBrief`).
+	 * Callers compute the next bible with the pure helpers in
+	 * `lib/director/project-bible.ts`. No-op without an active project.
+	 */
+	setProjectBible({ bible }: { bible: ProjectBible }): void {
+		if (!this.active) return;
+		this.active = { ...this.active, projectBible: bible };
+		this.editor.save.markDirty();
+		// Notify subscribers so a bible write-through (Director verb OR human Bible
+		// edit / checkpoint restore) is reactive — the Bible panel re-renders
+		// through `editor.project.subscribe`, reflecting Director activity live.
+		this.notify();
 	}
 
 	getSavedProjects(): TProjectMetadata[] {
