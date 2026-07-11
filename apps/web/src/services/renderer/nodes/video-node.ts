@@ -1,6 +1,9 @@
 import type { CanvasRenderer } from "../canvas-renderer";
 import { VisualNode, type VisualNodeParams } from "./visual-node";
-import { videoCache } from "@/services/video-cache/service";
+import {
+	videoCache,
+	WARM_LOOKAHEAD_SECONDS,
+} from "@/services/video-cache/service";
 
 export interface VideoNodeParams extends VisualNodeParams {
 	url: string;
@@ -13,6 +16,17 @@ export class VideoNode extends VisualNode<VideoNodeParams> {
 		await super.render({ renderer, time });
 
 		if (!this.isInRange({ time })) {
+			// Shortly before this clip starts, position its decoder at the first
+			// frame in the background so the boundary crossing doesn't stall the
+			// render loop on a keyframe re-seek.
+			const untilStart = this.params.timeOffset - time;
+			if (untilStart > 0 && untilStart <= WARM_LOOKAHEAD_SECONDS) {
+				void videoCache.warm({
+					mediaId: this.params.mediaId,
+					file: this.params.file,
+					time: this.getSourceLocalTime({ time: this.params.timeOffset }),
+				});
+			}
 			return;
 		}
 
