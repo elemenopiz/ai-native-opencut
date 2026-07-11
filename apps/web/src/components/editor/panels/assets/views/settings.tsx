@@ -30,6 +30,7 @@ import { cn } from "@/utils/ui";
 import { aiClient } from "@/lib/ai-client";
 import type { TurboQuantStatus } from "@/types/ai";
 import { toast } from "sonner";
+import { BackgroundSettings } from "./background-settings";
 import { FactCheckView } from "./factcheck";
 import { TurboQuantModelManager } from "./turboquant-model-manager";
 import type { ProxyResolution } from "@/services/storage/types";
@@ -68,6 +69,14 @@ export function SettingsView() {
 				<Section showTopBorder={false}>
 					<SectionContent>
 						<ProjectInfoContent />
+					</SectionContent>
+				</Section>
+				<Section>
+					<SectionHeader>
+						<SectionTitle>Background</SectionTitle>
+					</SectionHeader>
+					<SectionContent>
+						<BackgroundSettings />
 					</SectionContent>
 				</Section>
 				<Section>

@@ -237,6 +237,9 @@ function buildBackgroundNodes({
 					intensity: background.blurIntensity ?? DEFAULT_BLUR_INTENSITY,
 				},
 				scale: BLUR_BACKGROUND_ZOOM_SCALE,
+				// Blur-fill must reach the canvas edges even when the footage only
+				// occupies a band of the canvas (16:9 clips on a 9:16 canvas).
+				coverCanvas: true,
 			}),
 		);
 	} else if (
