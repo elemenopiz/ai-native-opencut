@@ -10,6 +10,10 @@ import { canElementHaveAudio } from "@/lib/timeline/element-utils";
 import { canTracktHaveAudio } from "@/lib/timeline";
 import { mediaSupportsAudio } from "@/lib/media/media-utils";
 import { getNumberChannelForPath } from "@/lib/animation/number-channel";
+import {
+	shouldTimeStretch,
+	stretchAudioBufferSegment,
+} from "@/lib/media/pitch-preserving-stretch";
 import { Input, ALL_FORMATS, BlobSource, AudioBufferSink } from "mediabunny";
 
 const MAX_AUDIO_CHANNELS = 2;
@@ -339,6 +343,10 @@ export interface AudioClipSource {
 	trimEnd: number;
 	muted: boolean;
 	volume: number;
+	/** Constant playback-speed multiplier (1.0 = normal). Slot duration is fixed; source is traversed at this rate. */
+	playbackRate: number;
+	/** True when the element has a keyframed (variable) speed curve — see CollectedAudioElement.hasVariableRate. */
+	hasVariableRate: boolean;
 }
 
 async function fetchLibraryAudioSource({
@@ -388,6 +396,7 @@ async function fetchLibraryAudioClip({
 			type: "audio/mpeg",
 		});
 
+		const { playbackRate, hasVariableRate } = resolveClipPlaybackRate(element);
 		return {
 			id: element.id,
 			sourceKey: element.id,
@@ -398,6 +407,8 @@ async function fetchLibraryAudioClip({
 			trimEnd: element.trimEnd,
 			muted,
 			volume: element.volume ?? 1,
+			playbackRate,
+			hasVariableRate,
 		};
 	} catch (error) {
 		console.warn("Failed to fetch library audio:", error);
@@ -432,6 +443,7 @@ function collectMediaAudioClip({
 }): AudioClipSource {
 	const vol =
 		"volume" in element ? ((element as { volume?: number }).volume ?? 1) : 1;
+	const { playbackRate, hasVariableRate } = resolveClipPlaybackRate(element);
 	return {
 		id: element.id,
 		sourceKey: mediaAsset.id,
@@ -442,6 +454,8 @@ function collectMediaAudioClip({
 		trimEnd: element.trimEnd,
 		muted,
 		volume: vol,
+		playbackRate,
+		hasVariableRate,
 	};
 }
 
@@ -603,8 +617,9 @@ export async function createTimelineAudioBuffer({
 		for (const element of audioElements) {
 			if (element.muted) continue;
 
+			const mixElement = await resolveMixElement({ element, sampleRate });
 			mixAudioChannels({
-				element,
+				element: mixElement,
 				outputBuffer,
 				outputLength,
 				sampleRate,
@@ -615,6 +630,60 @@ export async function createTimelineAudioBuffer({
 	} finally {
 		if (ownsContext) context.close().catch(() => {});
 	}
+}
+
+/**
+ * Prepare a collected element for the mixdown: constant speed-changed clips are
+ * pitch-preservingly time-stretched up front (via the SAME seam the preview
+ * uses — see pitch-preserving-stretch.ts) and handed to the mixer as a rate-1
+ * clip. Rate-1 clips pass through untouched; variable-rate (keyframed) clips
+ * and stretch failures keep today's raw-rate pitch-shifted behavior inside
+ * mixAudioChannels.
+ *
+ * `stretch` is injectable for tests only.
+ */
+export async function resolveMixElement({
+	element,
+	sampleRate,
+	stretch = stretchAudioBufferSegment,
+}: {
+	element: CollectedAudioElement;
+	sampleRate: number;
+	stretch?: typeof stretchAudioBufferSegment;
+}): Promise<CollectedAudioElement> {
+	if (
+		!shouldTimeStretch({
+			playbackRate: element.playbackRate,
+			hasVariableRate: element.hasVariableRate,
+		})
+	) {
+		return element;
+	}
+
+	const stretched = await stretch({
+		buffer: element.buffer,
+		playbackRate: element.playbackRate,
+		trimStart: element.trimStart,
+		duration: element.duration,
+		targetSampleRate: sampleRate,
+	});
+
+	if (!stretched) {
+		console.warn(
+			`Export audio: pitch-preserving stretch unavailable for a ${element.playbackRate}x clip; ` +
+				"mixing with shifted pitch instead.",
+		);
+		return element;
+	}
+
+	// The stretched buffer IS the timeline slot: rate 1, starts at source 0.
+	return {
+		...element,
+		buffer: stretched,
+		trimStart: 0,
+		playbackRate: 1,
+		hasVariableRate: false,
+	};
 }
 
 export function mixAudioChannels({
