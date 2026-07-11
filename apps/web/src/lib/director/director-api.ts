@@ -131,7 +131,10 @@ import {
 	type AssetUnderstandingLookup,
 	type LibraryManifest,
 } from "./asset-manifest";
-import { aiClient } from "@/lib/ai-client";
+import {
+	embeddings as embeddingBackend,
+	filterToCurrentModel,
+} from "@/lib/local-ai/embeddings";
 import { getAllEmbeddings } from "@/services/search/embedding-store";
 import { DEFAULT_TEXT_ELEMENT } from "@/constants/text-constants";
 import {
@@ -974,8 +977,8 @@ export function createDirectorApi(
 	 * Cosine similarity for two L2-normalized vectors == dot product. Mirrors
 	 * `use-visual-search.ts`'s `dotProduct` exactly; duplicated (not imported)
 	 * because this module is React-free and that helper lives in a hook file —
-	 * `searchMedia` below calls the same embedding store / `aiClient` directly
-	 * instead of going through the hook.
+	 * `searchMedia` below calls the same embedding store / embedding seam
+	 * directly instead of going through the hook.
 	 */
 	function dotProduct(a: Float32Array, b: Float32Array): number {
 		let sum = 0;
@@ -1002,23 +1005,26 @@ export function createDirectorApi(
 		const query = input.query.trim();
 		if (!query) return fail("searchMedia requires a non-empty query.");
 
-		const embeddings = await getAllEmbeddings();
-		if (embeddings.length === 0) {
+		// Stale-model records (pre-migration vector space) are invisible here:
+		// they rank meaninglessly against a current-model query vector, and the
+		// background re-index will rewrite them shortly.
+		const indexed = filterToCurrentModel(await getAllEmbeddings());
+		if (indexed.length === 0) {
 			return ok(
 				"No media indexed yet — import footage and let it index before searching.",
 				[],
 			);
 		}
 
-		const queryVec = Float32Array.from(
-			(await aiClient.embedText(query)).vector,
-		);
+		// Embed the query in-browser through the seam (L2-normalized, so the
+		// dot products below remain cosine similarities).
+		const [queryVec] = await embeddingBackend.embedTexts([query]);
 		const assets = editor.media.getAssets();
 		const byId = new Map(assets.map((a) => [a.id, a]));
 		const limit = Math.max(1, input.limit ?? 5);
 
 		const hits: MediaSearchHit[] = [];
-		for (const media of embeddings) {
+		for (const media of indexed) {
 			let bestScore = -Infinity;
 			let bestTs = 0;
 			for (const frame of media.frames) {

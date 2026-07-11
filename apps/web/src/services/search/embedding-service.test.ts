@@ -73,7 +73,9 @@ mock.module("@/services/search/embedding-store", () => ({
 
 // Import AFTER the mocks are registered so embedding-service binds the stubs
 // (repo convention: mock.module + dynamic import).
-const { embedBatches, indexMedia } = await import("./embedding-service");
+const { embedBatches, findDuplicates, indexMedia } = await import(
+	"./embedding-service"
+);
 
 /** An image asset backed by a data: URL so sampleImageFrame's fetch works in bun. */
 function imageAsset(id: string): MediaAsset {
@@ -199,5 +201,32 @@ describe("indexMedia", () => {
 		savedEmbeddings.clear();
 		await indexMedia(imageAsset("img-5"));
 		expect(embedTexts.mock.calls.length).toBe(afterFirst);
+	});
+});
+
+describe("findDuplicates", () => {
+	it("excludes stale-model records from duplicate detection", async () => {
+		savedEmbeddings.clear();
+		statuses.clear();
+
+		// Three assets with IDENTICAL frame vectors — all would pair up (cosine
+		// 1) if model provenance were ignored. One is from the retired server
+		// backend; only the fresh-fresh pair may be reported.
+		const frame = { timestampSec: 0, vector: oneHot(3) };
+		const record = (mediaId: string, modelName: string): MediaEmbedding => ({
+			id: mediaId,
+			mediaId,
+			frames: [frame],
+			createdAt: 1,
+			modelName,
+			tags: [],
+		});
+		savedEmbeddings.set("dup-a", record("dup-a", "clip-vit-b32-web"));
+		savedEmbeddings.set("dup-b", record("dup-b", "clip-vit-b32-web"));
+		savedEmbeddings.set("stale-c", record("stale-c", "ViT-B-32"));
+
+		const pairs = await findDuplicates();
+
+		expect(pairs).toEqual([{ mediaIdA: "dup-a", mediaIdB: "dup-b", score: 1 }]);
 	});
 });

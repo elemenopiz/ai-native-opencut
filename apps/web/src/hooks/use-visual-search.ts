@@ -2,16 +2,16 @@
  * Visual / semantic media search.
  *
  * Loads all CLIP embeddings from IndexedDB, embeds the user's natural-language
- * query via the backend, then ranks frames by cosine similarity — entirely
- * on-device after the query embedding is fetched. No media data ever leaves
- * the user's machine after the one-time indexing pass.
+ * query through the in-browser embedding seam, then ranks frames by cosine
+ * similarity — entirely on-device, end to end. Neither the query text nor any
+ * media data ever leaves the user's machine.
  *
  * Debounced (300ms) like `useSoundSearch`. Returns ranked SearchHit[].
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useEditor } from "@/hooks/use-editor";
-import { aiClient } from "@/lib/ai-client";
+import { embeddings, filterToCurrentModel } from "@/lib/local-ai/embeddings";
 import {
 	getAllEmbeddings,
 	getAllStatuses,
@@ -57,6 +57,11 @@ export function useVisualSearch() {
 	>({});
 	const [hasIndex, setHasIndex] = useState(false);
 	const embeddingsRef = useRef<MediaEmbedding[]>([]);
+	// Raw (unfiltered) store count at the last refresh. The drift check in
+	// search/findSimilar must compare against this, not the filtered cache
+	// length — during the re-index window stale-model records inflate the live
+	// count and a filtered-length comparison would refresh on every keystroke.
+	const indexedTotalRef = useRef(0);
 	const lastQueryRef = useRef<string>("");
 	// Monotonic token so a slower search/findSimilar response can't overwrite the
 	// results of a newer one issued after it.
@@ -69,9 +74,14 @@ export function useVisualSearch() {
 			getIndexedCount(),
 			getAllStatuses(),
 		]);
-		embeddingsRef.current = all;
+		// Records from a retired vector space (pre-migration "ViT-B-32") rank
+		// meaninglessly against current-model query vectors — hide them until
+		// the background re-index rewrites them.
+		const fresh = filterToCurrentModel(all);
+		embeddingsRef.current = fresh;
+		indexedTotalRef.current = all.length;
 		setIndexedCount(count);
-		setHasIndex(all.length > 0);
+		setHasIndex(fresh.length > 0);
 		const inflight: Record<string, { phase: string; progress: number }> = {};
 		for (const s of statuses) {
 			if (s.state === "indexing") {
@@ -100,14 +110,16 @@ export function useVisualSearch() {
 				// cheap IndexedDB read; only re-read all vectors when it drifts
 				// (e.g. background indexing finished after the last media event).
 				const liveCount = await getIndexedCount();
-				if (embeddingsRef.current.length !== liveCount) {
+				if (indexedTotalRef.current !== liveCount) {
 					await refreshIndex();
 				}
-				const queryVec = Float32Array.from(
-					(await aiClient.embedText(trimmed)).vector,
-				);
+				// Embed the query in-browser through the seam; vectors come back
+				// L2-normalized, so dotProduct below is still cosine similarity.
+				const [queryVec] = await embeddings.embedTexts([trimmed]);
 
 				const limit = opts?.limit ?? 30;
+				// 0.18 was tuned against the retired server backend (laion2b
+				// ViT-B-32); pending empirical retune for clip-vit-b32-web (Task 5).
 				const threshold = opts?.threshold ?? 0.18;
 				const assets = editor.media.getAssets();
 				const byId = new Map(assets.map((a) => [a.id, a]));
@@ -168,7 +180,7 @@ export function useVisualSearch() {
 			setError(null);
 			try {
 				const liveCount = await getIndexedCount();
-				if (embeddingsRef.current.length !== liveCount) await refreshIndex();
+				if (indexedTotalRef.current !== liveCount) await refreshIndex();
 				const source = embeddingsRef.current.find((m) => m.mediaId === mediaId);
 				if (!source || source.frames.length === 0) {
 					if (seq === searchSeqRef.current) setHits([]);
@@ -190,6 +202,8 @@ export function useVisualSearch() {
 				for (let i = 0; i < dim; i++) queryVec[i] /= norm;
 
 				const limit = opts?.limit ?? 30;
+				// Like search()'s 0.18, tuned against the retired server backend;
+				// pending empirical retune for clip-vit-b32-web (Task 5).
 				const threshold = opts?.threshold ?? 0.7;
 				const assets = editor.media.getAssets();
 				const byId = new Map(assets.map((a) => [a.id, a]));

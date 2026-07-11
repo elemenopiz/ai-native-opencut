@@ -24,7 +24,7 @@ mock.module("@/lib/local-ai/local-clip", () => ({
 
 // Import AFTER the mock is registered so the adapter delegates to the stubs
 // (repo convention: mock.module + dynamic import).
-const { embeddings } = await import("./embeddings");
+const { embeddings, filterToCurrentModel } = await import("./embeddings");
 
 describe("embeddings (local CLIP adapter)", () => {
 	it("tags vectors with the local model name", () => {
@@ -56,5 +56,27 @@ describe("embeddings (local CLIP adapter)", () => {
 		expect(embedImages.mock.calls.length).toBe(1);
 		expect(embedImages.mock.calls[0][0]).toBe(blobs);
 		expect(embedImages.mock.calls[0][1]).toBe(onProgress);
+	});
+});
+
+describe("filterToCurrentModel", () => {
+	it("keeps current-model records and drops retired vector spaces", () => {
+		// The re-index window's IndexedDB reality: old server-backend records
+		// ("ViT-B-32", laion2b space) mixed with fresh in-browser ones.
+		const records = [
+			{ mediaId: "fresh-1", modelName: "clip-vit-b32-web" },
+			{ mediaId: "stale-1", modelName: "ViT-B-32" },
+			{ mediaId: "fresh-2", modelName: "clip-vit-b32-web" },
+		];
+
+		const kept = filterToCurrentModel(records);
+
+		expect(kept.map((r) => r.mediaId)).toEqual(["fresh-1", "fresh-2"]);
+	});
+
+	it("returns empty when every record is from a retired space", () => {
+		expect(
+			filterToCurrentModel([{ mediaId: "stale-1", modelName: "ViT-B-32" }]),
+		).toEqual([]);
 	});
 });

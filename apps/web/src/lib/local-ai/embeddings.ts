@@ -14,16 +14,23 @@ import {
 	localClip,
 } from "./local-clip";
 
+/**
+ * Seam-level progress vocabulary. An alias today (the local CLIP worker is the
+ * only backend), but consumers and future backends must import THIS name so
+ * the progress contract lives with the seam, not with one implementation.
+ */
+export type EmbeddingProgress = LocalClipProgress;
+
 export interface EmbeddingBackend {
 	/** Embed texts into L2-normalized vectors (one per input, in order). */
 	embedTexts(
 		texts: string[],
-		onProgress?: (progress: LocalClipProgress) => void,
+		onProgress?: (progress: EmbeddingProgress) => void,
 	): Promise<Float32Array[]>;
 	/** Embed image blobs into L2-normalized vectors (one per input, in order). */
 	embedImages(
 		blobs: Blob[],
-		onProgress?: (progress: LocalClipProgress) => void,
+		onProgress?: (progress: EmbeddingProgress) => void,
 	): Promise<Float32Array[]>;
 	/**
 	 * Provenance tag stored on embeddings. Distinct per vector space: vectors
@@ -43,3 +50,16 @@ export const embeddings: EmbeddingBackend = {
 	embedImages: (blobs, onProgress) => localClip.embedImages(blobs, onProgress),
 	modelName: LOCAL_CLIP_MODEL_NAME,
 };
+
+/**
+ * Drop records whose vectors were produced by a retired backend. During the
+ * re-index window IndexedDB holds a mix of old "ViT-B-32" (laion2b-space) and
+ * current records; cosines across vector spaces are meaningless, so every
+ * query-side consumer (visual search, findDuplicates, Director searchMedia)
+ * must filter through here before ranking.
+ */
+export function filterToCurrentModel<T extends { modelName: string }>(
+	records: T[],
+): T[] {
+	return records.filter((record) => record.modelName === embeddings.modelName);
+}

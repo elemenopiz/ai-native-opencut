@@ -17,7 +17,7 @@
  * SAMPLE_WIDTH already; image assets are downscaled in `sampleImageFrame`.
  */
 
-import { embeddings } from "@/lib/local-ai/embeddings";
+import { embeddings, filterToCurrentModel } from "@/lib/local-ai/embeddings";
 import {
 	getAllEmbeddings,
 	getEmbedding,
@@ -436,7 +436,10 @@ export interface DuplicatePair {
 export async function findDuplicates(
 	threshold: number = DUPLICATE_THRESHOLD,
 ): Promise<DuplicatePair[]> {
-	const all = await getAllEmbeddings();
+	// Skip records from a retired vector space (pre-migration model): their
+	// cosines against current-model vectors are meaningless, and stale-vs-stale
+	// pairs would vanish anyway once the background re-index rewrites them.
+	const all = filterToCurrentModel(await getAllEmbeddings());
 	const sigs = all
 		.map((m) => ({ mediaId: m.mediaId, vec: meanVector(m.frames) }))
 		.filter((s): s is { mediaId: string; vec: Float32Array } => s.vec !== null);
