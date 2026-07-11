@@ -2,6 +2,7 @@ import type { ElementType } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
+	AiViewIcon,
 	ClosedCaptionIcon,
 	Folder03Icon,
 	HeadphonesIcon,
@@ -21,6 +22,7 @@ import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 
 export const TAB_KEYS = [
 	"media",
+	"insights",
 	"director",
 	"starred",
 	"text",
@@ -48,6 +50,12 @@ export const tabs = {
 	media: {
 		icon: createHugeiconsIcon({ icon: Folder03Icon }),
 		label: "Media",
+	},
+	// "What the AI sees" — the Understanding Pass's reads over the library,
+	// with the role-correction loop.
+	insights: {
+		icon: createHugeiconsIcon({ icon: AiViewIcon }),
+		label: "Insights",
 	},
 	director: {
 		icon: createHugeiconsIcon({ icon: SparklesIcon }),

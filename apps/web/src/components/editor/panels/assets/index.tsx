@@ -7,6 +7,7 @@ import { DirectorView } from "./views/director";
 import { Captions } from "./views/captions";
 import { SpeakerCaptionsPanel } from "./views/speaker-captions";
 import { MediaView } from "./views/assets";
+import { InsightsView } from "./views/insights";
 import { SettingsView } from "./views/settings";
 import { TextView } from "./views/text";
 import { AudioCombinedView } from "./views/audio-combined";
@@ -23,6 +24,8 @@ export function AssetsPanel() {
 
 	const viewMap: Record<Tab, React.ReactNode> = {
 		media: <MediaView />,
+		// "What the AI sees": the Understanding Pass surfaced + role corrections.
+		insights: <InsightsView />,
 		director: <DirectorView />,
 		starred: <StarredTakesView />,
 		text: <TextView />,
