@@ -15,6 +15,14 @@ let canvas: OffscreenCanvas | HTMLCanvasElement | null = null;
 const programCache = new Map<string, WebGLProgram>();
 const textureCache = new Map<string, WebGLTexture>();
 
+// The shared GL canvas only ever grows. Shrinking or reshaping it per element
+// forced a GPU surface reallocation whenever two differently sized elements
+// rendered in the same frame (60x/sec during playback). Rendering happens in a
+// gl.viewport(0, 0, w, h) subregion instead — GL's origin is bottom-left, so in
+// image space that subregion is the BOTTOM-left corner; applyEffect blits only
+// that subrect out. Shader math is unaffected: texcoords sample exact-size
+// input/intermediate textures and u_resolution is the passed size, never the
+// canvas size.
 function getOrCreateCanvas({
 	width,
 	height,
@@ -31,11 +39,70 @@ function getOrCreateCanvas({
 			throw new Error("WebGL not supported");
 		}
 	}
-	if (canvas.width !== width || canvas.height !== height) {
-		canvas.width = width;
-		canvas.height = height;
+	if (canvas.width < width || canvas.height < height) {
+		canvas.width = Math.max(canvas.width, width);
+		canvas.height = Math.max(canvas.height, height);
 	}
 	return canvas;
+}
+
+// Output canvases are pooled per exact size as a ping-pong pair instead of
+// being allocated per call (previously several fresh OffscreenCanvases per
+// element per frame). Invariant: a returned canvas stays valid until the
+// SECOND subsequent applyEffect call at the same size. That makes chained
+// calls safe — pass N's output is pass N+1's source (or, on visual-node's
+// mask path, is bound as an aux texture) and the next call writes to the
+// OTHER canvas of the pair. Callers must consume (drawImage) the result
+// before issuing two more same-size calls and must never hold it across
+// frames; every current call site (visual-node, text-node, effect-layer-node,
+// composite-effect-node) draws the result into its target immediately.
+interface OutputPool {
+	pair: [
+		OffscreenCanvas | HTMLCanvasElement | null,
+		OffscreenCanvas | HTMLCanvasElement | null,
+	];
+	flip: 0 | 1;
+	lastUse: number;
+}
+
+const OUTPUT_POOL_LIMIT = 8;
+const outputPools = new Map<string, OutputPool>();
+let outputPoolClock = 0;
+
+function getPooledOutputCanvas({
+	width,
+	height,
+}: {
+	width: number;
+	height: number;
+}): OffscreenCanvas | HTMLCanvasElement {
+	const key = `${width}x${height}`;
+	let pool = outputPools.get(key);
+	if (!pool) {
+		if (outputPools.size >= OUTPUT_POOL_LIMIT) {
+			let oldestKey: string | null = null;
+			let oldestUse = Number.POSITIVE_INFINITY;
+			for (const [poolKey, candidate] of outputPools) {
+				if (candidate.lastUse < oldestUse) {
+					oldestUse = candidate.lastUse;
+					oldestKey = poolKey;
+				}
+			}
+			if (oldestKey !== null) {
+				outputPools.delete(oldestKey);
+			}
+		}
+		pool = { pair: [null, null], flip: 0, lastUse: 0 };
+		outputPools.set(key, pool);
+	}
+	pool.lastUse = ++outputPoolClock;
+	let output = pool.pair[pool.flip];
+	if (!output) {
+		output = createOffscreenCanvas({ width, height });
+		pool.pair[pool.flip] = output;
+	}
+	pool.flip = pool.flip === 0 ? 1 : 0;
+	return output;
 }
 
 function applyEffect({
@@ -60,13 +127,27 @@ function applyEffect({
 		textureCache,
 	});
 
-	const outputCanvas = createOffscreenCanvas({ width, height });
+	const outputCanvas = getPooledOutputCanvas({ width, height });
 	const outputCtx = outputCanvas.getContext("2d") as
 		| CanvasRenderingContext2D
 		| OffscreenCanvasRenderingContext2D
 		| null;
 	if (outputCtx) {
-		outputCtx.drawImage(targetCanvas, 0, 0, width, height);
+		// Reused canvas may hold a previous frame; drawImage composites
+		// source-over, so transparent result pixels would leak stale content
+		// without an explicit clear.
+		outputCtx.clearRect(0, 0, width, height);
+		outputCtx.drawImage(
+			targetCanvas,
+			0,
+			targetCanvas.height - height,
+			width,
+			height,
+			0,
+			0,
+			width,
+			height,
+		);
 	}
 	return outputCanvas;
 }

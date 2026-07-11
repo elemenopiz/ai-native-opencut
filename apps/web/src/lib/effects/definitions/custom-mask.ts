@@ -96,8 +96,12 @@ function createMaskCanvas({
 
 // Cache the rasterized hard-edge alpha canvas keyed by (geometry, size). The
 // Path2D fill is the only per-frame cost worth avoiding; feather stays a GLSL
-// uniform so changing it reuses the same cached canvas. Bounded LRU-ish map.
-const RASTER_CACHE_LIMIT = 12;
+// uniform so changing it reuses the same cached canvas. True LRU: hits are
+// re-inserted so Map iteration order tracks recency and eviction takes the
+// least-recently USED entry (plain insertion-order eviction would drop the
+// masks rendered every frame). Cached canvases are handed out as read-only
+// sources — callers only pass them to applyEffect, never draw into them.
+const RASTER_CACHE_LIMIT = 16;
 const rasterCache = new Map<string, OffscreenCanvas | HTMLCanvasElement>();
 
 function getRasterCacheKey({
@@ -145,6 +149,8 @@ export function rasterizeCustomMask({
 
 	const cached = rasterCache.get(key);
 	if (cached) {
+		rasterCache.delete(key);
+		rasterCache.set(key, cached);
 		return cached;
 	}
 
