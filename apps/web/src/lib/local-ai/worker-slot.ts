@@ -24,10 +24,13 @@ export class WorkerSlot {
 	private worker: Worker | null = null;
 	private unloadTimer: TimerHandle | null = null;
 	/**
-	 * In-flight request count. CLIP serializes requests so this is 0/1 there,
-	 * but Whisper allows overlapping transcribes on the shared worker — the
-	 * countdown must only arm when the LAST holder releases, or an unload
-	 * could kill a worker mid-inference.
+	 * In-flight request count. CLIP serializes requests so this is 0/1 there.
+	 * If Whisper's orchestrator is invoked concurrently, this counter keeps
+	 * the SLOT lifecycle safe under the overlap (the countdown only arms when
+	 * the last holder releases, so an unload never kills a worker
+	 * mid-inference) — but the whisper worker's message protocol has no
+	 * request correlation, so overlapping transcribes still cross-resolve;
+	 * true concurrent-request support is a backlog item.
 	 */
 	private holds = 0;
 	private readonly createWorker: () => Worker;
@@ -56,6 +59,14 @@ export class WorkerSlot {
 
 	/** A request settled — once no requests remain, start the idle countdown. */
 	release(): void {
+		if (this.holds === 0) {
+			// An unbalanced release is a caller bug (acquire/release must pair
+			// 1:1). Clamping silently would mask it, so surface it — a stray
+			// release could otherwise arm the unload under a live request.
+			console.warn(
+				"WorkerSlot.release() called with no matching acquire() — unbalanced pairing",
+			);
+		}
 		this.holds = Math.max(0, this.holds - 1);
 		if (this.holds > 0) return;
 		this.clearUnloadTimer();

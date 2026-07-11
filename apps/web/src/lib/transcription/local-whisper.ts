@@ -290,13 +290,23 @@ function runOnWorker(
 				workerSlot.recycle(activeWorker);
 				reject(new Error(event.message || "whisper worker crashed"));
 			};
+			// Structured-clone failure: the channel is unreliable, treat like a
+			// crash (same as LocalClip) so the transcribe rejects instead of
+			// hanging on a result that can never be delivered.
+			const onMessageError = () => {
+				cleanup();
+				workerSlot.recycle(activeWorker);
+				reject(new Error("whisper worker message could not be deserialized"));
+			};
 			function cleanup() {
 				activeWorker.removeEventListener("message", onMessage);
 				activeWorker.removeEventListener("error", onError);
+				activeWorker.removeEventListener("messageerror", onMessageError);
 			}
 
 			activeWorker.addEventListener("message", onMessage);
 			activeWorker.addEventListener("error", onError);
+			activeWorker.addEventListener("messageerror", onMessageError);
 			activeWorker.postMessage(
 				{
 					modelId: options.modelId,

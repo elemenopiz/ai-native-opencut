@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, spyOn } from "bun:test";
 import type { Timers } from "./timers";
 import { IDLE_UNLOAD_MS, WorkerSlot } from "./worker-slot";
 
@@ -103,6 +103,22 @@ describe("WorkerSlot", () => {
 
 		s.slot.release();
 		expect(s.clock.pending.size).toBe(1);
+	});
+
+	it("warns on an unbalanced release so pairing bugs surface", () => {
+		const s = makeSlot();
+		const warn = spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			s.slot.release();
+			expect(warn).toHaveBeenCalledTimes(1);
+
+			// Balanced pairing stays silent.
+			s.slot.acquire();
+			s.slot.release();
+			expect(warn).toHaveBeenCalledTimes(1);
+		} finally {
+			warn.mockRestore();
+		}
 	});
 
 	it("recycle terminates the crashed worker and the next acquire spawns fresh", () => {

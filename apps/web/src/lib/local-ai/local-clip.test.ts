@@ -68,6 +68,8 @@ describe("LocalClip.embedTexts", () => {
 	it("posts a texts request and resolves the worker's vectors as Float32Arrays", async () => {
 		const seen: ClipRequest[] = [];
 		const clip = new LocalClip({
+			// Fresh scheduler: never depend on the module singleton's attach state.
+			scheduler: new LocalAIScheduler(),
 			createWorker: () =>
 				fakeWorker((msg) => {
 					seen.push(msg);
@@ -100,6 +102,7 @@ describe("LocalClip.embedTexts", () => {
 
 	it("maps worker load-progress messages onto onProgress", async () => {
 		const clip = new LocalClip({
+			scheduler: new LocalAIScheduler(),
 			createWorker: () =>
 				fakeWorker(() => [
 					{
@@ -132,6 +135,7 @@ describe("LocalClip.embedImages", () => {
 		const blobs = [new Blob(["a"]), new Blob(["b"])];
 		const seen: ClipRequest[] = [];
 		const clip = new LocalClip({
+			scheduler: new LocalAIScheduler(),
 			createWorker: () =>
 				fakeWorker((msg) => {
 					seen.push(msg);
@@ -163,6 +167,7 @@ describe("LocalClip error handling", () => {
 	it("rejects when the worker reports an error, then recovers", async () => {
 		let calls = 0;
 		const clip = new LocalClip({
+			scheduler: new LocalAIScheduler(),
 			createWorker: () =>
 				fakeWorker(() => {
 					calls += 1;
@@ -181,6 +186,7 @@ describe("LocalClip error handling", () => {
 		let workersCreated = 0;
 		let terminations = 0;
 		const clip = new LocalClip({
+			scheduler: new LocalAIScheduler(),
 			createWorker: () => {
 				workersCreated += 1;
 				const dies = workersCreated === 1;
@@ -418,6 +424,7 @@ describe("LocalClip request serialization", () => {
 	it("runs one request at a time on a single warm worker and routes results correctly", async () => {
 		let workersCreated = 0;
 		const clip = new LocalClip({
+			scheduler: new LocalAIScheduler(),
 			createWorker: () => {
 				workersCreated += 1;
 				// Echo a vector derived from the request. Without serialization
