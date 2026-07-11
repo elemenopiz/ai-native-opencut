@@ -40,7 +40,9 @@ try {
 // POLAR_WEBHOOK_SECRET so real signature verification runs (standardwebhooks
 // refuses an empty secret). We deliberately leave POLAR_ACCESS_TOKEN unset so
 // `isPaymentsConfigured()` stays false — the "unconfigured/inert" tests assert
-// that state. Only set when a real env hasn't already provided one.
-if (process.env.POLAR_WEBHOOK_SECRET === undefined) {
+// that state. Only set when a real env hasn't provided one — an EMPTY string
+// counts as "not provided" (a `.env.local` copied from `.env.example` has
+// `POLAR_WEBHOOK_SECRET=` blank, which must not defeat this fixture).
+if (!process.env.POLAR_WEBHOOK_SECRET) {
 	process.env.POLAR_WEBHOOK_SECRET = "whsec_test_secret_do_not_use_in_prod";
 }

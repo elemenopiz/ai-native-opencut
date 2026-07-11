@@ -14,12 +14,13 @@
  * multi-image shape of `character_ref` is thin in public docs — marked
  * UNVERIFIED below.
  *
- * `LUMA_API_KEY` is not yet in the env schema (owned by another agent), so
- * read via `process.env` directly per the build brief.
+ * `LUMA_API_KEY` comes from the validated env schema (`@byorn/env/web`); empty
+ * string means "not configured" and keeps the adapter inert.
  *
  * Docs: https://docs.lumalabs.ai/docs/api
  */
 
+import { webEnv } from "@byorn/env/web";
 import { estimateVideoCredits } from "@/lib/studio/backends/cost";
 import type {
 	BackendRequest,
@@ -34,15 +35,15 @@ import type { VideoOrientation } from "@/lib/studio/provider-adapter";
 const DEFAULT_BASE = "https://api.lumalabs.ai/dream-machine/v1";
 
 function lumaBase(): string {
-	return process.env.LUMA_BASE_URL || DEFAULT_BASE;
+	return webEnv.LUMA_BASE_URL || DEFAULT_BASE;
 }
 
 function apiKey(): string | undefined {
-	return process.env.LUMA_API_KEY;
+	return webEnv.LUMA_API_KEY || undefined;
 }
 
 function lumaModel(): string {
-	return process.env.LUMA_MODEL || "ray-2";
+	return webEnv.LUMA_MODEL || "ray-2";
 }
 
 const ASPECT_BY_ORIENTATION: Record<VideoOrientation, string> = {

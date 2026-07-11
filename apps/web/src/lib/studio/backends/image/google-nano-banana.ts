@@ -13,6 +13,7 @@
  * parts alongside the prompt.
  */
 
+import { webEnv } from "@byorn/env/web";
 import { nanoid } from "nanoid";
 import type {
 	BackendRequest,
@@ -23,14 +24,14 @@ import type {
 } from "@/lib/studio/backends/types";
 import type { ImageQuality, ImageSize } from "@/lib/studio/image-generator";
 
-// UNVERIFIED: GEMINI_API_KEY is not yet declared in `@byorn/env/web`'s
-// schema — read straight from `process.env` per the build brief. Shared with
-// `google-imagen.ts` (same Google AI Studio key covers both models).
+// GEMINI_API_KEY comes from the validated env schema (`@byorn/env/web`);
+// empty string means "not configured". Shared with `google-imagen.ts` (same
+// Google AI Studio key covers both models).
 const GEMINI_API_KEY_ENV = "GEMINI_API_KEY";
 
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const NANO_BANANA_MODEL =
-	process.env.GEMINI_NANO_BANANA_MODEL || "gemini-2.5-flash-image";
+	webEnv.GEMINI_NANO_BANANA_MODEL || "gemini-2.5-flash-image";
 
 /** UNVERIFIED: exact USD — Google bills Flash Image by output image tokens
  *  rather than a flat per-image rate; these are order-of-magnitude estimates. */
@@ -98,7 +99,7 @@ export const googleNanoBananaBackend: GenerationBackend = {
 	},
 
 	isAvailable() {
-		return Boolean(process.env[GEMINI_API_KEY_ENV]);
+		return Boolean(webEnv.GEMINI_API_KEY);
 	},
 
 	estimateCost(req: BackendRequest): CostEstimate {
@@ -107,7 +108,7 @@ export const googleNanoBananaBackend: GenerationBackend = {
 	},
 
 	async submit(req: BackendRequest): Promise<SubmitResult> {
-		const key = process.env[GEMINI_API_KEY_ENV];
+		const key = webEnv.GEMINI_API_KEY;
 		if (!key) {
 			return { jobId: "", status: "failed", error: "GEMINI_API_KEY is not configured" };
 		}
