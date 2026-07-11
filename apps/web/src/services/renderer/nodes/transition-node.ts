@@ -41,7 +41,73 @@ export interface TransitionNodeParams {
 	mediaIdB?: string;
 }
 
+/** A source's resolved pixel data (decoded video frame or loaded image). */
+type ResolvedSource = {
+	source: CanvasImageSource;
+	sourceWidth: number;
+	sourceHeight: number;
+} | null;
+
 export class TransitionNode extends BaseNode<TransitionNodeParams> {
+	/** Sources fetched by prepare() and the exact time they were fetched for. */
+	private preparedSources: [ResolvedSource, ResolvedSource] | null = null;
+	private preparedTime: number | null = null;
+	private preparePromise: Promise<void> | null = null;
+
+	private isInTransitionWindow({ time }: { time: number }): boolean {
+		const halfDuration = this.params.transitionDuration / 2;
+		return (
+			time >= this.params.cutTime - halfDuration &&
+			time < this.params.cutTime + halfDuration
+		);
+	}
+
+	/**
+	 * Fetch both sources' frames ahead of the paint pass, in parallel with
+	 * every other node's prepare. When A and B are clips of the SAME media,
+	 * VideoCache's per-sink chain serializes the two fetches — the Promise.all
+	 * here (like the one render() used before the two-phase split) is safe.
+	 */
+	async prepare({
+		renderer,
+		time,
+	}: {
+		renderer: CanvasRenderer;
+		time: number;
+	}): Promise<void> {
+		await super.prepare({ renderer, time });
+
+		if (!this.isInTransitionWindow({ time })) return;
+
+		if (this.preparedTime === time && this.preparePromise) {
+			return this.preparePromise;
+		}
+
+		this.preparedTime = time;
+		this.preparedSources = null;
+		const promise = Promise.all([
+			this.resolveSource({
+				sourceParams: this.params.sourceA,
+				mediaId: this.params.mediaIdA,
+				time,
+				tolerateStale: renderer.realtime,
+			}),
+			this.resolveSource({
+				sourceParams: this.params.sourceB,
+				mediaId: this.params.mediaIdB,
+				time,
+				tolerateStale: renderer.realtime,
+			}),
+		]).then((sources) => {
+			// A newer prepare may have superseded this one while decodes ran.
+			if (this.preparedTime === time) {
+				this.preparedSources = sources;
+			}
+		});
+		this.preparePromise = promise;
+		return promise;
+	}
+
 	async render({
 		renderer,
 		time,
@@ -52,26 +118,46 @@ export class TransitionNode extends BaseNode<TransitionNodeParams> {
 		const { transitionType, transitionDuration, cutTime } = this.params;
 		const halfDuration = transitionDuration / 2;
 		const transitionStart = cutTime - halfDuration;
-		const transitionEnd = cutTime + halfDuration;
 
-		if (time < transitionStart || time >= transitionEnd) return;
+		if (!this.isInTransitionWindow({ time })) return;
 
 		const progress = (time - transitionStart) / transitionDuration;
 
-		const [canvasA, canvasB] = await Promise.all([
-			this.renderSourceFrame({
-				renderer,
-				sourceParams: this.params.sourceA,
-				mediaId: this.params.mediaIdA,
-				time,
-			}),
-			this.renderSourceFrame({
-				renderer,
-				sourceParams: this.params.sourceB,
-				mediaId: this.params.mediaIdB,
-				time,
-			}),
-		]);
+		let sources: [ResolvedSource, ResolvedSource];
+		if (this.preparedTime === time && this.preparePromise) {
+			await this.preparePromise;
+			sources = this.preparedSources ?? [null, null];
+		} else {
+			// No prepare pass ran for this time — fetch inline (fallback for
+			// direct render() callers), as before the two-phase split.
+			sources = await Promise.all([
+				this.resolveSource({
+					sourceParams: this.params.sourceA,
+					mediaId: this.params.mediaIdA,
+					time,
+					tolerateStale: renderer.realtime,
+				}),
+				this.resolveSource({
+					sourceParams: this.params.sourceB,
+					mediaId: this.params.mediaIdB,
+					time,
+					tolerateStale: renderer.realtime,
+				}),
+			]);
+		}
+
+		const canvasA = this.drawSourceFrame({
+			renderer,
+			sourceParams: this.params.sourceA,
+			resolved: sources[0],
+			time,
+		});
+		const canvasB = this.drawSourceFrame({
+			renderer,
+			sourceParams: this.params.sourceB,
+			resolved: sources[1],
+			time,
+		});
 
 		if (!canvasA || !canvasB) return;
 
@@ -108,47 +194,66 @@ export class TransitionNode extends BaseNode<TransitionNodeParams> {
 		return effElapsed * baseRate + sourceParams.trimStart;
 	}
 
-	/** Fetch the source clip's frame at `time` and draw it (with its transform)
-	 *  onto a full-frame canvas the transition shader can blend. Returns null if
-	 *  the frame can't be resolved. */
-	private async renderSourceFrame({
-		renderer,
+	/** Fetch a source's pixel data (decoded video frame or loaded image) at
+	 *  `time`. Returns null if it can't be resolved. */
+	private async resolveSource({
 		sourceParams,
 		mediaId,
 		time,
+		tolerateStale,
 	}: {
-		renderer: CanvasRenderer;
 		sourceParams: TransitionSourceParams;
 		mediaId: string | undefined;
 		time: number;
-	}): Promise<HTMLCanvasElement | OffscreenCanvas | null> {
+		tolerateStale: boolean;
+	}): Promise<ResolvedSource> {
 		const media = mediaId ? this.params.mediaMap.get(mediaId) : undefined;
 		if (!media) return null;
-
-		// Resolve the actual pixel source (decoded video frame or loaded image).
-		let source: CanvasImageSource | null = null;
-		let sourceWidth = 0;
-		let sourceHeight = 0;
 
 		if (media.type === "video" && media.file) {
 			const frame = await videoCache.getFrameAt({
 				mediaId: mediaId as string,
 				file: media.file,
 				time: this.getSourceLocalTime({ sourceParams, time }),
+				tolerateStale,
 			});
 			if (frame) {
-				source = frame.canvas;
-				sourceWidth = frame.canvas.width;
-				sourceHeight = frame.canvas.height;
+				return {
+					source: frame.canvas,
+					sourceWidth: frame.canvas.width,
+					sourceHeight: frame.canvas.height,
+				};
 			}
 		} else if (media.type === "image" && media.url) {
 			const loaded = await loadImageSource(media.url);
-			source = loaded.source;
-			sourceWidth = loaded.width;
-			sourceHeight = loaded.height;
+			return {
+				source: loaded.source,
+				sourceWidth: loaded.width,
+				sourceHeight: loaded.height,
+			};
 		}
 
-		if (!source || sourceWidth <= 0 || sourceHeight <= 0) return null;
+		return null;
+	}
+
+	/** Draw a resolved source frame (with its transform) onto a full-frame
+	 *  canvas the transition shader can blend. Returns null if the source
+	 *  couldn't be resolved. Pure paint — no awaits. */
+	private drawSourceFrame({
+		renderer,
+		sourceParams,
+		resolved,
+		time,
+	}: {
+		renderer: CanvasRenderer;
+		sourceParams: TransitionSourceParams;
+		resolved: ResolvedSource;
+		time: number;
+	}): HTMLCanvasElement | OffscreenCanvas | null {
+		if (!resolved || resolved.sourceWidth <= 0 || resolved.sourceHeight <= 0) {
+			return null;
+		}
+		const { source, sourceWidth, sourceHeight } = resolved;
 
 		const offscreen = createOffscreenCanvas({
 			width: renderer.width,
