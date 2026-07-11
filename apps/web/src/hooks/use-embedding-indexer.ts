@@ -15,8 +15,12 @@ import { useEditor } from "@/hooks/use-editor";
 import { indexMedia } from "@/services/search/embedding-service";
 import {
 	isUnderstandingAutorunEnabled,
-	understandAsset,
+	understandAssetBatch,
 } from "@/services/search/asset-understanding-service";
+import {
+	selectUnderstandingCandidates,
+	UNDERSTANDING_AUTORUN_TICK_CAP,
+} from "@/lib/search/understanding-batch";
 import {
 	listIndexedMediaIds,
 	setStatus,
@@ -30,6 +34,13 @@ export function useEmbeddingIndexer() {
 	const editor = useEditor();
 	const knownIndexedRef = useRef<Set<string>>(new Set());
 	const inflightRef = useRef<Set<string>>(new Set());
+	// Understanding-autorun bookkeeping (only used when the opt-in flag is on):
+	// ids already handed to a batch this session, whether a batch is running
+	// (single-flight, so overlapping ticks can't double-submit), and whether a
+	// run hit the credit gate (stop asking — the modal already told the user).
+	const understandingSeenRef = useRef<Set<string>>(new Set());
+	const understandingRunningRef = useRef(false);
+	const understandingGatedRef = useRef(false);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -75,21 +86,55 @@ export function useEmbeddingIndexer() {
 						inflightSet.delete(asset.id);
 						indexedSet.add(asset.id);
 					});
+			}
 
-				// Ingest-time Understanding Pass (role / caption / faces / style),
-				// independent of the on-device CLIP embedding above. Gated OFF by
-				// default because it bills the paid VLM relay per asset; enable with
-				// NEXT_PUBLIC_UNDERSTANDING_AUTORUN=1. `understandAsset` de-dupes
-				// against its own store, so a re-tick never re-bills an asset.
-				if (isUnderstandingAutorunEnabled()) {
+			// Ingest-time Understanding Pass (role / caption / faces / style),
+			// independent of the on-device CLIP embedding above. Gated OFF by
+			// default because it bills the paid VLM relay per asset; enable with
+			// NEXT_PUBLIC_UNDERSTANDING_AUTORUN=1. This is an opt-in PREFETCH —
+			// the demand-driven Director path (`use-director`) is the primary
+			// trigger and picks up anything skipped here. CAPPED per tick
+			// (UNDERSTANDING_AUTORUN_TICK_CAP) so a bulk import can't burst the
+			// paid relay with one call per asset, single-flight so overlapping
+			// ticks can't double-submit, and routed through the same credit gate
+			// as every paid verb (a 402 stops the autorun for the session).
+			// `understandAsset` de-dupes against its own store, so re-submitting
+			// an already-understood asset never re-bills.
+			if (
+				isUnderstandingAutorunEnabled() &&
+				!understandingRunningRef.current &&
+				!understandingGatedRef.current
+			) {
+				const seen = understandingSeenRef.current;
+				const candidates = selectUnderstandingCandidates(assets, {
+					exclude: seen,
+					cap: UNDERSTANDING_AUTORUN_TICK_CAP,
+				});
+				if (candidates.length > 0) {
+					for (const a of candidates) seen.add(a.id);
 					const personas = usePersonaStore.getState().personas.map((p) => ({
 						id: p.id,
 						name: p.name,
 						descriptor: p.descriptor,
 					}));
-					understandAsset(asset, { personas }).catch((err) => {
-						console.warn(`[asset-understanding] failed for ${asset.id}:`, err);
-					});
+					understandingRunningRef.current = true;
+					understandAssetBatch(candidates, {
+						personas,
+						shouldContinue: () => !cancelled,
+					})
+						.then((summary) => {
+							if (summary.gated) understandingGatedRef.current = true;
+						})
+						.catch((err) => {
+							console.warn("[asset-understanding] batch failed:", err);
+						})
+						.finally(() => {
+							understandingRunningRef.current = false;
+							// Drain the over-cap remainder on a fresh tick (unless gated).
+							if (!cancelled && !understandingGatedRef.current) {
+								setTimeout(tick, 0);
+							}
+						});
 				}
 			}
 		};
