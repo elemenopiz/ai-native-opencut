@@ -123,8 +123,31 @@ Notes:
   always wins and is the least error-prone way to target prod.
 - Run this once **before** inviting beta users, and again any time a new
   migration lands in `apps/web/migrations/`.
-- Never edit migration files by hand; they're generated with
-  `bun run db:generate`.
+- **Verify, don't trust "exits cleanly":** `migrate` only applies what
+  `migrations/meta/_journal.json` lists, so a missing journal entry fails
+  *silently* — the command succeeds having skipped the migration. After every
+  run, assert the chain actually landed:
+
+  ```sh
+  psql "$DATABASE_URL" -c "
+    SELECT (SELECT count(*) FROM drizzle.drizzle_migrations)            AS applied,  -- must equal the entry count in meta/_journal.json (8 as of 2026-07-11)
+           (SELECT to_regclass('public.credit_ledger') IS NOT NULL)     AS credits_ok,
+           (SELECT count(*) = 2 FROM information_schema.columns
+             WHERE table_schema='public' AND column_name='owner_id'
+               AND table_name IN ('takes','board_items'))               AS tenancy_ok;"
+  ```
+
+  `applied` must match the journal's entry count and both booleans must be
+  `t`; anything else means the journal and the SQL files have drifted — stop
+  and reconcile before inviting users.
+- Migration files here are **hand-written** (house style), not generated:
+  `bun run db:generate` is broken by snapshot drift (only `0000_snapshot.json`
+  exists — see the TODO in `drizzle.config.ts`). A new migration is not live
+  until its entry is appended to `migrations/meta/_journal.json` with a
+  strictly increasing `when` — the SQL file alone does nothing.
+- Drift history: `0006_credits` and `0007_studio_tenancy` shipped unjournaled
+  and were re-journaled on 2026-07-11; a fresh database now receives the full
+  chain (verified against a scratch DB the same day).
 
 ### 7. Custom domain
 
@@ -223,7 +246,11 @@ declared in `packages/env/src/web.ts`; examples in `apps/web/.env.example`.
 
 1. [ ] Neon/Supabase database created; `DATABASE_URL` (pooled) saved.
 2. [ ] Migrations applied: `DATABASE_URL=... bunx drizzle-kit migrate` from
-       `apps/web` — exits cleanly, tables exist.
+       `apps/web` — then run the verification query from
+       [step 6](#6-database-migrations-before-first-real-use-and-after-every-schema-change):
+       row count matches the journal, `credits_ok` and `tenancy_ok` are `t`.
+       A clean exit alone is **not** proof — an unjournaled migration is
+       skipped silently.
 3. [ ] Upstash Redis created; REST URL + token saved.
 4. [ ] R2 bucket created, API token scoped to it, CORS set to the site origin,
        public base URL configured.

@@ -13,6 +13,16 @@ if (process.env.NODE_ENV === "production") {
 	dotenv.config({ path: ".env.local" });
 }
 
+// TODO(2026-07-11): `drizzle-kit generate` is broken by snapshot drift and has
+// been since 0001 — migrations/meta/ holds only 0000_snapshot.json because
+// 0001–0007 were hand-written (house style) and journaled by hand (0006/0007
+// re-journaled 2026-07-11). `drizzle-kit migrate` is unaffected: it reads only
+// meta/_journal.json + the .sql files, never snapshots. Reconciling would mean
+// hand-authoring seven snapshot JSONs (fragile) or letting `generate` emit a
+// catch-all migration (rejected — no new migrations). Until fixed: write new
+// migrations by hand, append a journal entry with a strictly increasing
+// `when`, and never trust `bun run db:generate` output without diffing it
+// against the live schema.
 const url = process.env.DATABASE_URL;
 if (!url) {
 	throw new Error(
