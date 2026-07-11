@@ -12,7 +12,13 @@ const nextConfig: NextConfig = {
 		},
 	},
 	compiler: {
-		removeConsole: process.env.NODE_ENV === "production",
+		// Strip console.* from production bundles, but keep console.error so
+		// real failures still surface in the browser console and in any server
+		// code that logs errors directly. (The structured logger in
+		// src/lib/observability/logger.ts writes via process.stdout/stderr and
+		// is unaffected either way.)
+		removeConsole:
+			process.env.NODE_ENV === "production" ? { exclude: ["error"] } : false,
 	},
 	reactStrictMode: true,
 	productionBrowserSourceMaps: true,
