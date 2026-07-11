@@ -21,7 +21,9 @@ import { GridTableIcon } from "@hugeicons/core-free-icons";
 import { clampPreviewZoom, usePreviewStore } from "@/stores/preview-store";
 import { usePreviewCanvasStore } from "@/stores/preview-canvas-store";
 import { PreviewContextMenu } from "./context-menu";
+import { PerfHud } from "./perf-hud";
 import { PreviewToolbar } from "./toolbar";
+import { perfStats } from "@/services/renderer/perf-stats";
 import { FramePresetPicker } from "./frame-preset-picker";
 import { cn } from "@/utils/ui";
 
@@ -278,33 +280,54 @@ function PreviewCanvas({
 	const renderTree = editor.renderer.getRenderTree();
 
 	const render = useCallback(() => {
-		if (canvasRef.current && renderTree && !renderingRef.current) {
-			const time = editor.playback.getCurrentTime();
-			const lastFrameTime = getLastFrameTime({
-				duration: renderTree.duration,
-				fps: renderer.fps,
-			});
-			const renderTime = Math.min(time, lastFrameTime);
-			const frame = Math.floor(renderTime * renderer.fps);
+		if (!canvasRef.current || !renderTree) return;
 
-			if (
-				frame !== lastFrameRef.current ||
-				renderTree !== lastSceneRef.current
-			) {
-				renderingRef.current = true;
-				lastSceneRef.current = renderTree;
-				lastFrameRef.current = frame;
-				renderer
-					.renderToCanvas({
-						node: renderTree,
-						time: renderTime,
-						targetCanvas: canvasRef.current,
-					})
-					.then(() => {
-						renderingRef.current = false;
-					});
-			}
+		const time = editor.playback.getCurrentTime();
+		const lastFrameTime = getLastFrameTime({
+			duration: renderTree.duration,
+			fps: renderer.fps,
+		});
+		const renderTime = Math.min(time, lastFrameTime);
+		const frame = Math.floor(renderTime * renderer.fps);
+
+		if (frame === lastFrameRef.current && renderTree === lastSceneRef.current) {
+			return;
 		}
+		if (renderingRef.current) {
+			// A new frame is due but the previous render is still in flight; it's
+			// dropped (the next free tick renders the newest frame instead).
+			if (perfStats.enabled) perfStats.countSkippedFrame();
+			return;
+		}
+
+		renderingRef.current = true;
+		lastSceneRef.current = renderTree;
+		lastFrameRef.current = frame;
+
+		const collect = perfStats.enabled;
+		const renderStart = collect ? performance.now() : 0;
+		if (collect) perfStats.beginFrame();
+
+		renderer
+			.renderToCanvas({
+				node: renderTree,
+				time: renderTime,
+				targetCanvas: canvasRef.current,
+			})
+			.then(() => {
+				if (collect) {
+					perfStats.endFrame({ totalMs: performance.now() - renderStart });
+				}
+			})
+			.catch((error) => {
+				perfStats.countRenderError();
+				console.error("Preview render failed:", error);
+			})
+			// finally (not then): a rejected render must never leave the guard
+			// stuck, which would freeze the preview permanently.
+			.finally(() => {
+				renderingRef.current = false;
+			});
 	}, [renderer, renderTree, editor.playback]);
 
 	useRafLoop(render);
@@ -357,6 +380,7 @@ function PreviewCanvas({
 							containerRef={canvasBoundsRef}
 						/>
 						{overlays.bookmarks && <BookmarkNoteOverlay />}
+						{overlays.perfHud && <PerfHud />}
 					</div>
 				</ContextMenuTrigger>
 				<PreviewContextMenu

@@ -4,6 +4,7 @@ import {
 	videoCache,
 	WARM_LOOKAHEAD_SECONDS,
 } from "@/services/video-cache/service";
+import { perfStats } from "@/services/renderer/perf-stats";
 
 export interface VideoNodeParams extends VisualNodeParams {
 	url: string;
@@ -31,11 +32,15 @@ export class VideoNode extends VisualNode<VideoNodeParams> {
 		}
 
 		const videoTime = this.getSourceLocalTime({ time });
+		const decodeStart = perfStats.enabled ? performance.now() : 0;
 		const frame = await videoCache.getFrameAt({
 			mediaId: this.params.mediaId,
 			file: this.params.file,
 			time: videoTime,
 		});
+		if (decodeStart !== 0) {
+			perfStats.addDecodeTime({ ms: performance.now() - decodeStart });
+		}
 
 		if (frame) {
 			this.renderVisual({

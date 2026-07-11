@@ -266,12 +266,6 @@ export class PlaybackManager {
 			// and reverse-to-zero branches above intentionally still call notify()
 			// because they are discrete settle points (playback pauses / clamps).
 			this.notifyTime();
-
-			window.dispatchEvent(
-				new CustomEvent("playback-update", {
-					detail: { time: newTime },
-				}),
-			);
 		}
 
 		// The end-of-playback and reverse-shuttle branches above call pause()/

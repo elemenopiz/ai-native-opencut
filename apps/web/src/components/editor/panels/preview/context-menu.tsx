@@ -36,6 +36,14 @@ export function PreviewContextMenu({
 				Show bookmarks
 			</ContextMenuCheckboxItem>
 			<ContextMenuCheckboxItem
+				checked={overlays.perfHud}
+				onCheckedChange={(checked) =>
+					setOverlayVisibility({ overlay: "perfHud", isVisible: !!checked })
+				}
+			>
+				Show performance stats
+			</ContextMenuCheckboxItem>
+			<ContextMenuCheckboxItem
 				checked={activeGuideId === "grid"}
 				onCheckedChange={() => toggleGuide("grid")}
 			>

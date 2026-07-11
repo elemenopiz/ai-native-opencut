@@ -20,6 +20,7 @@ import { useEditor } from "@/hooks/use-editor";
 import { useSlotGeneration } from "@/hooks/use-slot-generation";
 import type { EditorCore } from "@/core";
 import { stretchAudioBufferSegment } from "@/lib/media/pitch-preserving-stretch";
+import { perfStats } from "@/services/renderer/perf-stats";
 import type { ExportOptions, ExportResult } from "@/types/export";
 import type { GenerationSpec } from "@/types/timeline";
 
@@ -45,11 +46,17 @@ export interface E2EBridge {
 	 *  the audible-correctness e2e can render through the genuine WASM worklet
 	 *  and assert dominant frequency is preserved across a speed change. */
 	stretchAudioBufferSegment: typeof stretchAudioBufferSegment;
+	/** Preview compositor frame telemetry — the same singleton the perf HUD
+	 *  reads, so a headless run can enable collection and assert on fps /
+	 *  frame-time breakdowns without any UI interaction. */
+	perf: typeof perfStats;
 }
 
 declare global {
 	interface Window {
 		__BYORN_E2E__?: E2EBridge;
+		/** Shorthand alias for `__BYORN_E2E__.perf` (same flag-gated seam). */
+		__byornPerf?: typeof perfStats;
 	}
 }
 
@@ -97,12 +104,15 @@ export function E2EBridge() {
 			exportCalls,
 			releaseExport: () => releaseExport(),
 			stretchAudioBufferSegment,
+			perf: perfStats,
 		};
+		window.__byornPerf = perfStats;
 
 		return () => {
 			renderer.exportProject =
 				realExportProject as typeof renderer.exportProject;
 			delete window.__BYORN_E2E__;
+			delete window.__byornPerf;
 		};
 	}, [editor, generateIntoSlot]);
 
