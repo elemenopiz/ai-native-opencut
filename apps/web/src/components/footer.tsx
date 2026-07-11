@@ -6,10 +6,7 @@ const footerLinks = {
 	product: [
 		{ label: "Editor", href: "/projects" },
 		{ label: "Models", href: "/models" },
-		{ label: "Roadmap", href: "/roadmap" },
-		{ label: "Changelog", href: "/changelog" },
 	],
-	resources: [{ label: "Contributors", href: "/contributors" }],
 	legal: [
 		{ label: "Privacy", href: "/privacy" },
 		{ label: "Terms of use", href: "/terms" },
@@ -20,7 +17,7 @@ export function Footer() {
 	return (
 		<footer className="border-t">
 			<div className="mx-auto max-w-5xl px-8 py-12">
-				<div className="grid grid-cols-1 gap-10 md:grid-cols-[1.5fr_1fr_1fr_0.8fr]">
+				<div className="grid grid-cols-1 gap-10 md:grid-cols-[1.5fr_1fr_0.8fr]">
 					{/* Brand */}
 					<div className="max-w-xs">
 						<div className="mb-4 flex items-center gap-2.5">
@@ -42,29 +39,6 @@ export function Footer() {
 									<Link
 										href={link.href}
 										className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-									>
-										{link.label}
-									</Link>
-								</li>
-							))}
-						</ul>
-					</div>
-
-					{/* Resources links */}
-					<div>
-						<h3 className="text-sm font-semibold mb-3">Resources</h3>
-						<ul className="space-y-2">
-							{footerLinks.resources.map((link) => (
-								<li key={link.href}>
-									<Link
-										href={link.href}
-										className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-										target={link.href.startsWith("http") ? "_blank" : undefined}
-										rel={
-											link.href.startsWith("http")
-												? "noopener noreferrer"
-												: undefined
-										}
 									>
 										{link.label}
 									</Link>

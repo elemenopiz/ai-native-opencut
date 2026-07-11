@@ -1,8 +1,8 @@
-import { DirectorsCutHome } from "@/components/landing/directors-cut";
-import { GenerativeTimelineHome } from "@/components/landing/generative-timeline";
-import { InstrumentHome } from "@/components/landing/instrument";
-import { VariantSwitcher } from "@/components/landing/variant-switcher";
-import { resolveHomeVariant } from "@/components/landing/variants";
+import { Hero } from "@/components/landing/hero";
+import { DirectorSection } from "@/components/landing/director";
+import { Capabilities } from "@/components/landing/capabilities";
+import { AgentsSection } from "@/components/landing/agents";
+import { CreditsCta } from "@/components/landing/credits-cta";
 import { Header } from "@/components/header";
 import { Footer } from "@/components/footer";
 import type { Metadata } from "next";
@@ -14,24 +14,16 @@ export const metadata: Metadata = {
 	},
 };
 
-// Three homepage candidates are live behind ?v= while a final direction is
-// picked (default: instrument). Once decided, inline the winner and delete
-// the other landing/<variant> directories plus the switcher.
-export default async function Home({
-	searchParams,
-}: {
-	searchParams: Promise<{ v?: string }>;
-}) {
-	const variant = resolveHomeVariant((await searchParams).v);
-
+export default async function Home() {
 	return (
 		<div>
 			<Header />
-			{variant === "directors-cut" && <DirectorsCutHome />}
-			{variant === "instrument" && <InstrumentHome />}
-			{variant === "generative-timeline" && <GenerativeTimelineHome />}
+			<Hero />
+			<DirectorSection />
+			<Capabilities />
+			<AgentsSection />
+			<CreditsCta />
 			<Footer />
-			<VariantSwitcher active={variant} />
 		</div>
 	);
 }

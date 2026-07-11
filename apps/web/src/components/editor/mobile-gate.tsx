@@ -52,17 +52,15 @@ export function MobileGate({ children }: MobileGateProps) {
 						Desktop only (for now)
 					</h1>
 					<p className="text-muted-foreground text-sm leading-relaxed">
-						Byorn needs a desktop to run AI models locally and render the
-						full timeline editor. Come back on a computer for the real experience.
+						Byorn needs a desktop to render the full timeline editor. Come back
+						on a computer for the real experience.
 					</p>
 				</div>
 				<div className="flex items-center gap-3">
-					<Button onClick={handleContinue}>
-						Take a look anyway
-					</Button>
+					<Button onClick={handleContinue}>Take a look anyway</Button>
 					<Button variant="ghost" asChild>
-						<Link href="/roadmap" className="flex items-center gap-1">
-							Roadmap
+						<Link href="/" className="flex items-center gap-1">
+							Home
 							<HugeiconsIcon icon={ArrowRight01Icon} size={14} />
 						</Link>
 					</Button>
