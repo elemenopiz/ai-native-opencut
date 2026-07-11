@@ -1,6 +1,7 @@
 "use client";
 
 import { useEditor } from "@/hooks/use-editor";
+import { usePlaybackTime } from "@/hooks/use-playback-time";
 import { formatTimeCode } from "@/lib/time";
 import { invokeAction } from "@/lib/actions";
 import { EditableTimecode } from "@/components/editable-timecode";
@@ -30,20 +31,16 @@ export function PreviewToolbar({
 }) {
 	const editor = useEditor();
 	const isPlaying = editor.playback.getIsPlaying();
-	const currentTime = editor.playback.getCurrentTime();
 	const totalDuration = editor.timeline.getTotalDuration();
 	const fps = editor.project.getActive().settings.fps;
 
 	return (
 		<div className="grid grid-cols-[1fr_auto_1fr] items-center pb-3 pt-5 px-5">
 			<div className="flex items-center">
-				<EditableTimecode
-					time={currentTime}
+				<PlaybackTimecode
 					duration={totalDuration}
-					format="HH:MM:SS:FF"
 					fps={fps}
 					onTimeChange={({ time }) => editor.playback.seek({ time })}
-					className="text-center"
 				/>
 				<span className="text-muted-foreground px-2 font-mono text-xs">/</span>
 				<span className="text-muted-foreground font-mono text-xs">
@@ -87,6 +84,32 @@ export function PreviewToolbar({
 				</Button>
 			</div>
 		</div>
+	);
+}
+
+// Isolated leaf: subscribes only to the playhead time (usePlaybackTime), so the
+// per-frame tick during playback re-renders this timecode alone instead of the
+// whole toolbar/editor tree.
+function PlaybackTimecode({
+	duration,
+	fps,
+	onTimeChange,
+}: {
+	duration: number;
+	fps: number;
+	onTimeChange: ({ time }: { time: number }) => void;
+}) {
+	const currentTime = usePlaybackTime();
+
+	return (
+		<EditableTimecode
+			time={currentTime}
+			duration={duration}
+			format="HH:MM:SS:FF"
+			fps={fps}
+			onTimeChange={onTimeChange}
+			className="text-center"
+		/>
 	);
 }
 
