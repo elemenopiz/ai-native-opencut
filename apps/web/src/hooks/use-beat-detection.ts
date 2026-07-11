@@ -1,10 +1,18 @@
 import { useCallback, useState } from "react";
 import { useEditor } from "@/hooks/use-editor";
 import { useBackgroundTasksStore } from "@/stores/background-tasks-store";
-import type { BeatDetectionResult, BeatMarker, BeatGridConfig } from "@/lib/audio/beat-detection-types";
+import type {
+	BeatDetectionResult,
+	BeatMarker,
+	BeatGridConfig,
+} from "@/lib/audio/beat-detection-types";
 import { DEFAULT_BEAT_GRID } from "@/lib/audio/beat-detection-types";
 import { toast } from "sonner";
 
+/**
+ * Legacy energy-peak detector. Kept as a fallback for when
+ * web-audio-beat-detector throws (it can on very short or quiet audio).
+ */
 function detectBeatsFromBuffer(audioBuffer: AudioBuffer): BeatDetectionResult {
 	const channelData = audioBuffer.getChannelData(0);
 	const sampleRate = audioBuffer.sampleRate;
@@ -33,7 +41,7 @@ function detectBeatsFromBuffer(audioBuffer: AudioBuffer): BeatDetectionResult {
 		}
 	}
 
-	const minBeatInterval = Math.round(sampleRate * 0.25 / hopSize);
+	const minBeatInterval = Math.round((sampleRate * 0.25) / hopSize);
 	const beats: BeatMarker[] = [];
 	let lastPeakIndex = -Infinity;
 
@@ -67,11 +75,98 @@ function detectBeatsFromBuffer(audioBuffer: AudioBuffer): BeatDetectionResult {
 	};
 }
 
+/**
+ * Compute a normalized local RMS energy for each beat time so the UI's
+ * beat-strength visualization stays meaningful with a grid-derived beat list.
+ */
+function computeBeatStrengths(
+	audioBuffer: AudioBuffer,
+	beatTimes: number[],
+): number[] {
+	const channelData = audioBuffer.getChannelData(0);
+	const sampleRate = audioBuffer.sampleRate;
+	const halfWindow = Math.round(sampleRate * 0.025);
+
+	const energies = beatTimes.map((time) => {
+		const center = Math.round(time * sampleRate);
+		const start = Math.max(0, center - halfWindow);
+		const end = Math.min(channelData.length, center + halfWindow);
+		if (end <= start) return 0;
+		let sum = 0;
+		for (let i = start; i < end; i++) {
+			sum += channelData[i] * channelData[i];
+		}
+		return Math.sqrt(sum / (end - start));
+	});
+
+	const maxEnergy = Math.max(...energies, 1e-6);
+	return energies.map((e) => e / maxEnergy);
+}
+
+/**
+ * Primary detector: web-audio-beat-detector's `guess` returns BPM + offset
+ * of the first beat; we derive the beat grid from that tempo instead of raw
+ * energy peaks. Throws on very short/quiet audio — caller falls back to the
+ * legacy energy detector.
+ */
+async function detectBeatsWithLibrary(
+	audioBuffer: AudioBuffer,
+): Promise<BeatDetectionResult> {
+	const { guess } = await import("web-audio-beat-detector");
+	const { bpm, offset } = await guess(audioBuffer);
+
+	if (!Number.isFinite(bpm) || bpm <= 0) {
+		throw new Error("Beat detector returned an invalid tempo");
+	}
+
+	const interval = 60 / bpm;
+	const duration = audioBuffer.duration;
+	// Normalize the offset into [0, interval) so the grid starts at the
+	// first beat within the clip.
+	let firstBeat = offset % interval;
+	if (firstBeat < 0) firstBeat += interval;
+
+	const beatTimes: number[] = [];
+	for (let t = firstBeat; t < duration; t += interval) {
+		beatTimes.push(t);
+	}
+	if (beatTimes.length === 0) {
+		throw new Error("Audio too short for tempo-derived beat grid");
+	}
+
+	const strengths = computeBeatStrengths(audioBuffer, beatTimes);
+	const beats: BeatMarker[] = beatTimes.map((time, index) => ({
+		time,
+		strength: strengths[index],
+		index,
+	}));
+
+	// Confidence: how well the tempo grid lines up with actual signal
+	// energy — the mean normalized energy at beat positions.
+	const meanStrength = strengths.reduce((a, b) => a + b, 0) / strengths.length;
+	const confidence = Math.min(0.5 + meanStrength * 0.5, 1);
+
+	return { bpm: Math.round(bpm), beats, confidence };
+}
+
+async function detectBeats(
+	audioBuffer: AudioBuffer,
+): Promise<BeatDetectionResult> {
+	try {
+		return await detectBeatsWithLibrary(audioBuffer);
+	} catch {
+		// Library can throw on very short or quiet audio — fall back to the
+		// legacy energy-peak detector so detection still returns something.
+		return detectBeatsFromBuffer(audioBuffer);
+	}
+}
+
 export function useBeatDetection() {
 	const editor = useEditor();
 	const bgTasks = useBackgroundTasksStore();
 	const [result, setResult] = useState<BeatDetectionResult | null>(null);
-	const [gridConfig, setGridConfig] = useState<BeatGridConfig>(DEFAULT_BEAT_GRID);
+	const [gridConfig, setGridConfig] =
+		useState<BeatGridConfig>(DEFAULT_BEAT_GRID);
 
 	const detect = useCallback(
 		async (mediaId?: string) => {
@@ -114,7 +209,7 @@ export function useBeatDetection() {
 					throw new Error("No audio found in timeline");
 				}
 
-				const detection = detectBeatsFromBuffer(audioBuffer);
+				const detection = await detectBeats(audioBuffer);
 				setResult(detection);
 
 				bgTasks.updateTask(taskId, {
@@ -123,7 +218,9 @@ export function useBeatDetection() {
 					completedAt: Date.now(),
 				});
 
-				toast.success(`Beat detection: ${detection.bpm} BPM, ${detection.beats.length} beats`);
+				toast.success(
+					`Beat detection: ${detection.bpm} BPM, ${detection.beats.length} beats`,
+				);
 			} catch (err) {
 				bgTasks.updateTask(taskId, {
 					status: "error",
