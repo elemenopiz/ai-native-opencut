@@ -14,6 +14,7 @@ import { useStudioHandoff } from "@/hooks/use-studio-handoff";
 import { useMcpBridge } from "@/hooks/use-mcp-bridge";
 import { prefetchFontAtlas } from "@/lib/fonts/google-fonts";
 import { hydrateDirectorStateFromBible } from "@/lib/director/project-bible";
+import { useTranscriptStore } from "@/stores/transcript-store";
 
 interface EditorProviderProps {
 	projectId: string;
@@ -52,6 +53,15 @@ export function EditorProvider({ projectId, children }: EditorProviderProps) {
 				// any prior reel's state first (EditorCore is a reused singleton across
 				// project switches). See `lib/director/project-bible.ts`.
 				hydrateDirectorStateFromBible(editor);
+
+				// Clear the transcript store on every project switch. It's a global
+				// in-memory singleton (transcript segments + speaker names/positions,
+				// translations, emotions), and EditorCore is reused across project
+				// switches — without this reset, the previous project's transcript and
+				// speaker captions bleed into the newly-opened project. The editor
+				// page's restore effect then repopulates from this project's own
+				// timeline caption elements once the store is empty.
+				useTranscriptStore.getState().reset();
 
 				setIsLoading(false);
 				prefetchFontAtlas();
