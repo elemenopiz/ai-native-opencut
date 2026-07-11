@@ -44,6 +44,12 @@ import {
 	getSourceAudioActionLabel,
 } from "@/lib/timeline/audio-separation";
 import { getActionDefinition, type TAction, invokeAction } from "@/lib/actions";
+import {
+	getTransition,
+	hasTransition,
+	TRANSITION_ADJACENCY_EPSILON,
+} from "@/lib/transitions";
+import { RemoveTransitionCommand } from "@/lib/commands/timeline/element/transitions/add-transition";
 import { useElementSelection } from "@/hooks/timeline/element/use-element-selection";
 import { resolveStickerId } from "@/lib/stickers";
 import Image from "next/image";
@@ -74,6 +80,57 @@ import { useTimelineStore } from "@/stores/timeline-store";
 
 const KEYFRAME_INDICATOR_MIN_WIDTH_PX = 40;
 const ELEMENT_RING_WIDTH_PX = 1.5;
+
+/** The classic NLE bowtie mark for a cut transition. */
+function TransitionGlyph({ className }: { className?: string }) {
+	return (
+		<svg
+			viewBox="0 0 12 12"
+			className={className}
+			fill="currentColor"
+			aria-hidden="true"
+		>
+			<path d="M1 2.5 L5.3 6 L1 9.5 Z M11 2.5 L6.7 6 L11 9.5 Z" />
+		</svg>
+	);
+}
+
+/**
+ * Resolve an element's outgoing transition for display: its definition (null
+ * if the registered type vanished) and whether it will actually render —
+ * transitions need an adjacent video/image clip right after the cut.
+ */
+function getTransitionOutInfo({
+	element,
+	track,
+}: {
+	element: TimelineElementType;
+	track: TimelineTrack;
+}) {
+	if (!("transitionOut" in element) || !element.transitionOut) return null;
+	const transitionOut = element.transitionOut;
+	const definition = hasTransition({ transitionType: transitionOut.type })
+		? getTransition({ transitionType: transitionOut.type })
+		: null;
+
+	const sorted = track.elements
+		.filter((el) => !("hidden" in el && el.hidden))
+		.slice()
+		.sort((a, b) => a.startTime - b.startTime);
+	const index = sorted.findIndex((el) => el.id === element.id);
+	const next = index >= 0 ? sorted[index + 1] : undefined;
+	const cutTime = element.startTime + element.duration;
+
+	const isActive = Boolean(
+		definition &&
+			(element.type === "video" || element.type === "image") &&
+			next &&
+			(next.type === "video" || next.type === "image") &&
+			next.startTime - cutTime <= TRANSITION_ADJACENCY_EPSILON,
+	);
+
+	return { transitionOut, definition, isActive };
+}
 
 interface KeyframeIndicator {
 	time: number;
@@ -284,6 +341,16 @@ export function TimelineElement({
 
 	const isMuted = canElementHaveAudio(element) && element.muted === true;
 
+	const transitionInfo = getTransitionOutInfo({ element, track });
+	const handleRemoveTransition = () => {
+		editor.command.execute({
+			command: new RemoveTransitionCommand({
+				trackId: track.id,
+				elementId: element.id,
+			}),
+		});
+	};
+
 	return (
 		<ContextMenu>
 			<ContextMenuTrigger asChild>
@@ -310,6 +377,29 @@ export function TimelineElement({
 						handleResizeStart={handleResizeStart}
 						isDropTarget={isDropTarget}
 					/>
+					{transitionInfo && (
+						<button
+							type="button"
+							data-testid="transition-badge"
+							className={cn(
+								"absolute right-0 top-1/2 z-10 -translate-y-1/2 translate-x-1/2",
+								"flex size-[18px] cursor-pointer items-center justify-center rounded-full",
+								"border bg-background shadow-sm",
+								transitionInfo.isActive
+									? "border-foreground/40 text-foreground"
+									: "border-amber-500/60 text-amber-500",
+							)}
+							title={
+								transitionInfo.isActive
+									? `${transitionInfo.definition?.name} transition · ${transitionInfo.transitionOut.duration.toFixed(1)}s — right-click clip to remove`
+									: "Transition won't play: needs an adjacent video or image clip right after this one — right-click clip to remove"
+							}
+							onMouseDown={(event) => onElementMouseDown(event, element)}
+							onClick={(event) => onElementClick(event, element)}
+						>
+							<TransitionGlyph className="size-[10px]" />
+						</button>
+					)}
 					{isSelected && (
 						<div className="pointer-events-none absolute inset-0 overflow-hidden">
 							<KeyframeIndicators
@@ -391,6 +481,17 @@ export function TimelineElement({
 							Replace media
 						</ContextMenuItem>
 					</>
+				)}
+				{transitionInfo && (
+					<ContextMenuItem
+						icon={<TransitionGlyph className="size-3.5" />}
+						onClick={handleRemoveTransition}
+					>
+						Remove transition
+						{transitionInfo.definition
+							? ` (${transitionInfo.definition.name})`
+							: ""}
+					</ContextMenuItem>
 				)}
 				<ContextMenuSeparator />
 				<DeleteMenuItem

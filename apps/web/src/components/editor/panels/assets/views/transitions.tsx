@@ -4,8 +4,10 @@ import { useCallback } from "react";
 import { PanelView } from "@/components/editor/panels/assets/views/base-view";
 import {
 	getAllTransitions,
+	TRANSITION_ADJACENCY_EPSILON,
 	type TransitionDefinition,
 } from "@/lib/transitions";
+import { toast } from "sonner";
 import { useEditor } from "@/hooks/use-editor";
 import { AddTransitionCommand } from "@/lib/commands/timeline/element/transitions/add-transition";
 import { isVisualElement } from "@/lib/timeline";
@@ -82,7 +84,10 @@ function TransitionItem({ transition }: { transition: TransitionDefinition }) {
 
 	const handleApply = useCallback(() => {
 		const selected = editor.selection.getSelectedElements();
-		if (selected.length === 0) return;
+		if (selected.length === 0) {
+			toast.error("Select a clip on the timeline first");
+			return;
+		}
 
 		const { elementId, trackId } = selected[0];
 		const tracks = editor.timeline.getTracks();
@@ -90,6 +95,40 @@ function TransitionItem({ transition }: { transition: TransitionDefinition }) {
 		if (!track) return;
 		const element = track.elements.find((e) => e.id === elementId);
 		if (!element || !isVisualElement(element)) return;
+
+		if (element.type !== "video" && element.type !== "image") {
+			toast.error("Transitions apply to video or image clips");
+			return;
+		}
+
+		// A cut transition blends this clip into the next one — it needs an
+		// adjacent video/image clip on the same track to blend into.
+		const sorted = track.elements
+			.filter((el) => !("hidden" in el && el.hidden))
+			.slice()
+			.sort((a, b) => a.startTime - b.startTime);
+		const index = sorted.findIndex((el) => el.id === element.id);
+		const next = index >= 0 ? sorted[index + 1] : undefined;
+
+		if (!next) {
+			toast.error(
+				"This is the last clip on its track — transitions play across the cut into the next clip",
+			);
+			return;
+		}
+		if (next.type !== "video" && next.type !== "image") {
+			toast.error("The next clip must be a video or image to transition into");
+			return;
+		}
+		if (
+			next.startTime - (element.startTime + element.duration) >
+			TRANSITION_ADJACENCY_EPSILON
+		) {
+			toast.error(
+				"There's a gap after this clip — snap the next clip against it, then apply the transition",
+			);
+			return;
+		}
 
 		editor.command.execute({
 			command: new AddTransitionCommand({

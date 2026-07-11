@@ -93,19 +93,34 @@ export class TransitionNode extends BaseNode<TransitionNodeParams> {
 	}
 
 	/** The source-local media time for a frame fetch (simple rate/trim/reverse
-	 *  path; speed curves are ignored for the brief transition window). */
+	 *  path; speed curves are ignored for the brief transition window).
+	 *
+	 *  The transition window straddles the cut, so the outgoing clip gets
+	 *  sampled past its end and the incoming clip before its start. Clamping to
+	 *  the media's real bounds turns those over-reads into handle footage when
+	 *  the source has it (trimmed media) or a held edge frame when it doesn't —
+	 *  instead of an out-of-range fetch that nulls the frame and blanks the
+	 *  whole transition. */
 	private getSourceLocalTime({
 		sourceParams,
+		mediaDuration,
 		time,
 	}: {
 		sourceParams: TransitionSourceParams;
+		mediaDuration: number | undefined;
 		time: number;
 	}): number {
 		const elapsed = time - sourceParams.timeOffset;
 		const reversed = sourceParams.reversed ?? false;
 		const baseRate = sourceParams.playbackRate ?? 1;
 		const effElapsed = reversed ? sourceParams.duration - elapsed : elapsed;
-		return effElapsed * baseRate + sourceParams.trimStart;
+		const localTime = effElapsed * baseRate + sourceParams.trimStart;
+
+		const maxTime =
+			mediaDuration !== undefined && mediaDuration > 0
+				? Math.max(0, mediaDuration - 0.001)
+				: Number.POSITIVE_INFINITY;
+		return Math.min(Math.max(localTime, 0), maxTime);
 	}
 
 	/** Fetch the source clip's frame at `time` and draw it (with its transform)
@@ -134,7 +149,11 @@ export class TransitionNode extends BaseNode<TransitionNodeParams> {
 			const frame = await videoCache.getFrameAt({
 				mediaId: mediaId as string,
 				file: media.file,
-				time: this.getSourceLocalTime({ sourceParams, time }),
+				time: this.getSourceLocalTime({
+					sourceParams,
+					mediaDuration: media.duration,
+					time,
+				}),
 			});
 			if (frame) {
 				source = frame.canvas;

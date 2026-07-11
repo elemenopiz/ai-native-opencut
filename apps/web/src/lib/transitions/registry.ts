@@ -1,7 +1,27 @@
+/**
+ * Max gap (seconds) between two clips for a cut transition to apply — used by
+ * both the renderer (skip building the node) and the transitions panel
+ * (refuse to apply, with an explanation).
+ */
+export const TRANSITION_ADJACENCY_EPSILON = 0.05;
+
 export interface TransitionDefinition {
 	type: string;
 	name: string;
-	category: "dissolve" | "slide" | "wipe" | "zoom" | "dip" | "iris" | "morph" | "distortion" | "burn" | "peel" | "spin" | "cube" | "pattern";
+	category:
+		| "dissolve"
+		| "slide"
+		| "wipe"
+		| "zoom"
+		| "dip"
+		| "iris"
+		| "morph"
+		| "distortion"
+		| "burn"
+		| "peel"
+		| "spin"
+		| "cube"
+		| "pattern";
 	keywords: string[];
 	defaultDuration: number;
 	fragmentShader: string;

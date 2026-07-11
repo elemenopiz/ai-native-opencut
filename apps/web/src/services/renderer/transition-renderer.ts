@@ -4,6 +4,10 @@ import VERTEX_SHADER_SOURCE from "@/lib/transitions/transition.vert.glsl";
 
 let gl: WebGLRenderingContext | null = null;
 let transitionCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
+// Programs are context-bound: recreating the canvas invalidates every program,
+// so the cache lives and dies with the context.
+let programCache = new Map<string, WebGLProgram>();
+let cachedVertexShader: WebGLShader | null = null;
 
 function getOrCreateContext(
 	width: number,
@@ -20,6 +24,8 @@ function getOrCreateContext(
 		}) as WebGLRenderingContext | null;
 		if (!ctx) throw new Error("WebGL not supported for transitions");
 		gl = ctx;
+		programCache = new Map();
+		cachedVertexShader = null;
 	}
 	return gl!;
 }
@@ -41,6 +47,50 @@ function compileShader(
 	return shader;
 }
 
+function getOrCreateProgram(
+	context: WebGLRenderingContext,
+	fragmentShader: string,
+): WebGLProgram {
+	const cached = programCache.get(fragmentShader);
+	if (cached) return cached;
+
+	if (!cachedVertexShader) {
+		cachedVertexShader = compileShader(
+			context,
+			VERTEX_SHADER_SOURCE,
+			context.VERTEX_SHADER,
+		);
+	}
+	const fragShader = compileShader(
+		context,
+		fragmentShader,
+		context.FRAGMENT_SHADER,
+	);
+
+	const program = context.createProgram();
+	if (!program) throw new Error("Failed to create transition program");
+	context.attachShader(program, cachedVertexShader);
+	context.attachShader(program, fragShader);
+	context.linkProgram(program);
+
+	if (!context.getProgramParameter(program, context.LINK_STATUS)) {
+		const info = context.getProgramInfoLog(program);
+		context.deleteProgram(program);
+		context.deleteShader(fragShader);
+		throw new Error(`Transition program link failed: ${info}`);
+	}
+	context.deleteShader(fragShader);
+
+	programCache.set(fragmentShader, program);
+	return program;
+}
+
+/**
+ * Blend two full-frame sources with a transition fragment shader.
+ *
+ * Returns a shared scratch canvas that is overwritten on the next call —
+ * callers must draw it to their destination before invoking this again.
+ */
 export function renderTransition({
 	sourceA,
 	sourceB,
@@ -57,31 +107,7 @@ export function renderTransition({
 	fragmentShader: string;
 }): HTMLCanvasElement | OffscreenCanvas {
 	const context = getOrCreateContext(width, height);
-
-	const vertShader = compileShader(
-		context,
-		VERTEX_SHADER_SOURCE,
-		context.VERTEX_SHADER,
-	);
-	const fragShader = compileShader(
-		context,
-		fragmentShader,
-		context.FRAGMENT_SHADER,
-	);
-
-	const program = context.createProgram();
-	if (!program) throw new Error("Failed to create transition program");
-	context.attachShader(program, vertShader);
-	context.attachShader(program, fragShader);
-	context.linkProgram(program);
-
-	if (!context.getProgramParameter(program, context.LINK_STATUS)) {
-		const info = context.getProgramInfoLog(program);
-		context.deleteProgram(program);
-		throw new Error(`Transition program link failed: ${info}`);
-	}
-	context.deleteShader(vertShader);
-	context.deleteShader(fragShader);
+	const program = getOrCreateProgram(context, fragmentShader);
 
 	const textureA = createTexture({ context, source: sourceA });
 	const textureB = createTexture({ context, source: sourceB });
@@ -114,19 +140,5 @@ export function renderTransition({
 	context.deleteTexture(textureB);
 	context.useProgram(null);
 
-	const outputCanvas = createOffscreenCanvas({ width, height });
-	const outputCtx = outputCanvas.getContext("2d") as
-		| CanvasRenderingContext2D
-		| OffscreenCanvasRenderingContext2D
-		| null;
-	if (outputCtx) {
-		outputCtx.drawImage(
-			transitionCanvas as CanvasImageSource,
-			0,
-			0,
-			width,
-			height,
-		);
-	}
-	return outputCanvas;
+	return transitionCanvas!;
 }

@@ -13,6 +13,7 @@ import type { BaseNode } from "./nodes/base-node";
 import type { TBackground, TCanvasSize } from "@/types/project";
 import { DEFAULT_BLUR_INTENSITY } from "@/constants/project-constants";
 import { isMainTrack } from "@/lib/timeline";
+import { TRANSITION_ADJACENCY_EPSILON } from "@/lib/transitions";
 
 const PREVIEW_MAX_IMAGE_SIZE = 2048;
 const BLUR_BACKGROUND_ZOOM_SCALE = 1.4;
@@ -186,18 +187,23 @@ export function buildScene({
 
 	const orderedTracksBottomToTop = orderedTracksTopToBottom.slice().reverse();
 
-	const allNodes = buildTrackNodes({
-		tracks: orderedTracksBottomToTop,
-		mediaMap,
-		canvasSize,
-		isPreview,
-		useProxy,
-	});
-
-	const transitionNodes = buildTransitionNodes({
-		tracks: orderedTracksBottomToTop,
-		mediaMap,
-	});
+	// Interleave each track's transition nodes right after that track's element
+	// nodes: a transition repaints its own track's footage full-frame, so it
+	// must sit below higher tracks (text/sticker overlays) in paint order or
+	// overlays vanish for the duration of every transition.
+	const allNodes: BaseNode[] = [];
+	for (const track of orderedTracksBottomToTop) {
+		allNodes.push(
+			...buildTrackNodes({
+				tracks: [track],
+				mediaMap,
+				canvasSize,
+				isPreview,
+				useProxy,
+			}),
+		);
+		allNodes.push(...buildTransitionNodes({ tracks: [track], mediaMap }));
+	}
 
 	for (const backgroundNode of buildBackgroundNodes({
 		background,
@@ -207,10 +213,6 @@ export function buildScene({
 	}
 
 	for (const node of allNodes) {
-		rootNode.add(node);
-	}
-
-	for (const node of transitionNodes) {
 		rootNode.add(node);
 	}
 
@@ -229,8 +231,12 @@ function buildBackgroundNodes({
 	if (background.type === "blur") {
 		nodes.push(
 			new CompositeEffectNode({
+				// Transitions are excluded from the blur-fill composite: they repaint
+				// full-frame (heavy) and the underlying clips already feed the blur.
 				contentNodes: allNodes.filter(
-					(node) => !(node instanceof EffectLayerNode),
+					(node) =>
+						!(node instanceof EffectLayerNode) &&
+						!(node instanceof TransitionNode),
 				),
 				effectType: "blur",
 				effectParams: {
@@ -275,6 +281,12 @@ function buildTransitionNodes({
 
 			if (!current.transitionOut) continue;
 
+			// A transition blends across the cut — it only makes sense when the
+			// next clip actually starts at this clip's end. A gap would blend
+			// into footage that isn't playing yet; render a plain cut instead.
+			const gap = next.startTime - (current.startTime + current.duration);
+			if (gap > TRANSITION_ADJACENCY_EPSILON) continue;
+
 			if (current.type === "video" || current.type === "image") {
 				const asset = mediaMap.get(current.mediaId);
 				if (!asset) continue;
@@ -283,6 +295,10 @@ function buildTransitionNodes({
 					next.type === "video" || next.type === "image"
 						? mediaMap.get(next.mediaId)
 						: null;
+
+				// Without a resolvable incoming source the node could never draw a
+				// frame — skip instead of building a guaranteed no-op.
+				if (!nextAsset) continue;
 
 				transitionNodes.push(
 					new TransitionNode({
