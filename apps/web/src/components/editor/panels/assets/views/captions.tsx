@@ -41,6 +41,8 @@ import {
 	type CaptionPresetId,
 	type CaptionStylePreset,
 } from "@/lib/captions/caption-presets";
+import { parseSubtitleFile, SUBTITLE_FILE_ACCEPT } from "@/lib/subtitles/parse";
+import { insertSubtitleCuesAsTextTrack } from "@/lib/subtitles/insert";
 
 interface SubtitleTrackInfo {
 	trackId: string;
@@ -64,7 +66,9 @@ export function Captions() {
 	const [isExportingSubtitles, setIsExportingSubtitles] = useState<
 		"srt" | "vtt" | null
 	>(null);
+	const [isImporting, setIsImporting] = useState(false);
 	const containerRef = useRef<HTMLDivElement>(null);
+	const subtitleFileInputRef = useRef<HTMLInputElement>(null);
 	const segments = useTranscriptStore((s) => s.segments);
 	const editor = useEditor();
 
@@ -553,6 +557,63 @@ export function Captions() {
 		toast.success(`Subtitles added — ${preset.name} style`);
 	};
 
+	// Import an existing subtitle file (.srt / .vtt / .ass / .ssa) and lay its
+	// cues onto a new text track. Parsing happens fully client-side; each cue
+	// becomes a real text element via the timeline Add/Insert commands.
+	const handleImportSubtitles = async (
+		e: React.ChangeEvent<HTMLInputElement>,
+	) => {
+		const file = e.target.files?.[0];
+		// Reset the input so re-selecting the same file fires onChange again.
+		e.target.value = "";
+		if (!file) return;
+
+		setIsImporting(true);
+		setError(null);
+		try {
+			const text = await file.text();
+			const result = parseSubtitleFile({ fileName: file.name, input: text });
+
+			if (result.captions.length === 0) {
+				setError(
+					result.warnings[0] ??
+						"No subtitles found in that file. Supported formats: .srt, .vtt, .ass.",
+				);
+				return;
+			}
+
+			const inserted = insertSubtitleCuesAsTextTrack({
+				editor,
+				cues: result.captions,
+				trackName: `Subs: ${file.name}`,
+			});
+
+			if (!inserted) return;
+
+			setSubtitleTracks((prev) => [
+				...prev,
+				{ trackId: inserted.trackId, language: "imported" },
+			]);
+
+			const descriptionParts = [`${inserted.count} cues`];
+			if (result.skippedCueCount > 0) {
+				descriptionParts.push(`${result.skippedCueCount} skipped`);
+			}
+			if (result.warnings.length > 0) {
+				descriptionParts.push(result.warnings.join(" "));
+			}
+			toast.success(`Imported ${file.name}`, {
+				description: descriptionParts.join(" · "),
+			});
+		} catch (err) {
+			const message =
+				err instanceof Error ? err.message : "Subtitle import failed";
+			setError(message);
+		} finally {
+			setIsImporting(false);
+		}
+	};
+
 	// Export the transcript as a downloadable subtitle file. Uses the backend
 	// /transcribe/subtitles formatter so line-wrapping and timestamp formatting
 	// match server-side output.
@@ -926,6 +987,36 @@ export function Captions() {
 							: "Generate transcript"}
 				</Button>
 
+				{/* ── Import subtitle file ── */}
+				<div className="flex flex-col gap-2">
+					<div className="flex items-center gap-2">
+						<div className="h-px flex-1 bg-border" />
+						<span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+							or
+						</span>
+						<div className="h-px flex-1 bg-border" />
+					</div>
+					<input
+						ref={subtitleFileInputRef}
+						type="file"
+						accept={SUBTITLE_FILE_ACCEPT}
+						className="hidden"
+						onChange={handleImportSubtitles}
+					/>
+					<Button
+						variant="outline"
+						className="w-full"
+						onClick={() => subtitleFileInputRef.current?.click()}
+						disabled={isImporting}
+					>
+						{isImporting && <Spinner className="mr-1" />}
+						{isImporting ? "Importing..." : "Import subtitles"}
+					</Button>
+					<p className="text-[10px] text-muted-foreground">
+						Load an existing .srt, .vtt, or .ass file as a text track.
+					</p>
+				</div>
+
 				{segments.length > 0 && (
 					<>
 						{/* ── Subtitle Tracks ── */}
@@ -972,8 +1063,10 @@ export function Captions() {
 										const langName =
 											track.language === "original"
 												? "Original"
-												: (LANGUAGES.find((l) => l.code === track.language)
-														?.name ?? track.language);
+												: track.language === "imported"
+													? "Imported"
+													: (LANGUAGES.find((l) => l.code === track.language)
+															?.name ?? track.language);
 										return (
 											<div
 												key={track.trackId}

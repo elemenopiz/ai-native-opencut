@@ -405,3 +405,47 @@ Used as an npm dependency (not adapted source):
 
 - Installed for time-stretch / pitch-preserving playback work (AudioWorklet
   WASM node); integration is implemented separately from this notice.
+
+---
+
+## valenbine/OpenCut-ZHS — MIT
+
+Copyright 2025-2026 OpenCut. Source: https://github.com/valenbine/OpenCut-ZHS
+Pinned commit: `2593e12c4ff0e3649000f03fe00202f2ec941522`
+
+```
+MIT License
+
+Copyright 2025-2026 OpenCut
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+```
+
+Subtitle/caption **import** feature. Adapted from the source's `src/subtitles/`
+directory into `apps/web/src/lib/subtitles/`:
+
+| Our file (`lib/subtitles/`) | Upstream file (`src/subtitles/`) | Relationship |
+|---|---|---|
+| `srt.ts` | `srt.ts` | Copied verbatim (import paths only) |
+| `ass.ts` | `ass.ts` | Copied verbatim (import paths only) |
+| `parse.ts` | `parse.ts` | Adapted — added the VTT branch and `.ssa` alias |
+| `types.ts` | `types.ts` | Adapted — primitive unions inlined to match Byorn's `TextElement`; times kept in seconds |
+| `build-subtitle-text-element.ts` | `build-subtitle-text-element.ts` | Reimplemented — maps a cue to Byorn's flat `TextElement` (the source did full canvas text measurement via its own layout utilities we do not have) |
+| `insert.ts` | `insert.ts` | Adapted — uses `EditorCore` timeline commands instead of the source's `BatchCommand` composition |
+| `vtt.ts` | — | Original (the source ships SRT + ASS parsers only) |
