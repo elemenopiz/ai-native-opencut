@@ -90,6 +90,10 @@ constants; it is a derived copy, not a modification of the prose.
 ## OpenCut-app/opencut-classic — MIT
 
 Copyright 2025-2026 OpenCut. Source: https://github.com/OpenCut-app/opencut-classic
+(the same pre-rewrite editor tree is also pinned at `OpenCut-app/OpenCut` tag
+`pre-rewrite` / `238750c0`, from which the 2026-07-12 additions below were adapted —
+the live mainline `main` has since rewritten its renderer/compositor to Rust/wgpu,
+which is not portable and was not used).
 
 ```
 MIT License
@@ -130,6 +134,36 @@ project's Rust/WASM engine code was copied):
   `apps/web/src/masks/` and `commands/timeline/element/masks/`. Feather is
   re-implemented as a signed-distance smoothstep in our WebGL effect system
   (their Rust JFA feather crate was not ported).
+
+Additional files adapted 2026-07-12 (from `OpenCut-app/OpenCut` @ tag `pre-rewrite`
+/ `238750c0`; TypeScript/UI/algorithm level only, re-homed into our Next.js +
+seconds-based WebGL architecture):
+
+- `apps/web/src/components/editor/panels/properties/bezier-graph.tsx`,
+  `easing-graph-popover.tsx`, `easing-custom-presets-store.ts`,
+  `easing-graph-presets.ts`, `lib/animation/bezier-graph-math.ts`, and the rewritten
+  `easing-picker.tsx` — draggable bezier value-graph easing editor, adapted from
+  `apps/web/src/timeline/components/graph-editor/{bezier-graph,popover,custom-presets-store,easing-presets}.*`
+  and `apps/web/src/animation/bezier.ts`.
+- New mask shapes (split / heart / diamond) and the on-canvas rotate/feather/edge
+  handle set added to the shape-mask files listed above — adapted from
+  `apps/web/src/masks/builtin/definitions/{split,heart,diamond}.ts`,
+  `masks/handle-positions.ts`, `masks/param-update.ts`. (The heart signed-distance
+  function is Inigo Quilez's public-domain heart SDF, re-derived independently.)
+- `apps/web/src/components/editor/panels/preview/layout-guide-overlay.tsx`,
+  `guide-picker.tsx`, and the guide slice of `stores/preview-store.ts` — configurable
+  grid / rule-of-thirds preview guides, adapted from `apps/web/src/guides/definitions/grid.tsx`,
+  `guides/{grid,types}.ts`, and `preview/components/guide-popover.tsx`.
+- `apps/web/src/lib/timeline/group-move.ts`, `group-resize.ts`, and
+  `lib/commands/timeline/element/{move-elements-group,resize-elements-group}.ts` —
+  multi-select group move & resize, adapted from `apps/web/src/timeline/group-move/*`
+  and `timeline/group-resize/*` (their integer `MediaTime` math re-homed to our
+  seconds-float model; speed-ramp `retime` branch omitted as we have no retime concept).
+- `apps/web/src/lib/timeline/audio-separation.ts` and
+  `lib/commands/timeline/element/toggle-source-audio-separation.ts` — detach/extract a
+  video clip's source audio onto its own track, adapted from
+  `apps/web/src/timeline/audio-separation/index.ts` and
+  `commands/timeline/element/toggle-source-audio-separation.ts`.
 
 ---
 
