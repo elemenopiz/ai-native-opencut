@@ -16,7 +16,8 @@ export function PreviewContextMenu({
 	containerRef: React.RefObject<HTMLElement | null>;
 }) {
 	const editor = useEditor();
-	const { overlays, setOverlayVisibility } = usePreviewStore();
+	const { overlays, setOverlayVisibility, activeGuideId, toggleGuide } =
+		usePreviewStore();
 
 	return (
 		<ContextMenuContent className="w-56" container={containerRef.current}>
@@ -34,7 +35,18 @@ export function PreviewContextMenu({
 			>
 				Show bookmarks
 			</ContextMenuCheckboxItem>
-			<ContextMenuItem inset>Show grid</ContextMenuItem>
+			<ContextMenuCheckboxItem
+				checked={activeGuideId === "grid"}
+				onCheckedChange={() => toggleGuide("grid")}
+			>
+				Show grid
+			</ContextMenuCheckboxItem>
+			<ContextMenuCheckboxItem
+				checked={activeGuideId === "tiktok"}
+				onCheckedChange={() => toggleGuide("tiktok")}
+			>
+				Show TikTok guide
+			</ContextMenuCheckboxItem>
 		</ContextMenuContent>
 	);
 }

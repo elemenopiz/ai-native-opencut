@@ -12,7 +12,12 @@ import { buildScene } from "@/services/renderer/scene-builder";
 import { getLastFrameTime } from "@/lib/time";
 import { PreviewInteractionOverlay } from "./preview-interaction-overlay";
 import { BookmarkNoteOverlay } from "./bookmark-note-overlay";
+import { LayoutGuideOverlay } from "./layout-guide-overlay";
+import { GuidePicker } from "./guide-picker";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
+import { Button } from "@/components/ui/button";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { GridTableIcon } from "@hugeicons/core-free-icons";
 import { clampPreviewZoom, usePreviewStore } from "@/stores/preview-store";
 import { usePreviewCanvasStore } from "@/stores/preview-canvas-store";
 import { PreviewContextMenu } from "./context-menu";
@@ -41,8 +46,12 @@ export function PreviewPanel() {
 			ref={containerRef}
 			className="panel bg-background relative flex size-full min-h-0 min-w-0 flex-col rounded-sm border"
 		>
-			<div className="flex items-center justify-center border-b">
+			<div className="grid grid-cols-[1fr_auto_1fr] items-center border-b">
+				<div />
 				<FramePresetPicker />
+				<div className="justify-self-end pr-2">
+					<GuidePickerButton />
+				</div>
 			</div>
 			<div className="flex min-h-0 min-w-0 flex-1 items-center justify-center p-2 pb-0">
 				<PreviewCanvas
@@ -56,6 +65,25 @@ export function PreviewPanel() {
 				onToggleFullscreen={toggleFullscreen}
 			/>
 		</div>
+	);
+}
+
+// Isolated leaf: only this button re-renders when the active guide changes,
+// instead of the whole preview panel.
+function GuidePickerButton() {
+	const activeGuideId = usePreviewStore((state) => state.activeGuideId);
+
+	return (
+		<GuidePicker>
+			<Button
+				variant="text"
+				size="icon"
+				className={cn(activeGuideId && "text-primary bg-primary/10")}
+				title="Guides"
+			>
+				<HugeiconsIcon icon={GridTableIcon} className="size-4" />
+			</Button>
+		</GuidePicker>
 	);
 }
 
@@ -320,6 +348,10 @@ function PreviewCanvas({
 										: activeProject?.settings.background.color,
 							}}
 						/>
+						{/* Preview-only chrome: rendered behind the interaction/transform/
+						    mask-handle layers so it never steals pointer events, and never
+						    composited into buildScene/export output. */}
+						<LayoutGuideOverlay />
 						<PreviewInteractionOverlay
 							canvasRef={canvasRef}
 							containerRef={canvasBoundsRef}
