@@ -12,6 +12,7 @@ import { PreviewPanel } from "@/components/editor/panels/preview";
 import { EditorHeader } from "@/components/editor/editor-header";
 import { EditorProvider } from "@/components/providers/editor-provider";
 import { Onboarding } from "@/components/editor/onboarding";
+import { SharedProjectProvider } from "@/components/editor/shared-project-provider";
 import { MigrationDialog } from "@/components/editor/dialogs/migration-dialog";
 import { usePanelStore } from "@/stores/panel-store";
 import { usePasteMedia } from "@/hooks/use-paste-media";
@@ -46,6 +47,7 @@ export default function Editor() {
 					</div>
 					<AIPanelWrapper />
 					<Onboarding />
+					<SharedProjectProvider />
 					<MigrationDialog />
 					<BackgroundTasksWidget />
 					<CommandPalette />

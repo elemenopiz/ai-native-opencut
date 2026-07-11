@@ -21,6 +21,7 @@ import { CherryPickDialog } from "./panels/version-history/cherry-pick-dialog";
 import { SyncStatusIndicator } from "./panels/version-history/sync-status";
 import { VersionStorage } from "@/services/storage/version-storage";
 import { SyncEngine } from "@/services/sync/sync-engine";
+import { ShareProjectDialog } from "./dialogs/share-project-dialog";
 
 type DrawerTab = "history" | "diff";
 
@@ -53,6 +54,7 @@ export function VersionControlDrawer({
 	const [cherryPickOpen, setCherryPickOpen] = useState(false);
 	const [syncRepoConfigured, setSyncRepoConfigured] = useState(false);
 	const [syncSettingUp, setSyncSettingUp] = useState(false);
+	const [shareDialogOpen, setShareDialogOpen] = useState(false);
 
 	// The commit currently selected in the History tab — target for restore /
 	// cherry-pick actions.
@@ -222,9 +224,9 @@ export function VersionControlDrawer({
 						</>
 					)}
 
-					{/* Cloud sync */}
+					{/* Cloud sync + sharing */}
 					<Separator />
-					<div className="px-4 py-2">
+					<div className="px-4 py-2 flex flex-col gap-2">
 						{syncRepoConfigured && syncEngine ? (
 							<SyncStatusIndicator syncEngine={syncEngine} />
 						) : (
@@ -243,6 +245,20 @@ export function VersionControlDrawer({
 								</Button>
 							</div>
 						)}
+						<div className="flex items-center justify-between">
+							<span className="text-[11px] text-muted-foreground">
+								Teamwork
+							</span>
+							<Button
+								size="sm"
+								variant="outline"
+								className="h-7 text-[11px]"
+								onClick={() => setShareDialogOpen(true)}
+								disabled={!projectId}
+							>
+								Share with teammates
+							</Button>
+						</div>
 					</div>
 
 					{/* Action buttons */}
@@ -293,6 +309,16 @@ export function VersionControlDrawer({
 				onOpenChange={setCherryPickOpen}
 				commit={selectedCommit}
 			/>
+			{projectId && (
+				<ShareProjectDialog
+					isOpen={shareDialogOpen}
+					onOpenChange={setShareDialogOpen}
+					projectId={projectId}
+					projectName={
+						editor.project.getActiveOrNull()?.metadata.name ?? "Untitled"
+					}
+				/>
+			)}
 		</>
 	);
 }

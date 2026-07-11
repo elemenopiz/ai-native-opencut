@@ -1,16 +1,15 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import {
-	commits,
-	branches,
-	tags,
-	projectRepositories,
-} from "@/lib/db/schema-version-control";
+import { commits, branches, tags } from "@/lib/db/schema-version-control";
 import { auth } from "@/lib/auth/server";
 import { headers } from "next/headers";
 import { eq } from "drizzle-orm";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import {
+	checkRepoAccess,
+	checkRepoWriteAccess,
+} from "@/lib/db/version-control-utils";
 
 /** Max entities per push array — matches the commits route's batch clamp. */
 const MAX_PUSH_BATCH = 200;
@@ -65,13 +64,9 @@ export async function POST(
 
 		const { repoId } = await params;
 
-		// Verify the caller owns this repo before reading or writing its history.
-		const [repo] = await db
-			.select({ userId: projectRepositories.userId })
-			.from(projectRepositories)
-			.where(eq(projectRepositories.id, repoId))
-			.limit(1);
-		if (!repo || repo.userId !== session.user.id) {
+		// Membership-aware access: any role (owner/editor/viewer) may pull, but
+		// pushing history requires write access — viewers sync read-only.
+		if (!(await checkRepoAccess(repoId, session.user.id))) {
 			return NextResponse.json({ error: "Not found" }, { status: 404 });
 		}
 
@@ -82,6 +77,17 @@ export async function POST(
 		}
 
 		const { knownCommitIds, pushCommits, pushBranches, pushTags } = parsed.data;
+
+		const isPushing =
+			(pushCommits?.length ?? 0) > 0 ||
+			(pushBranches?.length ?? 0) > 0 ||
+			(pushTags?.length ?? 0) > 0;
+		if (isPushing && !(await checkRepoWriteAccess(repoId, session.user.id))) {
+			return NextResponse.json(
+				{ error: "Forbidden", message: "You have view-only access" },
+				{ status: 403 },
+			);
+		}
 
 		// ── Push: insert new commits from client ──────────────────────────
 		let pushedCount = 0;

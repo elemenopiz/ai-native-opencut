@@ -6,7 +6,7 @@ import { headers } from "next/headers";
 import { eq, and } from "drizzle-orm";
 import {
 	checkRepoAccess,
-	checkRepoOwner,
+	checkRepoWriteAccess,
 } from "@/lib/db/version-control-utils";
 
 export async function DELETE(
@@ -20,9 +20,8 @@ export async function DELETE(
 		}
 
 		const { repoId, name } = await params;
-		// WRITE gate: only the repo owner may delete tags (no tag-permission
-		// concept exists in the schema).
-		if (!(await checkRepoOwner(repoId, session.user.id))) {
+		// WRITE gate: the owner or a shared-project editor may delete tags.
+		if (!(await checkRepoWriteAccess(repoId, session.user.id))) {
 			const visible = await checkRepoAccess(repoId, session.user.id);
 			return NextResponse.json(
 				{ error: visible ? "Forbidden" : "Not found" },
