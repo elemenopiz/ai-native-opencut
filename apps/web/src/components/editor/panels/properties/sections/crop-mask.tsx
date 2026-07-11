@@ -24,6 +24,9 @@ const MASK_SHAPES: { type: MaskShape["type"]; label: string }[] = [
 	{ type: "rectangle", label: "Rect" },
 	{ type: "ellipse", label: "Ellipse" },
 	{ type: "star", label: "Star" },
+	{ type: "heart", label: "Heart" },
+	{ type: "diamond", label: "Diamond" },
+	{ type: "split", label: "Split" },
 	{ type: "cinematic-bars", label: "Bars" },
 ];
 
@@ -207,14 +210,14 @@ export function CropMaskSection({
 				<SectionContent>
 					<SectionFields>
 						<SectionField label="Shape">
-							<div className="flex gap-1">
+							<div className="flex flex-wrap gap-1">
 								{MASK_SHAPES.map((shape) => (
 									<Button
 										key={shape.type}
 										type="button"
 										variant={mask?.type === shape.type ? "secondary" : "ghost"}
 										size="sm"
-										className="flex-1 h-7 text-[10px]"
+										className="h-7 min-w-[3.5rem] flex-1 basis-[30%] text-[10px]"
 										onClick={() => setMaskShape(shape.type)}
 									>
 										{shape.label}
@@ -251,13 +254,43 @@ export function CropMaskSection({
 											step={1}
 										/>
 									</SectionField>
-									{resolvedMask.type !== "cinematic-bars" && (
-										<SectionField label="Width">
+									{resolvedMask.type !== "cinematic-bars" &&
+										resolvedMask.type !== "split" && (
+											<SectionField label="Width">
+												<NumberField
+													value={(resolvedMask.width * 100).toFixed(0)}
+													onChange={(e) => {
+														const n = parseFloat(e.target.value);
+														if (!isNaN(n))
+															updateMask({
+																width:
+																	Math.max(
+																		MIN_MASK_DIMENSION * 100,
+																		Math.min(MAX_MASK_DIMENSION * 100, n),
+																	) / 100,
+															});
+													}}
+													onBlur={() => {}}
+													min={MIN_MASK_DIMENSION * 100}
+													max={MAX_MASK_DIMENSION * 100}
+													step={1}
+												/>
+											</SectionField>
+										)}
+									{resolvedMask.type !== "split" && (
+										<SectionField label="Height">
 											<NumberField
-												value={(resolvedMask.width * 100).toFixed(0)}
+												value={(resolvedMask.height * 100).toFixed(0)}
 												onChange={(e) => {
 													const n = parseFloat(e.target.value);
-													if (!isNaN(n)) updateMask({ width: Math.max(MIN_MASK_DIMENSION * 100, Math.min(MAX_MASK_DIMENSION * 100, n)) / 100 });
+													if (!isNaN(n))
+														updateMask({
+															height:
+																Math.max(
+																	MIN_MASK_DIMENSION * 100,
+																	Math.min(MAX_MASK_DIMENSION * 100, n),
+																) / 100,
+														});
 												}}
 												onBlur={() => {}}
 												min={MIN_MASK_DIMENSION * 100}
@@ -266,19 +299,6 @@ export function CropMaskSection({
 											/>
 										</SectionField>
 									)}
-									<SectionField label="Height">
-										<NumberField
-											value={(resolvedMask.height * 100).toFixed(0)}
-											onChange={(e) => {
-												const n = parseFloat(e.target.value);
-												if (!isNaN(n)) updateMask({ height: Math.max(MIN_MASK_DIMENSION * 100, Math.min(MAX_MASK_DIMENSION * 100, n)) / 100 });
-											}}
-											onBlur={() => {}}
-											min={MIN_MASK_DIMENSION * 100}
-											max={MAX_MASK_DIMENSION * 100}
-											step={1}
-										/>
-									</SectionField>
 									<SectionField label="Rotation">
 										<NumberField
 											value={resolvedMask.rotation.toFixed(0)}

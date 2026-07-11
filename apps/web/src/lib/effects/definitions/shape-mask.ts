@@ -8,6 +8,9 @@ const SHAPE_INDEX: Record<MaskShapeType, number> = {
 	ellipse: 1,
 	star: 2,
 	"cinematic-bars": 3,
+	split: 4,
+	heart: 5,
+	diamond: 6,
 };
 
 export const DEFAULT_MASK_SIZE = 0.8;
@@ -85,7 +88,24 @@ export function maskShapeToEffectParams({
 export const shapeMaskEffectDefinition: EffectDefinition = {
 	type: "shape-mask",
 	name: "Shape Mask",
-	keywords: ["mask", "shape", "ellipse", "circle", "rectangle", "star", "cinematic", "bars", "letterbox", "feather", "crop"],
+	keywords: [
+		"mask",
+		"shape",
+		"ellipse",
+		"circle",
+		"rectangle",
+		"star",
+		"cinematic",
+		"bars",
+		"letterbox",
+		"feather",
+		"crop",
+		"split",
+		"wipe",
+		"reveal",
+		"heart",
+		"diamond",
+	],
 	params: [
 		{
 			key: "shape",
@@ -97,6 +117,9 @@ export const shapeMaskEffectDefinition: EffectDefinition = {
 				{ value: "ellipse", label: "Ellipse" },
 				{ value: "star", label: "Star" },
 				{ value: "cinematic-bars", label: "Cinematic Bars" },
+				{ value: "split", label: "Split" },
+				{ value: "heart", label: "Heart" },
+				{ value: "diamond", label: "Diamond" },
 			],
 		},
 		{
