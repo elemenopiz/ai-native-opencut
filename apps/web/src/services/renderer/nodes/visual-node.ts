@@ -16,6 +16,12 @@ import { getNumberChannelForPath } from "@/lib/animation/number-channel";
 import { TIME_EPSILON_SECONDS } from "@/constants/animation-constants";
 import { getEffect } from "@/lib/effects";
 import { maskShapeToEffectParams } from "@/lib/effects/definitions/shape-mask";
+import {
+	buildCustomMaskPasses,
+	getCustomMaskFeatherPx,
+	rasterizeCustomMask,
+	resolveCustomMask,
+} from "@/lib/effects/definitions/custom-mask";
 import { webglEffectRenderer } from "../webgl-effect-renderer";
 
 export interface VisualNodeParams {
@@ -217,7 +223,36 @@ export abstract class VisualNode<
 			});
 		}
 
-		if (mask) {
+		if (mask && mask.type === "custom") {
+			// Custom pen-tool path: rasterize the closed bezier path to an alpha
+			// canvas, then feather + composite it into the element frame via the
+			// texture-pass pipeline (see custom-mask.ts). Inactive paths (open or
+			// < 3 points) rasterize to null and leave the element fully visible.
+			const roundedWidth = Math.round(scaledWidth);
+			const roundedHeight = Math.round(scaledHeight);
+			const maskCanvas = rasterizeCustomMask({
+				mask,
+				width: roundedWidth,
+				height: roundedHeight,
+			});
+			if (maskCanvas) {
+				const resolved = resolveCustomMask({ mask });
+				currentResult = webglEffectRenderer.applyEffect({
+					source: maskCanvas,
+					width: roundedWidth,
+					height: roundedHeight,
+					passes: buildCustomMaskPasses({
+						featherPx: getCustomMaskFeatherPx({
+							feather: resolved.feather,
+							width: roundedWidth,
+							height: roundedHeight,
+						}),
+						inverted: resolved.inverted,
+						source: currentResult,
+					}),
+				});
+			}
+		} else if (mask) {
 			const definition = getEffect({ effectType: "shape-mask" });
 			const maskParams = maskShapeToEffectParams({ mask });
 			const passes = definition.renderer.passes.map((pass) => ({
