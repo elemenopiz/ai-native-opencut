@@ -1,6 +1,7 @@
 import { usePreviewInteraction } from "@/hooks/use-preview-interaction";
 import { TransformHandles } from "./transform-handles";
 import { MaskHandles } from "./mask-handles";
+import { PenMaskHandles } from "./pen-mask-handles";
 import { SnapGuides } from "./snap-guides";
 import { TextEditOverlay } from "./text-edit-overlay";
 
@@ -46,6 +47,7 @@ export function PreviewInteractionOverlay({
 				<>
 					<TransformHandles canvasRef={canvasRef} containerRef={containerRef} />
 					<MaskHandles canvasRef={canvasRef} containerRef={containerRef} />
+					<PenMaskHandles canvasRef={canvasRef} containerRef={containerRef} />
 				</>
 			)}
 			<SnapGuides

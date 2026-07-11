@@ -9,6 +9,15 @@ import {
 	MIN_MASK_DIMENSION,
 } from "@/lib/effects/definitions/shape-mask";
 import {
+	createDefaultCustomMask,
+	resolveCustomMask,
+} from "@/lib/effects/definitions/custom-mask";
+import {
+	getClosedStateAfterPointRemoval,
+	removeFreeformPathPoints,
+} from "@/lib/effects/masks/freeform-path";
+import { usePenMaskStore } from "@/stores/pen-mask-store";
+import {
 	Section,
 	SectionContent,
 	SectionField,
@@ -28,6 +37,7 @@ const MASK_SHAPES: { type: MaskShape["type"]; label: string }[] = [
 	{ type: "diamond", label: "Diamond" },
 	{ type: "split", label: "Split" },
 	{ type: "cinematic-bars", label: "Bars" },
+	{ type: "custom", label: "Pen" },
 ];
 
 export function CropMaskSection({
@@ -38,9 +48,19 @@ export function CropMaskSection({
 	trackId: string;
 }) {
 	const editor = useEditor();
+	const drawingElementId = usePenMaskStore((s) => s.drawingElementId);
+	const selectedPointIds = usePenMaskStore((s) => s.selectedPointIds);
+	const toggleDrawing = usePenMaskStore((s) => s.toggleDrawing);
+	const startDrawing = usePenMaskStore((s) => s.startDrawing);
+	const stopDrawing = usePenMaskStore((s) => s.stopDrawing);
+	const setSelectedPoints = usePenMaskStore((s) => s.setSelectedPoints);
+
 	const crop = element.crop ?? { top: 0, right: 0, bottom: 0, left: 0 };
 	const mask = element.mask;
-	const resolvedMask = mask ? resolveMaskShape({ mask }) : null;
+	const isCustom = mask?.type === "custom";
+	const resolvedMask = mask && !isCustom ? resolveMaskShape({ mask }) : null;
+	const customMask = mask && isCustom ? resolveCustomMask({ mask }) : null;
+	const isDrawing = drawingElementId === element.id;
 
 	const updateCrop = (updates: Partial<CropRect>) => {
 		editor.timeline.updateElements({
@@ -73,10 +93,36 @@ export function CropMaskSection({
 	};
 
 	const setMaskShape = (type: MaskShape["type"]) => {
-		// Bars use a different default geometry, so reset size when
-		// switching to or from them; otherwise keep the current geometry.
+		if (type === "custom") {
+			if (!mask || mask.type !== "custom") {
+				editor.timeline.updateElements({
+					updates: [
+						{
+							trackId,
+							elementId: element.id,
+							updates: {
+								mask: {
+									...createDefaultCustomMask(),
+									feather: mask?.feather ?? 0,
+									inverted: mask?.inverted ?? false,
+								},
+							},
+						},
+					],
+				});
+			}
+			startDrawing(element.id);
+			return;
+		}
+
+		stopDrawing();
+		// Bars use a different default geometry, so reset size when switching to
+		// or from them; also always reset when leaving the pen tool so its
+		// points/closed fields don't leak onto an analytic shape.
 		const shouldResetGeometry =
-			!mask || (mask.type === "cinematic-bars") !== (type === "cinematic-bars");
+			!mask ||
+			mask.type === "custom" ||
+			(mask.type === "cinematic-bars") !== (type === "cinematic-bars");
 		const nextMask: MaskShape = shouldResetGeometry
 			? {
 					...getDefaultMaskShape({ type }),
@@ -95,7 +141,50 @@ export function CropMaskSection({
 		});
 	};
 
+	const closePenPath = () => {
+		if (!mask || !customMask || customMask.points.length < 3) return;
+		editor.timeline.updateElements({
+			updates: [
+				{
+					trackId,
+					elementId: element.id,
+					updates: { mask: { ...mask, closed: true } },
+				},
+			],
+		});
+		stopDrawing();
+	};
+
+	const deleteSelectedPenPoints = () => {
+		if (!mask || !customMask || selectedPointIds.length === 0) return;
+		const nextPoints = removeFreeformPathPoints({
+			points: customMask.points,
+			pointIds: selectedPointIds,
+		});
+		if (nextPoints.length === customMask.points.length) return;
+		editor.timeline.updateElements({
+			updates: [
+				{
+					trackId,
+					elementId: element.id,
+					updates: {
+						mask: {
+							...mask,
+							points: nextPoints,
+							closed: getClosedStateAfterPointRemoval({
+								wasClosed: customMask.closed,
+								remainingPointCount: nextPoints.length,
+							}),
+						},
+					},
+				},
+			],
+		});
+		setSelectedPoints([]);
+	};
+
 	const removeMask = () => {
+		stopDrawing();
 		editor.timeline.updateElements({
 			updates: [
 				{
@@ -233,7 +322,10 @@ export function CropMaskSection({
 											value={(resolvedMask.centerX * 100).toFixed(0)}
 											onChange={(e) => {
 												const n = parseFloat(e.target.value);
-												if (!isNaN(n)) updateMask({ centerX: Math.max(-100, Math.min(100, n)) / 100 });
+												if (!isNaN(n))
+													updateMask({
+														centerX: Math.max(-100, Math.min(100, n)) / 100,
+													});
 											}}
 											onBlur={() => {}}
 											min={-100}
@@ -246,7 +338,10 @@ export function CropMaskSection({
 											value={(resolvedMask.centerY * 100).toFixed(0)}
 											onChange={(e) => {
 												const n = parseFloat(e.target.value);
-												if (!isNaN(n)) updateMask({ centerY: Math.max(-100, Math.min(100, n)) / 100 });
+												if (!isNaN(n))
+													updateMask({
+														centerY: Math.max(-100, Math.min(100, n)) / 100,
+													});
 											}}
 											onBlur={() => {}}
 											min={-100}
@@ -304,7 +399,10 @@ export function CropMaskSection({
 											value={resolvedMask.rotation.toFixed(0)}
 											onChange={(e) => {
 												const n = parseFloat(e.target.value);
-												if (!isNaN(n)) updateMask({ rotation: Math.max(-180, Math.min(180, n)) });
+												if (!isNaN(n))
+													updateMask({
+														rotation: Math.max(-180, Math.min(180, n)),
+													});
 											}}
 											onBlur={() => {}}
 											min={-180}
@@ -317,7 +415,10 @@ export function CropMaskSection({
 											value={(resolvedMask.feather * 100).toFixed(0)}
 											onChange={(e) => {
 												const n = parseFloat(e.target.value);
-												if (!isNaN(n)) updateMask({ feather: Math.max(0, Math.min(100, n)) / 100 });
+												if (!isNaN(n))
+													updateMask({
+														feather: Math.max(0, Math.min(100, n)) / 100,
+													});
 											}}
 											onBlur={() => {}}
 											min={0}
@@ -332,9 +433,122 @@ export function CropMaskSection({
 										variant={resolvedMask.inverted ? "secondary" : "ghost"}
 										size="sm"
 										className="h-7 text-[10px]"
-										onClick={() => updateMask({ inverted: !resolvedMask.inverted })}
+										onClick={() =>
+											updateMask({ inverted: !resolvedMask.inverted })
+										}
 									>
 										{resolvedMask.inverted ? "Inverted" : "Normal"}
+									</Button>
+								</SectionField>
+							</>
+						)}
+						{isCustom && customMask && (
+							<>
+								<SectionField label="Path">
+									<div className="flex flex-wrap gap-1">
+										<Button
+											type="button"
+											variant={isDrawing ? "secondary" : "ghost"}
+											size="sm"
+											className="h-7 flex-1 text-[10px]"
+											onClick={() => toggleDrawing(element.id)}
+										>
+											{isDrawing ? "Done" : "Draw"}
+										</Button>
+										<Button
+											type="button"
+											variant="ghost"
+											size="sm"
+											className="h-7 flex-1 text-[10px]"
+											onClick={closePenPath}
+											disabled={
+												customMask.points.length < 3 || customMask.closed
+											}
+										>
+											Close
+										</Button>
+										<Button
+											type="button"
+											variant="ghost"
+											size="sm"
+											className="h-7 flex-1 text-[10px]"
+											onClick={deleteSelectedPenPoints}
+											disabled={selectedPointIds.length === 0}
+										>
+											Delete pt
+										</Button>
+									</div>
+								</SectionField>
+								<p className="px-1 text-[10px] text-muted-foreground">
+									{customMask.points.length} point
+									{customMask.points.length === 1 ? "" : "s"}
+									{customMask.closed
+										? " · closed"
+										: isDrawing
+											? " · click canvas to add, click the first point to close"
+											: " · open (not yet rendering)"}
+								</p>
+								<div className="grid grid-cols-2 gap-2">
+									<SectionField label="Rotation">
+										<NumberField
+											value={customMask.rotation.toFixed(0)}
+											onChange={(e) => {
+												const n = parseFloat(e.target.value);
+												if (!isNaN(n))
+													updateMask({
+														rotation: Math.max(-180, Math.min(180, n)),
+													});
+											}}
+											onBlur={() => {}}
+											min={-180}
+											max={180}
+											step={1}
+										/>
+									</SectionField>
+									<SectionField label="Scale">
+										<NumberField
+											value={(customMask.scale * 100).toFixed(0)}
+											onChange={(e) => {
+												const n = parseFloat(e.target.value);
+												if (!isNaN(n))
+													updateMask({
+														scale: Math.max(10, Math.min(500, n)) / 100,
+													});
+											}}
+											onBlur={() => {}}
+											min={10}
+											max={500}
+											step={1}
+										/>
+									</SectionField>
+									<SectionField label="Feather">
+										<NumberField
+											value={(customMask.feather * 100).toFixed(0)}
+											onChange={(e) => {
+												const n = parseFloat(e.target.value);
+												if (!isNaN(n))
+													updateMask({
+														feather: Math.max(0, Math.min(100, n)) / 100,
+													});
+											}}
+											onBlur={() => {}}
+											min={0}
+											max={100}
+											step={1}
+										/>
+									</SectionField>
+								</div>
+								<SectionField label="Invert">
+									<Button
+										type="button"
+										variant={customMask.inverted ? "secondary" : "ghost"}
+										size="sm"
+										className="h-7 text-[10px]"
+										onClick={() =>
+											updateMask({ inverted: !customMask.inverted })
+										}
+									>
+										{customMask.inverted ? "Inverted" : "Normal"}
 									</Button>
 								</SectionField>
 							</>

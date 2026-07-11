@@ -154,7 +154,11 @@ export function useMaskHandles({
 	const selectedMask: ResolvedMaskShape | null =
 		selectedWithBounds &&
 		isVisualElement(selectedWithBounds.element) &&
-		selectedWithBounds.element.mask
+		selectedWithBounds.element.mask &&
+		// Custom pen-tool masks have their own overlay (pen-mask-handles.tsx);
+		// keep them out of the analytic box-handle path (resolveMaskShape would
+		// otherwise force their type to "rectangle").
+		selectedWithBounds.element.mask.type !== "custom"
 			? resolveMaskShape({ mask: selectedWithBounds.element.mask })
 			: null;
 

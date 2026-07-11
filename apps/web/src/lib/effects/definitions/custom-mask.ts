@@ -48,6 +48,21 @@ export function isCustomMaskActive({ mask }: { mask: MaskShape }): boolean {
 	return (mask.closed ?? false) && (mask.points?.length ?? 0) >= 3;
 }
 
+/** A fresh, empty pen-tool mask (no anchors yet, open path). */
+export function createDefaultCustomMask(): MaskShape {
+	return {
+		type: "custom",
+		feather: 0,
+		inverted: false,
+		centerX: 0,
+		centerY: 0,
+		rotation: 0,
+		scale: 1,
+		points: [],
+		closed: false,
+	};
+}
+
 /** Feather radius in pixels, matching the analytic shape mask's convention. */
 export function getCustomMaskFeatherPx({
 	feather,
