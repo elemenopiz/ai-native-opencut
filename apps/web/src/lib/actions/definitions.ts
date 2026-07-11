@@ -250,10 +250,6 @@ export const ACTIONS = {
 		description: "Lock/Unlock selected track",
 		category: "timeline",
 	},
-	"open-copilot": {
-		description: "Open AI Co-Pilot agent",
-		category: "ai",
-	},
 	"detect-scenes": {
 		description: "Detect visual scene changes",
 		category: "ai",
