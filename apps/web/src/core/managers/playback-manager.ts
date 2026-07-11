@@ -8,6 +8,7 @@ export class PlaybackManager {
 	private previousVolume = 1;
 	private isScrubbing = false;
 	private listeners = new Set<() => void>();
+	private timeListeners = new Set<() => void>();
 	private playbackTimer: number | null = null;
 	private lastUpdate = 0;
 	private shuttleSpeed = 0;
@@ -181,6 +182,25 @@ export class PlaybackManager {
 		this.listeners.forEach((fn) => fn());
 	}
 
+	/**
+	 * High-frequency time-tick channel, fired on every animation frame while
+	 * playing. Deliberately separate from subscribe()/notify(): the per-frame
+	 * playhead advance must NOT wake the universal editor subscription
+	 * (useEditor), which would reconcile the entire editor React tree ~60×/sec
+	 * and starve the main thread — dropping preview frames and glitching audio.
+	 * Consumers here must be cheap and update the DOM directly (the timeline
+	 * playhead, the transport timecode). Discrete state changes (play/pause/
+	 * seek/volume/scrub) still go through subscribe()/notify().
+	 */
+	subscribeTime(listener: () => void): () => void {
+		this.timeListeners.add(listener);
+		return () => this.timeListeners.delete(listener);
+	}
+
+	private notifyTime(): void {
+		this.timeListeners.forEach((fn) => fn());
+	}
+
 	private startTimer(): void {
 		if (this.playbackTimer) {
 			cancelAnimationFrame(this.playbackTimer);
@@ -241,7 +261,11 @@ export class PlaybackManager {
 			}
 		} else {
 			this.currentTime = newTime;
-			this.notify();
+			// Time-only channel: advance the playhead/timecode without waking the
+			// universal editor subscription (see subscribeTime). The end-of-range
+			// and reverse-to-zero branches above intentionally still call notify()
+			// because they are discrete settle points (playback pauses / clamps).
+			this.notifyTime();
 
 			window.dispatchEvent(
 				new CustomEvent("playback-update", {

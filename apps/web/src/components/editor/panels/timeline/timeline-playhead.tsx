@@ -1,11 +1,12 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import {
 	getCenteredLineLeft,
 	TIMELINE_INDICATOR_LINE_WIDTH_PX,
 	timelineTimeToSnappedPixels,
 } from "@/lib/timeline";
+import { TIMELINE_CONSTANTS } from "@/constants/timeline-constants";
 import { useTimelinePlayhead } from "@/hooks/timeline/use-timeline-playhead";
 import { useEditor } from "@/hooks/use-editor";
 
@@ -55,6 +56,62 @@ export function TimelinePlayhead({
 		zoomLevel,
 	});
 	const leftPosition = getCenteredLineLeft({ centerPixel: centerPosition });
+
+	// While playing, advance the playhead directly via the DOM in a RAF loop
+	// rather than through React. Playback ticks on a separate time channel
+	// (subscribeTime) that deliberately does NOT re-render the editor tree, so
+	// this component stays mounted-but-idle during playback; this effect moves
+	// the marker (and follows it with the viewport scroll) without paying for
+	// ~60Hz reconciliation of the whole editor.
+	const isPlaying = editor.playback.getIsPlaying();
+	const isScrubbing = editor.playback.getIsScrubbing();
+
+	useEffect(() => {
+		if (!isPlaying || isScrubbing) return;
+		const el = playheadRef.current;
+		if (!el) return;
+
+		let raf = 0;
+		const tick = () => {
+			const time = editor.playback.getCurrentTime();
+			const centerPixel = timelineTimeToSnappedPixels({ time, zoomLevel });
+			el.style.left = `${getCenteredLineLeft({ centerPixel })}px`;
+
+			// Follow-scroll: the React-driven equivalent in useTimelinePlayhead is
+			// frozen during playback (no re-renders), so keep the playhead in view
+			// here instead.
+			const rulerViewport = rulerScrollRef.current;
+			const tracksViewport = tracksScrollRef.current;
+			if (rulerViewport && tracksViewport) {
+				const playheadPixels =
+					time * TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel;
+				const viewportWidth = rulerViewport.clientWidth;
+				const scrollMaximum = rulerViewport.scrollWidth - viewportWidth;
+				if (
+					playheadPixels < rulerViewport.scrollLeft ||
+					playheadPixels > rulerViewport.scrollLeft + viewportWidth
+				) {
+					const desiredScroll = Math.max(
+						0,
+						Math.min(scrollMaximum, playheadPixels - viewportWidth / 2),
+					);
+					rulerViewport.scrollLeft = tracksViewport.scrollLeft = desiredScroll;
+				}
+			}
+
+			raf = requestAnimationFrame(tick);
+		};
+		raf = requestAnimationFrame(tick);
+		return () => cancelAnimationFrame(raf);
+	}, [
+		isPlaying,
+		isScrubbing,
+		zoomLevel,
+		editor.playback,
+		playheadRef,
+		rulerScrollRef,
+		tracksScrollRef,
+	]);
 
 	const handlePlayheadKeyDown = (
 		event: React.KeyboardEvent<HTMLDivElement>,
