@@ -142,18 +142,26 @@ async function downscaleImageBlob(blob: Blob): Promise<Blob> {
 	}
 	try {
 		const bitmap = await createImageBitmap(blob);
-		const canvas = document.createElement("canvas");
-		const ratio = bitmap.height / bitmap.width || 9 / 16;
-		canvas.width = SAMPLE_WIDTH;
-		canvas.height = Math.round(SAMPLE_WIDTH * ratio);
-		const ctx = canvas.getContext("2d");
-		if (!ctx) return blob;
-		ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-		bitmap.close();
-		const scaled = await new Promise<Blob | null>((resolve) =>
-			canvas.toBlob(resolve, "image/jpeg", 0.6),
-		);
-		return scaled ?? blob;
+		try {
+			const canvas = document.createElement("canvas");
+			const ratio = bitmap.height / bitmap.width || 9 / 16;
+			canvas.width = SAMPLE_WIDTH;
+			canvas.height = Math.round(SAMPLE_WIDTH * ratio);
+			const ctx = canvas.getContext("2d");
+			if (!ctx) return blob;
+			// White matte first: JPEG has no alpha, and transparent PNGs would
+			// otherwise composite to black — further from CLIP's training data.
+			ctx.fillStyle = "#fff";
+			ctx.fillRect(0, 0, canvas.width, canvas.height);
+			ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+			const scaled = await new Promise<Blob | null>((resolve) =>
+				canvas.toBlob(resolve, "image/jpeg", 0.6),
+			);
+			return scaled ?? blob;
+		} finally {
+			// Free the bitmap's pixel memory on every exit path, throws included.
+			bitmap.close();
+		}
 	} catch {
 		return blob;
 	}

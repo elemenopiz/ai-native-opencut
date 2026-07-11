@@ -185,11 +185,15 @@ describe("indexMedia", () => {
 	});
 
 	it("embeds the zero-shot label set only once per session", async () => {
-		// Both earlier indexMedia runs plus this one share the cached label
-		// vectors — the static label list never needs re-embedding.
+		// Self-contained (no reliance on earlier tests warming the cache): the
+		// first indexMedia populates the module-level label-vector cache, the
+		// second must reuse it — the static label list never needs re-embedding.
 		savedEmbeddings.clear();
-		const before = embedTexts.mock.calls.length;
 		await indexMedia(imageAsset("img-4"));
-		expect(embedTexts.mock.calls.length).toBe(before);
+		const afterFirst = embedTexts.mock.calls.length;
+		expect(afterFirst).toBeGreaterThan(0);
+		savedEmbeddings.clear();
+		await indexMedia(imageAsset("img-5"));
+		expect(embedTexts.mock.calls.length).toBe(afterFirst);
 	});
 });
