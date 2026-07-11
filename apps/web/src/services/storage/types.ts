@@ -80,7 +80,21 @@ export interface StorageConfig {
 	projectsDb: string;
 	mediaDb: string;
 	savedSoundsDb: string;
+	userLutsDb: string;
 	version: number;
+}
+
+/**
+ * A user-uploaded `.cube` LUT preset, persisted app-wide (not per-project,
+ * mirroring saved sounds). The raw file text is stored and re-parsed into the
+ * in-memory LUT registry on editor boot — see `lib/effects/lut-upload.ts`.
+ */
+export interface SavedLutData {
+	id: string;
+	label: string;
+	/** Raw `.cube` file text. */
+	cubeText: string;
+	savedAt: string;
 }
 
 // TypeScript type augmentation to add async iterator methods to FileSystemDirectoryHandle

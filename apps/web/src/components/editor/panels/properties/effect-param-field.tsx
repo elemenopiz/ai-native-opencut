@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import type {
 	EffectParamDefinition,
@@ -8,6 +8,12 @@ import type {
 } from "@/types/effects";
 import { clamp } from "@/utils/math";
 import { cubeTextToLutParam } from "@/lib/color/cube-lut";
+import {
+	DEFAULT_LUT_ID,
+	getLutPresetOptions,
+	subscribeLutRegistry,
+} from "@/lib/effects/lut-registry";
+import { importLutFile } from "@/lib/effects/lut-upload";
 import { SectionField } from "./section";
 import { Slider } from "@/components/ui/slider";
 import { NumberField } from "@/components/ui/number-field";
@@ -40,6 +46,20 @@ export function EffectParamField({
 			<div className="flex flex-col items-center gap-1.5 py-1">
 				<span className="text-[11px] text-muted-foreground">{param.label}</span>
 				<ColorWheel
+					value={typeof value === "string" ? value : param.default}
+					onPreview={onPreview}
+					onCommit={onCommit}
+				/>
+			</div>
+		);
+	}
+
+	// LUT preset pickers render a registry-fed select + import button, stacked.
+	if (param.type === "lut-select") {
+		return (
+			<div className="flex flex-col gap-1.5 py-1">
+				<span className="text-[11px] text-muted-foreground">{param.label}</span>
+				<LutSelectParamField
 					value={typeof value === "string" ? value : param.default}
 					onPreview={onPreview}
 					onCommit={onCommit}
@@ -188,6 +208,89 @@ function NumberParamField({
 				onChange={draft.onChange}
 				onBlur={draft.onBlur}
 			/>
+		</div>
+	);
+}
+
+/**
+ * Picker for the `lut-3d` effect's registry-backed "lut-select" param. The
+ * options come reactively from the LUT registry (built-in starter looks plus
+ * any uploads registered this session or rehydrated from IndexedDB), so an
+ * import here updates every open picker immediately.
+ */
+function LutSelectParamField({
+	value,
+	onPreview,
+	onCommit,
+}: {
+	value: string;
+	onPreview: (value: number | string | boolean) => void;
+	onCommit: () => void;
+}) {
+	const inputRef = useRef<HTMLInputElement>(null);
+	const options = useSyncExternalStore(
+		subscribeLutRegistry,
+		getLutPresetOptions,
+		getLutPresetOptions,
+	);
+	// A saved project can reference an upload whose hydration failed/was
+	// cleared — show "None" rather than an empty select in that case.
+	const selected = options.some((option) => option.value === value)
+		? value
+		: DEFAULT_LUT_ID;
+
+	const handleFile = async (file: File) => {
+		try {
+			const { id } = await importLutFile({ file });
+			onPreview(id);
+			onCommit();
+		} catch (error) {
+			toast.error(
+				error instanceof Error ? error.message : "Failed to import .cube LUT",
+			);
+		}
+	};
+
+	return (
+		<div className="flex flex-col gap-1.5">
+			<input
+				ref={inputRef}
+				type="file"
+				accept=".cube"
+				className="hidden"
+				onChange={(event) => {
+					const file = event.target.files?.[0];
+					// Reset so re-selecting the same file fires onChange again.
+					event.target.value = "";
+					if (file) void handleFile(file);
+				}}
+			/>
+			<Select
+				value={selected}
+				onValueChange={(selectedId) => {
+					onPreview(selectedId);
+					onCommit();
+				}}
+			>
+				<SelectTrigger className="w-full">
+					<SelectValue />
+				</SelectTrigger>
+				<SelectContent>
+					{options.map((option) => (
+						<SelectItem key={option.value} value={option.value}>
+							{option.label}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
+			<Button
+				type="button"
+				variant="outline"
+				size="sm"
+				onClick={() => inputRef.current?.click()}
+			>
+				Import .cube…
+			</Button>
 		</div>
 	);
 }

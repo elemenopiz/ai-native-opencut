@@ -11,7 +11,8 @@ export type EffectParamType =
 	| "select"
 	| "color"
 	| "wheel"
-	| "lut";
+	| "lut"
+	| "lut-select";
 
 export type EffectParamValues = Record<string, number | string | boolean>;
 
@@ -63,13 +64,28 @@ export interface LutEffectParamDefinition extends BaseEffectParamDefinition {
 	default: string;
 }
 
+/**
+ * A LUT preset picker backed by the shared LUT registry
+ * (`lib/effects/lut-registry.ts`). Unlike "lut" (which serializes the LUT
+ * data inline into the param), the stored value here is a preset **id** —
+ * built-ins ship with the app and user uploads are persisted to IndexedDB and
+ * re-registered on boot. The UI renders a select fed reactively from the
+ * registry plus an "Import .cube" button.
+ */
+export interface LutSelectEffectParamDefinition
+	extends BaseEffectParamDefinition {
+	type: "lut-select";
+	default: string;
+}
+
 export type EffectParamDefinition =
 	| NumberEffectParamDefinition
 	| BooleanEffectParamDefinition
 	| SelectEffectParamDefinition
 	| ColorEffectParamDefinition
 	| WheelEffectParamDefinition
-	| LutEffectParamDefinition;
+	| LutEffectParamDefinition
+	| LutSelectEffectParamDefinition;
 
 /**
  * An auxiliary texture bound alongside the pass input. The pass input is always

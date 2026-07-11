@@ -9,7 +9,7 @@ import { SaveManager } from "./managers/save-manager";
 import { AudioManager } from "./managers/audio-manager";
 import { SelectionManager } from "./managers/selection-manager";
 import { VersionManager } from "./managers/version-manager";
-import { registerDefaultEffects } from "@/lib/effects";
+import { hydrateUserLutPresets, registerDefaultEffects } from "@/lib/effects";
 import { registerDefaultTransitions } from "@/lib/transitions";
 
 export class EditorCore {
@@ -29,6 +29,9 @@ export class EditorCore {
 
 	private constructor() {
 		registerDefaultEffects();
+		// Fire-and-forget: re-register the user's saved `.cube` LUT presets so
+		// saved projects that reference them render correctly after reload.
+		void hydrateUserLutPresets();
 		registerDefaultTransitions();
 		this.command = new CommandManager();
 		this.playback = new PlaybackManager(this);

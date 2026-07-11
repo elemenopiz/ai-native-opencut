@@ -5,6 +5,7 @@ import { IndexedDBAdapter } from "./indexeddb-adapter";
 import { OPFSAdapter } from "./opfs-adapter";
 import type {
 	MediaAssetData,
+	SavedLutData,
 	StorageConfig,
 	SerializedProject,
 	SerializedScene,
@@ -187,6 +188,7 @@ export function deserializeProject({
 class StorageService {
 	private projectsAdapter: IndexedDBAdapter<SerializedProject>;
 	private savedSoundsAdapter: IndexedDBAdapter<SavedSoundsData>;
+	private userLutsAdapter: IndexedDBAdapter<SavedLutData>;
 	private config: StorageConfig;
 	private migrationsPromise: Promise<void> | null = null;
 
@@ -195,6 +197,7 @@ class StorageService {
 			projectsDb: "video-editor-projects",
 			mediaDb: "video-editor-media",
 			savedSoundsDb: "video-editor-saved-sounds",
+			userLutsDb: "video-editor-user-luts",
 			version: 1,
 		};
 
@@ -207,6 +210,12 @@ class StorageService {
 		this.savedSoundsAdapter = new IndexedDBAdapter<SavedSoundsData>(
 			this.config.savedSoundsDb,
 			"saved-sounds",
+			this.config.version,
+		);
+
+		this.userLutsAdapter = new IndexedDBAdapter<SavedLutData>(
+			this.config.userLutsDb,
+			"user-luts",
 			this.config.version,
 		);
 	}
@@ -595,6 +604,23 @@ class StorageService {
 			console.error("Failed to clear saved sounds:", error);
 			throw error;
 		}
+	}
+
+	async saveUserLut({ lut }: { lut: SavedLutData }): Promise<void> {
+		await this.userLutsAdapter.set(lut.id, lut);
+	}
+
+	async loadUserLuts(): Promise<SavedLutData[]> {
+		try {
+			return await this.userLutsAdapter.getAll();
+		} catch (error) {
+			console.error("Failed to load saved LUTs:", error);
+			return [];
+		}
+	}
+
+	async removeUserLut({ id }: { id: string }): Promise<void> {
+		await this.userLutsAdapter.remove(id);
 	}
 
 	isOPFSSupported(): boolean {
