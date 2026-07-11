@@ -18,7 +18,10 @@ export type MaskShapeType =
 	| "rectangle"
 	| "ellipse"
 	| "star"
-	| "cinematic-bars";
+	| "cinematic-bars"
+	| "split"
+	| "heart"
+	| "diamond";
 
 export interface MaskShape {
 	type: MaskShapeType;
