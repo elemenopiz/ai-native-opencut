@@ -20,7 +20,14 @@ let warmCalls: { mediaId: string; time: number }[] = [];
 
 const mockCanvas = { width: 320, height: 240 } as unknown as HTMLCanvasElement;
 
+// bun's mock.module is process-global: it replaces the module for every test
+// file in the run, not just this one. Spread the real exports so files that
+// need them (service.test.ts constructs `new VideoCache()`) keep working
+// regardless of file order.
+const actualVideoCacheModule = await import("@/services/video-cache/service");
+
 mock.module("@/services/video-cache/service", () => ({
+	...actualVideoCacheModule,
 	WARM_LOOKAHEAD_SECONDS: 1.0,
 	videoCache: {
 		getFrameAt: async (args: GetFrameAtArgs) => {
