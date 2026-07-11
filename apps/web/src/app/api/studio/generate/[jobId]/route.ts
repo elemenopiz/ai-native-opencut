@@ -15,6 +15,9 @@ import { enforceRateLimit } from "@/lib/rate-limit";
 import { holdFor, release, settle } from "@/lib/credits/ledger";
 import { STUDIO_REF_TYPE } from "@/lib/credits/metering";
 
+// A completed poll downloads the finished video and rehosts it to R2 inline.
+export const maxDuration = 60;
+
 export async function GET(
 	_req: Request,
 	{ params }: { params: Promise<{ jobId: string }> },

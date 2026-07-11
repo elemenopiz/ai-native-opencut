@@ -19,6 +19,9 @@ import {
 	STUDIO_REF_TYPE,
 } from "@/lib/credits/metering";
 
+// gpt-image /images/edits render + R2 rehost in one request.
+export const maxDuration = 120;
+
 // POST — render a per-shot reference still of this persona in a new scene via
 // gpt-image-2 /images/edits. The returned imageUrl becomes the Seedance
 // image-to-video reference frame (High-consistency mode).

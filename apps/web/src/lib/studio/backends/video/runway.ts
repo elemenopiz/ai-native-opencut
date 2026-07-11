@@ -23,6 +23,7 @@
 
 import { webEnv } from "@byorn/env/web";
 import { estimateVideoCredits } from "@/lib/studio/backends/cost";
+import { fetchWithTimeout } from "@/lib/studio/fetch-timeout";
 import type {
 	BackendRequest,
 	CostEstimate,
@@ -96,7 +97,7 @@ async function runwayFetch(
 ): Promise<RunwayTask> {
 	const key = apiKey();
 	if (!key) throw new Error("RUNWAY_API_KEY is not configured");
-	const res = await fetch(`${runwayBase()}${path}`, {
+	const res = await fetchWithTimeout(`${runwayBase()}${path}`, {
 		...init,
 		headers: {
 			...init.headers,

@@ -33,6 +33,10 @@ import {
 } from "@/lib/credits/metering";
 import type { GenerationSpec, Provenance, TakeCost } from "@/types/timeline";
 
+// High-consistency mode renders an inline persona still (gpt-image edit +
+// R2 rehost) before submitting the video job — well past the platform default.
+export const maxDuration = 120;
+
 /** Max value BytePlus accepts for a seed (signed 32-bit). */
 const MAX_SEED = 2_147_483_647;
 

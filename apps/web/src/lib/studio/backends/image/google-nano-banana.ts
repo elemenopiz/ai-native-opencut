@@ -15,6 +15,7 @@
 
 import { webEnv } from "@byorn/env/web";
 import { nanoid } from "nanoid";
+import { fetchWithTimeout, MEDIA_TIMEOUT_MS } from "@/lib/studio/fetch-timeout";
 import type {
 	BackendRequest,
 	CostEstimate,
@@ -68,7 +69,8 @@ function mapQualityToImageSize(quality?: ImageQuality): "1K" | "2K" {
 async function fetchAsInlineData(
 	url: string,
 ): Promise<{ mimeType: string; base64: string }> {
-	const res = await fetch(url);
+	// Reference image download — media bytes, so the longer budget applies.
+	const res = await fetchWithTimeout(url, { timeoutMs: MEDIA_TIMEOUT_MS });
 	if (!res.ok) {
 		throw new Error(`Failed to fetch reference image (${res.status})`);
 	}
@@ -104,13 +106,20 @@ export const googleNanoBananaBackend: GenerationBackend = {
 
 	estimateCost(req: BackendRequest): CostEstimate {
 		const credits = CREDITS_BY_QUALITY[req.quality ?? "high"] ?? 14;
-		return { credits, basis: `Nano Banana (${mapQualityToImageSize(req.quality)})` };
+		return {
+			credits,
+			basis: `Nano Banana (${mapQualityToImageSize(req.quality)})`,
+		};
 	},
 
 	async submit(req: BackendRequest): Promise<SubmitResult> {
 		const key = webEnv.GEMINI_API_KEY;
 		if (!key) {
-			return { jobId: "", status: "failed", error: "GEMINI_API_KEY is not configured" };
+			return {
+				jobId: "",
+				status: "failed",
+				error: "GEMINI_API_KEY is not configured",
+			};
 		}
 
 		try {
@@ -136,9 +145,11 @@ export const googleNanoBananaBackend: GenerationBackend = {
 				},
 			};
 
-			const res = await fetch(
+			// Sync generation returning inline base64 image bytes — media budget.
+			const res = await fetchWithTimeout(
 				`${GEMINI_BASE}/models/${NANO_BANANA_MODEL}:generateContent`,
 				{
+					timeoutMs: MEDIA_TIMEOUT_MS,
 					method: "POST",
 					headers: {
 						"x-goog-api-key": key,

@@ -1,5 +1,6 @@
 import type { EditorCore } from "@/core";
 import { getDragData } from "@/lib/drag-data";
+import { fetchWithTimeout, MEDIA_TIMEOUT_MS } from "@/lib/studio/fetch-timeout";
 
 /**
  * Shared helpers for attaching reference media in the Generate panel. A
@@ -19,7 +20,12 @@ export async function uploadReferenceFile(
 ): Promise<UploadedReference> {
 	const body = new FormData();
 	body.append("file", file);
-	const res = await fetch("/api/studio/upload", { method: "POST", body });
+	// Whole-file upload to R2 — media budget.
+	const res = await fetchWithTimeout("/api/studio/upload", {
+		timeoutMs: MEDIA_TIMEOUT_MS,
+		method: "POST",
+		body,
+	});
 	const data = (await res.json()) as {
 		url?: string;
 		kind?: "image" | "video";

@@ -25,6 +25,8 @@ import {
 	STUDIO_REF_TYPE,
 } from "@/lib/credits/metering";
 
+export const maxDuration = 60;
+
 export async function POST(
 	_req: Request,
 	{ params }: { params: Promise<{ takeId: string }> },

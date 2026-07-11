@@ -22,6 +22,9 @@ import {
 	STUDIO_REF_TYPE,
 } from "@/lib/credits/metering";
 
+// Synchronous image generation (+ optional R2 rehost) in one request.
+export const maxDuration = 60;
+
 export async function POST(req: Request) {
 	try {
 		// Paid image generation — bills our provider key, so require a signed-in user.
