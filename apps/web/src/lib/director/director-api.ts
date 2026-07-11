@@ -1721,10 +1721,10 @@ export function createDirectorApi(
 		if (input.record !== false) {
 			const briefLine = styleBibleToBriefLine(derived.style);
 			const patch: BriefPatch = {};
-			if (briefLine) patch.styleBible = briefLine;
+			if (briefLine) patch.styleNote = briefLine;
 			const note = derived.summary?.trim();
 			if (note) patch.notes = [`Reference look: ${note}`];
-			if (patch.styleBible || patch.notes) {
+			if (patch.styleNote || patch.notes) {
 				persistBrief(applyBriefPatch(readBrief(), patch));
 				applied.push("recorded the look on the director brief");
 			}
@@ -2681,7 +2681,7 @@ export function createDirectorApi(
 	// ---- BRIEF (durable creative intent) ----------------------------------
 	//
 	// The DIRECTOR BRIEF is the agent's persistent memory of the user's goal,
-	// audience, tone, style bible, do/don't constraints, and learned notes. Unlike
+	// audience, tone, one-line style note, do/don't constraints, and learned notes. Unlike
 	// the session-only consistency context above, it lives on the active `TProject`
 	// (via `editor.project.getDirectorBrief`/`setDirectorBrief`) and is serialized
 	// with the project, so a stated preference survives reloads and sessions. The
@@ -2736,7 +2736,7 @@ export function createDirectorApi(
 	}
 
 	/**
-	 * Update the durable brief. Scalar fields (goal/audience/tone/styleBible)
+	 * Update the durable brief. Scalar fields (goal/audience/tone/styleNote)
 	 * REPLACE; `dos`/`donts` APPEND (deduped); `notes` append learned one-liners
 	 * (capped). An empty string clears a scalar. Returns the merged brief.
 	 */

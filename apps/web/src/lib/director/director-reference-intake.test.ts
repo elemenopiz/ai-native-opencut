@@ -102,7 +102,7 @@ describe("intakeReferences — style derivation", () => {
 		await director.intakeReferences({ mediaIds: ["m1"] });
 
 		const brief = readBrief();
-		expect(brief.styleBible).toBe(
+		expect(brief.styleNote).toBe(
 			"bleached teal + faded orange; 16mm grain, handheld; empty boardwalk, golden hour",
 		);
 		expect(brief.notes?.[0]).toContain("a sun-bleached seaside film look");

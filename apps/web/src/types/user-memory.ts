@@ -52,7 +52,7 @@ export interface UserBibleDefaults {
 	styleBible?: StyleBible;
 	/**
 	 * The durable slice of the {@link DirectorBrief} that recurs across reels:
-	 * `tone`, the `styleBible` style line, reusable `dos`/`donts`, and the notes a
+	 * `tone`, the `styleNote` style line, reusable `dos`/`donts`, and the notes a
 	 * Director explicitly marked as persistent. The project-specific `goal` and
 	 * `audience` are intentionally never promoted.
 	 */

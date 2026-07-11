@@ -69,8 +69,14 @@ export interface DirectorBrief {
 	audience?: string;
 	/** Desired mood/voice (e.g. "warm, playful, handheld"). */
 	tone?: string;
-	/** Style bible: reusable visual/edit rules (color grade, pacing, framing). */
-	styleBible?: string;
+	/**
+	 * One-line style note: reusable visual/edit rules (color grade, pacing,
+	 * framing). Renamed from the legacy `styleBible` string key (which collided
+	 * with the structured `ProjectBible.styleBible` look) — stored briefs with the
+	 * old key are migrated on read via `migrateLegacyBrief` in
+	 * `lib/director/director-brief.ts`.
+	 */
+	styleNote?: string;
 	/** Positive constraints — things every shot SHOULD do. */
 	dos?: string[];
 	/** Negative constraints — things to AVOID. */

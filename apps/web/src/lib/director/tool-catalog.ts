@@ -305,7 +305,13 @@ export function asBriefPatch(args: Record<string, unknown>): BriefPatch {
 	if (args.goal != null) patch.goal = str(args.goal);
 	if (args.audience != null) patch.audience = str(args.audience);
 	if (args.tone != null) patch.tone = str(args.tone);
-	if (args.styleBible != null) patch.styleBible = str(args.styleBible);
+	if (args.styleNote != null) {
+		patch.styleNote = str(args.styleNote);
+	} else if (args.styleBible != null) {
+		// Legacy alias: pre-rename agents (and stored MCP clients) still send
+		// `styleBible` for the one-line style string — accept it as `styleNote`.
+		patch.styleNote = str(args.styleBible);
+	}
 	const dos = asStringList(args.dos);
 	if (dos) patch.dos = dos;
 	const donts = asStringList(args.donts);
@@ -1123,7 +1129,7 @@ export function toolCatalog(): ToolDescriptor[] {
 		{
 			name: "getBrief",
 			description:
-				"read the persistent DIRECTOR BRIEF (goal, audience, tone, style bible, do/don't, learned notes). It's already summarized in your system prompt — call this only to re-check the full brief mid-task.",
+				"read the persistent DIRECTOR BRIEF (goal, audience, tone, style note, do/don't, learned notes). It's already summarized in your system prompt — call this only to re-check the full brief mid-task.",
 			mutating: false,
 			inputSchema: EMPTY,
 			handler: (d) => d.getBrief(),
@@ -1131,7 +1137,7 @@ export function toolCatalog(): ToolDescriptor[] {
 		{
 			name: "updateBrief",
 			description:
-				"record the user's creative intent in the durable brief whenever they state a preference or you learn one (e.g. after chooseTake). Scalars (goal/audience/tone/styleBible) REPLACE; dos/donts APPEND; note/notes APPEND learned one-liners. Persisted per project so future turns and sessions inherit it.",
+				"record the user's creative intent in the durable brief whenever they state a preference or you learn one (e.g. after chooseTake). Scalars (goal/audience/tone/styleNote) REPLACE; dos/donts APPEND; note/notes APPEND learned one-liners. Persisted per project so future turns and sessions inherit it.",
 			mutating: true,
 			inputSchema: {
 				type: "object",
@@ -1142,10 +1148,10 @@ export function toolCatalog(): ToolDescriptor[] {
 						type: "string",
 						description: "Desired mood/voice (e.g. 'warm, playful, handheld').",
 					},
-					styleBible: {
+					styleNote: {
 						type: "string",
 						description:
-							"Reusable visual/edit rules (color grade, pacing, framing).",
+							"One-line reusable visual/edit rules (color grade, pacing, framing). (Formerly `styleBible`, still accepted as a legacy alias.)",
 					},
 					dos: {
 						type: "array",

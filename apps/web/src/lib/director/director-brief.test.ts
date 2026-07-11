@@ -5,6 +5,7 @@ import {
 	emptyBrief,
 	isBriefEmpty,
 	MAX_BRIEF_NOTES,
+	migrateLegacyBrief,
 	summarizeBrief,
 } from "./director-brief";
 import type { DirectorBrief, TProject } from "@/types/project";
@@ -120,7 +121,7 @@ describe("director brief persistence (serialize → reload round-trip)", () => {
 				goal: "drive app signups",
 				audience: "Gen-Z creators",
 				tone: "warm, handheld",
-				styleBible: "golden-hour grade, quick cuts",
+				styleNote: "golden-hour grade, quick cuts",
 				dos: ["natural light"],
 				donts: ["no stock-footage look"],
 				notes: ["user prefers warm tones, handheld feel"],
@@ -148,5 +149,43 @@ describe("director brief persistence (serialize → reload round-trip)", () => {
 
 		const reloaded = deserializeProject({ serializedProject: legacy });
 		expect(reloaded.directorBrief).toBeUndefined();
+	});
+});
+
+// ── legacy styleBible → styleNote migration (one-way, on read) ────────────────
+
+describe("migrateLegacyBrief", () => {
+	it("moves a legacy `styleBible` string into `styleNote` and drops the old key", () => {
+		const stored = {
+			tone: "warm",
+			styleBible: "golden-hour grade, quick cuts",
+		} as DirectorBrief;
+		const migrated = migrateLegacyBrief(stored);
+		expect(migrated?.styleNote).toBe("golden-hour grade, quick cuts");
+		expect(migrated && "styleBible" in migrated).toBe(false);
+		expect(migrated?.tone).toBe("warm"); // other fields untouched
+	});
+
+	it("keeps an already-set `styleNote` when both keys are present (styleNote wins)", () => {
+		const stored = {
+			styleNote: "cool grade",
+			styleBible: "old value",
+		} as DirectorBrief;
+		const migrated = migrateLegacyBrief(stored);
+		expect(migrated?.styleNote).toBe("cool grade");
+		expect(migrated && "styleBible" in migrated).toBe(false);
+	});
+
+	it("drops an empty legacy key without inventing a styleNote", () => {
+		const stored = { tone: "warm", styleBible: "  " } as DirectorBrief;
+		const migrated = migrateLegacyBrief(stored);
+		expect(migrated?.styleNote).toBeUndefined();
+		expect(migrated && "styleBible" in migrated).toBe(false);
+	});
+
+	it("passes through briefs with no legacy key (same reference) and undefined", () => {
+		const brief: DirectorBrief = { tone: "warm", styleNote: "x" };
+		expect(migrateLegacyBrief(brief)).toBe(brief);
+		expect(migrateLegacyBrief(undefined)).toBeUndefined();
 	});
 });
