@@ -45,20 +45,27 @@ export async function PATCH(
 			);
 		}
 
-		// The take must belong to the caller — resolve ownership through its parent
-		// set (takes carry no userId of their own). A miss or a cross-user take both
-		// return 404, so the endpoint never confirms another user's take exists.
+		// The take must belong to the caller. Prefer the take's own ownerId
+		// (denormalized tenancy column); legacy rows (NULL, pre-backfill) resolve
+		// through the parent set. A miss or a cross-user take both return 404, so
+		// the endpoint never confirms another user's take exists.
 		const take = await db.query.takes.findFirst({
 			where: eq(takes.id, takeId),
 		});
 		if (!take) {
 			return NextResponse.json({ error: "Take not found" }, { status: 404 });
 		}
-		const set = await db.query.generationSets.findFirst({
-			where: eq(generationSets.id, take.setId),
-		});
-		if (!set || set.userId !== session.user.id) {
-			return NextResponse.json({ error: "Take not found" }, { status: 404 });
+		if (take.ownerId) {
+			if (take.ownerId !== session.user.id) {
+				return NextResponse.json({ error: "Take not found" }, { status: 404 });
+			}
+		} else {
+			const set = await db.query.generationSets.findFirst({
+				where: eq(generationSets.id, take.setId),
+			});
+			if (!set || set.userId !== session.user.id) {
+				return NextResponse.json({ error: "Take not found" }, { status: 404 });
+			}
 		}
 
 		const updated = await db

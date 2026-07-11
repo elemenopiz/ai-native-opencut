@@ -19,6 +19,18 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
  *   - sets GET               — leaked generation history / video URLs for any
  *     ?userId=; now requires a session and is scoped to it.
  *
+ * Studio-tenancy pass (ownerId on takes + board_items):
+ *
+ *   - board GET              — was single-tenant (every signed-in user saw the
+ *     same rows); now filters by the session user's ownerId.
+ *   - board POST             — could pin (and thereby read) ANY user's take or
+ *     image still by id; now verifies the pinned artifact belongs to the
+ *     caller (cross-user → 404) and stamps ownerId from the session.
+ *   - board DELETE           — could unpin any user's board item by id; now
+ *     scopes the delete to the caller's rows (cross-user id → 404).
+ *   - takes/[takeId] PATCH   — ownership now resolves via the take's own
+ *     ownerId first (legacy NULL rows still fall back to the parent set).
+ *
  * The routes bind `db` / `auth` / `next/headers` at import time, so the mocks
  * are registered BEFORE the handlers are dynamically imported. Behavior is
  * driven by a mutable `state` reset in beforeEach.
@@ -27,14 +39,18 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
 interface Fixtures {
 	session: { user: { id: string; name: string; image: string | null } } | null;
 	/** The single take returned by db.query.takes.findFirst. */
-	take: { id: string; setId: string } | null;
+	take: { id: string; setId: string; ownerId?: string | null } | null;
 	/** The single set returned by db.query.generationSets.findFirst. */
 	set: { id: string; userId: string | null } | null;
+	/** The single still returned by db.query.imageStills.findFirst. */
+	imageStill: { id: string; userId: string | null } | null;
+	/** Rows the thenable db.select() chain resolves to. */
+	selectReturns: unknown[];
 	/** Rows db.delete(...).returning() yields (drives the DELETE 404 path). */
 	deleteReturns: unknown[];
 	/** Every insert the handler attempted (table + values). */
 	inserts: Array<{ table: unknown; values: unknown }>;
-	/** The `where` option captured from the last findMany / delete call. */
+	/** The `where` option captured from the last findMany / select / delete call. */
 	lastWhere: unknown;
 }
 
@@ -42,6 +58,8 @@ const state: Fixtures = {
 	session: { user: { id: "owner-1", name: "Owner", image: null } },
 	take: null,
 	set: null,
+	imageStill: null,
+	selectReturns: [],
 	deleteReturns: [],
 	inserts: [],
 	lastWhere: undefined,
@@ -64,6 +82,9 @@ const fakeDb = {
 				state.lastWhere = opts?.where;
 				return [];
 			},
+		},
+		imageStills: {
+			findFirst: async () => state.imageStill,
 		},
 	},
 	insert(table: unknown) {
@@ -93,12 +114,24 @@ const fakeDb = {
 			},
 		};
 	},
-	// sets GET attaches takes via db.select().from(takes)...
+	// Thenable select chain — covers every shape the routes use:
+	//   sets GET:   db.select().from(takes).where(..).orderBy(..)          → await
+	//   board GET:  db.select().from(boardItems).where(..).orderBy(..)     → await
+	//   board POST: db.select().from(boardItems).where(..).orderBy(..).limit(1)
 	select() {
 		const q: Record<string, unknown> = {
 			from: () => q,
-			where: () => q,
-			orderBy: async () => [],
+			where: (cond: unknown) => {
+				state.lastWhere = cond;
+				return q;
+			},
+			orderBy: () => q,
+			limit: () => q,
+			// biome-ignore lint/suspicious/noThenProperty: drizzle query builders are thenable — the mock must be awaitable at any point in the chain
+			then: (
+				resolve: (rows: unknown[]) => unknown,
+				reject: (err: unknown) => unknown,
+			) => Promise.resolve(state.selectReturns).then(resolve, reject),
 		};
 		return q;
 	},
@@ -116,6 +149,11 @@ const { POST: personasPOST, GET: personasGET } = await import(
 );
 const { DELETE: personaDELETE } = await import("../personas/[id]/route");
 const { GET: setsGET } = await import("../sets/route");
+const {
+	GET: boardGET,
+	POST: boardPOST,
+	DELETE: boardDELETE,
+} = await import("../board/route");
 
 function jsonRequest(body: unknown, url = "http://localhost/x") {
 	return {
@@ -134,6 +172,8 @@ beforeEach(() => {
 	state.session = { user: { id: "owner-1", name: "Owner", image: null } };
 	state.take = null;
 	state.set = null;
+	state.imageStill = null;
+	state.selectReturns = [];
 	state.deleteReturns = [];
 	state.inserts = [];
 	state.lastWhere = undefined;
@@ -267,5 +307,127 @@ describe("sets GET — session-scoped (no ?userId leak)", () => {
 		const res = await setsGET();
 		expect(res.status).toBe(200);
 		expect(state.lastWhere).toBeDefined();
+	});
+});
+
+describe("takes/[takeId] PATCH — denormalized ownerId is checked first", () => {
+	it("404s when the take's own ownerId belongs to another user", async () => {
+		state.session = { user: { id: "attacker", name: "A", image: null } };
+		// No parent-set fallback needed — ownerId alone must reject the caller.
+		state.take = { id: "t1", setId: "s1", ownerId: "owner-1" };
+		state.set = null;
+		const res = await takesPATCH(
+			jsonRequest({ starred: true }),
+			takeParams("t1"),
+		);
+		expect(res.status).toBe(404);
+	});
+
+	it("updates the take when its ownerId matches the caller", async () => {
+		state.take = { id: "t1", setId: "s1", ownerId: "owner-1" };
+		state.set = null;
+		const res = await takesPATCH(
+			jsonRequest({ starred: true }),
+			takeParams("t1"),
+		);
+		expect(res.status).toBe(200);
+	});
+});
+
+describe("board GET — per-user tenancy (no shared board)", () => {
+	it("401s when unauthenticated", async () => {
+		state.session = null;
+		const res = await boardGET();
+		expect(res.status).toBe(401);
+	});
+
+	it("returns 200 and scopes the read to the session owner", async () => {
+		const res = await boardGET();
+		expect(res.status).toBe(200);
+		// The query carried an ownerId predicate — never an unscoped table read.
+		expect(state.lastWhere).toBeDefined();
+	});
+});
+
+describe("board POST — pinned artifact must belong to the caller", () => {
+	it("401s when unauthenticated", async () => {
+		state.session = null;
+		const res = await boardPOST(jsonRequest({ takeId: "t1" }));
+		expect(res.status).toBe(401);
+		expect(state.inserts).toHaveLength(0);
+	});
+
+	it("404s when pinning another user's take (IDOR)", async () => {
+		state.session = { user: { id: "attacker", name: "A", image: null } };
+		state.take = { id: "t1", setId: "s1", ownerId: "owner-1" };
+		const res = await boardPOST(jsonRequest({ takeId: "t1" }));
+		expect(res.status).toBe(404);
+		expect(state.inserts).toHaveLength(0);
+	});
+
+	it("404s when pinning a legacy take whose parent set belongs to another user", async () => {
+		state.session = { user: { id: "attacker", name: "A", image: null } };
+		state.take = { id: "t1", setId: "s1", ownerId: null };
+		state.set = { id: "s1", userId: "owner-1" };
+		const res = await boardPOST(jsonRequest({ takeId: "t1" }));
+		expect(res.status).toBe(404);
+		expect(state.inserts).toHaveLength(0);
+	});
+
+	it("404s when pinning another user's image still (IDOR)", async () => {
+		state.session = { user: { id: "attacker", name: "A", image: null } };
+		state.imageStill = { id: "i1", userId: "owner-1" };
+		const res = await boardPOST(jsonRequest({ imageStillId: "i1" }));
+		expect(res.status).toBe(404);
+		expect(state.inserts).toHaveLength(0);
+	});
+
+	it("pins an owned take and stamps ownerId from the session", async () => {
+		state.take = { id: "t1", setId: "s1", ownerId: "owner-1" };
+		const res = await boardPOST(jsonRequest({ takeId: "t1" }));
+		expect(res.status).toBe(200);
+		expect(state.inserts).toHaveLength(1);
+		expect((state.inserts[0].values as { ownerId: string }).ownerId).toBe(
+			"owner-1",
+		);
+	});
+
+	it("pins an owned image still and stamps ownerId from the session", async () => {
+		state.imageStill = { id: "i1", userId: "owner-1" };
+		const res = await boardPOST(jsonRequest({ imageStillId: "i1" }));
+		expect(res.status).toBe(200);
+		expect(state.inserts).toHaveLength(1);
+		expect((state.inserts[0].values as { ownerId: string }).ownerId).toBe(
+			"owner-1",
+		);
+	});
+});
+
+describe("board DELETE — ownership-scoped unpin", () => {
+	it("401s when unauthenticated", async () => {
+		state.session = null;
+		const res = await boardDELETE(
+			jsonRequest({}, "http://localhost/api/studio/board?id=b1"),
+		);
+		expect(res.status).toBe(401);
+	});
+
+	it("404s when the delete matches nothing (cross-user id / IDOR)", async () => {
+		state.session = { user: { id: "attacker", name: "A", image: null } };
+		state.deleteReturns = []; // WHERE id AND ownerId matched no owned row
+		const res = await boardDELETE(
+			jsonRequest({}, "http://localhost/api/studio/board?id=victim-item"),
+		);
+		expect(res.status).toBe(404);
+		// The delete carried an ownership predicate.
+		expect(state.lastWhere).toBeDefined();
+	});
+
+	it("deletes when the caller owns the board item", async () => {
+		state.deleteReturns = [{ id: "b1" }];
+		const res = await boardDELETE(
+			jsonRequest({}, "http://localhost/api/studio/board?id=b1"),
+		);
+		expect(res.status).toBe(200);
 	});
 });

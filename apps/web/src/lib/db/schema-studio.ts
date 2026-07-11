@@ -55,6 +55,15 @@ export const takes = pgTable(
 		setId: text("set_id")
 			.notNull()
 			.references(() => generationSets.id, { onDelete: "cascade" }),
+		// Tenancy: denormalized from the parent set's userId so takes can be
+		// scoped directly without a join. Nullable for the backfill window —
+		// legacy rows are backfilled from their parent set in migration 0007;
+		// rows whose set has no owner (anonymous era) stay NULL and are invisible
+		// to every scoped query (fail closed). Ownership checks prefer this
+		// column and fall back to the parent set while NULLs remain.
+		ownerId: text("owner_id").references(() => users.id, {
+			onDelete: "cascade",
+		}),
 		seed: integer("seed"),
 		resolution: text("resolution").notNull(),
 		thumbnailUrl: text("thumbnail_url"),
@@ -71,7 +80,10 @@ export const takes = pgTable(
 			.$defaultFn(() => new Date())
 			.notNull(),
 	},
-	(t) => [index("takes_set_id_idx").on(t.setId)],
+	(t) => [
+		index("takes_set_id_idx").on(t.setId),
+		index("takes_owner_id_idx").on(t.ownerId),
+	],
 );
 
 // ─── Board Items ──────────────────────────────────────────────────────────
@@ -81,6 +93,14 @@ export const boardItems = pgTable(
 	"board_items",
 	{
 		id: text("id").primaryKey(),
+		// Tenancy: the board was single-tenant (every signed-in user saw the same
+		// rows). Every query is now scoped to this owner. Nullable for the
+		// backfill window — legacy rows are backfilled from their pinned take's
+		// parent set / image still's userId in migration 0007; rows with no
+		// derivable owner stay NULL and are invisible to everyone (fail closed).
+		ownerId: text("owner_id").references(() => users.id, {
+			onDelete: "cascade",
+		}),
 		// A board item is either a video take or a generated image still.
 		// "kind" discriminates; exactly one of takeId / imageStillId is set.
 		kind: text("kind").notNull().default("take"), // "take" | "image"
@@ -97,6 +117,7 @@ export const boardItems = pgTable(
 	(t) => [
 		index("board_items_take_id_idx").on(t.takeId),
 		index("board_items_image_still_id_idx").on(t.imageStillId),
+		index("board_items_owner_id_idx").on(t.ownerId),
 	],
 );
 

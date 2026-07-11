@@ -348,10 +348,12 @@ export async function POST(req: Request) {
 				throw new Error(result.error ?? "Generation failed");
 			}
 
-			// Persist the take (its id doubles as the credit-hold charge id)
+			// Persist the take (its id doubles as the credit-hold charge id;
+			// ownership always stamped from the session)
 			await db.insert(takes).values({
 				id: takeId,
 				setId,
+				ownerId: session.user.id,
 				seed: result.seed ?? effectiveSeed,
 				resolution,
 				providerJobId: result.jobId,

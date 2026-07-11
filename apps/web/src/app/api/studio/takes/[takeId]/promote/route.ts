@@ -64,8 +64,9 @@ export async function POST(
 			);
 		}
 		// The take must belong to the caller — never let one user spend generation
-		// credits promoting another user's take.
-		if (set.userId !== session.user.id) {
+		// credits promoting another user's take. Prefer the take's own ownerId;
+		// legacy rows (NULL, pre-backfill) resolve through the parent set.
+		if ((take.ownerId ?? set.userId) !== session.user.id) {
 			return NextResponse.json({ error: "Take not found" }, { status: 404 });
 		}
 
@@ -115,10 +116,11 @@ export async function POST(
 			});
 
 			// Persist the promoted take in the same set (its id doubles as the
-			// credit-hold charge id).
+			// credit-hold charge id; ownership always stamped from the session).
 			await db.insert(takes).values({
 				id: newTakeId,
 				setId: take.setId,
+				ownerId: session.user.id,
 				seed: take.seed,
 				resolution: "1080p",
 				providerJobId: result.jobId,
