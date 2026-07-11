@@ -24,6 +24,13 @@ import {
 import { rasterizeTextMask } from "@/lib/effects/definitions/text-mask";
 import { webglEffectRenderer } from "../webgl-effect-renderer";
 
+// Sampling resolution for the cumulative speed-ramp LUT. 120 samples/sec with
+// midpoint sampling keeps the LUT at least as accurate as the per-frame left
+// Riemann integration it replaces (dt ~1/30s); the cap bounds memory for very
+// long clips by stretching the sample spacing instead of truncating coverage.
+const SPEED_LUT_SAMPLES_PER_SECOND = 120;
+const SPEED_LUT_MAX_SAMPLES = 20_000;
+
 export interface VisualNodeParams {
 	duration: number;
 	timeOffset: number;
@@ -44,6 +51,13 @@ export interface VisualNodeParams {
 export abstract class VisualNode<
 	Params extends VisualNodeParams = VisualNodeParams,
 > extends BaseNode<Params> {
+	// Instance-level caches are safe because params are immutable per scene
+	// build — nodes are recreated whenever the timeline changes.
+	private speedCurveLut: Float64Array | null = null;
+	private speedCurveLutDt = 0;
+	private elementScratchCanvas: OffscreenCanvas | HTMLCanvasElement | null =
+		null;
+
 	protected getSourceLocalTime({ time }: { time: number }): number {
 		const baseRate = this.params.playbackRate ?? 1.0;
 		const elapsed = time - this.params.timeOffset;
@@ -69,6 +83,50 @@ export abstract class VisualNode<
 		return effElapsed * baseRate + this.params.trimStart;
 	}
 
+	// Integrating the rate curve from 0 on every query is O(clip position) per
+	// frame, 60x/sec on the playback render path (also hit by video-node's
+	// warm()). Instead the cumulative integral is sampled once into a LUT and
+	// queries become a linear interpolation between samples.
+	private getSpeedCurveLut({
+		baseRate,
+		animations,
+	}: {
+		baseRate: number;
+		animations: ElementAnimations;
+	}): { samples: Float64Array; dt: number } {
+		if (this.speedCurveLut) {
+			return { samples: this.speedCurveLut, dt: this.speedCurveLutDt };
+		}
+
+		const duration = Math.max(
+			this.params.duration,
+			1 / SPEED_LUT_SAMPLES_PER_SECOND,
+		);
+		const sampleCount = Math.min(
+			Math.ceil(duration * SPEED_LUT_SAMPLES_PER_SECOND) + 1,
+			SPEED_LUT_MAX_SAMPLES,
+		);
+		const dt = duration / (sampleCount - 1);
+		const samples = new Float64Array(sampleCount);
+		let cumulative = 0;
+		for (let i = 1; i < sampleCount; i++) {
+			// Midpoint rule: exact for the piecewise-linear rate segments the
+			// keyframe channel produces, so the LUT is at least as accurate as
+			// the coarse left-Riemann integration it replaced.
+			const rate = resolvePlaybackRateAtTime({
+				basePlaybackRate: baseRate,
+				animations,
+				localTime: (i - 0.5) * dt,
+			});
+			cumulative += rate * dt;
+			samples[i] = cumulative;
+		}
+
+		this.speedCurveLut = samples;
+		this.speedCurveLutDt = dt;
+		return { samples, dt };
+	}
+
 	private getSourceTimeViaSpeedCurve({
 		localTime,
 		baseRate,
@@ -78,21 +136,17 @@ export abstract class VisualNode<
 		baseRate: number;
 		animations: ElementAnimations;
 	}): number {
-		const steps = Math.max(10, Math.ceil(localTime * 30));
-		const dt = localTime / steps;
-		let sourceTime = this.params.trimStart;
-
-		for (let i = 0; i < steps; i++) {
-			const t = i * dt;
-			const rate = resolvePlaybackRateAtTime({
-				basePlaybackRate: baseRate,
-				animations,
-				localTime: t,
-			});
-			sourceTime += rate * dt;
-		}
-
-		return sourceTime;
+		const { samples, dt } = this.getSpeedCurveLut({ baseRate, animations });
+		const maxIndex = samples.length - 1;
+		const position = Math.min(Math.max(localTime, 0) / dt, maxIndex);
+		const lower = Math.floor(position);
+		const upper = Math.min(lower + 1, maxIndex);
+		const fraction = position - lower;
+		return (
+			this.params.trimStart +
+			samples[lower] +
+			(samples[upper] - samples[lower]) * fraction
+		);
 	}
 
 	protected getAnimationLocalTime({ time }: { time: number }): number {
@@ -177,10 +231,24 @@ export abstract class VisualNode<
 			return;
 		}
 
-		const elementCanvas = createOffscreenCanvas({
-			width: Math.round(scaledWidth),
-			height: Math.round(scaledHeight),
-		});
+		const roundedWidth = Math.round(scaledWidth);
+		const roundedHeight = Math.round(scaledHeight);
+
+		// Reuse the per-instance scratch canvas across frames; a fresh
+		// OffscreenCanvas per frame was a major playback allocation. Recreated
+		// only when the element's scaled size changes (e.g. scale animation).
+		let elementCanvas = this.elementScratchCanvas;
+		if (
+			!elementCanvas ||
+			elementCanvas.width !== roundedWidth ||
+			elementCanvas.height !== roundedHeight
+		) {
+			elementCanvas = createOffscreenCanvas({
+				width: roundedWidth,
+				height: roundedHeight,
+			});
+			this.elementScratchCanvas = elementCanvas;
+		}
 		const elementCtx = elementCanvas.getContext("2d") as
 			| CanvasRenderingContext2D
 			| OffscreenCanvasRenderingContext2D
@@ -191,6 +259,9 @@ export abstract class VisualNode<
 			return;
 		}
 
+		// Clear before drawing: the reused canvas holds last frame's pixels and
+		// sources with transparency would composite over them.
+		elementCtx.clearRect(0, 0, roundedWidth, roundedHeight);
 		elementCtx.drawImage(source, 0, 0, scaledWidth, scaledHeight);
 
 		let currentResult: CanvasImageSource = elementCanvas;
@@ -217,8 +288,8 @@ export abstract class VisualNode<
 			}));
 			currentResult = webglEffectRenderer.applyEffect({
 				source: currentResult,
-				width: Math.round(scaledWidth),
-				height: Math.round(scaledHeight),
+				width: roundedWidth,
+				height: roundedHeight,
 				passes,
 			});
 		}
@@ -230,8 +301,6 @@ export abstract class VisualNode<
 			// pass pipeline (see custom-mask.ts / text-mask.ts). Inactive masks
 			// (open/<3-point paths, blank text) rasterize to null and leave the
 			// element fully visible. `feather`/`inverted` live on the base MaskShape.
-			const roundedWidth = Math.round(scaledWidth);
-			const roundedHeight = Math.round(scaledHeight);
 			const maskCanvas =
 				mask.type === "custom"
 					? rasterizeCustomMask({
@@ -273,8 +342,8 @@ export abstract class VisualNode<
 			}));
 			currentResult = webglEffectRenderer.applyEffect({
 				source: currentResult,
-				width: Math.round(scaledWidth),
-				height: Math.round(scaledHeight),
+				width: roundedWidth,
+				height: roundedHeight,
 				passes,
 			});
 		}
