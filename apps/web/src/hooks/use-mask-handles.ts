@@ -154,7 +154,14 @@ export function useMaskHandles({
 	const selectedMask: ResolvedMaskShape | null =
 		selectedWithBounds &&
 		isVisualElement(selectedWithBounds.element) &&
-		selectedWithBounds.element.mask
+		selectedWithBounds.element.mask &&
+		// Custom pen-tool and text masks are non-analytic (no width/height box);
+		// keep them out of the analytic box-handle path (resolveMaskShape would
+		// otherwise force their type to "rectangle"). Text masks are numeric-
+		// field-only — their glyph bounds would need canvas text measurement to
+		// drive a box handle, which the pen mask already sidesteps too.
+		selectedWithBounds.element.mask.type !== "custom" &&
+		selectedWithBounds.element.mask.type !== "text"
 			? resolveMaskShape({ mask: selectedWithBounds.element.mask })
 			: null;
 

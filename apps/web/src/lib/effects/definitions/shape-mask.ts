@@ -3,7 +3,11 @@ import type { EffectDefinition, EffectParamValues } from "@/types/effects";
 import type { MaskShape, MaskShapeType } from "@/types/rendering";
 import shapeMaskShader from "./shape-mask.frag.glsl";
 
-const SHAPE_INDEX: Record<MaskShapeType, number> = {
+// "custom" (pen-tool) and "text" masks are not analytic SDF shapes and never
+// render through this effect — they have their own raster-to-texture pipelines
+// (custom-mask.ts / text-mask.ts). Exclude them so this index stays exhaustive
+// over the analytic shapes only.
+const SHAPE_INDEX: Record<Exclude<MaskShapeType, "custom" | "text">, number> = {
 	rectangle: 0,
 	ellipse: 1,
 	star: 2,
@@ -192,7 +196,7 @@ export const shapeMaskEffectDefinition: EffectDefinition = {
 					const shape =
 						typeof effectParams.shape === "string" &&
 						effectParams.shape in SHAPE_INDEX
-							? SHAPE_INDEX[effectParams.shape as MaskShapeType]
+							? SHAPE_INDEX[effectParams.shape as keyof typeof SHAPE_INDEX]
 							: SHAPE_INDEX.ellipse;
 					const number = (value: unknown, fallback: number) =>
 						typeof value === "number" ? value : fallback;
@@ -203,8 +207,14 @@ export const shapeMaskEffectDefinition: EffectDefinition = {
 							number(effectParams.centerY, 0) / 100,
 						],
 						u_size: [
-							Math.max(number(effectParams.width, DEFAULT_MASK_SIZE * 100), MIN_MASK_DIMENSION * 100) / 100,
-							Math.max(number(effectParams.height, DEFAULT_MASK_SIZE * 100), MIN_MASK_DIMENSION * 100) / 100,
+							Math.max(
+								number(effectParams.width, DEFAULT_MASK_SIZE * 100),
+								MIN_MASK_DIMENSION * 100,
+							) / 100,
+							Math.max(
+								number(effectParams.height, DEFAULT_MASK_SIZE * 100),
+								MIN_MASK_DIMENSION * 100,
+							) / 100,
 						],
 						u_rotation: (number(effectParams.rotation, 0) * Math.PI) / 180,
 						u_feather: number(effectParams.feather, 0) / 100,
