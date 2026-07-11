@@ -12,7 +12,15 @@ describe("pickDevice", () => {
 });
 
 describe("isLocalAISupported", () => {
-	it("requires Worker support", () => {
-		expect(typeof isLocalAISupported()).toBe("boolean");
+	it("is false without a window (server-side)", () => {
+		expect(isLocalAISupported({ Worker: class {} })).toBe(false);
+	});
+
+	it("is false in a window without Worker support", () => {
+		expect(isLocalAISupported({ window: {} })).toBe(false);
+	});
+
+	it("is true with both window and Worker", () => {
+		expect(isLocalAISupported({ window: {}, Worker: class {} })).toBe(true);
 	});
 });
