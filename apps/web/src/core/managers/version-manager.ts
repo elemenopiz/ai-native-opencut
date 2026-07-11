@@ -35,6 +35,14 @@ export class VersionManager {
 	private initialized = false;
 	private unsubscribeHandlers: Array<() => void> = [];
 
+	// Dedup concurrent initialize() calls. Both the version-control bar and the
+	// version-history panel initialize on mount, and React StrictMode invokes
+	// each effect twice in dev — without this guard the racers all find no
+	// "main" branch and each try to create one, tripping the unique `by-name`
+	// index with a ConstraintError.
+	private initPromise: Promise<void> | null = null;
+	private initializedProjectId: string | null = null;
+
 	// Auto-commit
 	private autoCommitEnabled = false;
 	private autoCommitIntervalMs = 10 * 60 * 1000; // 10 minutes
@@ -54,6 +62,24 @@ export class VersionManager {
 	 * Creates the version DB, main branch, and initial commit if needed.
 	 */
 	async initialize(projectId: string): Promise<void> {
+		// Already fully initialized for this project — nothing to do.
+		if (this.initialized && this.initializedProjectId === projectId) return;
+
+		// An initialize() for this project is already in flight — reuse it so
+		// concurrent callers (both panels + StrictMode's double-invoke) share a
+		// single setup instead of racing to create the "main" branch.
+		if (this.initPromise && this.initializedProjectId === projectId) {
+			return this.initPromise;
+		}
+
+		this.initializedProjectId = projectId;
+		this.initPromise = this.doInitialize(projectId).finally(() => {
+			this.initPromise = null;
+		});
+		return this.initPromise;
+	}
+
+	private async doInitialize(projectId: string): Promise<void> {
 		this.storage = new VersionStorage(projectId);
 
 		const mainBranch = await this.storage.getBranchByName("main");
@@ -1038,6 +1064,8 @@ export class VersionManager {
 			this.storage = null;
 		}
 		this.initialized = false;
+		this.initializedProjectId = null;
+		this.initPromise = null;
 		this.lastCommitId = null;
 		this.dirty = false;
 	}
