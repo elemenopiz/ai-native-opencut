@@ -9,11 +9,21 @@ import {
 	computeReframeKeyframes,
 	getDefaultReframeOptions,
 } from "@/lib/reframe/reframe-types";
+import {
+	hasUsableFaces,
+	smartcropFallbackDetection,
+} from "@/lib/reframe/smartcrop-fallback";
 import type { FaceDetectionResult } from "@/types/ai";
 import type { NumberKeyframe } from "@/types/animation";
 import type { VideoElement } from "@/types/timeline";
 
-export type ReframeStatus = "idle" | "detecting" | "computing" | "applying" | "done" | "error";
+export type ReframeStatus =
+	| "idle"
+	| "detecting"
+	| "computing"
+	| "applying"
+	| "done"
+	| "error";
 
 export interface UseSmartReframeReturn {
 	status: ReframeStatus;
@@ -67,20 +77,37 @@ export function useSmartReframe(): UseSmartReframeReturn {
 
 				setProgress(10);
 
-				const detection: FaceDetectionResult = await aiClient.detectFaces(media.file, {
-					sampleInterval: 0.5,
-					maxSamples: 240,
-				});
-
-				setProgress(60);
-				setStatus("computing");
-
 				const opts: ReframeOptions = {
 					...getDefaultReframeOptions(),
 					targetWidth: preset.width,
 					targetHeight: preset.height,
 					...options,
 				};
+
+				let detection: FaceDetectionResult | null = null;
+				try {
+					detection = await aiClient.detectFaces(media.file, {
+						sampleInterval: 0.5,
+						maxSamples: 240,
+					});
+				} catch {
+					// Face service unreachable — fall through to the
+					// content-aware crop fallback below.
+				}
+
+				if (!hasUsableFaces(detection)) {
+					// No faces found (or service down): pick a static crop
+					// window with smartcrop.js on sampled frames and feed it
+					// through the same keyframe path a face result uses.
+					setProgress(40);
+					detection = await smartcropFallbackDetection(media.file, {
+						targetWidth: opts.targetWidth,
+						targetHeight: opts.targetHeight,
+					});
+				}
+
+				setProgress(60);
+				setStatus("computing");
 
 				const keyframes = computeReframeKeyframes(detection, opts);
 
@@ -147,7 +174,9 @@ export function useSmartReframe(): UseSmartReframeReturn {
 			setStatus("done");
 		} catch (err) {
 			setStatus("error");
-			setError(err instanceof Error ? err.message : "Failed to apply keyframes");
+			setError(
+				err instanceof Error ? err.message : "Failed to apply keyframes",
+			);
 		}
 	}, [result, editor]);
 
@@ -158,5 +187,13 @@ export function useSmartReframe(): UseSmartReframeReturn {
 		setError(null);
 	}, []);
 
-	return { status, progress, result, error, startReframe, applyKeyframes, reset };
+	return {
+		status,
+		progress,
+		result,
+		error,
+		startReframe,
+		applyKeyframes,
+		reset,
+	};
 }
