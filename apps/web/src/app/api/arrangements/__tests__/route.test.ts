@@ -26,7 +26,25 @@ mock.module("@/lib/db", () => ({
 	},
 }));
 
-const { InMemoryRateLimiter, RATE_LIMITS } = await import("@/lib/rate-limit");
+// Load the REAL rate-limit implementation, immune to cross-file mock leakage.
+// Bun's `mock.module` registry is process-global and keyed by RESOLVED module
+// path, and other test files (studio/__tests__/credit-metering.test.ts,
+// llm/agent/__tests__/route.test.ts) no-op "@/lib/rate-limit" for their own
+// routes — in a full-suite run those mocks leak here, so importing the alias
+// (or even a plain relative path — same resolved module) would hand us the
+// leaked no-op. The query string resolves to a DISTINCT module entry that
+// bypasses the mock registry while loading the same real source. The `as
+// string` cast keeps tsc from trying to resolve the query-suffixed specifier.
+const realRateLimit = (await import(
+	"../../../../lib/rate-limit.ts?real" as string
+)) as typeof import("@/lib/rate-limit");
+
+// Re-pin the alias to the real implementation, so the route under test sees
+// real rate limiting even when another file's no-op mock leaked in first.
+// Pass-through of the real exports, nothing stubbed.
+mock.module("@/lib/rate-limit", () => ({ ...realRateLimit }));
+
+const { InMemoryRateLimiter, RATE_LIMITS } = realRateLimit;
 const { POST } = await import("../route");
 
 const PUBLISH_BURST = RATE_LIMITS["arrangements:publish"].perMinute;
