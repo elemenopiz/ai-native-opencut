@@ -32,7 +32,12 @@ import { useTranscriptStore } from "@/stores/transcript-store";
 import { getElementsAtTime, hasMediaId } from "@/lib/timeline";
 import { toast } from "sonner";
 import { aiClient } from "@/lib/ai-client";
+import {
+	isLocalWhisperSupported,
+	transcribeLocally,
+} from "@/lib/transcription/local-whisper";
 import type { TimelineElement } from "@/types/timeline";
+import type { TranscriptionResult } from "@/types/ai";
 import { useBackgroundTasksStore } from "@/stores/background-tasks-store";
 import {
 	CAPTION_PRESETS,
@@ -206,7 +211,7 @@ export function Captions() {
 				file = new File([file], newName, { type: file.type || "video/mp4" });
 			}
 
-			let result;
+			let result: TranscriptionResult;
 			if (engine === "sarvam") {
 				// Use Sarvam AI for Indian languages
 				const sarvamLangCode =
@@ -219,10 +224,38 @@ export function Captions() {
 				const language = selectedLanguage === "auto" ? "en" : selectedLanguage;
 				result = await aiClient.smallestTranscribe(file, language);
 			} else {
-				// Use Whisper (local)
+				// Use Whisper — on-device first (Transformers.js/WebGPU), with the
+				// server route as a fallback if the browser can't decode/run it.
 				const language =
 					selectedLanguage === "auto" ? undefined : selectedLanguage;
-				result = await aiClient.transcribe(file, language);
+				try {
+					if (isLocalWhisperSupported()) {
+						result = await transcribeLocally(file, {
+							language,
+							onProgress: (p) => {
+								const label =
+									p.stage === "decoding"
+										? "Decoding audio on device..."
+										: p.stage === "loading-model"
+											? `Loading Whisper model... ${Math.round(p.progress * 100)}%`
+											: "Transcribing on device...";
+								setProcessingStep(label);
+								bgTasks.updateTask(taskId, { progress: label });
+							},
+						});
+					} else {
+						result = await aiClient.transcribe(file, language);
+					}
+				} catch (localErr) {
+					console.warn(
+						"On-device Whisper failed, falling back to server:",
+						localErr,
+					);
+					bgTasks.updateTask(taskId, {
+						progress: "Falling back to server...",
+					});
+					result = await aiClient.transcribe(file, language);
+				}
 			}
 
 			setProcessingStep("Processing segments...");

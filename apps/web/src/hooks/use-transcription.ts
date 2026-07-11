@@ -1,5 +1,9 @@
 import { useState, useCallback } from "react";
 import { aiClient, AIClientError } from "@/lib/ai-client";
+import {
+	isLocalWhisperSupported,
+	transcribeLocally,
+} from "@/lib/transcription/local-whisper";
 import { useTranscriptStore } from "@/stores/transcript-store";
 
 function formatTranscriptionError(error: unknown): string {
@@ -41,7 +45,25 @@ export function useTranscription() {
 			try {
 				setProgress(10);
 
-				const result = await aiClient.transcribe(file, language);
+				// On-device Whisper first; fall back to the server route on failure.
+				let result: Awaited<ReturnType<typeof aiClient.transcribe>>;
+				try {
+					if (isLocalWhisperSupported()) {
+						result = await transcribeLocally(file, {
+							language: language === "auto" ? undefined : language,
+							onProgress: (p) =>
+								setProgress(Math.min(90, Math.round(p.progress * 90))),
+						});
+					} else {
+						result = await aiClient.transcribe(file, language);
+					}
+				} catch (localErr) {
+					console.warn(
+						"On-device Whisper failed, falling back to server:",
+						localErr,
+					);
+					result = await aiClient.transcribe(file, language);
+				}
 
 				setSegments(result.segments);
 				setLanguage(result.language);
