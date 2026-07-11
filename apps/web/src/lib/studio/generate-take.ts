@@ -1,6 +1,7 @@
 import type { EditorCore } from "@/core";
 import { processMediaAssets } from "@/lib/media/processing";
 import { composePromptWithCamera } from "@/lib/studio/camera-presets";
+import { fetchWithTimeout, MEDIA_TIMEOUT_MS } from "@/lib/studio/fetch-timeout";
 import { gateOn402 } from "@/lib/credits/client-gate";
 import { useCreditsStore } from "@/stores/credits-store";
 import { waitForJobTerminal } from "@/stores/generation-status-store";
@@ -40,7 +41,11 @@ async function importVideoAsset(
 	url: string,
 	name: string,
 ): Promise<{ mediaId: string; thumbnailUrl?: string }> {
-	const res = await fetch(`/api/studio/proxy?url=${encodeURIComponent(url)}`);
+	// Whole-video download through the proxy — media budget.
+	const res = await fetchWithTimeout(
+		`/api/studio/proxy?url=${encodeURIComponent(url)}`,
+		{ timeoutMs: MEDIA_TIMEOUT_MS },
+	);
 	if (!res.ok) throw new Error(`fetch failed ${res.status}`);
 	const blob = await res.blob();
 	const fileName = name.toLowerCase().endsWith(".mp4") ? name : `${name}.mp4`;
@@ -84,7 +89,10 @@ export async function generateTakeMedia({
 	spec: GenerationSpec;
 }): Promise<GenerateTakeResult> {
 	try {
-		const res = await fetch("/api/studio/generate", {
+		// The route may render an inline persona still before submitting
+		// (maxDuration 120s) — give the client budget headroom above that.
+		const res = await fetchWithTimeout("/api/studio/generate", {
+			timeoutMs: 150_000,
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({

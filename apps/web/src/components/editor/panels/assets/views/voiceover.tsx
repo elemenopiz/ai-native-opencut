@@ -156,6 +156,16 @@ export function VoiceoverView() {
 		null,
 	);
 	const [generatedBlob, setGeneratedBlob] = useState<Blob | null>(null);
+
+	// The preview object URL leaks unless every replaced/discarded value is
+	// revoked (the landVoiceoverAudio path already revokes its own). Cleanup on
+	// change covers regeneration; cleanup on unmount covers the last one.
+	useEffect(() => {
+		return () => {
+			if (generatedAudioUrl) URL.revokeObjectURL(generatedAudioUrl);
+		};
+	}, [generatedAudioUrl]);
+
 	const [error, setError] = useState<string | null>(null);
 	const [useTranscript, setUseTranscript] = useState(true);
 	const audioRef = useRef<HTMLAudioElement>(null);

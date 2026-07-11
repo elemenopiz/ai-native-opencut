@@ -24,6 +24,9 @@ const ALLOWED_HOSTS = new Set([
 	"cdn.freesound.org",
 ]);
 
+// Streams the whole audio file through this function.
+export const maxDuration = 60;
+
 /** Songs are a few MB; 100MB comfortably bounds even long WAV uploads. */
 const MAX_BYTES = 100 * 1024 * 1024;
 const MAX_REDIRECT_HOPS = 3;

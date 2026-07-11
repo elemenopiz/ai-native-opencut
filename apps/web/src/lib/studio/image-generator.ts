@@ -4,6 +4,7 @@
  */
 
 import { webEnv } from "@byorn/env/web";
+import { fetchWithTimeout, MEDIA_TIMEOUT_MS } from "@/lib/studio/fetch-timeout";
 
 export type ImageSize = "1024x1024" | "1536x1024" | "1024x1536";
 export type ImageQuality = "low" | "medium" | "high";
@@ -30,7 +31,9 @@ export async function generateReferenceImage(
 
 	const model = webEnv.OPENAI_IMAGE_MODEL || "gpt-image-2";
 
-	const res = await fetch(`${OPENAI_BASE}/images/generations`, {
+	// Sync generation returning inline base64 image bytes — media budget.
+	const res = await fetchWithTimeout(`${OPENAI_BASE}/images/generations`, {
+		timeoutMs: MEDIA_TIMEOUT_MS,
 		method: "POST",
 		headers: {
 			Authorization: `Bearer ${key}`,
@@ -53,7 +56,7 @@ export async function generateReferenceImage(
 		throw new Error(`OpenAI image generation failed ${res.status}: ${text}`);
 	}
 
-	const data = await res.json() as {
+	const data = (await res.json()) as {
 		data: Array<{ url?: string; b64_json?: string; revised_prompt?: string }>;
 	};
 

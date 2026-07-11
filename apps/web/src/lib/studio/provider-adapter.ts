@@ -6,6 +6,7 @@
  */
 
 import { webEnv } from "@byorn/env/web";
+import { fetchWithTimeout } from "@/lib/studio/fetch-timeout";
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -156,14 +157,17 @@ async function byteplusSubmit(
 			: {}),
 	};
 
-	const res = await fetch(`${byteplusBase()}/contents/generations/tasks`, {
-		method: "POST",
-		headers: {
-			Authorization: `Bearer ${key}`,
-			"Content-Type": "application/json",
+	const res = await fetchWithTimeout(
+		`${byteplusBase()}/contents/generations/tasks`,
+		{
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${key}`,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify(body),
 		},
-		body: JSON.stringify(body),
-	});
+	);
 
 	if (!res.ok) {
 		const text = await res.text();
@@ -180,7 +184,7 @@ async function byteplusPoll(jobId: string): Promise<PollVideoResult> {
 	const key = webEnv.BYTEPLUS_API_KEY;
 	if (!key) throw new Error("BYTEPLUS_API_KEY is not configured");
 
-	const res = await fetch(
+	const res = await fetchWithTimeout(
 		`${byteplusBase()}/contents/generations/tasks/${jobId}`,
 		{
 			headers: { Authorization: `Bearer ${key}` },

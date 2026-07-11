@@ -22,6 +22,7 @@
 
 import { webEnv } from "@byorn/env/web";
 import { estimateVideoCredits } from "@/lib/studio/backends/cost";
+import { fetchWithTimeout } from "@/lib/studio/fetch-timeout";
 import type {
 	BackendRequest,
 	CostEstimate,
@@ -94,7 +95,7 @@ async function lumaFetch(
 ): Promise<LumaGeneration> {
 	const key = apiKey();
 	if (!key) throw new Error("LUMA_API_KEY is not configured");
-	const res = await fetch(`${lumaBase()}${path}`, {
+	const res = await fetchWithTimeout(`${lumaBase()}${path}`, {
 		...init,
 		headers: {
 			...init.headers,

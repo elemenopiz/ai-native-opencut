@@ -25,6 +25,7 @@
 
 import { webEnv } from "@byorn/env/web";
 import { estimateVideoCredits } from "@/lib/studio/backends/cost";
+import { fetchWithTimeout, MEDIA_TIMEOUT_MS } from "@/lib/studio/fetch-timeout";
 import type {
 	BackendRequest,
 	CostEstimate,
@@ -68,7 +69,8 @@ async function fetchAsInlineData(
 	url: string,
 ): Promise<{ mimeType: string; data: string } | undefined> {
 	try {
-		const res = await fetch(url);
+		// Reference media download — media bytes, so the longer budget applies.
+		const res = await fetchWithTimeout(url, { timeoutMs: MEDIA_TIMEOUT_MS });
 		if (!res.ok) return undefined;
 		const mimeType = res.headers.get("content-type") || "image/png";
 		const buf = Buffer.from(await res.arrayBuffer());
@@ -101,7 +103,7 @@ async function veoFetch(
 ): Promise<VeoOperation> {
 	const key = apiKey();
 	if (!key) throw new Error("GEMINI_API_KEY is not configured");
-	const res = await fetch(`${veoBase()}${path}`, {
+	const res = await fetchWithTimeout(`${veoBase()}${path}`, {
 		...init,
 		headers: {
 			...init.headers,

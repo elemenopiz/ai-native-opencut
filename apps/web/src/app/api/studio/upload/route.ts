@@ -17,6 +17,8 @@ import { enforceRateLimit } from "@/lib/rate-limit";
 // Keep inline data-URL fallback to small images only.
 const MAX_INLINE_IMAGE_BYTES = 8 * 1024 * 1024; // 8 MB
 
+export const maxDuration = 60;
+
 export async function POST(req: Request) {
 	try {
 		// Rehosting media to R2 is an open write path to our object storage —

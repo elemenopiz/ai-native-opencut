@@ -3,8 +3,13 @@ import { db } from "@/lib/db";
 import { mediaObjects } from "@/lib/db/schema-version-control";
 import { auth } from "@/lib/auth/server";
 import { headers } from "next/headers";
-import { computeHash, uploadMedia } from "@/services/storage/cloud-media-storage";
+import {
+	computeHash,
+	uploadMedia,
+} from "@/services/storage/cloud-media-storage";
 import { eq } from "drizzle-orm";
+
+export const maxDuration = 60;
 
 /**
  * POST /api/version-control/media/upload
@@ -54,9 +59,15 @@ export async function POST(request: NextRequest) {
 			uploadedAt: new Date(),
 		});
 
-		return NextResponse.json({ hash, storageUrl, deduplicated: false }, { status: 201 });
+		return NextResponse.json(
+			{ hash, storageUrl, deduplicated: false },
+			{ status: 201 },
+		);
 	} catch (error) {
 		console.error("Error uploading media:", error);
-		return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+		return NextResponse.json(
+			{ error: "Internal server error" },
+			{ status: 500 },
+		);
 	}
 }
