@@ -14,6 +14,16 @@ import { takes, generationSets } from "@/lib/db/schema-studio";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth/server";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { DEFAULT_BACKEND_ID } from "@/lib/studio/backends/registry";
+import { costFor } from "@/lib/credits/cost-table";
+import { InsufficientCredits } from "@/lib/credits/ledger";
+import {
+	insufficientCreditsResponse,
+	meteredRelease,
+	meteredReserve,
+	meteredSettle,
+	STUDIO_REF_TYPE,
+} from "@/lib/credits/metering";
 
 export async function POST(
 	_req: Request,
@@ -59,29 +69,82 @@ export async function POST(
 			return NextResponse.json({ error: "Take not found" }, { status: 404 });
 		}
 
-		// Submit a new 1080p generation with the locked seed + same orientation, so
-		// the only thing that changes is the resolution. Same shot, full quality.
-		const result = await generateVideo({
-			prompt: set.prompt,
-			referenceImageUrl: set.referenceImageUrl ?? undefined,
-			seed: take.seed ?? undefined,
-			resolution: "1080p",
-			orientation: set.orientation as VideoOrientation,
-			duration: set.duration,
-			mode: set.mode as "text-to-video" | "image-to-video",
-		});
-
-		// Persist the promoted take in the same set
+		// Credits: promotion re-fires a FULL paid 1080p generation, so it is
+		// metered exactly like api/studio/generate — reserve the server-computed
+		// cost BEFORE the provider call (402 if the user can't afford it), settle
+		// on sync success, release on failure; async jobs stay reserved and the
+		// poll route (generate/[jobId]) settles on completion. The hold is keyed
+		// by the NEW take's id (a per-job charge id) — NOT the setId — so it can
+		// never collide with the draft's hold in the same set.
 		const newTakeId = nanoid();
-		await db.insert(takes).values({
-			id: newTakeId,
-			setId: take.setId,
-			seed: take.seed,
-			resolution: "1080p",
-			providerJobId: result.jobId,
-			status: "promoted",
-			videoUrl: result.videoUrl ?? null,
+		const creditCost = costFor(DEFAULT_BACKEND_ID.video, "video", {
+			seconds: set.duration,
 		});
+		try {
+			await meteredReserve(session.user.id, creditCost, {
+				refType: STUDIO_REF_TYPE,
+				refId: newTakeId,
+				idempotencyKey: `${newTakeId}:reserve`,
+				metadata: {
+					backendId: DEFAULT_BACKEND_ID.video,
+					seconds: set.duration,
+					kind: "promote",
+					setId: take.setId,
+				},
+			});
+		} catch (err) {
+			if (err instanceof InsufficientCredits) {
+				return insufficientCreditsResponse(err);
+			}
+			throw err;
+		}
+
+		let result: Awaited<ReturnType<typeof generateVideo>>;
+		try {
+			// Submit a new 1080p generation with the locked seed + same orientation,
+			// so the only thing that changes is the resolution. Same shot, full
+			// quality.
+			result = await generateVideo({
+				prompt: set.prompt,
+				referenceImageUrl: set.referenceImageUrl ?? undefined,
+				seed: take.seed ?? undefined,
+				resolution: "1080p",
+				orientation: set.orientation as VideoOrientation,
+				duration: set.duration,
+				mode: set.mode as "text-to-video" | "image-to-video",
+			});
+
+			// Persist the promoted take in the same set (its id doubles as the
+			// credit-hold charge id).
+			await db.insert(takes).values({
+				id: newTakeId,
+				setId: take.setId,
+				seed: take.seed,
+				resolution: "1080p",
+				providerJobId: result.jobId,
+				status: "promoted",
+				videoUrl: result.videoUrl ?? null,
+			});
+
+			// Sync completion — settle now. Async (pending/processing) stays
+			// reserved; the poll route settles on completion.
+			if (result.status === "completed" && creditCost > 0) {
+				await meteredSettle(session.user.id, creditCost, {
+					refType: STUDIO_REF_TYPE,
+					refId: newTakeId,
+					idempotencyKey: `${newTakeId}:settle`,
+					metadata: { backendId: DEFAULT_BACKEND_ID.video, kind: "promote" },
+				});
+			}
+		} catch (err) {
+			// Never charge for a failed dispatch/persist — refund the hold.
+			await meteredRelease(session.user.id, creditCost, {
+				refType: STUDIO_REF_TYPE,
+				refId: newTakeId,
+				idempotencyKey: `${newTakeId}:release`,
+			}).catch(() => {});
+			throw err;
+		}
 
 		// Mark the source take as promoted
 		await db
