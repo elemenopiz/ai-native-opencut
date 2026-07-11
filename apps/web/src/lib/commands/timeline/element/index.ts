@@ -10,5 +10,7 @@ export { ToggleElementsVisibilityCommand } from "./toggle-elements-visibility";
 export { ToggleElementsMutedCommand } from "./toggle-elements-muted";
 export { ToggleSourceAudioSeparationCommand } from "./toggle-source-audio-separation";
 export { MoveElementCommand } from "./move-elements";
+export { MoveElementsCommand } from "./move-elements-group";
+export { ResizeElementsCommand } from "./resize-elements-group";
 export * from "./keyframes";
 export * from "./effects";

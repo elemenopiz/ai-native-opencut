@@ -9,6 +9,12 @@ import {
 	snapToNearestPoint,
 	type SnapPoint,
 } from "@/lib/timeline/snap-utils";
+import {
+	buildGroupResizeMembers,
+	computeGroupResize,
+	type GroupResizeResult,
+} from "@/lib/timeline/group-resize";
+import { useElementSelection } from "@/hooks/timeline/element/use-element-selection";
 import { useTimelineStore } from "@/stores/timeline-store";
 import { getSnapBeats } from "@/stores/beat-grid-store";
 
@@ -20,6 +26,11 @@ export interface ResizeState {
 	initialTrimEnd: number;
 	initialStartTime: number;
 	initialDuration: number;
+	/** Present when the resize started with this element as part of a
+	 *  multi-selection (>1 elements selected) — the frozen list of every
+	 *  selected element's ref, driving the group-resize path. Undefined ⇒
+	 *  ordinary single-element resize, behavior unchanged. */
+	groupElementRefs?: { trackId: string; elementId: string }[];
 }
 
 interface UseTimelineElementResizeProps {
@@ -44,6 +55,7 @@ export function useTimelineElementResize({
 	const rippleEditingEnabled = useTimelineStore(
 		(state) => state.rippleEditingEnabled,
 	);
+	const { selectedElements, isElementSelected } = useElementSelection();
 
 	const [resizing, setResizing] = useState<ResizeState | null>(null);
 	const [currentTrimStart, setCurrentTrimStart] = useState(element.trimStart);
@@ -54,6 +66,11 @@ export function useTimelineElementResize({
 	const currentTrimEndRef = useRef(element.trimEnd);
 	const currentStartTimeRef = useRef(element.startTime);
 	const currentDurationRef = useRef(element.duration);
+	/** Last group-resize plan computed during drag (see
+	 *  `updateTrimFromMouseMove`) — read once at `handleResizeEnd` to commit
+	 *  atomically. Only ever populated when `resizing.groupElementRefs` is
+	 *  set. */
+	const groupResizeResultRef = useRef<GroupResizeResult | null>(null);
 
 	const handleResizeStart = ({
 		event,
@@ -67,6 +84,10 @@ export function useTimelineElementResize({
 		event.stopPropagation();
 		event.preventDefault();
 
+		const isGroupResize =
+			selectedElements.length > 1 &&
+			isElementSelected({ trackId: track.id, elementId });
+
 		setResizing({
 			elementId,
 			side,
@@ -75,8 +96,10 @@ export function useTimelineElementResize({
 			initialTrimEnd: element.trimEnd,
 			initialStartTime: element.startTime,
 			initialDuration: element.duration,
+			groupElementRefs: isGroupResize ? selectedElements : undefined,
 		});
 
+		groupResizeResultRef.current = null;
 		setCurrentTrimStart(element.trimStart);
 		setCurrentTrimEnd(element.trimEnd);
 		setCurrentStartTime(element.startTime);
@@ -140,6 +163,36 @@ export function useTimelineElementResize({
 				}
 			}
 			onSnapPointChange?.(resizeSnapPoint);
+
+			if (resizing.groupElementRefs) {
+				const tracks = editor.timeline.getTracks();
+				const members = buildGroupResizeMembers({
+					tracks,
+					elements: resizing.groupElementRefs,
+				});
+				const result = computeGroupResize({
+					members,
+					side: resizing.side,
+					deltaTime,
+					fps: projectFps,
+				});
+				groupResizeResultRef.current = result;
+
+				const ownUpdate = result.updates.find(
+					(update) => update.elementId === element.id,
+				);
+				if (ownUpdate) {
+					setCurrentTrimStart(ownUpdate.patch.trimStart);
+					setCurrentTrimEnd(ownUpdate.patch.trimEnd);
+					setCurrentStartTime(ownUpdate.patch.startTime);
+					setCurrentDuration(ownUpdate.patch.duration);
+					currentTrimStartRef.current = ownUpdate.patch.trimStart;
+					currentTrimEndRef.current = ownUpdate.patch.trimEnd;
+					currentStartTimeRef.current = ownUpdate.patch.startTime;
+					currentDurationRef.current = ownUpdate.patch.duration;
+				}
+				return;
+			}
 
 			const otherElements = track.elements.filter(
 				({ id }) => id !== element.id,
@@ -350,6 +403,18 @@ export function useTimelineElementResize({
 
 	const handleResizeEnd = useCallback(() => {
 		if (!resizing) return;
+
+		if (resizing.groupElementRefs) {
+			const result = groupResizeResultRef.current;
+			groupResizeResultRef.current = null;
+			if (result && result.deltaTime !== 0 && result.updates.length > 0) {
+				editor.timeline.resizeElements({ updates: result.updates });
+			}
+			setResizing(null);
+			onResizeStateChange?.({ isResizing: false });
+			onSnapPointChange?.(null);
+			return;
+		}
 
 		const finalTrimStart = currentTrimStartRef.current;
 		const finalTrimEnd = currentTrimEndRef.current;
