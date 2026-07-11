@@ -19,8 +19,11 @@ import type {
 	AnimationInterpolation,
 	AnimationPropertyPath,
 	AnimationValue,
+	KeyframeClipboardItem,
 	KeyframeEasing,
+	SelectedKeyframeRef,
 } from "@/types/animation";
+import { collectKeyframeClipboardItems } from "@/lib/animation";
 import { calculateTotalDuration } from "@/lib/timeline";
 import {
 	AddTrackCommand,
@@ -51,6 +54,7 @@ import {
 	ReorderClipEffectsCommand,
 	UpsertEffectParamKeyframeCommand,
 	RemoveEffectParamKeyframeCommand,
+	PasteKeyframesCommand,
 } from "@/lib/commands/timeline";
 import { BatchCommand, PreviewTracker } from "@/lib/commands";
 import type { InsertElementParams } from "@/lib/commands/timeline/element/insert-element";
@@ -732,6 +736,75 @@ export class TimelineManager {
 		this.editor.command.execute({ command });
 	}
 
+	/**
+	 * Build a portable clipboard payload from the given selected keyframes. Only
+	 * keyframes belonging to a single source element are copyable (mixed-element
+	 * selections return null); this keeps the relative-time model unambiguous.
+	 * The payload preserves each keyframe's value, interpolation and easing
+	 * (bezier curve) so a later paste reproduces the animation exactly.
+	 */
+	copyKeyframes({
+		keyframes,
+	}: {
+		keyframes: SelectedKeyframeRef[];
+	}): KeyframeClipboardItem[] | null {
+		if (keyframes.length === 0) {
+			return null;
+		}
+
+		const source = keyframes[0];
+		const isSingleSource = keyframes.every(
+			(keyframe) =>
+				keyframe.trackId === source.trackId &&
+				keyframe.elementId === source.elementId,
+		);
+		if (!isSingleSource) {
+			return null;
+		}
+
+		const [result] = this.getElementsWithTracks({
+			elements: [{ trackId: source.trackId, elementId: source.elementId }],
+		});
+		if (!result) {
+			return null;
+		}
+
+		const items = collectKeyframeClipboardItems({
+			animations: result.element.animations,
+			selectedKeyframes: keyframes,
+		});
+		return items.length > 0 ? items : null;
+	}
+
+	/**
+	 * Paste a copied keyframe payload onto the target element, rebasing the set
+	 * onto `time`. Curve-aware: interpolation and easing survive the round-trip,
+	 * and items whose property the target element doesn't support are skipped.
+	 */
+	pasteKeyframes({
+		trackId,
+		elementId,
+		time,
+		clipboardItems,
+	}: {
+		trackId: string;
+		elementId: string;
+		time: number;
+		clipboardItems: KeyframeClipboardItem[];
+	}): void {
+		if (clipboardItems.length === 0) {
+			return;
+		}
+
+		const command = new PasteKeyframesCommand({
+			trackId,
+			elementId,
+			time,
+			clipboardItems,
+		});
+		this.editor.command.execute({ command });
+	}
+
 	retimeKeyframe({
 		trackId,
 		elementId,
@@ -910,7 +983,15 @@ export class TimelineManager {
 		updates,
 	}: {
 		trackId: string;
-		updates: Partial<{ muted: boolean; hidden: boolean; volume: number; pan: number; solo: boolean; color: string; locked: boolean }>;
+		updates: Partial<{
+			muted: boolean;
+			hidden: boolean;
+			volume: number;
+			pan: number;
+			solo: boolean;
+			color: string;
+			locked: boolean;
+		}>;
 	}): void {
 		const tracks = this.getTracks();
 		const updatedTracks = tracks.map((track) =>
@@ -926,7 +1007,10 @@ export class TimelineManager {
 	toggleTrackLock({ trackId }: { trackId: string }): void {
 		const track = this.getTracks().find((t) => t.id === trackId);
 		if (!track) return;
-		this.updateTrack({ trackId, updates: { locked: !(track as any).locked } as any });
+		this.updateTrack({
+			trackId,
+			updates: { locked: !(track as any).locked } as any,
+		});
 	}
 
 	isTrackLocked(trackId: string): boolean {
@@ -934,7 +1018,13 @@ export class TimelineManager {
 		return !!(track as any)?.locked;
 	}
 
-	reorderTracks({ fromIndex, toIndex }: { fromIndex: number; toIndex: number }): void {
+	reorderTracks({
+		fromIndex,
+		toIndex,
+	}: {
+		fromIndex: number;
+		toIndex: number;
+	}): void {
 		const currentTracks = this.getTracks();
 		if (fromIndex === toIndex) return;
 		if (fromIndex < 0 || fromIndex >= currentTracks.length) return;

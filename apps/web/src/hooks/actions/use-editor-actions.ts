@@ -6,6 +6,7 @@ import { useEditor } from "../use-editor";
 import { useElementSelection } from "../timeline/element/use-element-selection";
 import { useKeyframeSelection } from "../timeline/element/use-keyframe-selection";
 import { getElementsAtTime } from "@/lib/timeline";
+import { getElementLocalTime } from "@/lib/animation";
 import { hasMediaId } from "@/lib/timeline/element-utils";
 import { useAIStore } from "@/stores/ai-store";
 import { useSearchStore } from "@/stores/search-store";
@@ -26,6 +27,8 @@ export function useEditorActions() {
 	const { selectedKeyframes, clearKeyframeSelection } = useKeyframeSelection();
 	const clipboard = useTimelineStore((s) => s.clipboard);
 	const setClipboard = useTimelineStore((s) => s.setClipboard);
+	const keyframeClipboard = useTimelineStore((s) => s.keyframeClipboard);
+	const setKeyframeClipboard = useTimelineStore((s) => s.setKeyframeClipboard);
 	const toggleSnapping = useTimelineStore((s) => s.toggleSnapping);
 	const rippleEditingEnabled = useTimelineStore((s) => s.rippleEditingEnabled);
 	const toggleRippleEditing = useTimelineStore((s) => s.toggleRippleEditing);
@@ -481,6 +484,16 @@ export function useEditorActions() {
 	useActionHandler(
 		"copy-selected",
 		() => {
+			if (selectedKeyframes.length > 0) {
+				const items = editor.timeline.copyKeyframes({
+					keyframes: selectedKeyframes,
+				});
+				if (items) {
+					setKeyframeClipboard({ items });
+				}
+				return;
+			}
+
 			if (selectedElements.length === 0) return;
 
 			const results = editor.timeline.getElementsWithTracks({
@@ -503,6 +516,36 @@ export function useEditorActions() {
 	useActionHandler(
 		"paste-copied",
 		() => {
+			if (keyframeClipboard?.items.length) {
+				const targetRef =
+					selectedElements[0] ??
+					(selectedKeyframes[0]
+						? {
+								trackId: selectedKeyframes[0].trackId,
+								elementId: selectedKeyframes[0].elementId,
+							}
+						: null);
+				if (targetRef) {
+					const [target] = editor.timeline.getElementsWithTracks({
+						elements: [targetRef],
+					});
+					if (target) {
+						const localTime = getElementLocalTime({
+							timelineTime: editor.playback.getCurrentTime(),
+							elementStartTime: target.element.startTime,
+							elementDuration: target.element.duration,
+						});
+						editor.timeline.pasteKeyframes({
+							trackId: targetRef.trackId,
+							elementId: targetRef.elementId,
+							time: localTime,
+							clipboardItems: keyframeClipboard.items,
+						});
+					}
+					return;
+				}
+			}
+
 			if (!clipboard?.items.length) return;
 
 			editor.timeline.pasteAtTime({

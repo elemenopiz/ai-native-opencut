@@ -32,7 +32,12 @@ export type AnimationInterpolation =
  * an implicit `(0, 0)` to an implicit `(1, 1)`; `x` is normalized segment time
  * and `y` is the eased progress used to interpolate the value.
  */
-export type CubicBezierControlPoints = readonly [number, number, number, number];
+export type CubicBezierControlPoints = readonly [
+	number,
+	number,
+	number,
+	number,
+];
 
 export type EasingPresetId =
 	| "linear"
@@ -123,4 +128,19 @@ export interface SelectedKeyframeRef {
 	elementId: string;
 	propertyPath: AnimationPropertyPath;
 	keyframeId: string;
+}
+
+/**
+ * A single copied keyframe, decoupled from its source element. `timeOffset` is
+ * relative to the earliest keyframe in the copied set, so a paste can rebase the
+ * whole set onto the playhead while preserving the spacing between keyframes.
+ * `interpolation` and `easing` (the authoritative cubic-bezier control points)
+ * ride along so the curve is reproduced exactly on paste.
+ */
+export interface KeyframeClipboardItem {
+	propertyPath: AnimationPropertyPath;
+	timeOffset: number;
+	value: AnimationValue;
+	interpolation: AnimationInterpolation;
+	easing?: KeyframeEasing;
 }

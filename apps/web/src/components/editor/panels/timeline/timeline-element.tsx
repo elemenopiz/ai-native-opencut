@@ -65,6 +65,7 @@ import { cn } from "@/utils/ui";
 import { useCallback, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { usePropertiesStore } from "@/stores/properties-store";
+import { useTimelineStore } from "@/stores/timeline-store";
 
 const KEYFRAME_INDICATOR_MIN_WIDTH_PX = 40;
 const ELEMENT_RING_WIDTH_PX = 1.5;
@@ -202,7 +203,11 @@ export function TimelineElement({
 }: TimelineElementProps) {
 	const editor = useEditor();
 	const { selectedElements } = useElementSelection();
+	const { selectedKeyframes } = useKeyframeSelection();
 	const { requestRevealMedia } = useAssetsPanelStore();
+	const hasCopiedKeyframes = useTimelineStore((state) =>
+		Boolean(state.keyframeClipboard?.items.length),
+	);
 
 	let mediaAsset: MediaAsset | null = null;
 
@@ -323,6 +328,15 @@ export function TimelineElement({
 					Split
 				</ActionMenuItem>
 				<CopyMenuItem />
+				{hasCopiedKeyframes &&
+					(selectedElements.length === 1 || selectedKeyframes.length > 0) && (
+						<ActionMenuItem
+							action="paste-copied"
+							icon={<HugeiconsIcon icon={KeyframeIcon} />}
+						>
+							Paste keyframes
+						</ActionMenuItem>
+					)}
 				{canElementHaveAudio(element) && hasAudio && (
 					<MuteMenuItem
 						isMultipleSelected={selectedElements.length > 1}

@@ -53,3 +53,8 @@ export {
 	getKeyframeAtTime,
 	hasKeyframesForPath,
 } from "./keyframe-query";
+
+export {
+	applyKeyframeClipboardToElement,
+	collectKeyframeClipboardItems,
+} from "./keyframe-clipboard";

@@ -1,3 +1,4 @@
+export * from "./paste-keyframes";
 export * from "./remove-effect-param-keyframe";
 export * from "./remove-keyframe";
 export * from "./retime-keyframe";
