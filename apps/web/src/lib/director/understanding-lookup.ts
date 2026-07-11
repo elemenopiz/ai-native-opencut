@@ -115,6 +115,23 @@ export function cacheUnderstanding(u: CanonicalUnderstanding): void {
 	else probeCache.delete(u.mediaId);
 }
 
+/**
+ * Up to `limit` non-empty asset captions from the primed cache — a cheap, sync
+ * read (no IndexedDB, no fetch) for surfaces that want a compact "what's in this
+ * project" grounding blurb (e.g. the prompt-enhance context payload). Returns
+ * `[]` when nothing has been understood yet.
+ */
+export function getUnderstandingCaptions(limit = 10): string[] {
+	const out: string[] = [];
+	for (const u of cache.values()) {
+		const caption = u.caption?.trim();
+		if (!caption) continue;
+		out.push(caption);
+		if (out.length >= limit) break;
+	}
+	return out;
+}
+
 /** Drop everything from the cache (on editor unmount / project switch). */
 export function clearUnderstandingCache(): void {
 	cache.clear();

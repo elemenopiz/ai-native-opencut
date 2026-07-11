@@ -32,6 +32,7 @@ import { useBackends } from "@/hooks/use-backends";
 import { DEFAULT_BACKEND_ID } from "@/lib/studio/backends/registry";
 import { useStudioSettingsStore } from "@/stores/studio-settings-store";
 import { usePersonaStore } from "@/stores/persona-store";
+import { EnhancePromptButton } from "@/components/editor/ai/enhance-prompt-button";
 import { toast } from "sonner";
 
 interface GenerationFormProps {
@@ -705,7 +706,21 @@ export function GenerationForm({
 
 			{/* Prompt — supports @mention referencing of attached media */}
 			<div className="space-y-1.5">
-				<Label className="text-xs">Prompt</Label>
+				<div className="flex items-center justify-between">
+					<Label className="text-xs">Prompt</Label>
+					<EnhancePromptButton
+						mode="video"
+						getPrompt={() => prompt}
+						setPrompt={setPrompt}
+						getContext={() =>
+							activePersona
+								? {
+										persona: `${activePersona.name}: ${activePersona.descriptor}`,
+									}
+								: undefined
+						}
+					/>
+				</div>
 				<div className="relative">
 					<Textarea
 						ref={promptRef}
