@@ -155,6 +155,10 @@ function PreviewCanvas({
 			width: nativeWidth,
 			height: nativeHeight,
 			fps: activeProject.settings.fps,
+			// Live playback may serve the newest already-decoded frame instead
+			// of stalling the render loop on a late decode (video-cache drop
+			// policy). Only the preview renderer sets this.
+			realtime: true,
 		});
 	}, [nativeWidth, nativeHeight, activeProject.settings.fps]);
 

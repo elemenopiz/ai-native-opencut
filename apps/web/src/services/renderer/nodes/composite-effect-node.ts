@@ -90,6 +90,25 @@ function computeContentBounds({
 }
 
 export class CompositeEffectNode extends BaseNode<CompositeEffectNodeParams> {
+	/**
+	 * contentNodes are usually the SAME instances the root also holds as
+	 * children (scene-builder), so the root's prepare pass already covers them
+	 * and VideoNode's per-time dedup makes this second pass a no-op. It only
+	 * does real work if a composite ever holds nodes outside the main tree.
+	 */
+	async prepare({
+		renderer,
+		time,
+	}: {
+		renderer: CanvasRenderer;
+		time: number;
+	}): Promise<void> {
+		await super.prepare({ renderer, time });
+		await Promise.all(
+			this.params.contentNodes.map((node) => node.prepare({ renderer, time })),
+		);
+	}
+
 	async render({
 		renderer,
 		time,
