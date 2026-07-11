@@ -40,6 +40,10 @@ import {
 } from "@/lib/studio/cost";
 import { useStudioSettingsStore } from "@/stores/studio-settings-store";
 import { CostApprovalDialog } from "@/components/studio/cost-approval-dialog";
+import { EnhancePromptButton } from "@/components/editor/ai/enhance-prompt-button";
+import { serializeConsistencyContext } from "@/lib/director/consistency-prompt";
+import { summarizeBrief } from "@/lib/director/director-brief";
+import { getUnderstandingCaptions } from "@/lib/director/understanding-lookup";
 import { toast } from "sonner";
 import { TemplatePanel } from "@/components/editor/ai/template-panel";
 import { BRollSuggestionsPanel } from "@/components/editor/ai/broll-suggestions-panel";
@@ -401,6 +405,29 @@ export function DirectorView() {
 	const handleStopAgent = useCallback(() => {
 		abortRef.current?.abort();
 	}, []);
+
+	// Compact reference context for the prompt-enhance button — read entirely from
+	// state the Director already holds (no new fetches): the reel-level look, the
+	// durable brief, and up to 10 primed asset captions. Empty pieces are omitted.
+	const getDirectorContext = useCallback(() => {
+		const consistency = director.getReel().consistency;
+		const styleBible = consistency
+			? serializeConsistencyContext(consistency)
+			: undefined;
+		let brief: string | undefined;
+		try {
+			const b = editor.project.getDirectorBrief();
+			brief = b ? summarizeBrief(b) : undefined;
+		} catch {
+			brief = undefined;
+		}
+		const assetNotes = getUnderstandingCaptions(10);
+		return {
+			...(styleBible ? { styleBible } : {}),
+			...(brief ? { brief } : {}),
+			...(assetNotes.length ? { assetNotes } : {}),
+		};
+	}, [director, editor]);
 
 	// ── Model name display ──
 	const [activeModel, setActiveModel] = useState("");
@@ -1371,9 +1398,22 @@ export function DirectorView() {
 								</Button>
 							)}
 						</div>
-						<p className="text-[9px] text-muted-foreground mt-1 text-center">
-							Enter to send &middot; Shift+Enter for new line
-						</p>
+						<div className="mt-1 flex items-center justify-between">
+							{mode === "chat" ? (
+								<EnhancePromptButton
+									mode="director"
+									getPrompt={() => inputValue}
+									setPrompt={setInputValue}
+									getContext={getDirectorContext}
+								/>
+							) : (
+								<span />
+							)}
+							<p className="text-[9px] text-muted-foreground">
+								Enter to send &middot; Shift+Enter for new line
+							</p>
+							<span className="w-6" />
+						</div>
 					</div>
 				</>
 			)}

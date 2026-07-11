@@ -23,6 +23,7 @@ import { ImageLightbox } from "@/components/studio/image-lightbox";
 import { STUDIO_IMAGE_DND_TYPE, type StudioImageDrag } from "@/lib/studio/dnd";
 import { useStudioSettingsStore } from "@/stores/studio-settings-store";
 import { useEditor } from "@/hooks/use-editor";
+import { EnhancePromptButton } from "@/components/editor/ai/enhance-prompt-button";
 import { addItemsToProjectMedia } from "@/lib/studio/add-to-editor";
 import { gateOn402 } from "@/lib/credits/client-gate";
 import { useCreditsStore } from "@/stores/credits-store";
@@ -196,13 +197,20 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 			</div>
 
 			<div className="space-y-1.5">
-				<Label className="text-xs">
-					{presetId === "storyboard"
-						? "Scene"
-						: presetId === "character-sheet"
-							? "Character"
-							: "Prompt"}
-				</Label>
+				<div className="flex items-center justify-between">
+					<Label className="text-xs">
+						{presetId === "storyboard"
+							? "Scene"
+							: presetId === "character-sheet"
+								? "Character"
+								: "Prompt"}
+					</Label>
+					<EnhancePromptButton
+						mode="image"
+						getPrompt={() => prompt}
+						setPrompt={setPrompt}
+					/>
+				</div>
 				<Textarea
 					placeholder={preset.placeholder}
 					value={prompt}
