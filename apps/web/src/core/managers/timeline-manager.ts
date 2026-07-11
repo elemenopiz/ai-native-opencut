@@ -34,6 +34,7 @@ import {
 	DuplicateElementsCommand,
 	ToggleElementsVisibilityCommand,
 	ToggleElementsMutedCommand,
+	ToggleSourceAudioSeparationCommand,
 	UpdateElementCommand,
 	SplitElementsCommand,
 	PasteCommand,
@@ -881,6 +882,22 @@ export class TimelineManager {
 		elements: { trackId: string; elementId: string }[];
 	}): void {
 		const command = new ToggleElementsMutedCommand(elements);
+		this.editor.command.execute({ command });
+	}
+
+	/** Toggle a video clip's audio between linked and detached (extracted onto
+	 *  its own audio-track element). See `ToggleSourceAudioSeparationCommand`. */
+	toggleSourceAudioSeparation({
+		trackId,
+		elementId,
+	}: {
+		trackId: string;
+		elementId: string;
+	}): void {
+		const command = new ToggleSourceAudioSeparationCommand({
+			trackId,
+			elementId,
+		});
 		this.editor.command.execute({ command });
 	}
 

@@ -39,6 +39,10 @@ import type {
 } from "@/types/timeline";
 import type { MediaAsset } from "@/types/assets";
 import { mediaSupportsAudio } from "@/lib/media/media-utils";
+import {
+	canToggleSourceAudio,
+	getSourceAudioActionLabel,
+} from "@/lib/timeline/audio-separation";
 import { getActionDefinition, type TAction, invokeAction } from "@/lib/actions";
 import { useElementSelection } from "@/hooks/timeline/element/use-element-selection";
 import { resolveStickerId } from "@/lib/stickers";
@@ -56,6 +60,7 @@ import {
 	Exchange01Icon,
 	KeyframeIcon,
 	MagicWand05Icon,
+	Unlink04Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { uppercase } from "@/utils/string";
@@ -330,6 +335,16 @@ export function TimelineElement({
 						isMuted={isMuted}
 					/>
 				)}
+				{selectedElements.length === 1 &&
+					element.type === "video" &&
+					canToggleSourceAudio(element, mediaAsset) && (
+						<ActionMenuItem
+							action="separate-audio"
+							icon={<HugeiconsIcon icon={Unlink04Icon} />}
+						>
+							{getSourceAudioActionLabel({ element })}
+						</ActionMenuItem>
+					)}
 				{canElementBeHidden(element) && (
 					<VisibilityMenuItem
 						element={element}

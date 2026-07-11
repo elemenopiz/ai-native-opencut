@@ -288,6 +288,14 @@ export interface VideoElement extends BaseTimelineElement, GenerativeFields {
 	playbackRate?: number;
 	/** Play the trimmed source span backwards. */
 	reversed?: boolean;
+	/**
+	 * Whether this clip's own embedded audio is enabled. `false` means the
+	 * audio has been detached ("extracted") onto its own standalone audio
+	 * element elsewhere in the timeline, and this clip's source audio should
+	 * be suppressed during playback/export. Omitted/`true` ⇒ enabled (default).
+	 * See `lib/timeline/audio-separation.ts`.
+	 */
+	isSourceAudioEnabled?: boolean;
 	transform: Transform;
 	opacity: number;
 	blendMode?: BlendMode;

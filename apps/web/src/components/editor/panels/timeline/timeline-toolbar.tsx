@@ -20,6 +20,7 @@ import { ScenesView } from "../../scenes-view";
 import { type TAction, invokeAction } from "@/lib/actions";
 import { cn } from "@/utils/ui";
 import { useTimelineStore } from "@/stores/timeline-store";
+import { useKeyboardShortcutsHelp } from "@/hooks/use-keyboard-shortcuts-help";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
 	Bookmark02Icon,
@@ -111,18 +112,21 @@ function ToolbarLeftSection() {
 				<ToolbarButton
 					icon={<HugeiconsIcon icon={ScissorIcon} />}
 					tooltip="Split element"
+					action="split"
 					onClick={({ event }) => handleAction({ action: "split", event })}
 				/>
 
 				<ToolbarButton
 					icon={<HugeiconsIcon icon={AlignLeftIcon} />}
 					tooltip="Split left"
+					action="split-left"
 					onClick={({ event }) => handleAction({ action: "split-left", event })}
 				/>
 
 				<ToolbarButton
 					icon={<HugeiconsIcon icon={AlignRightIcon} />}
 					tooltip="Split right"
+					action="split-right"
 					onClick={({ event }) =>
 						handleAction({ action: "split-right", event })
 					}
@@ -131,6 +135,7 @@ function ToolbarLeftSection() {
 				<ToolbarButton
 					icon={<SplitSquareHorizontal />}
 					tooltip="Separate audio"
+					action="separate-audio"
 					onClick={({ event }) =>
 						handleAction({ action: "separate-audio", event })
 					}
@@ -139,6 +144,7 @@ function ToolbarLeftSection() {
 				<ToolbarButton
 					icon={<HugeiconsIcon icon={Copy01Icon} />}
 					tooltip="Duplicate element"
+					action="duplicate-selected"
 					onClick={({ event }) =>
 						handleAction({ action: "duplicate-selected", event })
 					}
@@ -155,6 +161,7 @@ function ToolbarLeftSection() {
 				<ToolbarButton
 					icon={<HugeiconsIcon icon={Delete02Icon} />}
 					tooltip="Delete element"
+					action="delete-selected"
 					onClick={({ event }) =>
 						handleAction({ action: "delete-selected", event })
 					}
@@ -167,6 +174,7 @@ function ToolbarLeftSection() {
 						icon={<HugeiconsIcon icon={Bookmark02Icon} />}
 						isActive={isCurrentlyBookmarked}
 						tooltip={isCurrentlyBookmarked ? "Remove bookmark" : "Add bookmark"}
+						action="toggle-bookmark"
 						onClick={({ event }) =>
 							handleAction({ action: "toggle-bookmark", event })
 						}
@@ -308,19 +316,47 @@ function ToolbarRightSection({
 	);
 }
 
+/** Appends a formatted keyboard-shortcut hint to a tooltip, e.g.
+ *  `"Split element" -> "Split element (S)"`. Falls back to the plain tooltip
+ *  when the action has no shortcut bound. */
+function withShortcutHint({
+	tooltip,
+	shortcuts,
+	action,
+}: {
+	tooltip: string;
+	shortcuts: ReturnType<typeof useKeyboardShortcutsHelp>["shortcuts"];
+	action: TAction;
+}): string {
+	const shortcut = shortcuts.find((s) => s.action === action);
+	if (!shortcut || shortcut.keys.length === 0) {
+		return tooltip;
+	}
+	return `${tooltip} (${shortcut.keys.join(" or ")})`;
+}
+
 function ToolbarButton({
 	icon,
 	tooltip,
 	onClick,
 	disabled,
 	isActive,
+	action,
 }: {
 	icon: React.ReactNode;
 	tooltip: string;
 	onClick: ({ event }: { event: React.MouseEvent }) => void;
 	disabled?: boolean;
 	isActive?: boolean;
+	/** When set, looks up the bound shortcut for this action and appends it
+	 *  to the tooltip (e.g. "Split element (S)"). */
+	action?: TAction;
 }) {
+	const { shortcuts } = useKeyboardShortcutsHelp();
+	const displayTooltip = action
+		? withShortcutHint({ tooltip, shortcuts, action })
+		: tooltip;
+
 	return (
 		<Tooltip delayDuration={200}>
 			<TooltipTrigger asChild>
@@ -336,7 +372,7 @@ function ToolbarButton({
 					{icon}
 				</Button>
 			</TooltipTrigger>
-			<TooltipContent>{tooltip}</TooltipContent>
+			<TooltipContent>{displayTooltip}</TooltipContent>
 		</Tooltip>
 	);
 }
