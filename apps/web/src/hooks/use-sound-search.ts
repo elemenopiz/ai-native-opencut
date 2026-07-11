@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useSoundsStore } from "@/stores/sounds-store";
 import { getFreesoundHeaders } from "@/lib/api-keys";
+import { readSoundsApiError } from "@/lib/sounds/api-error";
 
 export function useSoundSearch({
 	query,
@@ -66,7 +67,12 @@ export function useSoundSearch({
 				setHasNextPage({ hasNext: !!data.next });
 				setTotalCount(data.count);
 			} else {
-				setSearchError({ error: `Load more failed: ${response.status}` });
+				setSearchError({
+					error: await readSoundsApiError({
+						response,
+						fallback: "Load more failed",
+					}),
+				});
 			}
 		} catch (err) {
 			setSearchError({
@@ -111,7 +117,12 @@ export function useSoundSearch({
 						setTotalCount({ count: data.count });
 						setCurrentPage({ page: 1 });
 					} else {
-						setSearchError({ error: `Search failed: ${response.status}` });
+						setSearchError({
+							error: await readSoundsApiError({
+								response,
+								fallback: "Search failed",
+							}),
+						});
 					}
 				}
 			} catch (err) {

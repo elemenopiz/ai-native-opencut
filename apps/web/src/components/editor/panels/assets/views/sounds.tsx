@@ -24,6 +24,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useInfiniteScroll } from "@/hooks/use-infinite-scroll";
 import { useSoundSearch } from "@/hooks/use-sound-search";
 import { getFreesoundHeaders } from "@/lib/api-keys";
+import { readSoundsApiError } from "@/lib/sounds/api-error";
 import { useSoundsStore } from "@/stores/sounds-store";
 import type { SavedSound, SoundEffect } from "@/types/sounds";
 import { cn } from "@/utils/ui";
@@ -75,6 +76,7 @@ function SoundEffectsView() {
 	const {
 		topSoundEffects,
 		isLoading,
+		error: loadError,
 		searchQuery,
 		setSearchQuery,
 		scrollPosition,
@@ -94,6 +96,7 @@ function SoundEffectsView() {
 	const {
 		results: searchResults,
 		isLoading: isSearching,
+		error: searchError,
 		loadMore,
 		hasNextPage,
 		isLoadingMore,
@@ -145,7 +148,12 @@ function SoundEffectsView() {
 
 				if (!shouldIgnore) {
 					if (!response.ok) {
-						throw new Error(`Failed to fetch: ${response.status}`);
+						throw new Error(
+							await readSoundsApiError({
+								response,
+								fallback: "Failed to load sounds",
+							}),
+						);
 					}
 
 					const data = await response.json();
@@ -314,6 +322,11 @@ function SoundEffectsView() {
 						{isSearching && searchQuery && (
 							<div className="text-muted-foreground text-sm">Searching...</div>
 						)}
+						{!isLoading && !isSearching && (loadError || searchError) && (
+							<div className="text-destructive text-sm">
+								{searchQuery ? searchError || loadError : loadError}
+							</div>
+						)}
 						{displayedSounds.map((sound) => (
 							<AudioItem
 								key={sound.id}
@@ -323,11 +336,15 @@ function SoundEffectsView() {
 								onTagClick={handleTagClick}
 							/>
 						))}
-						{!isLoading && !isSearching && displayedSounds.length === 0 && (
-							<div className="text-muted-foreground text-sm">
-								{searchQuery ? "No sounds found" : "No sounds available"}
-							</div>
-						)}
+						{!isLoading &&
+							!isSearching &&
+							!loadError &&
+							!searchError &&
+							displayedSounds.length === 0 && (
+								<div className="text-muted-foreground text-sm">
+									{searchQuery ? "No sounds found" : "No sounds available"}
+								</div>
+							)}
 						{isLoadingMore && (
 							<div className="text-muted-foreground py-4 text-center text-sm">
 								Loading more sounds...
@@ -528,6 +545,7 @@ function SongsView() {
 	const [isLoading, setIsLoading] = useState(false);
 	const [isLoadingMore, setIsLoadingMore] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [warning, setWarning] = useState<string | null>(null);
 	const [playingId, setPlayingId] = useState<number | null>(null);
 	const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(
 		null,
@@ -559,7 +577,14 @@ function SongsView() {
 				const res = await fetch(`/api/sounds/search?${params.toString()}`, {
 					headers: getFreesoundHeaders(),
 				});
-				if (!res.ok) throw new Error(`Search failed: ${res.status}`);
+				if (!res.ok) {
+					throw new Error(
+						await readSoundsApiError({
+							response: res,
+							fallback: "Search failed",
+						}),
+					);
+				}
 
 				const data = await res.json();
 				setSongs((prev) =>
@@ -567,6 +592,9 @@ function SongsView() {
 				);
 				setHasNext(!!data.next);
 				setPage(pageNum);
+				// Songs are best-effort across two sources; a degraded source (e.g. a
+				// bad Freesound key) comes back as a warning alongside the results.
+				setWarning(data.warning?.message ?? null);
 			} catch (err) {
 				setError(err instanceof Error ? err.message : "Failed to load songs");
 			} finally {
@@ -657,6 +685,11 @@ function SongsView() {
 						)}
 						{error && !isLoading && (
 							<div className="text-destructive text-sm">{error}</div>
+						)}
+						{warning && !error && !isLoading && (
+							<div className="text-amber-500 text-xs leading-relaxed">
+								{warning}
+							</div>
 						)}
 						{songs.map((sound) => (
 							<AudioItem
