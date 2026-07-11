@@ -262,12 +262,39 @@ Steps: failing test (embedBatches uses localClip; modelName recorded as `clip-vi
 → implement → run PASS → `bun test src/services/search` → commit
 `feat(local-ai): index media through in-browser CLIP`.
 
+### Task 3.5 (AMENDMENT, design revision 2026-07-12): swappable embedding seam
+
+The revised design doc requires consumers to call an embedding *interface*, never the worker
+client directly, so a hosted-API backend can slot in later (face excluded from any flip —
+biometric). Introduce `apps/web/src/lib/local-ai/embeddings.ts`:
+
+```ts
+export interface EmbeddingBackend {
+	embedTexts(texts: string[], onProgress?): Promise<Float32Array[]>;
+	embedImages(blobs: Blob[], onProgress?): Promise<Float32Array[]>;
+	/** Provenance tag stored on embeddings; distinct per vector space. */
+	readonly modelName: string;
+}
+export const embeddings: EmbeddingBackend = /* localClip-backed adapter */;
+```
+
+Repoint `embedding-service.ts` (Task 3 wired it straight to `localClip`) to `embeddings`.
+TDD the seam (adapter delegates + exposes `LOCAL_CLIP_MODEL_NAME`). YAGNI: do NOT build the
+hosted backend — just the interface + local adapter.
+Commit: `feat(local-ai): backend-swappable embedding seam`.
+
 ### Task 4: Repoint query-side embeds
 
 **Files:**
-- Modify: `apps/web/src/hooks/use-visual-search.ts:107` (`aiClient.embedText` → `localClip.embedTexts([trimmed])`)
+- Modify: `apps/web/src/hooks/use-visual-search.ts:107` (`aiClient.embedText` → `embeddings.embedTexts([trimmed])` via the Task 3.5 seam)
 - Modify: `apps/web/src/lib/director/director-api.ts:1014` (same swap)
-- Tests: adjust the two files' existing tests/mocks
+- **AMENDMENT (Task 3 quality review Important #2):** filter record-side reads to the current
+  vector space — `use-visual-search`'s `refreshIndex` (`getAllEmbeddings()`) and
+  `embedding-service.ts`'s `findDuplicates` must skip records whose
+  `modelName !== LOCAL_CLIP_MODEL_NAME`, otherwise stale laion2b vectors pollute search
+  rankings and duplicate detection during the re-index window.
+- Tests: adjust the two files' existing tests/mocks; add a mixed-model-records test proving
+  stale records are excluded.
 
 Note `use-visual-search` already computes `dotProduct` locally — with normalized vectors both sides,
 scores stay cosine-compatible; the `threshold = 0.18` default was tuned for laion2b scores, so
@@ -283,6 +310,29 @@ Start the dev server (Browser pane, launch.json config). In a project with a vid
 3. Repeat with WebGPU disabled if feasible (WASM fallback) or at minimum assert `pickDevice` fallback
    path is unit-covered.
 Fix-forward until green, then commit any threshold tuning.
+
+### Task 5.5 (AMENDMENT, design revision 2026-07-12): editor-priority scheduler + idle unload
+
+The revised design doc adds two framework behaviors to `lib/local-ai/` (in-browser models share
+the GPU with the WebGL compositor and CPU with video decode; playback fps is the top-priority
+workload):
+
+1. **Editor-has-priority scheduler:** understanding inference runs only while the editor is idle
+   or paused — active playback, scrubbing, or export pauses (or heavily throttles) worker
+   inference. Implement as a gate the `LocalClip` queue (and Whisper orchestrator) awaits before
+   dispatching each request: a small `lib/local-ai/scheduler.ts` subscribing to the playback
+   store's play state + export state (find the exact stores; playback state lives in the
+   timeline/playback store — verify with the codebase, and note `getCurrentTime` readers freeze
+   during playback BY DESIGN, so subscribe to play/pause events, not time). Batch boundaries are
+   the natural pause points (requests are already serialized).
+2. **Idle unload:** after N minutes (default ~5) with no requests, terminate the warm worker so
+   model memory is released (reload from browser cache is cheap). Applies to BOTH the CLIP
+   client and the Whisper worker (`local-whisper.ts` keeps its worker warm forever today).
+   Implement in one place (shared helper or base class) — not copy-pasted.
+
+TDD with fake timers/fake stores. Deferred WASM-runtime-fallback from Task 2 review can ride
+along here if browser verification surfaced it. Commit:
+`feat(local-ai): editor-priority scheduling + idle model unload`.
 
 ---
 
