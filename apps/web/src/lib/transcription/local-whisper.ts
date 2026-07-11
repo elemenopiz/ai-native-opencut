@@ -14,6 +14,7 @@ import {
 	DEFAULT_STRIDE_SECONDS,
 	TRANSCRIPTION_MODELS,
 } from "@/constants/transcription-constants";
+import { type LocalAIDevice, pickDevice } from "@/lib/local-ai/device";
 import type {
 	TranscriptionResult,
 	TranscriptionSegment,
@@ -64,14 +65,9 @@ export function isLocalWhisperSupported(): boolean {
 	return typeof Worker !== "undefined" && hasAudio;
 }
 
-function pickDevice(): "webgpu" | "wasm" {
-	// biome-ignore lint/suspicious/noExplicitAny: navigator.gpu missing from older lib.dom.
-	return (navigator as any).gpu ? "webgpu" : "wasm";
-}
-
 function resolveModelId(
 	model: string | undefined,
-	device: "webgpu" | "wasm",
+	device: LocalAIDevice,
 ): string {
 	if (model) {
 		const match = TRANSCRIPTION_MODELS.find(
