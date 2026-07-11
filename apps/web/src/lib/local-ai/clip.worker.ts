@@ -81,11 +81,13 @@ async function ensureModels(
 		models = null;
 	}
 
-	// q8 keeps both encoders small and is accurate enough for retrieval on
-	// either backend; CLIP is tiny next to Whisper so one dtype fits all.
+	// Per-device dtype, mirroring the Whisper worker: quantized (q8) encoders
+	// produce constant garbage embeddings on WebGPU (browser-verified 2026-07-12:
+	// every image mapped to the same vector), so WebGPU gets fp32 — CLIP is small
+	// enough that full precision stays a modest download. WASM keeps q8.
 	const modelOptions = {
 		device,
-		dtype: "q8",
+		dtype: device === "webgpu" ? "fp32" : "q8",
 		progress_callback: postProgress,
 		// biome-ignore lint/suspicious/noExplicitAny: option bags are loosely typed upstream.
 	} as any;
