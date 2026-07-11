@@ -2,12 +2,19 @@ import type { EditorCore } from "@/core";
 import type { AudioClipSource } from "@/lib/media/audio";
 import { createAudioContext, collectAudioClips } from "@/lib/media/audio";
 import {
+	resolveStretchDecision,
+	stretchAudioBufferSegment,
+} from "@/lib/media/pitch-preserving-stretch";
+import {
 	ALL_FORMATS,
 	AudioBufferSink,
 	BlobSource,
 	Input,
 	type WrappedAudioBuffer,
 } from "mediabunny";
+
+/** Max cached pitch-preserved renders (each is a fully decoded clip slot). */
+const MAX_STRETCHED_BUFFER_CACHE = 12;
 
 export class AudioManager {
 	private audioContext: AudioContext | null = null;
@@ -35,6 +42,14 @@ export class AudioManager {
 		AsyncGenerator<WrappedAudioBuffer, void, unknown>
 	>();
 	private queuedSources = new Set<AudioBufferSourceNode>();
+	/**
+	 * Pitch-preserved renders of speed-changed clips, keyed by
+	 * source|rate|trim|duration|sampleRate. Survives timeline restarts (every
+	 * clip drag triggers one) so a clip is only decoded+stretched once; `null`
+	 * results are cached too so a failing clip doesn't re-render on every
+	 * restart. Cleared on dispose().
+	 */
+	private stretchedBuffers = new Map<string, Promise<AudioBuffer | null>>();
 	private playbackSessionId = 0;
 	private lastIsPlaying = false;
 	private lastVolume = 1;
@@ -64,6 +79,7 @@ export class AudioManager {
 			window.removeEventListener("playback-seek", this.handleSeek);
 		}
 		this.disposeSinks();
+		this.stretchedBuffers.clear();
 		if (this.audioContext) {
 			void this.audioContext.close();
 			this.audioContext = null;
@@ -152,8 +168,7 @@ export class AudioManager {
 		const track = tracks.find((t) => t.id === trackId);
 		const trackVolume =
 			(track && ("volume" in track ? track.volume : undefined)) ?? 1;
-		const trackPan =
-			(track && ("pan" in track ? track.pan : undefined)) ?? 0;
+		const trackPan = (track && ("pan" in track ? track.pan : undefined)) ?? 0;
 
 		const gain = ctx.createGain();
 		gain.gain.value = trackVolume;
@@ -243,9 +258,7 @@ export class AudioManager {
 		const trackNodes = this.getOrCreateTrackNodes(trackWithClip.id);
 		if (!trackNodes) return this.masterGain;
 
-		const isSoloMode = tracks.some(
-			(t) => "solo" in t && t.solo,
-		);
+		const isSoloMode = tracks.some((t) => "solo" in t && t.solo);
 		const trackSolo = "solo" in trackWithClip ? trackWithClip.solo : false;
 
 		if (isSoloMode && !trackSolo) {
@@ -355,6 +368,27 @@ export class AudioManager {
 		const audioContext = this.ensureAudioContext();
 		if (!audioContext) return;
 
+		// Speed handling: constant speed-changed clips take the pitch-preserving
+		// path (offline signalsmith-stretch render, played back at rate 1). If the
+		// stretcher is unavailable (WASM load failure, render error, oversized
+		// clip), fall through to the raw-rate path below — correct speed, shifted
+		// pitch, exactly like the export mixdown's fallback. Rate-1 clips never
+		// touch the stretcher.
+		const decision = resolveStretchDecision({
+			playbackRate: clip.playbackRate,
+			hasVariableRate: clip.hasVariableRate,
+		});
+		if (decision.mode === "stretch") {
+			const played = await this.playStretchedClip({
+				clip,
+				rate: decision.rate,
+				sessionId,
+				audioContext,
+			});
+			if (played) return;
+		}
+		const rate = decision.mode === "bypass" ? 1 : decision.rate;
+
 		const sink = await this.getAudioSink({ clip });
 		if (!sink || !this.editor.playback.getIsPlaying()) return;
 		if (sessionId !== this.playbackSessionId) return;
@@ -370,8 +404,10 @@ export class AudioManager {
 		if (iteratorStartTime >= clipEnd) {
 			return;
 		}
+		// Timeline ↔ source mapping matches the visual renderer
+		// (VisualNode.getSourceLocalTime): source = trimStart + elapsed * rate.
 		const sourceStartTime =
-			clip.trimStart + (iteratorStartTime - clip.startTime);
+			clip.trimStart + (iteratorStartTime - clip.startTime) * rate;
 
 		let iterator: AsyncGenerator<WrappedAudioBuffer, void, unknown>;
 		try {
@@ -387,29 +423,23 @@ export class AudioManager {
 				if (!this.editor.playback.getIsPlaying()) return;
 				if (sessionId !== this.playbackSessionId) return;
 
-				const timelineTime = clip.startTime + (timestamp - clip.trimStart);
+				// A source-side chunk at `timestamp` lands on the timeline at
+				// clipStart + sourceElapsed / rate (inverse of the mapping above).
+				const timelineTime =
+					clip.startTime + (timestamp - clip.trimStart) / rate;
 				if (timelineTime >= clipEnd) break;
 
 				const node = audioContext.createBufferSource();
 				node.buffer = buffer;
 
-				// Apply per-clip playback rate (speed control)
-				const clipRate = (clip as unknown as { playbackRate?: number }).playbackRate;
-				if (typeof clipRate === "number" && clipRate !== 1.0) {
-					node.playbackRate.value = clipRate;
+				// Raw-rate speed (pitch-shifted): only reached when the clip is
+				// speed-changed AND the pitch-preserving path was unavailable, or the
+				// speed curve is keyframed (constant-fallback).
+				if (rate !== 1) {
+					node.playbackRate.value = rate;
 				}
 
-				const destinationNode = this.getTrackDestination(clip.id);
-
-				const clipVolume = clip.volume ?? 1;
-				if (clipVolume < 1) {
-					const clipGain = audioContext.createGain();
-					clipGain.gain.value = clipVolume;
-					node.connect(clipGain);
-					clipGain.connect(destinationNode);
-				} else {
-					node.connect(destinationNode);
-				}
+				this.connectClipNode({ node, clip, audioContext });
 
 				const startTimestamp =
 					this.playbackStartContextTime +
@@ -421,8 +451,11 @@ export class AudioManager {
 					consecutiveDroppedBufferCount = 0;
 				} else {
 					const offset = audioContext.currentTime - startTimestamp;
-					if (offset < buffer.duration) {
-						node.start(audioContext.currentTime, offset);
+					// `offset` is timeline seconds; the buffer is consumed at `rate`
+					// source-seconds per timeline-second.
+					const sourceOffset = offset * rate;
+					if (sourceOffset < buffer.duration) {
+						node.start(audioContext.currentTime, sourceOffset);
 						consecutiveDroppedBufferCount = 0;
 					} else {
 						consecutiveDroppedBufferCount += 1;
@@ -470,6 +503,218 @@ export class AudioManager {
 		this.clipIterators.delete(clip.id);
 		// don't remove from activeClipIds - prevents scheduler from restarting this clip
 		// the set is cleared on stopPlayback anyway
+	}
+
+	/** Shared clip→graph wiring (per-clip volume, track routing, solo/mute). */
+	private connectClipNode({
+		node,
+		clip,
+		audioContext,
+	}: {
+		node: AudioBufferSourceNode;
+		clip: AudioClipSource;
+		audioContext: AudioContext;
+	}): void {
+		const destinationNode = this.getTrackDestination(clip.id);
+		const clipVolume = clip.volume ?? 1;
+		if (clipVolume < 1) {
+			const clipGain = audioContext.createGain();
+			clipGain.gain.value = clipVolume;
+			node.connect(clipGain);
+			clipGain.connect(destinationNode);
+		} else {
+			node.connect(destinationNode);
+		}
+	}
+
+	/**
+	 * Pitch-preserving playback of a constant speed-changed clip: play the
+	 * offline-stretched, rate-1 render of the clip's slot as a single source
+	 * node. Returns false when the stretcher is unavailable so the caller can
+	 * fall back to raw-rate (pitch-shifted) streaming; returns true when the
+	 * clip is fully handled (scheduled, already over, or playback ended).
+	 */
+	private async playStretchedClip({
+		clip,
+		rate,
+		sessionId,
+		audioContext,
+	}: {
+		clip: AudioClipSource;
+		rate: number;
+		sessionId: number;
+		audioContext: AudioContext;
+	}): Promise<boolean> {
+		const buffer = await this.getStretchedBuffer({ clip, rate, audioContext });
+		if (!buffer) return false;
+
+		// The render may have taken a while; re-check the session is still live.
+		if (!this.editor.playback.getIsPlaying()) return true;
+		if (sessionId !== this.playbackSessionId) return true;
+
+		const node = audioContext.createBufferSource();
+		node.buffer = buffer;
+		this.connectClipNode({ node, clip, audioContext });
+
+		// The stretched buffer IS the clip's timeline slot at rate 1, so it is
+		// scheduled exactly like a plain clip starting at clip.startTime.
+		const startTimestamp =
+			this.playbackStartContextTime +
+			this.playbackLatencyCompensationSeconds +
+			(clip.startTime - this.playbackStartTime);
+		const now = audioContext.currentTime;
+
+		if (startTimestamp >= now) {
+			node.start(startTimestamp);
+		} else {
+			const offset = now - startTimestamp;
+			if (offset >= buffer.duration) {
+				node.disconnect();
+				return true; // Clip already finished on the timeline.
+			}
+			node.start(now, offset);
+		}
+
+		this.queuedSources.add(node);
+		node.addEventListener("ended", () => {
+			node.disconnect();
+			this.queuedSources.delete(node);
+		});
+		return true;
+	}
+
+	/**
+	 * Cached pitch-preserved render of a clip's slot. Failures resolve to null;
+	 * the cache entry is then dropped so a transient failure (e.g. a sink
+	 * disposed by a mid-decode timeline edit) retries on the next playback.
+	 */
+	private getStretchedBuffer({
+		clip,
+		rate,
+		audioContext,
+	}: {
+		clip: AudioClipSource;
+		rate: number;
+		audioContext: AudioContext;
+	}): Promise<AudioBuffer | null> {
+		const key = `${clip.sourceKey}|${rate}|${clip.trimStart}|${clip.duration}|${audioContext.sampleRate}`;
+		const existing = this.stretchedBuffers.get(key);
+		if (existing) return existing;
+
+		const pending = this.renderStretchedClip({ clip, rate, audioContext })
+			.catch((error) => {
+				console.warn(
+					"Pitch-preserving stretch failed for clip; falling back to pitch-shifted playback.",
+					error,
+				);
+				return null;
+			})
+			.then((buffer) => {
+				if (buffer === null && this.stretchedBuffers.get(key) === pending) {
+					this.stretchedBuffers.delete(key);
+				}
+				return buffer;
+			});
+
+		if (this.stretchedBuffers.size >= MAX_STRETCHED_BUFFER_CACHE) {
+			const oldestKey = this.stretchedBuffers.keys().next().value;
+			if (oldestKey !== undefined) this.stretchedBuffers.delete(oldestKey);
+		}
+		this.stretchedBuffers.set(key, pending);
+		return pending;
+	}
+
+	private async renderStretchedClip({
+		clip,
+		rate,
+		audioContext,
+	}: {
+		clip: AudioClipSource;
+		rate: number;
+		audioContext: AudioContext;
+	}): Promise<AudioBuffer | null> {
+		const segment = await this.decodeSourceSegment({
+			clip,
+			rate,
+			audioContext,
+		});
+		if (!segment) return null;
+
+		// Same seam the export mixdown uses (resolveMixElement) — identical
+		// inputs produce identical stretched audio in preview and export.
+		return stretchAudioBufferSegment({
+			buffer: segment.buffer,
+			playbackRate: rate,
+			trimStart: segment.trimStartWithinSegment,
+			duration: clip.duration,
+			targetSampleRate: audioContext.sampleRate,
+		});
+	}
+
+	/**
+	 * Decode the source span a speed-changed clip covers
+	 * ([trimStart, trimStart + duration * rate)) into one contiguous
+	 * native-sample-rate AudioBuffer.
+	 */
+	private async decodeSourceSegment({
+		clip,
+		rate,
+		audioContext,
+	}: {
+		clip: AudioClipSource;
+		rate: number;
+		audioContext: AudioContext;
+	}): Promise<{ buffer: AudioBuffer; trimStartWithinSegment: number } | null> {
+		const sink = await this.getAudioSink({ clip });
+		if (!sink) return null;
+
+		const sourceStart = clip.trimStart;
+		const sourceEnd = clip.trimStart + clip.duration * rate;
+
+		const chunks: AudioBuffer[] = [];
+		let firstTimestamp: number | null = null;
+		let totalSamples = 0;
+		try {
+			for await (const { buffer, timestamp } of sink.buffers(sourceStart)) {
+				if (firstTimestamp === null) firstTimestamp = timestamp;
+				chunks.push(buffer);
+				totalSamples += buffer.length;
+				if (timestamp + buffer.duration >= sourceEnd) break;
+			}
+		} catch {
+			return null; // Sink may have been disposed mid-decode.
+		}
+
+		if (chunks.length === 0 || firstTimestamp === null || totalSamples === 0) {
+			return null;
+		}
+
+		const nativeSampleRate = chunks[0].sampleRate;
+		const channels = Math.min(2, chunks[0].numberOfChannels);
+		const segmentBuffer = audioContext.createBuffer(
+			channels,
+			totalSamples,
+			nativeSampleRate,
+		);
+		let offset = 0;
+		for (const chunk of chunks) {
+			for (let channel = 0; channel < channels; channel++) {
+				segmentBuffer
+					.getChannelData(channel)
+					.set(
+						chunk.getChannelData(Math.min(channel, chunk.numberOfChannels - 1)),
+						offset,
+					);
+			}
+			offset += chunk.length;
+		}
+
+		// The first decoded chunk may begin before the requested start; tell the
+		// stretcher where the clip's trim actually falls inside this segment.
+		return {
+			buffer: segmentBuffer,
+			trimStartWithinSegment: Math.max(0, sourceStart - firstTimestamp),
+		};
 	}
 
 	private waitUntilCaughtUp({

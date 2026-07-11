@@ -19,6 +19,7 @@ import { useEffect } from "react";
 import { useEditor } from "@/hooks/use-editor";
 import { useSlotGeneration } from "@/hooks/use-slot-generation";
 import type { EditorCore } from "@/core";
+import { stretchAudioBufferSegment } from "@/lib/media/pitch-preserving-stretch";
 import type { ExportOptions, ExportResult } from "@/types/export";
 import type { GenerationSpec } from "@/types/timeline";
 
@@ -40,6 +41,10 @@ export interface E2EBridge {
 	/** Unblocks the in-flight stubbed render. Lets the test observe the
 	 *  "export kicked off / isExporting" window before letting it complete. */
 	releaseExport: () => void;
+	/** The REAL pitch-preserving stretch seam (shared by preview + export), so
+	 *  the audible-correctness e2e can render through the genuine WASM worklet
+	 *  and assert dominant frequency is preserved across a speed change. */
+	stretchAudioBufferSegment: typeof stretchAudioBufferSegment;
 }
 
 declare global {
@@ -91,6 +96,7 @@ export function E2EBridge() {
 			generateIntoSlot,
 			exportCalls,
 			releaseExport: () => releaseExport(),
+			stretchAudioBufferSegment,
 		};
 
 		return () => {
