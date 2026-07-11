@@ -12,6 +12,7 @@
 
 import { useEffect, useRef } from "react";
 import { useEditor } from "@/hooks/use-editor";
+import { LOCAL_CLIP_MODEL_NAME } from "@/lib/local-ai/local-clip";
 import { indexMedia } from "@/services/search/embedding-service";
 import {
 	isUnderstandingAutorunEnabled,
@@ -28,8 +29,6 @@ import {
 import type { EmbeddingStatus } from "@/lib/search/embedding-types";
 import { usePersonaStore } from "@/stores/persona-store";
 
-const CLIP_MODEL_NAME = "ViT-B-32";
-
 export function useEmbeddingIndexer() {
 	const editor = useEditor();
 	const knownIndexedRef = useRef<Set<string>>(new Set());
@@ -45,8 +44,11 @@ export function useEmbeddingIndexer() {
 	useEffect(() => {
 		let cancelled = false;
 
-		// On mount, hydrate the "already indexed" set so we don't re-index on reload.
-		listIndexedMediaIds()
+		// On mount, hydrate the "already indexed" set so we don't re-index on
+		// reload. Filtered to the current model: assets indexed by the retired
+		// server backend must NOT count as indexed, so they flow through
+		// indexMedia again and get re-embedded into the local vector space.
+		listIndexedMediaIds(LOCAL_CLIP_MODEL_NAME)
 			.then((ids) => {
 				if (cancelled) return;
 				knownIndexedRef.current = new Set(ids);
@@ -78,7 +80,11 @@ export function useEmbeddingIndexer() {
 
 				inflightSet.add(asset.id);
 				// Fire-and-forget — failures are recorded as EmbeddingStatus "error".
-				indexMedia(asset, { modelName: CLIP_MODEL_NAME })
+				// Model name is deliberately left to the service default
+				// (LOCAL_CLIP_MODEL_NAME): overriding it here with the retired
+				// backend's "ViT-B-32" would stamp local vectors with the wrong
+				// space and block the automatic re-index of old embeddings.
+				indexMedia(asset)
 					.catch((err) => {
 						console.warn(`[embedding-indexer] failed for ${asset.id}:`, err);
 					})

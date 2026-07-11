@@ -103,11 +103,27 @@ export async function clearAllEmbeddings(): Promise<void> {
 	]);
 }
 
-/** List mediaIds that already have an embedding record. */
-export async function listIndexedMediaIds(): Promise<string[]> {
-	return tx<IDBValidKey[]>(EMBEDDINGS_STORE, "readonly", (store) =>
-		store.getAllKeys(),
-	).then((keys) => keys as string[]);
+/**
+ * List mediaIds that already have an embedding record. Pass `modelName` to
+ * count only assets indexed under that model — records from a retired model
+ * must look "not indexed" so the auto-indexer re-embeds them into the
+ * current vector space instead of skipping them forever.
+ */
+export async function listIndexedMediaIds(
+	modelName?: string,
+): Promise<string[]> {
+	if (modelName === undefined) {
+		return tx<IDBValidKey[]>(EMBEDDINGS_STORE, "readonly", (store) =>
+			store.getAllKeys(),
+		).then((keys) => keys as string[]);
+	}
+	return tx<MediaEmbedding[]>(EMBEDDINGS_STORE, "readonly", (store) =>
+		store.getAll(),
+	).then((records) =>
+		records
+			.filter((record) => record.modelName === modelName)
+			.map((record) => record.mediaId),
+	);
 }
 
 /** Persist the latest indexing status for a media asset. */

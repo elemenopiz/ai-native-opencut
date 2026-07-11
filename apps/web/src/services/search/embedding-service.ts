@@ -3,14 +3,20 @@
  *
  * Given a video/image MediaAsset, samples N frames using the same HTML video
  * element + canvas approach as `use-filmstrip.ts` (no WebCodecs dependency),
- * batches them through the CLIP backend, and persists L2-normalized vectors
- * to the IndexedDB embedding store.
+ * batches them through the in-browser CLIP worker (`localClip`), and persists
+ * L2-normalized vectors to the IndexedDB embedding store.
  *
- * The backend is the only step that touches the network — afterwards vectors
- * live entirely on-device, keeping the privacy-first promise intact.
+ * Nothing here touches the network: frames are embedded on-device (the CLIP
+ * worker only downloads model weights, once) and vectors live entirely in
+ * IndexedDB, keeping the privacy-first promise intact.
+ *
+ * Callers of `localClip.embedImages` should pre-downscale blobs to ~224px —
+ * CLIP resizes to 224 internally, so anything larger just wastes worker
+ * message bandwidth and decode memory. Video frames are sampled at
+ * SAMPLE_WIDTH already; image assets are downscaled in `sampleImageFrame`.
  */
 
-import { aiClient } from "@/lib/ai-client";
+import { LOCAL_CLIP_MODEL_NAME, localClip } from "@/lib/local-ai/local-clip";
 import {
 	getAllEmbeddings,
 	getEmbedding,
@@ -29,7 +35,11 @@ import {
 } from "@/lib/search/embedding-types";
 import type { MediaAsset } from "@/types/assets";
 
-/** Max frames per HTTP batch — keeps request bodies reasonable. */
+/**
+ * Max frames per worker batch. The CLIP client serializes requests anyway,
+ * but batching bounds the structured-clone message size and keeps progress
+ * reporting per-batch instead of one long silent embed.
+ */
 const BATCH_SIZE = 8;
 /** Hard ceiling on sampled frames regardless of media length. */
 const MAX_FRAMES = 120;
@@ -117,39 +127,119 @@ async function sampleVideoFrames(
 	});
 }
 
+/**
+ * Downscale an image blob to SAMPLE_WIDTH before embedding — full-resolution
+ * originals would be structured-cloned into the worker just for CLIP to shrink
+ * them to 224px anyway. Falls back to the original blob when canvas decoding
+ * is unavailable or fails (the worker can decode originals fine, just slower).
+ */
+async function downscaleImageBlob(blob: Blob): Promise<Blob> {
+	if (
+		typeof createImageBitmap !== "function" ||
+		typeof document === "undefined"
+	) {
+		return blob;
+	}
+	try {
+		const bitmap = await createImageBitmap(blob);
+		const canvas = document.createElement("canvas");
+		const ratio = bitmap.height / bitmap.width || 9 / 16;
+		canvas.width = SAMPLE_WIDTH;
+		canvas.height = Math.round(SAMPLE_WIDTH * ratio);
+		const ctx = canvas.getContext("2d");
+		if (!ctx) return blob;
+		ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+		bitmap.close();
+		const scaled = await new Promise<Blob | null>((resolve) =>
+			canvas.toBlob(resolve, "image/jpeg", 0.6),
+		);
+		return scaled ?? blob;
+	} catch {
+		return blob;
+	}
+}
+
 /** Sample a single frame from an image MediaAsset (no seeking needed). */
 async function sampleImageFrame(
 	url: string,
 ): Promise<{ blob: Blob; timestampSec: number }> {
 	const resp = await fetch(url);
 	const blob = await resp.blob();
-	return { blob, timestampSec: 0 };
+	return { blob: await downscaleImageBlob(blob), timestampSec: 0 };
 }
 
-/** Batch a list of frame blobs through the CLIP embedding backend. */
-async function embedBatches(
+/**
+ * Batch a list of frame blobs through the on-device CLIP worker.
+ * `onProgress` receives the fraction of frames embedded after each batch.
+ * Exported for tests.
+ */
+export async function embedBatches(
 	frames: { blob: Blob; timestampSec: number }[],
+	onProgress?: (fraction: number) => void,
 ): Promise<EmbeddingFrame[]> {
 	const out: EmbeddingFrame[] = [];
 	for (let i = 0; i < frames.length; i += BATCH_SIZE) {
 		const slice = frames.slice(i, i + BATCH_SIZE);
-		const formData = new FormData();
-		slice.forEach((f, idx) => {
-			// Field name must be `files` to match the backend route's
-			// `embed_frames(files: list[UploadFile] = File(...))` parameter —
-			// FastAPI only binds multipart parts whose name equals `files`.
-			formData.append("files", f.blob, `frame-${i + idx}.jpg`);
-		});
-		const result = await aiClient.embedFrames(formData);
-		const vectors = result.vectors ?? [];
+		const vectors = await localClip.embedImages(slice.map((f) => f.blob));
 		for (let j = 0; j < vectors.length; j++) {
 			out.push({
 				timestampSec: slice[j].timestampSec,
-				vector: Float32Array.from(vectors[j]),
+				vector: vectors[j],
 			});
 		}
+		onProgress?.(Math.min(1, (i + slice.length) / frames.length));
 	}
 	return out;
+}
+
+/**
+ * Zero-shot label prompt template. CLIP was trained on captions, so "a photo
+ * of X" scores markedly better than the bare label word.
+ */
+function labelPrompt(label: string): string {
+	return `a photo of ${label}`;
+}
+
+/** How many top-scoring labels to keep as auto-tags. */
+const ZERO_SHOT_TOP_K = 5;
+
+let labelVectorsPromise: Promise<Float32Array[]> | null = null;
+
+/**
+ * Embed the static ZERO_SHOT_LABELS once per session and reuse the vectors
+ * for every asset. On failure the cache is cleared so the next asset retries
+ * instead of pinning a rejected promise forever.
+ */
+function getLabelVectors(): Promise<Float32Array[]> {
+	if (!labelVectorsPromise) {
+		labelVectorsPromise = localClip
+			.embedTexts(ZERO_SHOT_LABELS.map(labelPrompt))
+			.catch((err) => {
+				labelVectorsPromise = null;
+				throw err;
+			});
+	}
+	return labelVectorsPromise;
+}
+
+/**
+ * Rank the candidate labels against one frame vector. Both sides are
+ * L2-normalized, so a dot product is the cosine similarity.
+ */
+function zeroShotTagsForFrame(
+	frameVector: Float32Array,
+	labelVectors: Float32Array[],
+): ZeroShotTag[] {
+	return labelVectors
+		.map((labelVector, i) => {
+			let dot = 0;
+			for (let k = 0; k < labelVector.length; k++) {
+				dot += labelVector[k] * frameVector[k];
+			}
+			return { label: ZERO_SHOT_LABELS[i], score: dot };
+		})
+		.sort((a, b) => b.score - a.score)
+		.slice(0, ZERO_SHOT_TOP_K);
 }
 
 /**
@@ -168,7 +258,11 @@ export async function indexMedia(
 	},
 ): Promise<MediaEmbedding | null> {
 	const intervalSec = options?.intervalSec ?? DEFAULT_SAMPLE_INTERVAL_SEC;
-	const modelName = options?.modelName ?? "ViT-B-32";
+	// Defaulting to the local model name invalidates every embedding produced
+	// by the retired open_clip backend: its "ViT-B-32" vectors live in a
+	// different space than the Xenova/OpenAI weights, so the model-name check
+	// below re-indexes those assets instead of ever mixing vector spaces.
+	const modelName = options?.modelName ?? LOCAL_CLIP_MODEL_NAME;
 	const report = (p: IndexingProgress) => {
 		options?.onProgress?.(p);
 		setStatus({
@@ -223,19 +317,21 @@ export async function indexMedia(
 		}
 
 		report({ mediaId: media.id, phase: "embedding", progress: 0.4 });
-		const frames = await embedBatches(sampled);
+		const frames = await embedBatches(sampled, (frac) =>
+			report({
+				mediaId: media.id,
+				phase: "embedding",
+				progress: 0.4 + frac * 0.5,
+			}),
+		);
 
-		// Zero-shot auto-tags from the first sampled frame.
+		// Zero-shot auto-tags: score the cached label vectors against the first
+		// frame's embedding (already computed above — no extra image encode).
 		let tags: ZeroShotTag[] = [];
 		try {
-			const firstBlob = sampled[0].blob;
-			const tagForm = new FormData();
-			tagForm.append("file", firstBlob, "frame.jpg");
-			const result = await aiClient.zeroShotTags(
-				tagForm,
-				ZERO_SHOT_LABELS as readonly string[],
-			);
-			tags = result.tags ?? [];
+			if (frames.length > 0) {
+				tags = zeroShotTagsForFrame(frames[0].vector, await getLabelVectors());
+			}
 		} catch {
 			tags = [];
 		}
@@ -271,9 +367,9 @@ export async function indexMedia(
 }
 
 /**
- * Index many media assets sequentially. Sequential on purpose: the CLIP model
- * is single-threaded on CPU and the user is editing — we don't want to starve
- * the main thread or saturate the network.
+ * Index many media assets sequentially. Sequential on purpose: the CLIP
+ * worker runs one embed at a time and the user is editing — we don't want to
+ * starve the main thread or pile up frame blobs in the worker's queue.
  */
 export async function indexMediaBatch(
 	mediaList: MediaAsset[],
