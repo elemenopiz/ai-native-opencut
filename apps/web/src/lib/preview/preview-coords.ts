@@ -1,3 +1,20 @@
+/**
+ * The preview canvas's backing store is downscaled while playing (playback
+ * quality), so `canvas.width/height` no longer always equal the project's
+ * canvas coordinate space that hit-testing and element bounds are computed in.
+ * The preview publishes the logical size on `data-logical-width/height`; fall
+ * back to the backing store for canvases that don't set it.
+ */
+function getLogicalCanvasSize(canvas: HTMLCanvasElement): {
+	width: number;
+	height: number;
+} {
+	return {
+		width: Number(canvas.dataset.logicalWidth) || canvas.width,
+		height: Number(canvas.dataset.logicalHeight) || canvas.height,
+	};
+}
+
 export function screenToCanvas({
 	clientX,
 	clientY,
@@ -8,8 +25,9 @@ export function screenToCanvas({
 	canvas: HTMLCanvasElement;
 }): { x: number; y: number } {
 	const rect = canvas.getBoundingClientRect();
-	const scaleX = canvas.width / rect.width;
-	const scaleY = canvas.height / rect.height;
+	const logical = getLogicalCanvasSize(canvas);
+	const scaleX = logical.width / rect.width;
+	const scaleY = logical.height / rect.height;
 	return {
 		x: (clientX - rect.left) * scaleX,
 		y: (clientY - rect.top) * scaleY,
@@ -83,8 +101,9 @@ export function screenPixelsToLogicalThreshold({
 	screenPixels: number;
 }): { x: number; y: number } {
 	const canvasRect = canvas.getBoundingClientRect();
+	const logical = getLogicalCanvasSize(canvas);
 	return {
-		x: screenPixels * (canvas.width / canvasRect.width),
-		y: screenPixels * (canvas.height / canvasRect.height),
+		x: screenPixels * (logical.width / canvasRect.width),
+		y: screenPixels * (logical.height / canvasRect.height),
 	};
 }

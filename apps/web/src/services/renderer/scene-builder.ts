@@ -17,6 +17,14 @@ import { TRANSITION_ADJACENCY_EPSILON } from "@/lib/transitions";
 
 const PREVIEW_MAX_IMAGE_SIZE = 2048;
 const BLUR_BACKGROUND_ZOOM_SCALE = 1.4;
+/**
+ * Preview video decodes are capped at the project canvas's long edge, but
+ * never below this. The canvas-long-edge part guarantees paused full-res
+ * preview frames stay pixel-exact for contain-fit clips (the preview renders
+ * at native canvas size while paused); the floor keeps headroom for clips
+ * scaled up past 1× on small canvases.
+ */
+const PREVIEW_MIN_DECODE_CAP = 1920;
 
 function getVisibleSortedElements({ track }: { track: TimelineTrack }) {
 	return track.elements
@@ -42,6 +50,12 @@ function buildTrackNodes({
 	useProxy?: boolean;
 }): BaseNode[] {
 	const nodes: BaseNode[] = [];
+
+	// Export and snapshot build scenes without `isPreview` and must keep
+	// decoding at native source resolution (previewDecodeMaxSize undefined).
+	const previewDecodeMaxSize = isPreview
+		? Math.max(PREVIEW_MIN_DECODE_CAP, canvasSize.width, canvasSize.height)
+		: undefined;
 
 	for (const track of tracks) {
 		const elements = getVisibleSortedElements({ track });
@@ -81,6 +95,7 @@ function buildTrackNodes({
 							mediaId: mediaAsset.id,
 							url: effectiveUrl,
 							file: effectiveFile,
+							previewDecodeMaxSize,
 							duration: element.duration,
 							timeOffset: element.startTime,
 							trimStart: element.trimStart,

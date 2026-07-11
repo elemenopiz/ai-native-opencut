@@ -35,13 +35,38 @@ interface VideoSinkData {
 	 * how callers schedule their fetches.
 	 */
 	chain: Promise<unknown>;
+	/** Long-edge decode cap the sink was created with (preview tier only). */
+	maxSize: number | null;
 }
+
+/**
+ * Decode tiers. "full" decodes at the source's native resolution and is what
+ * export and snapshot MUST use. "preview" caps the decoded long edge at
+ * `previewMaxSize` so the render loop never pays for pixels the preview
+ * canvas can't show (e.g. 4K sources on a 1080p project). Each tier gets its
+ * own sink/decoder, keyed mediaId+tier, so the tiers never fight over one
+ * iterator position.
+ */
+export type VideoSinkTier = "full" | "preview";
 
 /** How far ahead of a clip's start a warm() pre-seek is worth doing. */
 export const WARM_LOOKAHEAD_SECONDS = 1.0;
 
 /** A sink read this recently is considered in active use by a renderer. */
 const ACTIVE_USE_WINDOW_MS = 250;
+
+/** mediaIds are nanoids (no ":"), so this suffix can't collide. */
+const PREVIEW_KEY_SUFFIX = "::preview";
+
+function sinkKey({
+	mediaId,
+	tier,
+}: {
+	mediaId: string;
+	tier: VideoSinkTier;
+}): string {
+	return tier === "preview" ? `${mediaId}${PREVIEW_KEY_SUFFIX}` : mediaId;
+}
 
 /**
  * How far past the last served frame a request still counts as sequential
@@ -79,15 +104,21 @@ export class VideoCache {
 		file,
 		time,
 		tolerateStale = false,
+		tier = "full",
+		previewMaxSize,
 	}: {
 		mediaId: string;
 		file: File;
 		time: number;
 		tolerateStale?: boolean;
+		/** Decode tier; export/snapshot must stay on the "full" default. */
+		tier?: VideoSinkTier;
+		/** Long-edge cap for the preview tier's decoded frames. */
+		previewMaxSize?: number;
 	}): Promise<WrappedCanvas | null> {
-		await this.ensureSink({ mediaId, file });
+		await this.ensureSink({ mediaId, file, tier, previewMaxSize });
 
-		const sinkData = this.sinks.get(mediaId);
+		const sinkData = this.sinks.get(sinkKey({ mediaId, tier }));
 		if (!sinkData) return null;
 
 		return this.runExclusive({
@@ -344,14 +375,18 @@ export class VideoCache {
 		mediaId,
 		file,
 		time,
+		tier = "full",
+		previewMaxSize,
 	}: {
 		mediaId: string;
 		file: File;
 		time: number;
+		tier?: VideoSinkTier;
+		previewMaxSize?: number;
 	}): Promise<void> {
-		await this.ensureSink({ mediaId, file });
+		await this.ensureSink({ mediaId, file, tier, previewMaxSize });
 
-		const sinkData = this.sinks.get(mediaId);
+		const sinkData = this.sinks.get(sinkKey({ mediaId, tier }));
 		if (!sinkData) return;
 
 		if (sinkData.warmPromise) return;
@@ -447,33 +482,62 @@ export class VideoCache {
 	private async ensureSink({
 		mediaId,
 		file,
+		tier,
+		previewMaxSize,
 	}: {
 		mediaId: string;
 		file: File;
+		tier: VideoSinkTier;
+		previewMaxSize?: number;
 	}): Promise<void> {
-		if (this.sinks.has(mediaId)) return;
+		const key = sinkKey({ mediaId, tier });
 
-		if (this.initPromises.has(mediaId)) {
-			await this.initPromises.get(mediaId);
+		const existing = this.sinks.get(key);
+		if (existing) {
+			// The preview cap follows the project's canvas size, which can change
+			// mid-session (frame preset switch) — rebuild the sink at the new cap
+			// instead of serving stale-resolution frames forever.
+			if (
+				tier === "preview" &&
+				previewMaxSize !== undefined &&
+				existing.maxSize !== previewMaxSize
+			) {
+				this.disposeSink({ key });
+			} else {
+				return;
+			}
+		}
+
+		if (this.initPromises.has(key)) {
+			await this.initPromises.get(key);
 			return;
 		}
 
-		const initPromise = this.initializeSink({ mediaId, file });
-		this.initPromises.set(mediaId, initPromise);
+		const initPromise = this.initializeSink({
+			mediaId,
+			file,
+			tier,
+			previewMaxSize,
+		});
+		this.initPromises.set(key, initPromise);
 
 		try {
 			await initPromise;
 		} finally {
-			this.initPromises.delete(mediaId);
+			this.initPromises.delete(key);
 		}
 	}
 
 	private async initializeSink({
 		mediaId,
 		file,
+		tier,
+		previewMaxSize,
 	}: {
 		mediaId: string;
 		file: File;
+		tier: VideoSinkTier;
+		previewMaxSize?: number;
 	}): Promise<void> {
 		try {
 			const input = new Input({
@@ -491,14 +555,34 @@ export class VideoCache {
 				throw new Error("Video codec not supported for decoding");
 			}
 
+			// Preview tier: have mediabunny convert decoded frames straight to the
+			// capped size (aspect preserved), so every downstream copy/composite of
+			// this frame touches fewer pixels. Sources already within the cap keep
+			// their native size — no upscaling, no wasted conversion.
+			let outputSize: { width: number; height: number } | undefined;
+			if (tier === "preview" && previewMaxSize !== undefined) {
+				const longEdge = Math.max(
+					videoTrack.displayWidth,
+					videoTrack.displayHeight,
+				);
+				if (longEdge > previewMaxSize) {
+					const scale = previewMaxSize / longEdge;
+					outputSize = {
+						width: Math.max(2, Math.round(videoTrack.displayWidth * scale)),
+						height: Math.max(2, Math.round(videoTrack.displayHeight * scale)),
+					};
+				}
+			}
+
 			const sink = new CanvasSink(videoTrack, {
 				// Must stay >= the maximum number of live WrappedCanvas frames —
 				// see the SINK_POOL_SIZE accounting above.
 				poolSize: SINK_POOL_SIZE,
 				fit: "contain",
+				...outputSize,
 			});
 
-			this.sinks.set(mediaId, {
+			this.sinks.set(sinkKey({ mediaId, tier }), {
 				input,
 				sink,
 				iterator: null,
@@ -511,6 +595,7 @@ export class VideoCache {
 				fillCancelled: false,
 				warmPromise: null,
 				chain: Promise.resolve(),
+				maxSize: tier === "preview" ? (previewMaxSize ?? null) : null,
 			});
 		} catch (error) {
 			console.error(`Failed to initialize video sink for ${mediaId}:`, error);
@@ -518,8 +603,8 @@ export class VideoCache {
 		}
 	}
 
-	clearVideo({ mediaId }: { mediaId: string }): void {
-		const sinkData = this.sinks.get(mediaId);
+	private disposeSink({ key }: { key: string }): void {
+		const sinkData = this.sinks.get(key);
 		if (sinkData) {
 			// Stop any in-flight ring fill; iterator.return() below queues behind
 			// its pending next(), after which the fill loop bails.
@@ -535,16 +620,25 @@ export class VideoCache {
 			// decoder leaks every time a cached video is cleared.
 			sinkData.input.dispose();
 
-			this.sinks.delete(mediaId);
+			this.sinks.delete(key);
 		}
 
-		this.initPromises.delete(mediaId);
+		this.initPromises.delete(key);
+	}
+
+	clearVideo({ mediaId }: { mediaId: string }): void {
+		// A media can hold one sink per tier — dispose them all.
+		for (const tier of ["full", "preview"] as const) {
+			this.disposeSink({ key: sinkKey({ mediaId, tier }) });
+		}
 	}
 
 	clearAll(): void {
-		for (const [mediaId] of this.sinks) {
-			this.clearVideo({ mediaId });
+		// Map keys are mediaId+tier, not bare mediaIds — dispose by key directly.
+		for (const key of Array.from(this.sinks.keys())) {
+			this.disposeSink({ key });
 		}
+		this.initPromises.clear();
 	}
 
 	getStats() {

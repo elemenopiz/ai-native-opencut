@@ -70,6 +70,7 @@ describe("migratePreviewState", () => {
 			activeGuideId: null,
 			gridConfig: DEFAULT_GRID_CONFIG,
 			overlays: { bookmarks: true, perfHud: false },
+			playbackQuality: "auto",
 		});
 	});
 
@@ -90,7 +91,7 @@ describe("migratePreviewState", () => {
 		expect(migrated.activeGuideId).toBeNull();
 	});
 
-	test("v3 shape backfills the v4 perfHud flag and keeps the rest", () => {
+	test("v3 shape backfills the v4 perfHud flag and playbackQuality", () => {
 		const v3State = {
 			activeGuideId: "grid" as const,
 			gridConfig: { rows: 5, cols: 7 },
@@ -99,6 +100,7 @@ describe("migratePreviewState", () => {
 		expect(migratePreviewState(v3State)).toEqual({
 			...v3State,
 			overlays: { bookmarks: true, perfHud: false },
+			playbackQuality: "auto",
 		});
 	});
 
@@ -107,6 +109,7 @@ describe("migratePreviewState", () => {
 			activeGuideId: "grid" as const,
 			gridConfig: { rows: 5, cols: 7 },
 			overlays: { bookmarks: false, perfHud: true },
+			playbackQuality: "half" as const,
 		};
 		expect(migratePreviewState(v4State)).toEqual(v4State);
 	});

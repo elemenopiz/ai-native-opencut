@@ -11,6 +11,12 @@ export interface VideoNodeParams extends VisualNodeParams {
 	url: string;
 	file: File;
 	mediaId: string;
+	/**
+	 * When set (preview scenes only), frames decode via the capped "preview"
+	 * sink tier instead of at native source resolution. Export/snapshot scenes
+	 * leave this unset and stay on the full-res tier.
+	 */
+	previewDecodeMaxSize?: number;
 }
 
 export class VideoNode extends VisualNode<VideoNodeParams> {
@@ -92,6 +98,9 @@ export class VideoNode extends VisualNode<VideoNodeParams> {
 		time: number;
 		tolerateStale: boolean;
 	}): Promise<WrappedCanvas | null> {
+		const tier =
+			this.params.previewDecodeMaxSize !== undefined ? "preview" : "full";
+
 		if (!this.isInRange({ time })) {
 			// Shortly before this clip starts, position its decoder at the first
 			// frame in the background so the boundary crossing doesn't stall the
@@ -102,6 +111,8 @@ export class VideoNode extends VisualNode<VideoNodeParams> {
 					mediaId: this.params.mediaId,
 					file: this.params.file,
 					time: this.getSourceLocalTime({ time: this.params.timeOffset }),
+					tier,
+					previewMaxSize: this.params.previewDecodeMaxSize,
 				});
 			}
 			return null;
@@ -113,6 +124,8 @@ export class VideoNode extends VisualNode<VideoNodeParams> {
 			file: this.params.file,
 			time: this.getSourceLocalTime({ time }),
 			tolerateStale,
+			tier,
+			previewMaxSize: this.params.previewDecodeMaxSize,
 		});
 		if (decodeStart !== 0) {
 			perfStats.addDecodeTime({ ms: performance.now() - decodeStart });
