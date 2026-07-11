@@ -62,6 +62,9 @@ export const RATE_LIMITS = {
 	"studio:promote": { perMinute: 6, perDay: 120 },
 	"llm:agent": { perMinute: 30, perDay: 1500 },
 	"sounds:search": { perMinute: 60, perDay: 3000 },
+	// Client-error intake. Unauthenticated by design (errors happen logged-out),
+	// so the burst cap is tight; the client also self-caps per page load.
+	"telemetry:error": { perMinute: 10, perDay: 300 },
 } satisfies Record<string, RateLimitRule>;
 
 export type RateLimitName = keyof typeof RATE_LIMITS;
