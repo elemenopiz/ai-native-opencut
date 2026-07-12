@@ -31,6 +31,7 @@ import { useBackends } from "@/hooks/use-backends";
 // Client-safe: registry.ts is pure data (a Map + type imports), no secret env.
 import { DEFAULT_BACKEND_ID } from "@/lib/studio/backends/registry";
 import { useStudioSettingsStore } from "@/stores/studio-settings-store";
+import { useFrameChainStore } from "@/stores/frame-chain-store";
 import { usePersonaStore } from "@/stores/persona-store";
 import { EnhancePromptButton } from "@/components/editor/ai/enhance-prompt-button";
 import { toast } from "sonner";
@@ -290,6 +291,30 @@ export function GenerationForm({
 	// so two rapid triggers (Enter + click) can both pass the busy check before
 	// setMfBusy flushes; this ref blocks the second one immediately.
 	const inFlightRef = useRef(false);
+
+	// ── Frame chaining ────────────────────────────────────────────────────────
+	// A frame extracted from a clip ("Use as next first frame") lands in the
+	// frame-chain store as a hosted URL. Consume it: drop it into the First-frame
+	// slot and, when the selected backend supports it, flip to First/Last mode so
+	// the slot is visible. If the backend can't do first-last, we still set the
+	// URL (the capability coercion effect keeps genMode valid) so nothing is lost.
+	const pendingFirstFrame = useFrameChainStore((s) => s.pendingFirstFrame);
+	const frameChainNonce = useFrameChainStore((s) => s.nonce);
+	const clearPendingFirstFrame = useFrameChainStore(
+		(s) => s.clearPendingFirstFrame,
+	);
+	// Consume-once on the nonce edge only — re-running on pendingFirstFrame /
+	// availableModes changes would re-apply a frame the user already dismissed.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: intentional nonce-keyed one-shot
+	useEffect(() => {
+		if (!pendingFirstFrame) return;
+		setFirstFrameUrl(pendingFirstFrame.url);
+		if (availableModes.some((m) => m.value === "first-last")) {
+			setSettings({ genMode: "first-last" });
+		}
+		clearPendingFirstFrame();
+		requestAnimationFrame(() => promptRef.current?.focus());
+	}, [frameChainNonce]);
 	// Open autocomplete state: the partial query after "@" and where "@" starts.
 	const [mention, setMention] = useState<{
 		query: string;

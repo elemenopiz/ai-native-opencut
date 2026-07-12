@@ -8,6 +8,7 @@ import { GenerateView } from "@/components/editor/panels/assets/views/generate";
 import { ScopesPanel } from "@/components/editor/panels/scopes";
 import { BiblePanel } from "@/components/editor/panels/bible";
 import { useTranscriptStore } from "@/stores/transcript-store";
+import { useFrameChainStore } from "@/stores/frame-chain-store";
 import { useElementSelection } from "@/hooks/timeline/element/use-element-selection";
 
 type RightTab = "generate" | "properties" | "bible" | "transcript" | "scopes";
@@ -39,6 +40,14 @@ export function RightPanel({ className }: { className?: string }) {
 	useEffect(() => {
 		if (!hasTranscript && activeTab === "transcript") setActiveTab("generate");
 	}, [hasTranscript, activeTab]);
+
+	// Frame chaining: when a user sends an extracted frame to Generate ("Use as
+	// next first frame"), jump to the Generate tab so the GenerationForm — which
+	// consumes the same store — is visible as it fills the First-frame slot.
+	const frameChainNonce = useFrameChainStore((s) => s.nonce);
+	useEffect(() => {
+		if (frameChainNonce > 0) setActiveTab("generate");
+	}, [frameChainNonce]);
 
 	return (
 		<div

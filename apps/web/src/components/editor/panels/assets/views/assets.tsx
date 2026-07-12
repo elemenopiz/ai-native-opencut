@@ -41,7 +41,17 @@ import {
 	useAssetsPanelStore,
 } from "@/stores/assets-panel-store";
 import { useSearchStore } from "@/stores/search-store";
+import { useFrameChainStore } from "@/stores/frame-chain-store";
 import type { MediaAsset } from "@/types/assets";
+import {
+	extractAndAddFrame,
+	firstFrameSourceTime,
+	lastFrameSourceTime,
+	type FrameDecodeSource,
+} from "@/lib/media/frame-extraction";
+import type { DerivedFrom, DerivedFrameLabel } from "@/services/storage/types";
+import { dataUrlToFile } from "@/lib/media/data-url";
+import { uploadReferenceFile } from "@/lib/studio/reference-upload";
 import { cn } from "@/utils/ui";
 import {
 	CloudUploadIcon,
@@ -52,6 +62,7 @@ import {
 	MusicNote03Icon,
 	Video01Icon,
 	SparklesIcon,
+	ImageCropIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 
@@ -406,6 +417,90 @@ function MediaItemWithContextMenu({
 }) {
 	const requestFindSimilar = useSearchStore((s) => s.requestFindSimilar);
 	const setActiveTab = useAssetsPanelStore((s) => s.setActiveTab);
+	const requestRevealMedia = useAssetsPanelStore((s) => s.requestRevealMedia);
+	const editor = useEditor();
+	const setPendingFirstFrame = useFrameChainStore(
+		(s) => s.setPendingFirstFrame,
+	);
+	const canExtractFrame = item.type === "video" && (!!item.file || !!item.url);
+
+	async function handleExtractFrame(kind: "first" | "last") {
+		let projectId: string;
+		try {
+			projectId = editor.project.getActive().metadata.id;
+		} catch {
+			toast.error("No active project to add the frame to.");
+			return;
+		}
+		const label: DerivedFrameLabel =
+			kind === "first" ? "first frame" : "last frame";
+		// Library assets are the FULL source (no trim), so a synthetic full-span
+		// element gives the right first/last source time.
+		const span = {
+			startTime: 0,
+			duration: item.duration ?? 0,
+			trimStart: 0,
+		};
+		const timeSec =
+			kind === "first" ? firstFrameSourceTime(span) : lastFrameSourceTime(span);
+		const source: FrameDecodeSource = {
+			videoFile: item.file,
+			videoUrl: item.url,
+			name: item.name,
+		};
+		const toastId = toast.loading("Extracting frame…");
+		try {
+			const result = await extractAndAddFrame({
+				editor,
+				projectId,
+				source,
+				sourceAssetId: item.id,
+				sourceName: item.name,
+				timeSec,
+				label,
+			});
+			toast.success(`Added "${result.name}" to your library.`, {
+				id: toastId,
+				action: {
+					label:
+						kind === "first" ? "Use in Generate" : "Use as next first frame",
+					onClick: () => {
+						void (async () => {
+							const uploadingId = toast.loading(
+								"Preparing frame for Generate…",
+							);
+							try {
+								const file = dataUrlToFile(result.dataUrl, result.name);
+								const { url } = await uploadReferenceFile(file);
+								setPendingFirstFrame({ url, label: result.name });
+								toast.success("Frame ready in Generate as the first frame.", {
+									id: uploadingId,
+								});
+							} catch (err) {
+								toast.error(
+									err instanceof Error
+										? err.message
+										: "Couldn't prepare the frame.",
+									{ id: uploadingId },
+								);
+							}
+						})();
+					},
+				},
+				// Secondary: reveal + flash-highlight the new frame in the library.
+				cancel: {
+					label: "Reveal",
+					onClick: () => requestRevealMedia(result.mediaId),
+				},
+			});
+		} catch (err) {
+			toast.error(
+				err instanceof Error ? err.message : "Couldn't extract the frame.",
+				{ id: toastId },
+			);
+		}
+	}
+
 	return (
 		<ContextMenu>
 			<ContextMenuTrigger>{children}</ContextMenuTrigger>
@@ -422,6 +517,22 @@ function MediaItemWithContextMenu({
 					>
 						Find similar clips
 					</ContextMenuItem>
+				)}
+				{canExtractFrame && (
+					<>
+						<ContextMenuItem
+							icon={<HugeiconsIcon icon={ImageCropIcon} />}
+							onClick={() => void handleExtractFrame("first")}
+						>
+							Extract first frame
+						</ContextMenuItem>
+						<ContextMenuItem
+							icon={<HugeiconsIcon icon={ImageCropIcon} />}
+							onClick={() => void handleExtractFrame("last")}
+						>
+							Extract last frame
+						</ContextMenuItem>
+					</>
 				)}
 				<ContextMenuItem>Export clips</ContextMenuItem>
 				<ContextMenuItem
@@ -536,6 +647,13 @@ function MediaItemList({
 								onKeyDown={handleLabelKeyDown}
 								compact={!isGrid}
 							/>
+							{/* Provenance: extracted-frame → source clip (reveal on click) */}
+							{item.derivedFrom && (
+								<MediaProvenanceRow
+									derivedFrom={item.derivedFrom}
+									compact={!isGrid}
+								/>
+							)}
 						</div>
 					</MediaItemWithContextMenu>
 				);
@@ -773,6 +891,9 @@ function MediaPreview({
 				/>
 				{shouldShowDurationBadge && <MediaTypeBadge type="image" />}
 				{showAiBadge && <AiBadge />}
+				{shouldShowDurationBadge && item.derivedFrom && (
+					<FrameEdgePill derivedFrom={item.derivedFrom} />
+				)}
 			</div>
 		);
 	}
@@ -975,6 +1096,78 @@ function AiBadge() {
 			<HugeiconsIcon icon={SparklesIcon} className="size-2.5" />
 			AI
 		</div>
+	);
+}
+
+/** Human label for a derived-frame provenance ("First frame" / "Last frame" / "Frame"). */
+function frameLabelText(label: DerivedFrom["label"]): string {
+	return label === "first frame"
+		? "First frame"
+		: label === "last frame"
+			? "Last frame"
+			: "Frame";
+}
+
+/**
+ * Edge pill on an extracted still's thumbnail. Its position MIRRORS where the
+ * frame sits in the source clip: a first-frame extract pins bottom-LEFT, a
+ * last/playhead extract pins bottom-RIGHT. Matches the {@link MediaDurationBadge}
+ * chrome (bg-black/70, white, rounded, text-xs). Extracted frames are images, so
+ * this never collides with the video duration badge.
+ */
+function FrameEdgePill({ derivedFrom }: { derivedFrom: DerivedFrom }) {
+	const isFirst = derivedFrom.label === "first frame";
+	return (
+		<div
+			className={cn(
+				"absolute bottom-1 flex items-center gap-0.5 rounded bg-black/70 px-1 text-xs leading-5 text-white",
+				isFirst ? "left-1" : "right-1",
+			)}
+		>
+			<HugeiconsIcon icon={ImageCropIcon} className="size-3" />
+			{frameLabelText(derivedFrom.label)}
+		</div>
+	);
+}
+
+/**
+ * Provenance line under an extracted frame's name: "↳ from «source asset»".
+ * Clicking reveals + flash-highlights the SOURCE asset (same reveal seam as the
+ * timeline "Reveal media"). In list/compact rows it prefixes the frame label
+ * inline (there's no thumbnail pill there). One truncated, muted line.
+ */
+function MediaProvenanceRow({
+	derivedFrom,
+	compact = false,
+}: {
+	derivedFrom: DerivedFrom;
+	compact?: boolean;
+}) {
+	const editor = useEditor();
+	const requestRevealMedia = useAssetsPanelStore((s) => s.requestRevealMedia);
+	const source = editor.media.getAssetById(derivedFrom.assetId);
+	const sourceName = source?.name ?? "a removed clip";
+	return (
+		<button
+			type="button"
+			onClick={(e) => {
+				e.stopPropagation();
+				requestRevealMedia(derivedFrom.assetId);
+			}}
+			title={`${frameLabelText(derivedFrom.label)} of ${sourceName} — click to reveal the source`}
+			className={cn(
+				"flex w-full items-center gap-1 truncate text-left text-xs text-muted-foreground hover:text-foreground",
+				compact ? "ml-1" : "mt-0.5",
+			)}
+		>
+			{compact && (
+				<HugeiconsIcon icon={ImageCropIcon} className="size-3 shrink-0" />
+			)}
+			<span className="truncate">
+				{compact ? `${frameLabelText(derivedFrom.label)} · ` : "↳ "}
+				from {sourceName}
+			</span>
+		</button>
 	);
 }
 
