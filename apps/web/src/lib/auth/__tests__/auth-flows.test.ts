@@ -1,10 +1,10 @@
 import { afterAll, afterEach, describe, expect, it, mock } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { eq, inArray, like, or } from "drizzle-orm";
+import { eq, inArray, like, or, sql } from "drizzle-orm";
 import { webEnv } from "@byorn/env/web";
 import { accounts, sessions, users, verifications } from "@/lib/db/schema";
-import { projectRepositories } from "@/lib/db/schema-version-control";
+import { commits, projectRepositories } from "@/lib/db/schema-version-control";
 
 // ── Real-module re-pin (the arrangements/__tests__/route.test.ts pattern) ────
 // Bun's `mock.module` registry is process-global and keyed by RESOLVED module
@@ -31,6 +31,43 @@ mock.module("@/lib/auth/server", () => ({ ...realAuthModule }));
 
 const { db } = realDbModule;
 const { auth } = realAuthModule;
+
+// ── Deletion-floor capability probe (migration 0009) ─────────────────────────
+// The delete-account-with-commits regression below asserts the FIXED behavior:
+// vc_commits.author_id ON DELETE SET NULL. That constraint ships in migration
+// 0009, which — per the gated-migration workflow — is NOT applied to the shared
+// dev/test Postgres by the packet author. So the connected DB may still be at
+// 0008 (no fix). Rather than fail on an un-migrated DB, we introspect the live
+// constraint once and skip the regression LOUDLY when the floor isn't present.
+// The real behavior is proven against a throwaway scratch DB in the migration
+// packet's report; this test locks it in for any DB that HAS applied 0009.
+async function probeDeleteFloor(): Promise<boolean> {
+	const rows = (await db.execute(sql`
+		SELECT c.confdeltype AS del
+		FROM pg_constraint c
+		JOIN pg_attribute a
+		  ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
+		WHERE c.contype = 'f'
+		  AND c.conrelid = 'vc_commits'::regclass
+		  AND a.attname = 'author_id'
+		  AND c.confrelid = 'users'::regclass
+		LIMIT 1
+	`)) as unknown as Array<{ del: string }>;
+	// 'n' = SET NULL. Anything else (typically 'a' = NO ACTION on a pre-0009 DB)
+	// means the deletion floor is not in place yet.
+	return rows[0]?.del === "n";
+}
+
+const deleteFloorActive = await probeDeleteFloor();
+if (!deleteFloorActive) {
+	console.warn(
+		"[auth-flows.test] SKIPPING delete-account-with-commits regression: the " +
+			"connected database has NOT applied migration 0009 " +
+			"(vc_commits.author_id is not yet ON DELETE SET NULL). This activates " +
+			"once 0009 is applied. Real behavior is verified against a scratch DB " +
+			"in the 0009 migration packet report.",
+	);
+}
 
 /**
  * AUTH-CRITICAL integration coverage, real better-auth server + real local
@@ -374,19 +411,82 @@ describe("delete-user — session + password required; the row actually goes awa
 		}
 	});
 
-	// KNOWN PRODUCT DEFECT (documented, deliberately NOT asserted here so the
-	// suite stays green — verified empirically 2026-07-12): a user who has
-	// authored ANY vc_commit — in their own repo or a shared one — cannot
-	// delete their account. vc_commits.author_id
-	// (src/lib/db/schema-version-control.ts:54) has no onDelete action, so
-	// Postgres rejects the users-row delete with FK violation 23503
-	// (vc_commits_author_id_fkey) before/independent of the repo cascade, and
-	// /delete-user returns 500 with the user row left intact. Same hazard on:
-	// vc_tags.created_by (:129), vc_media_objects.uploaded_by (:172),
-	// project_members.invited_by, project_invitations.invited_by. Fix
-	// direction: onDelete: "set null" (authorName/authorAvatar are already
-	// denormalized on vc_commits for display) + a migration to alter the
-	// existing constraints.
+	// DELETION FLOOR (migration 0009) — was a KNOWN PRODUCT DEFECT until fixed:
+	// a user who authored ANY vc_commit could not delete their account, because
+	// vc_commits.author_id had no onDelete action, so Postgres rejected the
+	// users-row delete with FK violation 23503 (vc_commits_author_id_fkey) and
+	// /delete-user returned 500 with the row intact. Same hazard on
+	// vc_tags.created_by, vc_media_objects.uploaded_by, project_members.invited_by,
+	// project_invitations.invited_by. Migration 0009 flips all five to
+	// ON DELETE SET NULL (authorName/authorAvatar stay denormalized on the commit
+	// for display). This test proves the fix; it self-skips LOUDLY on a DB that
+	// has not yet applied 0009 (see the probe near the top of this file).
+	it.skipIf(!deleteFloorActive)(
+		"lets a user who authored a commit in someone else's repo delete their account; the commit survives with author_id nulled and the denormalized name kept",
+		async () => {
+			// owner keeps the repo; doomed is a collaborator who authors a commit in it.
+			const owner = await signUp();
+			const doomed = await signUp();
+
+			const ownerRow = await findUser(owner.email);
+			const doomedRow = await findUser(doomed.email);
+			const ownerId = (ownerRow as { id: string }).id;
+			const doomedId = (doomedRow as { id: string }).id;
+
+			const repoId = `authtest-repo-${crypto.randomUUID()}`;
+			const commitId = `authtest-commit-${crypto.randomUUID()}`;
+			try {
+				await db.insert(projectRepositories).values({
+					id: repoId,
+					projectId: `authtest-project-${crypto.randomUUID()}`,
+					userId: ownerId,
+					name: "deletion-floor probe repo",
+				});
+				await db.insert(commits).values({
+					id: commitId,
+					repoId,
+					hash: crypto.randomUUID().replace(/-/g, ""),
+					message: "authored by the soon-to-be-deleted user",
+					authorId: doomedId,
+					authorName: "Doomed Author",
+					authorAvatar: "https://example.test/avatar.png",
+				});
+
+				// Before 0009 this returned 500 (FK 23503). After 0009: 200.
+				const res = await authPost("/delete-user", {
+					cookie: doomed.cookie,
+					body: { password: PASSWORD },
+				});
+				expect(res.status).toBe(200);
+				expect(await findUser(doomed.email)).toBeNull();
+
+				// The commit is NOT deleted (it lives in the owner's repo) — its
+				// author_id is nulled, but the denormalized author_name/avatar the UI
+				// renders are untouched.
+				const commitRows = await db
+					.select({
+						authorId: commits.authorId,
+						authorName: commits.authorName,
+						authorAvatar: commits.authorAvatar,
+					})
+					.from(commits)
+					.where(eq(commits.id, commitId));
+				expect(commitRows).toHaveLength(1);
+				expect(commitRows[0]?.authorId).toBeNull();
+				expect(commitRows[0]?.authorName).toBe("Doomed Author");
+				expect(commitRows[0]?.authorAvatar).toBe(
+					"https://example.test/avatar.png",
+				);
+			} finally {
+				// The commit survives the user delete by design — clean it (and the
+				// owner's repo) up so this shared Postgres is left pristine.
+				await db.delete(commits).where(eq(commits.id, commitId));
+				await db
+					.delete(projectRepositories)
+					.where(eq(projectRepositories.id, repoId));
+			}
+		},
+	);
 });
 
 describe("request-password-reset — no account-existence oracle", () => {
