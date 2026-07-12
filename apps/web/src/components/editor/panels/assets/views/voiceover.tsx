@@ -15,6 +15,7 @@ import {
 import { useEditor } from "@/hooks/use-editor";
 import { useTranscriptStore } from "@/stores/transcript-store";
 import { aiClient } from "@/lib/ai-client";
+import { isFeatureAvailable } from "@/lib/local-ai/retired-features";
 import {
 	importAudioAsset,
 	makeVoiceoverSpec,
@@ -170,6 +171,9 @@ export function VoiceoverView() {
 	// Reset language when switching engine
 	const handleEngineChange = (value: string) => {
 		const e = value as TTSEngine;
+		// Sarvam/Smallest were proxied through the retired local backend; their
+		// options are hidden while gated — this is the defensive second gate.
+		if (e !== "standard" && !isFeatureAvailable("legacyTTSEngines")) return;
 		setEngine(e);
 		if (e === "sarvam") setLanguage("hi");
 		else if (e === "smallest") setLanguage("en");
@@ -578,12 +582,18 @@ export function VoiceoverView() {
 						</SelectTrigger>
 						<SelectContent>
 							<SelectItem value="standard">Standard voices</SelectItem>
-							<SelectItem value="sarvam">
-								Sarvam AI (Indian Languages)
-							</SelectItem>
-							<SelectItem value="smallest">
-								Smallest AI (Lightning TTS)
-							</SelectItem>
+							{/* Sarvam/Smallest ran through the retired local backend
+							    proxy — hidden until they get direct cloud routes. */}
+							{isFeatureAvailable("legacyTTSEngines") && (
+								<>
+									<SelectItem value="sarvam">
+										Sarvam AI (Indian Languages)
+									</SelectItem>
+									<SelectItem value="smallest">
+										Smallest AI (Lightning TTS)
+									</SelectItem>
+								</>
+							)}
 						</SelectContent>
 					</Select>
 					<p className="text-[10px] text-muted-foreground">

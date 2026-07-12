@@ -67,8 +67,9 @@ const bodySchema = z
 export async function POST(req: Request) {
 	const apiKey = webEnv.OPENAI_API_KEY;
 	if (!apiKey) {
-		// Machine-readable "no key" signal — the client hides the TTS surface on
-		// this exact code (there is no local fallback for speech synthesis).
+		// Machine-readable "no key" signal — the client maps this exact code to a
+		// friendly "TTS isn't configured on this server" AIClientError instead of
+		// a generic failure (there is no local fallback for speech synthesis).
 		return NextResponse.json(
 			{
 				error: "tts_not_configured",

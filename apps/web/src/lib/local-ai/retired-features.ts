@@ -15,6 +15,8 @@ export const RETIRED_FEATURES = {
 	voiceClone: false, // XTTS speaker_wav path (Task 8 already removed the UI)
 	// Not in the original plan list, but same stack, same treatment:
 	factCheck: false, // quick-actions fact check (local Ollama /api/factcheck)
+	findClips: false, // podcast-clips analyze/find-clips only existed on the local Ollama backend
+	legacyTTSEngines: false, // Sarvam/Smallest TTS proxied through the retired local backend; revisit as direct cloud routes post-beta
 	localBackendSetup: false, // docker setup guide, "AI features are not available" banner, header backend-status pill, settings optimization section
 } as const;
 
@@ -53,6 +55,10 @@ export function retiredFeatureMessage(feature: RetiredFeature): string {
 			return "Voice cloning is not available in this beta.";
 		case "factCheck":
 			return "Fact checking is not available in this beta.";
+		case "findClips":
+			return "Clip finding is not available in this beta.";
+		case "legacyTTSEngines":
+			return "This voice engine is not available in this beta.";
 		case "localBackendSetup":
 			return "The local AI engine is not available in this beta.";
 	}

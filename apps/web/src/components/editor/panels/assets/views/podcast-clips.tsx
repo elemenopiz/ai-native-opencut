@@ -18,7 +18,10 @@ import { useTranscriptStore } from "@/stores/transcript-store";
 import { useBackgroundTasksStore } from "@/stores/background-tasks-store";
 import { useEditor } from "@/hooks/use-editor";
 import { aiClient } from "@/lib/ai-client";
-import { isFeatureAvailable } from "@/lib/local-ai/retired-features";
+import {
+	isFeatureAvailable,
+	retiredFeatureMessage,
+} from "@/lib/local-ai/retired-features";
 import { toast } from "sonner";
 import {
 	POPOVER_SUBTITLE_PRESETS,
@@ -262,6 +265,13 @@ export function PodcastClipsView() {
 	// ── Find Best Clips (background task) ──
 	const handleFindClips = useCallback(async () => {
 		if (!hasTranscript) return;
+
+		// Clip analysis only existed on the retired local Ollama backend; the
+		// button is hidden too — this is the defensive second gate.
+		if (!isFeatureAvailable("findClips")) {
+			toast.error(retiredFeatureMessage("findClips"));
+			return;
+		}
 
 		const taskId = `clip-finder-${Date.now()}`;
 		setIsFindingClips(true);
@@ -677,27 +687,33 @@ export function PodcastClipsView() {
 				) : (
 					<>
 						{/* ── Smart Clip Finder ── */}
-						<div className="flex flex-col gap-2">
-							<Label className="text-xs font-medium">Find best clips</Label>
-							<p className="text-[11px] text-muted-foreground leading-relaxed">
-								AI analyzes your transcript and finds the most viral-worthy
-								moments. You can switch tabs while it runs.
-							</p>
-							<Button
-								variant="default"
-								size="sm"
-								className="w-full"
-								onClick={handleFindClips}
-								disabled={isFindingClips}
-							>
-								{isFindingClips && <Spinner className="mr-1 size-3" />}
-								{isFindingClips
-									? "Finding clips..."
-									: clips.length > 0
-										? "Re-scan for clips"
-										: "Find best clips"}
-							</Button>
-						</div>
+						{/* Clip analysis lived on the retired local Ollama backend —
+						    hidden (with its docker-pointing error copy) until it gets
+						    a cloud home. Candidates below only populate from it, so
+						    they stay empty while gated. */}
+						{isFeatureAvailable("findClips") && (
+							<div className="flex flex-col gap-2">
+								<Label className="text-xs font-medium">Find best clips</Label>
+								<p className="text-[11px] text-muted-foreground leading-relaxed">
+									AI analyzes your transcript and finds the most viral-worthy
+									moments. You can switch tabs while it runs.
+								</p>
+								<Button
+									variant="default"
+									size="sm"
+									className="w-full"
+									onClick={handleFindClips}
+									disabled={isFindingClips}
+								>
+									{isFindingClips && <Spinner className="mr-1 size-3" />}
+									{isFindingClips
+										? "Finding clips..."
+										: clips.length > 0
+											? "Re-scan for clips"
+											: "Find best clips"}
+								</Button>
+							</div>
+						)}
 
 						{/* ── Clip Candidates ── */}
 						{clips.length > 0 && (
