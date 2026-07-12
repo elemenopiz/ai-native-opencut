@@ -25,6 +25,10 @@ import type {
 } from "@/types/timeline";
 import type { MediaType } from "@/types/assets";
 import { buildDefaultEffectInstance } from "@/lib/effects";
+import {
+	ensureVisualElementDefaults,
+	isVisualElement,
+} from "@/lib/timeline/element-normalize";
 import { capitalizeFirstLetter } from "@/utils/string";
 
 export function canElementHaveAudio(
@@ -33,74 +37,14 @@ export function canElementHaveAudio(
 	return element.type === "audio" || element.type === "video";
 }
 
-export function isVisualElement(
-	element: TimelineElement,
-): element is VisualElement {
-	return (
-		element.type === "video" ||
-		element.type === "image" ||
-		element.type === "text" ||
-		element.type === "sticker"
-	);
-}
+// Live in `element-normalize` (dependency-light, importable from the storage
+// layer without an import cycle); re-exported here for existing callers.
+export { ensureVisualElementDefaults, isVisualElement };
 
 export function canElementBeHidden(
 	element: TimelineElement,
 ): element is VisualElement {
 	return isVisualElement(element);
-}
-
-/**
- * Heal a visual element that is missing `transform`/`opacity`/`blendMode`
- * (or carries a partial transform). The types require these fields, but an
- * element written through the public insert API (or persisted by an old or
- * buggy writer) can lack them at runtime — and a malformed element used to
- * brick its project on every load. Non-visual elements and already-complete
- * elements are returned unchanged (same reference).
- */
-export function ensureVisualElementDefaults({
-	element,
-}: {
-	element: TimelineElement;
-}): TimelineElement {
-	if (!isVisualElement(element)) return element;
-
-	const { transform, opacity, blendMode } = element as VisualElement & {
-		transform?: Partial<VisualElement["transform"]>;
-		opacity?: number;
-	};
-
-	const hasCompleteTransform =
-		transform !== undefined &&
-		transform.position !== undefined &&
-		typeof transform.position.x === "number" &&
-		typeof transform.position.y === "number" &&
-		typeof transform.scale === "number" &&
-		typeof transform.rotate === "number";
-
-	if (
-		hasCompleteTransform &&
-		opacity !== undefined &&
-		blendMode !== undefined
-	) {
-		return element;
-	}
-
-	return {
-		...element,
-		transform: hasCompleteTransform
-			? element.transform
-			: {
-					position: {
-						x: transform?.position?.x ?? DEFAULT_TRANSFORM.position.x,
-						y: transform?.position?.y ?? DEFAULT_TRANSFORM.position.y,
-					},
-					scale: transform?.scale ?? DEFAULT_TRANSFORM.scale,
-					rotate: transform?.rotate ?? DEFAULT_TRANSFORM.rotate,
-				},
-		opacity: opacity ?? DEFAULT_OPACITY,
-		blendMode: blendMode ?? DEFAULT_BLEND_MODE,
-	};
 }
 
 export function hasMediaId(
