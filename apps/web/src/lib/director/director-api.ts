@@ -122,6 +122,8 @@ import {
 	extractAndAddFrame,
 	firstFrameSourceTime,
 	lastFrameSourceTime,
+	resolveVideoDurationSec,
+	type DurationProbe,
 	type FrameDecoder,
 } from "@/lib/media/frame-extraction";
 import { dataUrlToFile } from "@/lib/media/data-url";
@@ -330,12 +332,15 @@ export interface CreateDirectorApiOptions {
 	 * Frame-extraction seam (see `lib/media/frame-extraction.ts`). `decode` pulls a
 	 * full-resolution still from a video at a source time (default: the browser
 	 * mediabunny decode); `upload` rehosts the decoded still to a fetchable URL so
-	 * it can seed a generation (default: the shared `/api/studio/upload` path).
+	 * it can seed a generation (default: the shared `/api/studio/upload` path);
+	 * `probeDuration` resolves a video's real duration when the asset metadata
+	 * lacks one (default: `resolveVideoDurationSec`'s container-header decode).
 	 * BROWSER-BOUND, so headless tests inject stubs — same pattern as `references`.
 	 */
 	frames?: {
 		decode?: FrameDecoder;
 		upload?: (file: File) => Promise<string>;
+		probeDuration?: DurationProbe;
 	};
 	/**
 	 * "Understanding Pass" seam (see `asset-manifest.ts`). A per-asset lookup that
@@ -579,6 +584,9 @@ export function createDirectorApi(
 	const uploadFrame: (file: File) => Promise<string> =
 		options.frames?.upload ??
 		(async (file) => (await uploadReferenceFile(file)).url);
+	const probeDuration: DurationProbe =
+		options.frames?.probeDuration ??
+		((source) => resolveVideoDurationSec(source));
 
 	// Resolved self-correction config (defaults + injected overrides).
 	const recovery = {
@@ -2717,16 +2725,40 @@ export function createDirectorApi(
 		}
 
 		// Library assets / takes are the FULL source (no trim), so a full-span
-		// synthetic element gives the right first/last source time.
-		const span = { startTime: 0, duration: asset.duration ?? 0, trimStart: 0 };
+		// synthetic element gives the right first/last source time. A "last"
+		// extraction needs the REAL duration: asset metadata can lack one (some
+		// containers report NaN/0 at import), and a 0-duration span would silently
+		// resolve "last" to t=0 — the FIRST frame. Probe the container instead,
+		// and fail honestly if it can't be determined.
 		let label: DerivedFrameLabel;
 		let timeSec: number;
 		if (input.position === "first") {
 			label = "first frame";
-			timeSec = firstFrameSourceTime(span);
+			timeSec = firstFrameSourceTime({
+				startTime: 0,
+				duration: asset.duration ?? 0,
+				trimStart: 0,
+			});
 		} else if (input.position === "last") {
 			label = "last frame";
-			timeSec = lastFrameSourceTime(span);
+			const durationSec =
+				Number.isFinite(asset.duration) && (asset.duration as number) > 0
+					? (asset.duration as number)
+					: await probeDuration({
+							videoFile: asset.file,
+							videoUrl: asset.url,
+							name: asset.name,
+						});
+			if (!(Number.isFinite(durationSec) && (durationSec as number) > 0)) {
+				return fail(
+					`Couldn't determine the duration of "${name}" — can't locate its last frame.`,
+				);
+			}
+			timeSec = lastFrameSourceTime({
+				startTime: 0,
+				duration: durationSec as number,
+				trimStart: 0,
+			});
 		} else {
 			label = "frame";
 			timeSec = Math.max(0, input.position.atTimeSec);

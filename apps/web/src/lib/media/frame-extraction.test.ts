@@ -9,6 +9,7 @@ import {
 	isPlayheadWithinElement,
 	lastFrameSourceTime,
 	playheadSourceTime,
+	resolveVideoDurationSec,
 } from "@/lib/media/frame-extraction";
 
 // A clip placed at timeline 10s, showing source [2s, 7s] (trimStart 2, 5s visible).
@@ -43,6 +44,20 @@ describe("frame source-time math (respecting trim)", () => {
 		expect(isPlayheadWithinElement(EL, 15)).toBe(true);
 		expect(isPlayheadWithinElement(EL, 9.9)).toBe(false);
 		expect(isPlayheadWithinElement(EL, 15.1)).toBe(false);
+	});
+});
+
+describe("resolveVideoDurationSec", () => {
+	it("returns a valid known duration without touching the source", async () => {
+		// No file/url at all — a probe attempt would resolve undefined, so a
+		// 6 result proves the known-duration short-circuit.
+		expect(await resolveVideoDurationSec({}, 6)).toBe(6);
+	});
+
+	it("treats missing/zero/NaN known durations as unknown (probes; undefined without a source)", async () => {
+		expect(await resolveVideoDurationSec({}, undefined)).toBeUndefined();
+		expect(await resolveVideoDurationSec({}, 0)).toBeUndefined();
+		expect(await resolveVideoDurationSec({}, Number.NaN)).toBeUndefined();
 	});
 });
 

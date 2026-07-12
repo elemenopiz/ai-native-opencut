@@ -47,6 +47,7 @@ import {
 	extractAndAddFrame,
 	firstFrameSourceTime,
 	lastFrameSourceTime,
+	resolveVideoDurationSec,
 	type FrameDecodeSource,
 } from "@/lib/media/frame-extraction";
 import type { DerivedFrom, DerivedFrameLabel } from "@/services/storage/types";
@@ -434,21 +435,39 @@ function MediaItemWithContextMenu({
 		}
 		const label: DerivedFrameLabel =
 			kind === "first" ? "first frame" : "last frame";
-		// Library assets are the FULL source (no trim), so a synthetic full-span
-		// element gives the right first/last source time.
-		const span = {
-			startTime: 0,
-			duration: item.duration ?? 0,
-			trimStart: 0,
-		};
-		const timeSec =
-			kind === "first" ? firstFrameSourceTime(span) : lastFrameSourceTime(span);
 		const source: FrameDecodeSource = {
 			videoFile: item.file,
 			videoUrl: item.url,
 			name: item.name,
 		};
 		const toastId = toast.loading("Extracting frame…");
+		// Library assets are the FULL source (no trim), so a synthetic full-span
+		// element gives the right first/last source time. A LAST-frame extraction
+		// needs the real duration: some containers report none at import (the
+		// asset is stored without one), and a 0-duration span would silently
+		// resolve "last" to t=0 — the FIRST frame. Probe the container instead.
+		let timeSec: number;
+		if (kind === "first") {
+			timeSec = firstFrameSourceTime({
+				startTime: 0,
+				duration: item.duration ?? 0,
+				trimStart: 0,
+			});
+		} else {
+			const durationSec = await resolveVideoDurationSec(source, item.duration);
+			if (!durationSec) {
+				toast.error(
+					`Couldn't determine the duration of "${item.name}" — can't locate its last frame.`,
+					{ id: toastId },
+				);
+				return;
+			}
+			timeSec = lastFrameSourceTime({
+				startTime: 0,
+				duration: durationSec,
+				trimStart: 0,
+			});
+		}
 		try {
 			const result = await extractAndAddFrame({
 				editor,
@@ -473,7 +492,10 @@ function MediaItemWithContextMenu({
 								const file = dataUrlToFile(result.dataUrl, result.name);
 								const { url } = await uploadReferenceFile(file);
 								setPendingFirstFrame({ url, label: result.name });
-								toast.success("Frame ready in Generate as the first frame.", {
+								// Neutral on purpose: whether the frame can seed the next
+								// generation depends on the model selected IN the form (First/Last
+								// support) — the form surfaces an inline warning when it can't.
+								toast.success("Frame sent to Generate.", {
 									id: uploadingId,
 								});
 							} catch (err) {

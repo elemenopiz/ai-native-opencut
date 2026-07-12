@@ -17,7 +17,7 @@ const FRAME: FullFrame = {
 	height: 1080,
 };
 
-function videoAsset(id: string, name: string, duration: number) {
+function videoAsset(id: string, name: string, duration: number | undefined) {
 	return {
 		id,
 		name,
@@ -78,6 +78,9 @@ function makeEditor() {
 	const assets: Record<string, ReturnType<typeof videoAsset>> = {
 		mA: videoAsset("mA", "a.mp4", 6),
 		mB: videoAsset("mB", "b.mp4", 6),
+		// A container that reported no duration at import (processing.ts stores
+		// duration: undefined for NaN/Infinity/0) — exercises the probe path.
+		mNoDur: videoAsset("mNoDur", "nodur.mp4", undefined),
 	};
 	const added: { projectId: string; asset: Record<string, unknown> }[] = [];
 	const setSpecCalls: { elementId: string; spec: GenerationSpec }[] = [];
@@ -169,6 +172,81 @@ describe("extractFrame verb", () => {
 		expect(res.ok).toBe(true);
 		expect(decodeCalls[0]).toBe(0);
 		expect(res.data?.url).toBe("https://cdn.test/first.png");
+	});
+
+	it("probes the real duration for a last-frame extract when metadata lacks one", async () => {
+		const { editor, added } = makeEditor();
+		const decodeCalls: number[] = [];
+		const probed: string[] = [];
+		const director = createDirectorApi(editor, {
+			frames: {
+				decode: async (_s, t) => {
+					decodeCalls.push(t);
+					return FRAME;
+				},
+				upload: async () => "https://cdn.test/probed.png",
+				probeDuration: async (source) => {
+					probed.push(source.name ?? "");
+					return 8;
+				},
+			},
+		});
+
+		const res = await director.extractFrame({
+			mediaId: "mNoDur",
+			position: "last",
+		});
+
+		expect(res.ok).toBe(true);
+		// Without the probe this would have silently decoded t=0 (the FIRST frame).
+		expect(probed).toHaveLength(1);
+		expect(decodeCalls[0]).toBeCloseTo(8 - LAST_FRAME_EPSILON_S, 10);
+		expect(added[0].asset.derivedFrom).toEqual({
+			assetId: "mNoDur",
+			sourceTimeSec: 8 - LAST_FRAME_EPSILON_S,
+			label: "last frame",
+		});
+	});
+
+	it("fails honestly when a duration-less last-frame extract can't be probed", async () => {
+		const { editor, added } = makeEditor();
+		const director = createDirectorApi(editor, {
+			frames: {
+				decode: async () => FRAME,
+				upload: async () => "u",
+				probeDuration: async () => undefined,
+			},
+		});
+
+		const res = await director.extractFrame({
+			mediaId: "mNoDur",
+			position: "last",
+		});
+		expect(res.ok).toBe(false);
+		expect(res.message).toMatch(/duration/i);
+		expect(added).toHaveLength(0);
+	});
+
+	it("does not probe when the asset already has a valid duration", async () => {
+		const { editor } = makeEditor();
+		let probes = 0;
+		const director = createDirectorApi(editor, {
+			frames: {
+				decode: async () => FRAME,
+				upload: async () => "u",
+				probeDuration: async () => {
+					probes++;
+					return 99;
+				},
+			},
+		});
+
+		const res = await director.extractFrame({
+			mediaId: "mA",
+			position: "last",
+		});
+		expect(res.ok).toBe(true);
+		expect(probes).toBe(0);
 	});
 
 	it("decodes an explicit atTimeSec position", async () => {

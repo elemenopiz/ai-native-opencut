@@ -44,9 +44,14 @@ export function RightPanel({ className }: { className?: string }) {
 	// Frame chaining: when a user sends an extracted frame to Generate ("Use as
 	// next first frame"), jump to the Generate tab so the GenerationForm — which
 	// consumes the same store — is visible as it fills the First-frame slot.
+	// Only on a nonce ADVANCE past the mount-time value — the store outlives this
+	// panel, so a bare `nonce > 0` check would snap a remounted panel back to
+	// Generate after any earlier chain in the session.
 	const frameChainNonce = useFrameChainStore((s) => s.nonce);
+	const lastSeenChainNonce = useRef(frameChainNonce);
 	useEffect(() => {
-		if (frameChainNonce > 0) setActiveTab("generate");
+		if (frameChainNonce > lastSeenChainNonce.current) setActiveTab("generate");
+		lastSeenChainNonce.current = frameChainNonce;
 	}, [frameChainNonce]);
 
 	return (

@@ -629,6 +629,17 @@ export function GenerationForm({
 					<p className="text-[10px] text-muted-foreground">
 						{GEN_MODES.find((m) => m.value === genMode)?.hint}
 					</p>
+					{/* A chained/extracted first frame is parked but the selected model
+					    has no first-frame-capable mode — say so instead of silently
+					    dropping it from the payload. */}
+					{firstFrameUrl &&
+						!availableModes.some((m) => m.value === "first-last") && (
+							<p className="text-[10px] text-amber-600 dark:text-amber-500">
+								A first frame is attached, but{" "}
+								{selectedBackend?.label ?? "this model"} doesn&apos;t support a
+								first-frame seed — pick a First/Last-capable model to use it.
+							</p>
+						)}
 				</div>
 			)}
 

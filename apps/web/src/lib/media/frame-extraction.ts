@@ -22,8 +22,13 @@
 
 import type { EditorCore } from "@/core";
 import type { DerivedFrom, DerivedFrameLabel } from "@/services/storage/types";
-import { LAST_FRAME_EPSILON_S } from "@/lib/media/last-frame";
-import { extractFrameFull, type FullFrame } from "@/lib/media/last-frame";
+import {
+	LAST_FRAME_EPSILON_S,
+	extractFrameFull,
+	fetchVideoAsFile,
+	type FullFrame,
+} from "@/lib/media/last-frame";
+import { getVideoInfo } from "@/lib/media/mediabunny";
 import { dataUrlToFile } from "@/lib/media/data-url";
 
 /** Minimal shape of a trimmed timeline element we need for source-time math. */
@@ -126,6 +131,43 @@ export type FrameDecoder = (
 	source: FrameDecodeSource,
 	timeSec: number,
 ) => Promise<FullFrame | undefined>;
+
+/** Injectable duration probe (default = {@link resolveVideoDurationSec}). */
+export type DurationProbe = (
+	source: FrameDecodeSource,
+) => Promise<number | undefined>;
+
+/**
+ * Resolve a video source's duration in seconds. Returns `knownDuration` when it
+ * is already a valid positive number; otherwise decodes the container header
+ * (`getVideoInfo`, fetching remote URLs through the same proxy path as frame
+ * decode). Some containers report NaN/Infinity/0 at import time and the asset
+ * is stored WITHOUT a duration (see `processing.ts`) — without this probe, a
+ * "last frame" extraction on such an asset would silently resolve to t=0 (the
+ * FIRST frame). Returns `undefined` (never throws) when the duration can't be
+ * determined, so callers can fail honestly.
+ */
+export async function resolveVideoDurationSec(
+	source: FrameDecodeSource,
+	knownDuration?: number,
+): Promise<number | undefined> {
+	if (Number.isFinite(knownDuration) && (knownDuration as number) > 0) {
+		return knownDuration;
+	}
+	try {
+		const file =
+			source.videoFile ??
+			(source.videoUrl
+				? await fetchVideoAsFile(source.videoUrl, source.name)
+				: undefined);
+		if (!file) return undefined;
+		const { duration } = await getVideoInfo({ videoFile: file });
+		return Number.isFinite(duration) && duration > 0 ? duration : undefined;
+	} catch (error) {
+		console.warn("resolveVideoDurationSec failed", error);
+		return undefined;
+	}
+}
 
 export interface ExtractAndAddFrameInput {
 	editor: EditorCore;

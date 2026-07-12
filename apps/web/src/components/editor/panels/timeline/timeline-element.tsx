@@ -451,7 +451,10 @@ export function TimelineElement({
 			const file = dataUrlToFile(dataUrl, name);
 			const { url } = await uploadReferenceFile(file);
 			setPendingFirstFrame({ url, label: name });
-			toast.success("Frame ready in Generate as the first frame.", {
+			// Neutral on purpose: whether the frame can seed the next
+			// generation depends on the model selected IN the form (First/Last
+			// support) — the form surfaces an inline warning when it can't.
+			toast.success("Frame sent to Generate.", {
 				id: uploadingId,
 			});
 		} catch (err) {
