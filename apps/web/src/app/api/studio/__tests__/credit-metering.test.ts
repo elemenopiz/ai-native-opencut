@@ -381,18 +381,26 @@ describe("generate POST — persona still is metered (#2)", () => {
 		);
 		expect(res.status).toBe(200);
 
-		// still reserve → render → still settle → video reserve → submit
+		// still reserve → render → still settle → release the over-hold diff
+		// (reserve is sized to the DEFAULT image backend's rate, nano-banana-pro
+		// @ 14; this mock's still renders on openai-gpt-image @ 4, so the 10-credit
+		// difference is released) → video reserve → submit
 		expect(ops()).toEqual([
 			"reserve",
 			"renderStill",
 			"settle",
+			"release",
 			"reserve",
 			"submit",
 		]);
 		const [stillReserve, videoReserve] = eventsOf("reserve");
 		const [stillSettle] = eventsOf("settle");
-		expect(stillReserve.credits).toBe(4); // openai-gpt-image flat
+		const [stillReleaseDiff] = eventsOf("release");
+		expect(stillReserve.credits).toBe(14); // google-nano-banana (default image backend) flat
+		expect(stillSettle.credits).toBe(4); // openai-gpt-image (actual routed backend) flat
 		expect(stillSettle.refId).toBe(stillReserve.refId);
+		expect(stillReleaseDiff.credits).toBe(10); // 14 reserved - 4 actually spent
+		expect(stillReleaseDiff.refId).toBe(stillReserve.refId);
 		expect(videoReserve.credits).toBe(50);
 		// Independent charge ids — the still can never consume the video hold.
 		expect(videoReserve.refId).not.toBe(stillReserve.refId);

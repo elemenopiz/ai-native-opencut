@@ -29,14 +29,13 @@ import { gateOn402 } from "@/lib/credits/client-gate";
 import { useCreditsStore } from "@/stores/credits-store";
 import { toast } from "sonner";
 
-/** OpenAI returns up to a handful per call; fan out for big batches. */
+/** The backend returns a handful of images per call; fan out for big batches. */
 const BATCH_CHUNK = 4;
 const BATCH_OPTIONS = [1, 4, 8, 16];
 
 interface GeneratedStill {
 	id: string;
 	imageUrl: string;
-	revisedPrompt?: string;
 }
 
 interface ImagePanelProps {
@@ -44,16 +43,21 @@ interface ImagePanelProps {
 	className?: string;
 }
 
+// Aspect ratios — the ImageSize wire values are unchanged, only relabeled to
+// read as aspect ratios (Nano Banana Pro's own framing) instead of pixel sizes.
 const SIZES: { value: ImageSize; label: string }[] = [
-	{ value: "1024x1024", label: "1:1 Square" },
-	{ value: "1536x1024", label: "3:2 Landscape" },
-	{ value: "1024x1536", label: "2:3 Portrait" },
+	{ value: "1024x1024", label: "Square 1:1" },
+	{ value: "1536x1024", label: "Landscape 3:2" },
+	{ value: "1024x1536", label: "Portrait 2:3" },
 ];
 
+// Resolution — Nano Banana Pro renders at 1K/2K (4K exists but isn't exposed
+// here for cost control). "low" is intentionally dropped from the picker: it
+// maps to the same 1K tier as "medium", so showing it separately would just
+// be a confusing duplicate of the 1K option.
 const QUALITIES: { value: ImageQuality; label: string }[] = [
-	{ value: "high", label: "High" },
-	{ value: "medium", label: "Medium" },
-	{ value: "low", label: "Low (draft)" },
+	{ value: "high", label: "2K" },
+	{ value: "medium", label: "1K" },
 ];
 
 export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
@@ -363,7 +367,7 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 						>
 							<img
 								src={still.imageUrl}
-								alt={still.revisedPrompt ?? prompt}
+								alt={prompt}
 								className={cn(
 									"w-full pointer-events-none",
 									preset.allowsMultiple

@@ -1,16 +1,23 @@
 /**
- * Image adapter — Gemini 2.5 Flash Image ("Nano Banana").
+ * Image adapter — Nano Banana Pro (Gemini 3 Pro Image).
  *
  * Native Google API via the Gemini API's `generateContent` surface
  * (generativelanguage.googleapis.com) — the same endpoint used for text
  * generation, with `responseModalities: ["IMAGE"]` requesting image output.
  * Synchronous: base64 image bytes come back inline in
  * `candidates[0].content.parts[].inlineData`, so this follows the GPT Image
- * sync template. Nano Banana's headline feature is exactly what
- * `supportsReferenceEdits`/`supportsOmniReference` describe — blending one or
- * more input images to carry character identity into a new render — so
- * `referenceImageUrl`/`referenceImages` are wired through as `inlineData`
- * parts alongside the prompt.
+ * sync template. Verified 2026-07 (web search against ai.google.dev's model
+ * page + a real-world litellm bug report quoting the raw request body) that
+ * `generateContent` + `generationConfig.responseModalities` +
+ * `generationConfig.imageConfig.{aspectRatio,imageSize}` is still the correct
+ * shape for the Pro model — Google's newer "Interactions API" is the
+ * *recommended* surface going forward but generateContent remains supported,
+ * and switching would be a bigger change than this task's scope. Nano Banana
+ * Pro's headline feature is exactly what
+ * `supportsReferenceEdits`/`supportsOmniReference` describe — blending up to
+ * 14 input images (character/product/style refs) with strong identity carry
+ * into a new render — so `referenceImageUrl`/`referenceImages` are wired
+ * through as `inlineData` parts alongside the prompt.
  */
 
 import { webEnv } from "@byorn/env/web";
@@ -31,14 +38,20 @@ import type { ImageQuality, ImageSize } from "@/lib/studio/image-generator";
 const GEMINI_API_KEY_ENV = "GEMINI_API_KEY";
 
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
+// GA model id per ai.google.dev/gemini-api/docs/models/gemini-3-pro-image
+// (listed "Stable", no "-preview" suffix, as of 2026-07). The model launched
+// Nov 2025 as `gemini-3-pro-image-preview`; GEMINI_NANO_BANANA_MODEL still
+// lets ops pin back to the preview id if the GA id ever regresses.
 const NANO_BANANA_MODEL =
-	webEnv.GEMINI_NANO_BANANA_MODEL || "gemini-2.5-flash-image";
+	webEnv.GEMINI_NANO_BANANA_MODEL || "gemini-3-pro-image";
 
-/** UNVERIFIED: exact USD — Google bills Flash Image by output image tokens
- *  rather than a flat per-image rate; these are order-of-magnitude estimates. */
+/** Nano Banana Pro bills ~$0.134 per 1K/2K image and ~$0.24 per 4K
+ *  (source: Google's Gemini 3 Pro Image pricing announcement). 1 credit =
+ *  $0.01 rounded up, so 1K/2K → 14 credits. 4K is intentionally not exposed
+ *  in the beta UI (cost control), so there's no "high-high" tier here. */
 const CREDITS_BY_QUALITY: Record<string, number> = {
-	low: 5,
-	medium: 8,
+	low: 14, // "1K" imageConfig.imageSize
+	medium: 14, // "1K" imageConfig.imageSize
 	high: 14, // "2K" imageConfig.imageSize
 };
 
@@ -81,12 +94,18 @@ async function fetchAsInlineData(
 
 export const googleNanoBananaBackend: GenerationBackend = {
 	id: "google-nano-banana",
-	label: "Gemini 2.5 Flash Image (Nano Banana)",
+	label: "Nano Banana Pro (Gemini 3 Pro Image)",
 	vendor: "Google",
 	modality: "image",
 	safetyTier: "partner", // GA per Google's "now ready for production" announcement
 	requiredEnv: [GEMINI_API_KEY_ENV],
 	capabilities: {
+		// The shared ImageSize wire type only has these 3 members (persona-still,
+		// the image route, and DB records all key off it) — kept as-is and mapped
+		// to 1:1 / 3:2 / 2:3. Nano Banana Pro actually supports far more aspect
+		// ratios (1:1, 3:2, 2:3, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9) and up to
+		// 4K via imageConfig.imageSize, but 4K/extra ratios aren't exposed here
+		// for the beta (cost control + no UI need yet).
 		sizes: ["1024x1024", "1536x1024", "1024x1536"],
 		qualities: ["low", "medium", "high"],
 		// UNVERIFIED: no publicly documented `seed` parameter for image output on
@@ -94,6 +113,9 @@ export const googleNanoBananaBackend: GenerationBackend = {
 		supportsSeedLock: false,
 		// Accepts multiple inlineData reference images blended into one
 		// generation — the closest image-modality analog to omni-reference.
+		// Pro raises the reference ceiling to up to 14 images (identity carry
+		// across up to 5 subjects) — the request builder below already forwards
+		// every ref supplied by the caller, so no code change was needed here.
 		supportsOmniReference: true,
 		supportsLastFrame: false,
 		supportsReferenceEdits: true, // reference image(s) carry character identity — the model's headline feature
@@ -108,7 +130,7 @@ export const googleNanoBananaBackend: GenerationBackend = {
 		const credits = CREDITS_BY_QUALITY[req.quality ?? "high"] ?? 14;
 		return {
 			credits,
-			basis: `Nano Banana (${mapQualityToImageSize(req.quality)})`,
+			basis: `Nano Banana Pro (${mapQualityToImageSize(req.quality)})`,
 		};
 	},
 
@@ -164,7 +186,7 @@ export const googleNanoBananaBackend: GenerationBackend = {
 				return {
 					jobId: "",
 					status: "failed",
-					error: `Nano Banana submit failed ${res.status}: ${text}`,
+					error: `Nano Banana Pro submit failed ${res.status}: ${text}`,
 				};
 			}
 
@@ -188,7 +210,8 @@ export const googleNanoBananaBackend: GenerationBackend = {
 			return {
 				jobId: "",
 				status: "failed",
-				error: err instanceof Error ? err.message : "Nano Banana submit failed",
+				error:
+					err instanceof Error ? err.message : "Nano Banana Pro submit failed",
 			};
 		}
 	},

@@ -63,9 +63,9 @@ const videoModels: RoutedModel[] = [
 
 const imageModels: RoutedModel[] = [
 	{
-		name: "Gemini Flash Image",
+		name: "Nano Banana Pro",
 		vendor: "Google",
-		note: "The default image model — fast generation and reference-guided edits that carry a persona's likeness into new scenes.",
+		note: "The default image model — reference-guided identity carry across up to 14 images and best-in-class text rendering.",
 		tags: ["default", "references", "edits"],
 	},
 	{
