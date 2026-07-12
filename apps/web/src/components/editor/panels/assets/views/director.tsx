@@ -857,14 +857,6 @@ export function DirectorView() {
 							{activeModel}
 						</Badge>
 					)}
-					{!isConnected && (
-						<Badge
-							variant="outline"
-							className="text-[8px] px-1.5 py-0 text-yellow-500 border-yellow-500/30"
-						>
-							Offline
-						</Badge>
-					)}
 				</div>
 				<div className="flex items-center gap-1">
 					<Button

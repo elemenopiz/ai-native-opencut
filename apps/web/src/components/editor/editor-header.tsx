@@ -14,7 +14,6 @@ import { DeleteProjectDialog } from "./dialogs/delete-project-dialog";
 import { useRouter } from "next/navigation";
 
 import { ExportButton } from "./export-button";
-import { ThemeToggle } from "../theme-toggle";
 import { toast } from "sonner";
 import { useEditor } from "@/hooks/use-editor";
 import {
@@ -134,7 +133,6 @@ export function EditorHeader() {
 					Board
 				</Button>
 				<ExportButton />
-				<ThemeToggle />
 				<CreditBalancePill />
 				<AccountMenu />
 			</nav>

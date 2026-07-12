@@ -58,8 +58,8 @@ export function ReelBoard() {
 				<HugeiconsIcon icon={SparklesIcon} className="size-4 text-primary" />
 				<span className="text-sm font-medium">Reel board</span>
 				<span className="text-xs text-muted-foreground">
-					{slots.length} slot{slots.length === 1 ? "" : "s"} · zoomed out · click a
-					take to make it active
+					{slots.length} slot{slots.length === 1 ? "" : "s"} · zoomed out ·
+					click a take to make it active
 				</span>
 				<button
 					type="button"
@@ -75,7 +75,7 @@ export function ReelBoard() {
 			<div className="flex-1 overflow-y-auto p-5">
 				{slots.length === 0 ? (
 					<div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-						No generative slots yet. Reserve some in the Generate tab.
+						No generative slots yet. Reserve some in the Direct tab.
 					</div>
 				) : (
 					<div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4">
@@ -87,7 +87,9 @@ export function ReelBoard() {
 								onSelect={(takeId) =>
 									editor.timeline.selectTake({ elementId: slot.id, takeId })
 								}
-								resolveUrl={(mediaId) => editor.media.getAssetById(mediaId)?.url}
+								resolveUrl={(mediaId) =>
+									editor.media.getAssetById(mediaId)?.url
+								}
 							/>
 						))}
 					</div>
@@ -171,7 +173,13 @@ function BoardTake({
 		>
 			{isReady && url ? (
 				take.mediaId ? (
-					<video src={url} className="size-full object-cover" muted loop playsInline />
+					<video
+						src={url}
+						className="size-full object-cover"
+						muted
+						loop
+						playsInline
+					/>
 				) : (
 					<img src={url} alt="" className="size-full object-cover" />
 				)

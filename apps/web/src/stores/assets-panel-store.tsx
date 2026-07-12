@@ -22,7 +22,6 @@ import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 
 export const TAB_KEYS = [
 	"media",
-	"insights",
 	"director",
 	"starred",
 	"text",
@@ -35,6 +34,10 @@ export const TAB_KEYS = [
 	"templates",
 	"search",
 	"brandkit",
+	// "What the AI sees" — an inspection lens, so it sits with the other
+	// library/meta views near the bottom rather than in the top create-flow
+	// slots (and after the Director, which is what fills it).
+	"insights",
 	"settings",
 ] as const;
 
