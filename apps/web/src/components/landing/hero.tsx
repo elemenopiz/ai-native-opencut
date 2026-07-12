@@ -1,205 +1,63 @@
-"use client";
-
-import { Button } from "../ui/button";
-import { ArrowRight } from "lucide-react";
 import Link from "next/link";
-import { motion, useScroll, useTransform } from "motion/react";
-import { useRef } from "react";
+import { Button } from "@/components/ui/button";
+import { TimelineMock } from "./timeline-mock";
 
-const STATS = [
-	{ value: "10", label: "AI Services" },
-	{ value: "30+", label: "Languages" },
-	{ value: "$0", label: "API Cost" },
-	{ value: "100%", label: "Local" },
-];
-
+/**
+ * Typographic hero — one declarative claim, left-aligned, followed by a
+ * faithful mock of the actual editor timeline. Server-rendered; the only
+ * motion is CSS enter animations and the playhead drift inside the mock.
+ */
 export function Hero() {
-	const containerRef = useRef<HTMLDivElement>(null);
-	const { scrollYProgress } = useScroll({
-		target: containerRef,
-		offset: ["start start", "end start"],
-	});
-
-	const bgY = useTransform(scrollYProgress, [0, 1], ["0%", "30%"]);
-	const textOpacity = useTransform(scrollYProgress, [0, 0.5], [1, 0]);
-	const textY = useTransform(scrollYProgress, [0, 0.5], [0, -60]);
-
 	return (
-		<div
-			ref={containerRef}
-			className="relative flex min-h-[calc(100svh-4.5rem)] flex-col items-center justify-center overflow-hidden px-4"
-		>
-			{/* Cinematic background layers */}
-			<motion.div
-				className="absolute inset-0 -z-10"
-				style={{ y: bgY }}
-			>
-				{/* Dark radial gradient */}
-				<div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-20%,rgba(0,157,255,0.12),transparent)]" />
-				<div className="absolute inset-0 bg-[radial-gradient(ellipse_60%_60%_at_50%_120%,rgba(120,80,255,0.06),transparent)]" />
-
-				{/* Grid pattern */}
-				<div
-					className="absolute inset-0 opacity-[0.03] dark:opacity-[0.04]"
-					style={{
-						backgroundImage: `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`,
-						backgroundSize: "64px 64px",
-					}}
-				/>
-
-				{/* Noise grain */}
-				<div
-					className="absolute inset-0 opacity-[0.015] dark:opacity-[0.03]"
-					style={{
-						backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E")`,
-					}}
-				/>
-			</motion.div>
-
-			{/* Floating orbs */}
-			<motion.div
-				className="absolute top-1/4 left-1/4 size-96 rounded-full bg-primary/5 blur-[120px]"
-				animate={{
-					x: [0, 30, -20, 0],
-					y: [0, -20, 15, 0],
-				}}
-				transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
-			/>
-			<motion.div
-				className="absolute bottom-1/4 right-1/4 size-72 rounded-full bg-violet-500/5 blur-[100px]"
-				animate={{
-					x: [0, -25, 15, 0],
-					y: [0, 15, -25, 0],
-				}}
-				transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
+		<section className="relative overflow-hidden">
+			{/* Quiet vertical hairlines that frame the content column */}
+			<div
+				aria-hidden
+				className="pointer-events-none absolute inset-0 mx-auto hidden max-w-6xl border-x border-border/50 lg:block"
 			/>
 
-			{/* Main content */}
-			<motion.div
-				className="relative mx-auto flex w-full max-w-4xl flex-col items-center text-center"
-				style={{ opacity: textOpacity, y: textY }}
-			>
-				{/* Eyebrow badge */}
-				<motion.div
-					initial={{ opacity: 0, y: 16, filter: "blur(8px)" }}
-					animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-					transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
-				>
-					<span className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/60 backdrop-blur-md px-3 py-1.5 text-xs sm:text-sm sm:px-4 sm:py-2">
-						<span className="relative flex size-2 shrink-0">
-							<span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400/60" />
-							<span className="relative inline-flex size-2 rounded-full bg-emerald-400" />
-						</span>
-						<span className="inline-flex items-center gap-1.5 sm:gap-2">
-							<span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-emerald-400 font-medium">
-								Open source
-							</span>
-							<span className="rounded-full bg-blue-500/15 px-2.5 py-0.5 text-blue-400 font-medium">
-								Runs locally
-							</span>
-							<span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-amber-400 font-medium">
-								No cloud
-							</span>
-						</span>
-					</span>
-				</motion.div>
+			<div className="mx-auto max-w-6xl px-6 pt-20 pb-10 md:pt-28 lg:px-12">
+				<p className="animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards font-mono text-[11px] tracking-[0.22em] text-muted-foreground uppercase duration-700">
+					Byorn — AI-native video editor · Private beta
+				</p>
 
-				{/* Main heading */}
-				<motion.h1
-					className="mt-8 text-5xl font-bold tracking-tight sm:text-6xl md:text-7xl lg:text-8xl"
-					initial={{ opacity: 0, y: 24 }}
-					animate={{ opacity: 1, y: 0 }}
-					transition={{ duration: 0.8, delay: 0.15, ease: [0.22, 1, 0.36, 1] }}
-				>
-					<span className="block">Video editing,</span>
-					<span className="relative mt-1 inline-block">
-						<span className="bg-gradient-to-r from-primary via-blue-400 to-cyan-300 bg-clip-text text-transparent">
-							reimagined
-						</span>
-						{/* Animated underline */}
-						<motion.span
-							className="absolute -bottom-2 left-0 h-[3px] rounded-full bg-gradient-to-r from-primary to-cyan-400"
-							initial={{ width: "0%" }}
-							animate={{ width: "100%" }}
-							transition={{ duration: 1, delay: 0.8, ease: [0.22, 1, 0.36, 1] }}
-						/>
-					</span>
-					<span className="block text-muted-foreground/40 mt-1">by AI.</span>
-				</motion.h1>
+				<h1 className="animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards mt-6 max-w-4xl text-5xl leading-[1.02] font-semibold tracking-tighter [animation-delay:80ms] duration-700 sm:text-6xl md:text-7xl">
+					The timeline
+					<br />
+					is generative.
+				</h1>
 
-				{/* Subtitle */}
-				<motion.p
-					className="mx-auto mt-8 max-w-xl text-lg text-muted-foreground md:text-xl"
-					initial={{ opacity: 0, y: 16 }}
-					animate={{ opacity: 1, y: 0 }}
-					transition={{ duration: 0.8, delay: 0.35, ease: [0.22, 1, 0.36, 1] }}
-				>
-					Turn long podcasts into viral clips. Multi-speaker detection, word-pop subtitles,
-					auto-reframe for Shorts, brand kits. 22 Indian languages via Sarvam AI. Everything runs locally.
-				</motion.p>
+				<p className="animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards mt-6 max-w-2xl text-base leading-relaxed text-muted-foreground [animation-delay:160ms] duration-700 md:text-lg">
+					Byorn is a professional editor where AI footage gets made{" "}
+					<em className="text-foreground not-italic">and</em> finished.
+					Generated clips sit on a real multi-track timeline as first-class
+					citizens — each one holding its takes, reviewed by a critic that
+					watches the actual frames, cut with the precision tools an editor
+					expects.
+				</p>
 
-				{/* CTA buttons */}
-				<motion.div
-					className="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:gap-4"
-					initial={{ opacity: 0, y: 16 }}
-					animate={{ opacity: 1, y: 0 }}
-					transition={{ duration: 0.8, delay: 0.5, ease: [0.22, 1, 0.36, 1] }}
-				>
-					<Link href="/projects">
-						<Button
-							size="lg"
-							className="group h-12 px-8 text-base font-medium shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30 transition-shadow"
-						>
-							Start editing
-							<ArrowRight className="ml-1 size-4 transition-transform group-hover:translate-x-0.5" />
-						</Button>
+				<div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards mt-8 flex flex-wrap items-center gap-4 [animation-delay:240ms] duration-700">
+					<Button asChild size="lg" className="h-11 px-6 text-sm font-medium">
+						<Link href="/projects">Start editing</Link>
+					</Button>
+					<Link
+						href="#agents"
+						className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+					>
+						Built for agents, too&nbsp;&rarr;
 					</Link>
-				</motion.div>
+				</div>
+			</div>
 
-				{/* Stats row */}
-				<motion.div
-					className="mt-16 grid w-full max-w-lg grid-cols-4 gap-1"
-					initial={{ opacity: 0, y: 20 }}
-					animate={{ opacity: 1, y: 0 }}
-					transition={{ duration: 0.8, delay: 0.7, ease: [0.22, 1, 0.36, 1] }}
-				>
-					{STATS.map((stat, i) => (
-						<motion.div
-							key={stat.label}
-							className="flex flex-col items-center gap-1 rounded-xl border border-border/30 bg-background/40 backdrop-blur-sm px-3 py-3"
-							initial={{ opacity: 0, scale: 0.9 }}
-							animate={{ opacity: 1, scale: 1 }}
-							transition={{ duration: 0.5, delay: 0.8 + i * 0.08 }}
-						>
-							<span className="text-xl font-bold tracking-tight sm:text-2xl">
-								{stat.value}
-							</span>
-							<span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-								{stat.label}
-							</span>
-						</motion.div>
-					))}
-				</motion.div>
-			</motion.div>
-
-			{/* Scroll indicator */}
-			<motion.div
-				className="absolute bottom-8 flex flex-col items-center gap-2"
-				initial={{ opacity: 0 }}
-				animate={{ opacity: 1 }}
-				transition={{ delay: 1.2 }}
-			>
-				<span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground/50">
-					Scroll to explore
-				</span>
-				<motion.div
-					className="size-5 rounded-full border border-muted-foreground/20 flex items-center justify-center"
-					animate={{ y: [0, 6, 0] }}
-					transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
-				>
-					<div className="size-1 rounded-full bg-muted-foreground/40" />
-				</motion.div>
-			</motion.div>
-		</div>
+			<div className="mx-auto max-w-6xl px-6 pb-20 lg:px-12">
+				<div className="animate-in fade-in slide-in-from-bottom-4 fill-mode-backwards [animation-delay:320ms] duration-1000">
+					<TimelineMock />
+				</div>
+				<p className="mt-4 font-mono text-[11px] tracking-wide text-muted-foreground/80">
+					THE TIMELINE, DRAWN TO SCALE — A GENERATED CLIP HOLDING FOUR TAKES.
+					SWAP ONE IN PLACE; THE EDIT DOESN&rsquo;T MOVE.
+				</p>
+			</div>
+		</section>
 	);
 }

@@ -1,8 +1,8 @@
 import { Hero } from "@/components/landing/hero";
-import { Features } from "@/components/landing/features";
-import { Workflow } from "@/components/landing/workflow";
-import { Pricing } from "@/components/landing/pricing";
-import { CTA } from "@/components/landing/cta";
+import { DirectorSection } from "@/components/landing/director";
+import { Capabilities } from "@/components/landing/capabilities";
+import { AgentsSection } from "@/components/landing/agents";
+import { CreditsCta } from "@/components/landing/credits-cta";
 import { Header } from "@/components/header";
 import { Footer } from "@/components/footer";
 import type { Metadata } from "next";
@@ -19,10 +19,10 @@ export default async function Home() {
 		<div>
 			<Header />
 			<Hero />
-			<Features />
-			<Workflow />
-			<Pricing />
-			<CTA />
+			<DirectorSection />
+			<Capabilities />
+			<AgentsSection />
+			<CreditsCta />
 			<Footer />
 		</div>
 	);

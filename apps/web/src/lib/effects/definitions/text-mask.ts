@@ -114,8 +114,10 @@ function isTextMaskFontReady({
 
 // Cache the rasterized hard-edge alpha canvas keyed by (text params, size).
 // Parallel to custom-mask.ts's `rasterCache` (different key shape); feather stays
-// a GLSL uniform so changing it reuses the same cached canvas. Bounded LRU-ish.
-const RASTER_CACHE_LIMIT = 12;
+// a GLSL uniform so changing it reuses the same cached canvas. True LRU: hits
+// are re-inserted so eviction takes the least-recently USED entry, keeping
+// per-frame masks pinned. Cached canvases are handed out as read-only sources.
+const RASTER_CACHE_LIMIT = 16;
 const rasterCache = new Map<string, OffscreenCanvas | HTMLCanvasElement>();
 
 function getRasterCacheKey({
@@ -166,6 +168,8 @@ export function rasterizeTextMask({
 
 	const cached = rasterCache.get(key);
 	if (cached) {
+		rasterCache.delete(key);
+		rasterCache.set(key, cached);
 		return cached;
 	}
 

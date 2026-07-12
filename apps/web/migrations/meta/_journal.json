@@ -57,6 +57,13 @@
 			"when": 1751600000000,
 			"tag": "0007_studio_tenancy",
 			"breakpoints": true
+		},
+		{
+			"idx": 8,
+			"version": "7",
+			"when": 1751700000000,
+			"tag": "0008_project_collaboration",
+			"breakpoints": true
 		}
 	]
 }

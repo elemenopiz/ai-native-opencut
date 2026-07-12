@@ -25,6 +25,10 @@ import type {
 } from "@/types/timeline";
 import type { MediaType } from "@/types/assets";
 import { buildDefaultEffectInstance } from "@/lib/effects";
+import {
+	ensureVisualElementDefaults,
+	isVisualElement,
+} from "@/lib/timeline/element-normalize";
 import { capitalizeFirstLetter } from "@/utils/string";
 
 export function canElementHaveAudio(
@@ -33,16 +37,9 @@ export function canElementHaveAudio(
 	return element.type === "audio" || element.type === "video";
 }
 
-export function isVisualElement(
-	element: TimelineElement,
-): element is VisualElement {
-	return (
-		element.type === "video" ||
-		element.type === "image" ||
-		element.type === "text" ||
-		element.type === "sticker"
-	);
-}
+// Live in `element-normalize` (dependency-light, importable from the storage
+// layer without an import cycle); re-exported here for existing callers.
+export { ensureVisualElementDefaults, isVisualElement };
 
 export function canElementBeHidden(
 	element: TimelineElement,

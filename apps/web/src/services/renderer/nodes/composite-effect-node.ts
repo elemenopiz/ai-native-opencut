@@ -25,6 +25,15 @@ export type CompositeEffectNodeParams = {
 const COVER_PROBE_SIZE = 64;
 /** Safety cap so tiny content (e.g. a lone sticker) can't force absurd zoom. */
 const MAX_COVER_SCALE = 8;
+/** Linear downscale of the blur composite — the blur destroys the detail a
+ *  full-res composite would preserve, so 1/4 is visually identical upscaled. */
+const COMPOSITE_SCALE = 0.25;
+/** Long-edge floor for the reduced composite so tiny previews stay clean. */
+const COMPOSITE_MIN_LONG_EDGE = 480;
+/** How much timeline time may pass before the cover-probe re-runs. Bounds the
+ *  staleness of animated content drifting inside the bounding box; scene edits
+ *  rebuild node instances, which resets the cache entirely. */
+const COVER_BOUNDS_REFRESH_SECONDS = 0.5;
 
 type ContentBounds = {
 	/** Fractions of the canvas (0..1). */
@@ -90,6 +99,58 @@ function computeContentBounds({
 }
 
 export class CompositeEffectNode extends BaseNode<CompositeEffectNodeParams> {
+	/**
+	 * contentNodes are usually the SAME instances the root also holds as
+	 * children (scene-builder), so the root's prepare pass already covers them
+	 * and VideoNode's per-time dedup makes this second pass a no-op. It only
+	 * does real work if a composite ever holds nodes outside the main tree.
+	 */
+	async prepare({
+		renderer,
+		time,
+	}: {
+		renderer: CanvasRenderer;
+		time: number;
+	}): Promise<void> {
+		await super.prepare({ renderer, time });
+		await Promise.all(
+			this.params.contentNodes.map((node) => node.prepare({ renderer, time })),
+		);
+	}
+
+	// Pooled composite canvas — allocating a fresh full canvas every frame was
+	// measurable GC/alloc churn during playback. Node instances live until the
+	// scene is rebuilt, so the pool's lifetime is bounded.
+	private composite: OffscreenCanvas | HTMLCanvasElement | null = null;
+	private compositeCtx:
+		| OffscreenCanvasRenderingContext2D
+		| CanvasRenderingContext2D
+		| null = null;
+	private cachedBounds: ContentBounds | null = null;
+	private cachedBoundsTime: number | null = null;
+
+	/** Cover-probe result, recomputed at most every
+	 *  `COVER_BOUNDS_REFRESH_SECONDS` of timeline time (seeks past the window
+	 *  also recompute) — the getImageData readback stalls the GPU pipeline, so
+	 *  it must not run per frame. */
+	private getContentBounds({
+		source,
+		time,
+	}: {
+		source: OffscreenCanvas | HTMLCanvasElement;
+		time: number;
+	}): ContentBounds | null {
+		if (
+			this.cachedBoundsTime !== null &&
+			Math.abs(time - this.cachedBoundsTime) < COVER_BOUNDS_REFRESH_SECONDS
+		) {
+			return this.cachedBounds;
+		}
+		this.cachedBounds = computeContentBounds({ source });
+		this.cachedBoundsTime = time;
+		return this.cachedBounds;
+	}
+
 	async render({
 		renderer,
 		time,
@@ -97,13 +158,43 @@ export class CompositeEffectNode extends BaseNode<CompositeEffectNodeParams> {
 		renderer: CanvasRenderer;
 		time: number;
 	}): Promise<void> {
-		const offscreen = createOffscreenCanvas({
-			width: renderer.width,
-			height: renderer.height,
-		});
-		const offscreenCtx = offscreen.getContext(
-			"2d",
-		) as OffscreenCanvasRenderingContext2D | null;
+		// Composite at reduced resolution: this whole render exists to be
+		// blurred, so the detail a full-res composite preserves is thrown away
+		// anyway. Everything below that touches pixels (content re-render, blur
+		// passes, cover probe) runs on ~1/16 the area.
+		const longEdge = Math.max(renderer.width, renderer.height);
+		const compositeScale = Math.min(
+			1,
+			Math.max(COMPOSITE_SCALE, COMPOSITE_MIN_LONG_EDGE / longEdge),
+		);
+		const compositeWidth = Math.max(
+			2,
+			Math.round(renderer.width * compositeScale),
+		);
+		const compositeHeight = Math.max(
+			2,
+			Math.round(renderer.height * compositeScale),
+		);
+
+		if (
+			!this.composite ||
+			this.composite.width !== compositeWidth ||
+			this.composite.height !== compositeHeight
+		) {
+			this.composite = createOffscreenCanvas({
+				width: compositeWidth,
+				height: compositeHeight,
+			});
+			this.compositeCtx = this.composite.getContext("2d") as
+				| OffscreenCanvasRenderingContext2D
+				| CanvasRenderingContext2D
+				| null;
+		} else {
+			this.compositeCtx?.clearRect(0, 0, compositeWidth, compositeHeight);
+		}
+
+		const offscreen = this.composite;
+		const offscreenCtx = this.compositeCtx;
 		if (!offscreenCtx) {
 			throw new Error("failed to get offscreen canvas context");
 		}
@@ -111,9 +202,18 @@ export class CompositeEffectNode extends BaseNode<CompositeEffectNodeParams> {
 		const originalContext = renderer.context;
 		renderer.context = offscreenCtx;
 
+		// Content nodes lay out against renderer.width/height (full-res canvas
+		// coordinates, incl. absolute transform positions); the base scale maps
+		// their output into the reduced composite.
+		offscreenCtx.save();
+		offscreenCtx.scale(
+			compositeWidth / renderer.width,
+			compositeHeight / renderer.height,
+		);
 		for (const node of this.params.contentNodes) {
 			await node.render({ renderer, time });
 		}
+		offscreenCtx.restore();
 
 		renderer.context = originalContext;
 
@@ -127,7 +227,7 @@ export class CompositeEffectNode extends BaseNode<CompositeEffectNodeParams> {
 		let destY = (renderer.height - destHeight) / 2;
 
 		if (this.params.coverCanvas) {
-			const bounds = computeContentBounds({ source: offscreen });
+			const bounds = this.getContentBounds({ source: offscreen, time });
 			if (bounds) {
 				const boundsWidth = (bounds.x1 - bounds.x0) * renderer.width;
 				const boundsHeight = (bounds.y1 - bounds.y0) * renderer.height;
@@ -153,23 +253,26 @@ export class CompositeEffectNode extends BaseNode<CompositeEffectNodeParams> {
 			}
 		}
 
+		// Uniforms get the composite's dimensions so resolution-relative params
+		// (e.g. blur sigma scales with width/1920) keep the same visual strength
+		// they'd have at full res.
 		const passes = effectDefinition.renderer.passes.map((pass) => ({
 			fragmentShader: pass.fragmentShader,
 			uniforms: pass.uniforms({
 				effectParams: this.params.effectParams,
-				width: renderer.width,
-				height: renderer.height,
+				width: compositeWidth,
+				height: compositeHeight,
 			}),
 			textures: pass.textures?.({
 				effectParams: this.params.effectParams,
-				width: renderer.width,
-				height: renderer.height,
+				width: compositeWidth,
+				height: compositeHeight,
 			}),
 		}));
 		const effectResult = webglEffectRenderer.applyEffect({
 			source: offscreen as CanvasImageSource,
-			width: renderer.width,
-			height: renderer.height,
+			width: compositeWidth,
+			height: compositeHeight,
 			passes,
 		});
 
@@ -178,8 +281,8 @@ export class CompositeEffectNode extends BaseNode<CompositeEffectNodeParams> {
 			effectResult,
 			0,
 			0,
-			renderer.width,
-			renderer.height,
+			compositeWidth,
+			compositeHeight,
 			destX,
 			destY,
 			destWidth,

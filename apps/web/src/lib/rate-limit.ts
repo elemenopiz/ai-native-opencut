@@ -97,6 +97,9 @@ export const RATE_LIMITS = {
 	// Media upload buffers the whole file in memory before R2 (up to the route's
 	// 200 MB cap) — bound how often one account can do that.
 	"vc:media": { perMinute: 20, perDay: 300 },
+	// Inviting teammates sends an email per call — keep it human-paced so one
+	// account can't turn the inviter into a spam cannon.
+	"vc:invite": { perMinute: 5, perDay: 100 },
 } satisfies Record<string, RateLimitRule>;
 
 export type RateLimitName = keyof typeof RATE_LIMITS;

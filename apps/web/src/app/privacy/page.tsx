@@ -9,22 +9,24 @@ import {
 import { Separator } from "@/components/ui/separator";
 
 export const metadata: Metadata = {
-	title: "Privacy Policy - Byorn",
+	title: "Privacy Policy",
 	description:
-		"Learn how Byorn handles your data and privacy. Our commitment to protecting your information while you edit videos.",
+		"How Byorn handles your footage, prompts, and account data — what stays in your browser, what goes to AI providers, and what we store.",
 	openGraph: {
-		title: "Privacy Policy - Byorn",
+		title: "Privacy Policy",
 		description:
-			"Learn how Byorn handles your data and privacy. Our commitment to protecting your information while you edit videos.",
+			"How Byorn handles your footage, prompts, and account data — what stays in your browser, what goes to AI providers, and what we store.",
 		type: "website",
 	},
 };
+
+const LAST_UPDATED = "July 12, 2026";
 
 export default function PrivacyPage() {
 	return (
 		<BasePage
 			title="Privacy policy"
-			description="Learn how we handle your data and privacy. Contact us if you have any questions."
+			description={`Plain-language answers to what happens to your data. Last updated ${LAST_UPDATED}.`}
 		>
 			<Accordion type="single" collapsible className="w-full">
 				<AccordionItem
@@ -35,157 +37,136 @@ export default function PrivacyPage() {
 						Quick summary
 					</AccordionTrigger>
 					<AccordionContent>
-						<h3 className="mb-3 text-lg font-medium">
-							Your data never leaves your machine.
-						</h3>
 						<ol className="list-decimal space-y-2 pl-6">
 							<li>
-								All editing and AI processing happens locally on your machine or self-hosted server
+								Editing happens in your browser — imported footage and project
+								data live locally on your device
 							</li>
 							<li>
-								No video, audio, or project data is uploaded to any cloud service
+								When you generate with AI, your prompts and reference media are
+								sent to the third-party model provider that renders the shot
 							</li>
 							<li>
-								AI models (Whisper, TTS, Ollama, Stable Diffusion) run on your hardware
+								Generated media and studio uploads are stored with your account
+								so your work persists
 							</li>
-							<li>Project data is stored in your browser using IndexedDB</li>
-							<li>No analytics, no telemetry, no tracking of any kind</li>
-							<li>No account required — the editor works without sign-in</li>
-							<li>The entire codebase is open source and auditable</li>
+							<li>
+								Transcription runs on-device by default (Whisper in your
+								browser); a server fallback is used only if you choose it
+							</li>
+							<li>
+								We collect error reports to keep the product working — no ad
+								tracking, no selling data
+							</li>
+							<li>An account is required for AI generation and billing</li>
 						</ol>
 					</AccordionContent>
 				</AccordionItem>
 			</Accordion>
 
 			<section className="flex flex-col gap-3">
-				<h2 className="text-2xl font-semibold">How We Handle Your Content</h2>
+				<h2 className="text-2xl font-semibold">Your footage and projects</h2>
 				<p>
-					<strong>Everything runs locally.</strong>{" "}
-					Byorn is a self-hosted application. All video editing, AI transcription,
-					voice generation, image generation, and other AI features run on your
-					machine or your self-hosted server. No data is sent to any external cloud service.
-				</p>
-				<p>
-					Your video files, audio files, project data, and generated content
-					never leave your infrastructure. The AI models (Whisper, Coqui TTS,
-					Ollama, Stable Diffusion) run locally inside Docker containers on your hardware.
-				</p>
-			</section>
-
-			<section className="flex flex-col gap-3">
-				<h2 className="text-2xl font-semibold">AI Processing</h2>
-				<p>All AI features process data locally:</p>
-				<ul className="list-disc space-y-2 pl-6">
-					<li>
-						<strong>Transcription:</strong> Whisper runs on your machine — audio is processed locally
-					</li>
-					<li>
-						<strong>Voice generation:</strong> Coqui XTTS v2 runs in a local Docker container
-					</li>
-					<li>
-						<strong>LLM commands:</strong> Ollama runs models locally — no API calls to OpenAI or others
-					</li>
-					<li>
-						<strong>Image generation:</strong> Stable Diffusion runs on your GPU/CPU
-					</li>
-					<li>
-						<strong>Fact checking:</strong> Uses the local LLM, not external APIs
-					</li>
-				</ul>
-				<p>
-					If you configure optional external API keys (OpenAI, ElevenLabs, etc.)
-					in Settings, those services will receive data per their own privacy policies.
-					This is entirely opt-in.
-				</p>
-			</section>
-
-			<section className="flex flex-col gap-3">
-				<h2 className="text-2xl font-semibold">Data Storage</h2>
-				<p>
-					Project data is stored in your browser using IndexedDB. No account
-					is required. Nothing is stored on external servers.
-				</p>
-				<ul className="list-disc space-y-2 pl-6">
-					<li>Projects, timelines, and settings are stored in your browser</li>
-					<li>API keys you enter are stored in browser localStorage</li>
-					<li>Generated audio/images are stored in Docker volumes on your machine</li>
-					<li>Clear your browser data at any time to remove everything</li>
-				</ul>
-			</section>
-
-			<section className="flex flex-col gap-3">
-				<h2 className="text-2xl font-semibold">Analytics & Tracking</h2>
-				<p>
-					Byorn does not include any analytics, telemetry, or tracking.
-					No data is sent to any external service. The application operates
-					entirely offline once loaded.
-				</p>
-			</section>
-
-			<section className="flex flex-col gap-3">
-				<h2 className="text-2xl font-semibold">Local Storage & Cookies</h2>
-				<p>We use browser local storage and IndexedDB to:</p>
-				<ul className="list-disc space-y-2 pl-6">
-					<li>Save your projects locally on your device</li>
-					<li>Remember your editor preferences and settings</li>
-					<li>Keep you logged in across browser sessions</li>
-				</ul>
-				<p>
-					All data stays on your device and can be cleared at any time through
-					your browser settings.
-				</p>
-			</section>
-
-			<section className="flex flex-col gap-3">
-				<h2 className="text-2xl font-semibold">Third-Party Services</h2>
-				<p>By default, Byorn does not connect to any third-party services. Optional integrations:</p>
-				<ul className="list-disc space-y-2 pl-6">
-					<li>
-						<strong>Freesound:</strong> Sound library search (requires API key in Settings)
-					</li>
-					<li>
-						<strong>OpenAI / ElevenLabs:</strong> Optional cloud AI APIs (requires API keys in Settings)
-					</li>
-					<li>
-						<strong>Ollama model registry:</strong> Model downloads when pulling new LLM models
-					</li>
-				</ul>
-				<p>None of these are enabled by default. You choose what to connect.</p>
-			</section>
-
-			<section className="flex flex-col gap-3">
-				<h2 className="text-2xl font-semibold">Your Rights</h2>
-				<p>You have complete control over your data:</p>
-				<ul className="list-disc space-y-2 pl-6">
-					<li>Delete your account and all associated data at any time</li>
-					<li>Export your project data</li>
-					<li>Clear local storage to remove all saved projects</li>
-					<li>Contact us with any privacy concerns</li>
-				</ul>
-			</section>
-
-			<section className="flex flex-col gap-3">
-				<h2 className="text-2xl font-semibold">Open Source Transparency</h2>
-				<p>
-					Byorn is completely open source. You can review the code, see
-					exactly how data is handled, and even self-host the application if you
-					prefer.
-				</p>
-			</section>
-
-			<section className="flex flex-col gap-3">
-				<h2 className="text-2xl font-semibold">Contact Us</h2>
-				<p>Questions about this privacy policy or how we handle your data?</p>
-				<p>
-					Reach out to the Byorn team and we'll be happy to help.
+					The timeline editor runs in your browser. Video and audio you import
+					for editing, along with your project structure, are stored locally on
+					your device. Cutting, masking, keyframing, captioning, and exporting
+					do not require uploading your footage to us.
 				</p>
 			</section>
 
 			<Separator />
 
-			<p className="text-muted-foreground text-sm">
-				Last updated: March 22, 2026
-			</p>
+			<section className="flex flex-col gap-3">
+				<h2 className="text-2xl font-semibold">AI generation</h2>
+				<p>
+					Byorn is a cloud-connected editor. When you use the Director or the
+					studio to generate video or images:
+				</p>
+				<ul className="list-disc space-y-2 pl-6">
+					<li>
+						Your prompts, briefs, style references, and persona photos are sent
+						to the AI model provider that renders the request (for example
+						BytePlus, Google, OpenAI, Runway, Luma, Kling, Pika, Black Forest
+						Labs, or Ideogram, depending on routing)
+					</li>
+					<li>
+						Generated takes and media you upload to the studio are stored in our
+						storage, tied to your account
+					</li>
+					<li>
+						Providers process your inputs under their own terms; we route your
+						requests to their commercial APIs and pass back the results
+					</li>
+				</ul>
+				<p>
+					Transcription is the exception: Whisper runs inside your browser on
+					WebGPU by default, so caption audio can stay on your machine. If you
+					switch to the server transcription fallback, that audio is processed
+					by our server for the duration of the request.
+				</p>
+			</section>
+
+			<Separator />
+
+			<section className="flex flex-col gap-3">
+				<h2 className="text-2xl font-semibold">Account and billing</h2>
+				<ul className="list-disc space-y-2 pl-6">
+					<li>
+						AI features require an account; we store what is needed to
+						authenticate you
+					</li>
+					<li>
+						Credits and payments are processed by our billing provider; we do
+						not store your card details
+					</li>
+					<li>
+						We keep a ledger of your credit usage so costs stay transparent
+					</li>
+				</ul>
+			</section>
+
+			<Separator />
+
+			<section className="flex flex-col gap-3">
+				<h2 className="text-2xl font-semibold">
+					What we collect to run the product
+				</h2>
+				<ul className="list-disc space-y-2 pl-6">
+					<li>
+						<strong>Error reports:</strong> when something breaks, we capture a
+						structured error report (with secrets redacted) so we can fix it
+					</li>
+					<li>
+						<strong>Operational logs:</strong> standard server logs for
+						security, rate limiting, and abuse prevention
+					</li>
+					<li>
+						<strong>No ad tech:</strong> no advertising trackers, no selling or
+						renting your data, no profiling
+					</li>
+				</ul>
+			</section>
+
+			<Separator />
+
+			<section className="flex flex-col gap-3">
+				<h2 className="text-2xl font-semibold">Your choices</h2>
+				<ul className="list-disc space-y-2 pl-6">
+					<li>You can delete your account from the account page</li>
+					<li>
+						You can use on-device transcription instead of the server fallback
+					</li>
+					<li>
+						You can edit imported footage without generating — nothing is sent
+						to AI providers unless you ask for a generation
+					</li>
+				</ul>
+				<p className="text-muted-foreground text-sm">
+					Byorn is in private beta and this policy will evolve with the product.
+					Questions or deletion requests: reach the team through your beta
+					contact and we will sort it out.
+				</p>
+			</section>
 		</BasePage>
 	);
 }

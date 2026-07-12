@@ -41,6 +41,8 @@ export function computeGridLines({ rows, cols }: GridConfig): {
 
 interface PreviewOverlaysState {
 	bookmarks: boolean;
+	/** Compositor frame-time HUD (fps / frame-ms breakdown). Off by default. */
+	perfHud: boolean;
 }
 
 export const PREVIEW_MIN_ZOOM = 0.25;
@@ -48,6 +50,56 @@ export const PREVIEW_MAX_ZOOM = 8;
 
 export function clampPreviewZoom({ zoom }: { zoom: number }): number {
 	return Math.min(PREVIEW_MAX_ZOOM, Math.max(PREVIEW_MIN_ZOOM, zoom));
+}
+
+/**
+ * Compositing resolution used WHILE PLAYING, as a fraction of the project's
+ * native canvas size. Paused/scrubbed-to frames always render at full native
+ * resolution so stills stay crisp regardless of this setting.
+ */
+export type PlaybackQuality = "auto" | "full" | "half" | "quarter";
+
+/** Quantization step for the auto render scale — continuous wheel zoom during
+ *  playback must not resize the canvas backing store on every tick. */
+const AUTO_QUALITY_SCALE_STEP = 1 / 8;
+/** Auto quality never composites below this long edge, however small the
+ *  preview is displayed. */
+const AUTO_QUALITY_MIN_LONG_EDGE = 480;
+
+/**
+ * The fraction of the native canvas size to composite at during playback.
+ * "auto" targets the actually-displayed pixel size (display size × zoom ×
+ * dpr), so a 4K project shown in a ~600px panel composites at roughly a
+ * quarter of native instead of rendering pixels that are immediately thrown
+ * away by the CSS downscale.
+ */
+export function getPlaybackRenderScale({
+	quality,
+	nativeWidth,
+	nativeHeight,
+	displayWidth,
+	zoom,
+	devicePixelRatio,
+}: {
+	quality: PlaybackQuality;
+	nativeWidth: number;
+	nativeHeight: number;
+	displayWidth: number;
+	zoom: number;
+	devicePixelRatio: number;
+}): number {
+	if (quality === "full") return 1;
+	if (quality === "half") return 0.5;
+	if (quality === "quarter") return 0.25;
+
+	if (!nativeWidth || !nativeHeight || !displayWidth) return 1;
+	const dpr = Math.min(Math.max(devicePixelRatio, 1), 2);
+	const raw = (displayWidth * zoom * dpr) / nativeWidth;
+	const quantized =
+		Math.ceil(raw / AUTO_QUALITY_SCALE_STEP) * AUTO_QUALITY_SCALE_STEP;
+	const floor =
+		AUTO_QUALITY_MIN_LONG_EDGE / Math.max(nativeWidth, nativeHeight);
+	return Math.min(1, Math.max(quantized, floor));
 }
 
 interface PreviewState {
@@ -64,6 +116,8 @@ interface PreviewState {
 	panMode: boolean;
 	/** Display pixels per canvas pixel at zoom 1 (set by the preview canvas). */
 	fitScale: number;
+	/** Compositing resolution while playing (paused frames are always full-res). */
+	playbackQuality: PlaybackQuality;
 	/** Show `guideId`'s overlay, or hide it again if it's already active. */
 	toggleGuide: (guideId: GuideId) => void;
 	setGridConfig: (config: Partial<GridConfig>) => void;
@@ -90,11 +144,13 @@ interface PreviewState {
 	}) => void;
 	togglePanMode: () => void;
 	setFitScale: ({ fitScale }: { fitScale: number }) => void;
+	setPlaybackQuality: ({ quality }: { quality: PlaybackQuality }) => void;
 	resetView: () => void;
 }
 
 const DEFAULT_PREVIEW_OVERLAYS: PreviewOverlaysState = {
 	bookmarks: true,
+	perfHud: false,
 };
 
 /** Persisted slice of `PreviewState` (see `partialize` below). */
@@ -102,14 +158,16 @@ export type PersistedPreviewState = {
 	activeGuideId: GuideId | null;
 	gridConfig: GridConfig;
 	overlays: PreviewOverlaysState;
+	playbackQuality: PlaybackQuality;
 };
 
 /**
- * Migrates persisted `preview-settings` storage to the current (v3) shape.
+ * Migrates persisted `preview-settings` storage to the current (v4) shape.
  * v2 and earlier stored the active guide as `layoutGuide.platform`; v3
- * generalized it to `activeGuideId` and added `gridConfig`. Exported
- * standalone (rather than inlined in `persist()`) so it's unit-testable
- * without going through zustand's storage rehydration.
+ * generalized it to `activeGuideId` and added `gridConfig`; v4 added the
+ * `overlays.perfHud` flag (backfilled from defaults) and `playbackQuality`.
+ * Exported standalone (rather than inlined in `persist()`) so it's
+ * unit-testable without going through zustand's storage rehydration.
  */
 export function migratePreviewState(
 	persistedState: unknown,
@@ -118,16 +176,21 @@ export function migratePreviewState(
 		| {
 				// v2 shape
 				layoutGuide?: { platform: GuideId | null };
-				// v3 shape
+				// v3+ shape
 				activeGuideId?: GuideId | null;
 				gridConfig?: GridConfig;
 				overlays?: PreviewOverlaysState;
+				// v4 shape
+				playbackQuality?: PlaybackQuality;
 		  }
 		| undefined;
 	return {
 		activeGuideId: state?.activeGuideId ?? state?.layoutGuide?.platform ?? null,
 		gridConfig: state?.gridConfig ?? DEFAULT_GRID_CONFIG,
-		overlays: state?.overlays ?? DEFAULT_PREVIEW_OVERLAYS,
+		// Spread defaults first so overlays persisted before a new flag existed
+		// (e.g. perfHud) rehydrate with that flag defined.
+		overlays: { ...DEFAULT_PREVIEW_OVERLAYS, ...state?.overlays },
+		playbackQuality: state?.playbackQuality ?? "auto",
 	};
 }
 
@@ -141,6 +204,7 @@ export const usePreviewStore = create<PreviewState>()(
 			pan: { x: 0, y: 0 },
 			panMode: false,
 			fitScale: 0,
+			playbackQuality: "auto",
 			toggleGuide: (guideId) => {
 				set((state) => ({
 					activeGuideId: state.activeGuideId === guideId ? null : guideId,
@@ -185,18 +249,22 @@ export const usePreviewStore = create<PreviewState>()(
 			setFitScale: ({ fitScale }) => {
 				set(() => ({ fitScale }));
 			},
+			setPlaybackQuality: ({ quality }) => {
+				set(() => ({ playbackQuality: quality }));
+			},
 			resetView: () => {
 				set(() => ({ zoom: 1, pan: { x: 0, y: 0 } }));
 			},
 		}),
 		{
 			name: "preview-settings",
-			version: 3,
+			version: 4,
 			migrate: migratePreviewState,
 			partialize: (state) => ({
 				activeGuideId: state.activeGuideId,
 				gridConfig: state.gridConfig,
 				overlays: state.overlays,
+				playbackQuality: state.playbackQuality,
 			}),
 		},
 	),

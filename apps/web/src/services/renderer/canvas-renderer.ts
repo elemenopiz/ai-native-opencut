@@ -1,10 +1,18 @@
 import type { BaseNode } from "./nodes/base-node";
+import { perfStats } from "./perf-stats";
 
 export type CanvasRendererParams = {
 	width: number;
 	height: number;
 	fps: number;
 	watermark?: boolean;
+	/**
+	 * True for the live preview's renderer only. Opts video frame fetches into
+	 * the realtime drop policy (serve the newest already-decoded frame instead
+	 * of awaiting a late decode mid-playback). Export/snapshot/thumbnail
+	 * renderers must leave this false so every output frame is exact.
+	 */
+	realtime?: boolean;
 };
 
 // Pre-loaded watermark logo (loaded once, reused across frames)
@@ -54,12 +62,20 @@ export class CanvasRenderer {
 	width: number;
 	height: number;
 	fps: number;
+	readonly realtime: boolean;
 	private watermark: boolean;
 
-	constructor({ width, height, fps, watermark = false }: CanvasRendererParams) {
+	constructor({
+		width,
+		height,
+		fps,
+		watermark = false,
+		realtime = false,
+	}: CanvasRendererParams) {
 		this.width = width;
 		this.height = height;
 		this.fps = fps;
+		this.realtime = realtime;
 		this.watermark = watermark;
 
 		try {
@@ -111,6 +127,12 @@ export class CanvasRenderer {
 	}
 
 	async render({ node, time }: { node: BaseNode; time: number }) {
+		// Two-phase render: fetch every node's async inputs (decoded video
+		// frames) in PARALLEL first, so the serial z-order paint below never
+		// stacks per-layer decode waits. Driven here rather than in each caller
+		// so preview, export, snapshot, and thumbnail paths all benefit.
+		await node.prepare({ renderer: this, time });
+
 		this.clear();
 		await node.render({ renderer: this, time });
 
@@ -136,7 +158,11 @@ export class CanvasRenderer {
 			throw new Error("Failed to get target canvas context");
 		}
 
+		const blitStart = perfStats.enabled ? performance.now() : 0;
 		ctx.drawImage(this.canvas, 0, 0, targetCanvas.width, targetCanvas.height);
+		if (blitStart !== 0) {
+			perfStats.addBlitTime({ ms: performance.now() - blitStart });
+		}
 	}
 
 	private drawWatermark() {

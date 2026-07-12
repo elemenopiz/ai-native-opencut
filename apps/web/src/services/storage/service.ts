@@ -16,6 +16,7 @@ import {
 	runStorageMigrations,
 } from "@/services/storage/migrations";
 import type { Bookmark, TimelineTrack, TScene } from "@/types/timeline";
+import { ensureVisualElementDefaults } from "@/lib/timeline/element-normalize";
 
 const MIME_TYPES: Record<string, string> = {
 	".mp4": "video/mp4",
@@ -151,11 +152,22 @@ export function deserializeProject({
 			id: scene.id,
 			name: scene.name,
 			isMain: scene.isMain,
-			tracks: (scene.tracks ?? []).map((track) =>
-				track.type === "video"
-					? { ...track, isMain: track.isMain ?? false }
-					: track,
-			),
+			// Heal persisted elements missing visual defaults (transform/opacity/
+			// blendMode) — a malformed element used to crash the project on every
+			// load, permanently bricking it. Healing here makes existing broken
+			// projects loadable again.
+			tracks: (scene.tracks ?? []).map((track) => {
+				const normalizedTrack =
+					track.type === "video"
+						? { ...track, isMain: track.isMain ?? false }
+						: track;
+				return {
+					...normalizedTrack,
+					elements: (normalizedTrack.elements ?? []).map((element) =>
+						ensureVisualElementDefaults({ element }),
+					),
+				} as TimelineTrack;
+			}),
 			bookmarks: normalizeBookmarks({ raw: scene.bookmarks }),
 			markers: scene.markers ?? [],
 			createdAt: new Date(scene.createdAt),

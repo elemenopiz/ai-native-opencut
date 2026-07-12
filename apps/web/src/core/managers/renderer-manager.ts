@@ -25,10 +25,9 @@ export class RendererManager {
 
 	async saveSnapshot(): Promise<{ success: boolean; error?: string }> {
 		try {
-			const renderTree = this.getRenderTree();
 			const activeProject = this.editor.project.getActive();
 
-			if (!renderTree || !activeProject) {
+			if (!activeProject) {
 				return { success: false, error: "No project or scene to capture" };
 			}
 
@@ -38,6 +37,18 @@ export class RendererManager {
 			}
 
 			const { canvasSize, fps } = activeProject.settings;
+
+			// The live render tree is the PREVIEW scene (capped video decode tier,
+			// downscaled images, proxies). Build a fresh full-quality scene — like
+			// exportProject below — so snapshots match export output, not preview.
+			const renderTree = buildScene({
+				tracks: this.editor.timeline.getTracks(),
+				mediaAssets: this.editor.media.getAssets(),
+				duration,
+				canvasSize,
+				background: activeProject.settings.background,
+			});
+
 			const currentTime = this.editor.playback.getCurrentTime();
 			const lastFrameTime = getLastFrameTime({ duration, fps });
 			const renderTime = Math.min(currentTime, lastFrameTime);
@@ -70,9 +81,9 @@ export class RendererManager {
 				timeInSeconds: renderTime,
 				fps,
 			}).replace(/:/g, "-");
-			const safeName = activeProject.metadata.name
-				.replace(/[<>:"/\\|?*]/g, "-")
-				.trim() || "snapshot";
+			const safeName =
+				activeProject.metadata.name.replace(/[<>:"/\\|?*]/g, "-").trim() ||
+				"snapshot";
 			const filename = `${safeName}-${timecode}.png`;
 
 			downloadBlob({ blob, filename });
