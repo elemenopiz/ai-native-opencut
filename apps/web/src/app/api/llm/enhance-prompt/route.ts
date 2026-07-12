@@ -87,6 +87,7 @@ function buildSystemPrompt(mode: EnhanceMode): string {
 		"HARD RULES:",
 		"- PRESERVE the user's core intent and subject EXACTLY. Never swap, drop, or add a subject, action, or setting they did not ask for. You are enriching THEIR idea, not replacing it.",
 		"- If reference context is provided (STYLE, BRIEF, ASSETS, PERSONA), weave it in so the result is consistent with the look the user has already established. Cite their actual descriptors; never contradict them and never invent facts about their assets, characters, or brand that the context does not state.",
+		'- The draft may contain literal handle tokens like @Image1 or @Video2 — machine-readable references to attached media (see ASSETS for what each one is). Preserve every one EXACTLY as written: same letters, digits, and leading @, never translated, renamed, merged, explained, or dropped. Keep each token attached to the phrase it modifies (e.g. "@Image1 walking through fog" stays built around @Image1 as the subject).',
 		"- Output ONLY the rewritten prompt text. No preamble, no explanation, no surrounding quotes, no markdown, no code fences, no labels. Just the prompt.",
 	];
 

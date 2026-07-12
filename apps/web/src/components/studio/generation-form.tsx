@@ -748,13 +748,30 @@ export function GenerationForm({
 						mode="video"
 						getPrompt={() => prompt}
 						setPrompt={setPrompt}
-						getContext={() =>
-							activePersona
-								? {
-										persona: `${activePersona.name}: ${activePersona.descriptor}`,
-									}
-								: undefined
-						}
+						getContext={() => {
+							// Ground the rewrite in what each @handle actually points at, so
+							// the model has a reason to keep — not just permission to keep —
+							// the literal token (see enhance-prompt/route.ts's HARD RULE).
+							// The route's schema caps assetNotes at 10 entries × 500 chars and
+							// 400s the whole request past that — and attachments are uncapped
+							// here — so stay inside the contract instead of silently breaking
+							// Enhance for prolific attachers (handles 11+ lose grounding only;
+							// the client-side restore backstop still covers them).
+							const assetNotes = referenceHandles.length
+								? referenceHandles
+										.slice(0, 10)
+										.map(
+											(h) =>
+												`${h.handle} = attached reference ${h.kind} ("${h.name.slice(0, 200)}")`,
+										)
+								: undefined;
+							const persona = activePersona
+								? `${activePersona.name}: ${activePersona.descriptor}`
+								: undefined;
+							return assetNotes || persona
+								? { assetNotes, persona }
+								: undefined;
+						}}
 					/>
 				</div>
 				<div className="relative">
