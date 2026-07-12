@@ -83,6 +83,9 @@ export const takes = pgTable(
 	(t) => [
 		index("takes_set_id_idx").on(t.setId),
 		index("takes_owner_id_idx").on(t.ownerId),
+		// Hottest poll-route query: generation status polls filter by the
+		// provider's job id (migration 0009, PROD-READINESS #15).
+		index("takes_provider_job_id_idx").on(t.providerJobId),
 	],
 );
 
