@@ -72,6 +72,9 @@ import {
 	type ContinuityContext,
 	type CriticVerdict,
 } from "./vision-critic";
+// Native Gemini sibling brain (`runDirectorAgent` routes to it; it imports this
+// module's shared gates/prompt blocks — a deliberate, call-time-only cycle).
+import { GeminiKeyMissingError, runDirectorAgentGemini } from "./agent-gemini";
 
 /** Single-shot, non-streaming chat call: (message, system) → assistant text. Local (Ollama) transport. */
 export type AgentChatFn = (message: string, system: string) => Promise<string>;
@@ -163,7 +166,10 @@ class DirectorAbortError extends Error {
 }
 
 /** True when the caller's cancel has fired (signal aborted, or a fetch AbortError bubbled up). */
-function isAbort(signal: AbortSignal | undefined, err?: unknown): boolean {
+export function isAbort(
+	signal: AbortSignal | undefined,
+	err?: unknown,
+): boolean {
 	if (signal?.aborted) return true;
 	return (
 		err instanceof DirectorAbortError ||
@@ -186,9 +192,9 @@ const MAX_STEPS = 6;
  * to bound a runaway model. When {@link MAX_TOOL_CALLS} is reached the loop
  * forces a final text summary via `tool_choice: {type: "none"}`.
  */
-const MAX_TOOL_CALLS = 24;
+export const MAX_TOOL_CALLS = 24;
 /** Bound on model round-trips (also covers pause_turn re-sends). */
-const MAX_MODEL_CALLS = 30;
+export const MAX_MODEL_CALLS = 30;
 
 /** The browser-side endpoint of the stateless server relay. */
 const AGENT_RELAY_URL = "/api/llm/agent";
@@ -260,7 +266,7 @@ function anthropicToolDefs(): Anthropic.Tool[] {
  * on demand via `getBackends` (not dumped here) to keep the once-per-turn prompt
  * cheap and byte-stable for caching.
  */
-const MODEL_ROUTING_POLICY = [
+export const MODEL_ROUTING_POLICY = [
 	"MODEL ROUTING: call getBackends to see the models available now — each has a cost tier (cheap/standard/premium), a safety tier, and whether it supports seed-lock. generate and reroll accept an optional `backendId`. Policy: draft and iterate on a CHEAP-tier backend; render final/hero shots on a PREMIUM-tier backend; put persona/identity-critical shots on a seed-lock-capable backend. Omit `backendId` to let the router auto-pick by intent.",
 	"A/B: to compare a shot across two models use compareTake with two backendIds — it auto-picks the winner when a vision critic is available, otherwise it adds both takes for the user to choose. It costs 2x, so reserve it for shots worth the extra spend.",
 ].join("\n");
@@ -270,12 +276,12 @@ const MODEL_ROUTING_POLICY = [
  * reel for $2"), the Director plans SPEND across the sequence instead of gating
  * each shot alone.
  */
-const BUDGET_POLICY = [
+export const BUDGET_POLICY = [
 	"BUDGET: when the user gives the WHOLE reel a dollar cap (e.g. 'a 6-shot reel for $2'), pass `budgetUsd` to storyboard and mark each shot's `importance` (hero/support/broll). The plan then allocates the cap across shots — hero shots get a premium tier, b-roll a cheap one — and down-tiers the least-important shots to fit. Every later generate is gated against the REMAINING budget: a shot that would blow it is automatically down-routed to a cheaper backend, or (if nothing fits) pauses for approval. Check getBudgetStatus for what's left; use setBudget to change the cap after shots exist. Do NOT hand-pick premium `backendId`s that would overspend — trust the allocation.",
 ].join("\n");
 
 /** Concise pointer to the UGC prompt playbooks — titles/descriptions only, not the full content. */
-const PLAYBOOK_POINTER = Object.values(PLAYBOOKS)
+export const PLAYBOOK_POINTER = Object.values(PLAYBOOKS)
 	.map((p) => `- ${p.title}: ${p.description}`)
 	.join("\n");
 
@@ -288,7 +294,7 @@ const PLAYBOOK_POINTER = Object.values(PLAYBOOKS)
  * expands them back to full ids here, at the args→DirectorApi boundary, keeping
  * `DirectorApi` itself full-id and unaware of the abbreviation scheme.
  */
-function reelShortIdMap(director: DirectorApi): ShortIdMap {
+export function reelShortIdMap(director: DirectorApi): ShortIdMap {
 	const ids: string[] = [];
 	for (const s of director.getReel().slots) {
 		ids.push(s.id);
@@ -344,7 +350,7 @@ function expandIdArgs(
  * enough to ride in the once-per-turn system prompt (summarized, not dumped:
  * personas and recent assets are pre-capped by `getProjectInfo`).
  */
-function buildContextBlock(director: DirectorApi): string {
+export function buildContextBlock(director: DirectorApi): string {
 	const info = director.getProjectInfo().data;
 	if (!info) return "";
 
@@ -402,7 +408,7 @@ function planSummary(plan: StoryboardPlan): string {
 }
 
 /** Compact, current reel state for the model to target slots by id (SHORT ids). */
-function reelSummary(director: DirectorApi): string {
+export function reelSummary(director: DirectorApi): string {
 	const reel = director.getReel();
 	const planBlock = reel.plan ? `\n\n${planSummary(reel.plan)}` : "";
 	if (reel.slots.length === 0) return `REEL: empty (no slots yet).${planBlock}`;
@@ -422,7 +428,7 @@ function reelSummary(director: DirectorApi): string {
  * learned notes). The DirectorApi owns the summarization (`summarizeBrief`) so
  * both brains and the future MCP surface render it identically.
  */
-function briefBlock(director: DirectorApi): string {
+export function briefBlock(director: DirectorApi): string {
 	return director.briefPromptBlock();
 }
 
@@ -434,7 +440,7 @@ function briefBlock(director: DirectorApi): string {
  * observation the model sees. Shared by both brains so the observation
  * language (short ids, `CHANGES:` deltas) is identical.
  */
-async function executeTool(
+export async function executeTool(
 	director: DirectorApi,
 	action: string,
 	rawArgs: Record<string, unknown>,
@@ -552,7 +558,7 @@ const REQUIRES_APPROVAL = new Set([
 ]);
 
 /** The user-configured USD threshold, read live from the studio settings store. */
-function approvalThreshold(): number {
+export function approvalThreshold(): number {
 	return (
 		useStudioSettingsStore.getState().approvalThresholdUsd ??
 		DEFAULT_APPROVAL_THRESHOLD_USD
@@ -630,7 +636,7 @@ function estimateActionCost(
  * This is display-only: the fail-closed gate in {@link evaluateApprovalGate} is
  * what actually pauses over-threshold spend.
  */
-function previewToolCost(
+export function previewToolCost(
 	director: DirectorApi,
 	action: string,
 	rawArgs: Record<string, unknown>,
@@ -647,7 +653,7 @@ function previewToolCost(
 }
 
 /** Human-facing copy for a paused, awaiting-approval action. */
-function approvalMessage(a: AgentApproval): string {
+export function approvalMessage(a: AgentApproval): string {
 	return (
 		`This will generate ${a.clips} clip(s) at an estimated ` +
 		`${formatCostRange(a.estimate)}. Approve to run it — nothing has been ` +
@@ -663,7 +669,7 @@ function approvalMessage(a: AgentApproval): string {
  * expansion failures aren't gated here — they surface as a failed step when the
  * action actually executes.
  */
-function evaluateApprovalGate(
+export function evaluateApprovalGate(
 	director: DirectorApi,
 	action: string,
 	rawArgs: Record<string, unknown>,
@@ -741,7 +747,10 @@ function budgetSpendInput(
 }
 
 /** Human copy for a budget-driven pause (distinct from the flat-threshold message). */
-function budgetPauseMessage(a: AgentApproval, remainingUsd: number): string {
+export function budgetPauseMessage(
+	a: AgentApproval,
+	remainingUsd: number,
+): string {
 	return (
 		`This ${a.action} (~${formatCostRange(a.estimate)} for ${a.clips} clip(s)) ` +
 		`would exceed the reel's remaining budget of ${formatUsd(
@@ -757,7 +766,7 @@ function budgetPauseMessage(a: AgentApproval, remainingUsd: number): string {
  * down-routes (pinning `backendId`), or proceeds — recording `costUsd` after a
  * successful run.
  */
-interface BudgetVerdict {
+export interface BudgetVerdict {
 	outcome: "inactive" | "proceed" | "downroute" | "pause";
 	/** USD to record as spent once the action succeeds (0 when inactive). */
 	costUsd: number;
@@ -776,7 +785,7 @@ interface BudgetVerdict {
  * id-expansion or estimate failure degrades to `inactive` so the flat gate still
  * governs — the budget layer never swallows a spend silently.
  */
-async function evaluateBudgetGate(
+export async function evaluateBudgetGate(
 	director: DirectorApi,
 	action: string,
 	rawArgs: Record<string, unknown>,
@@ -1154,7 +1163,7 @@ export async function autoReviewSlot(opts: {
  * from the recorded steps' (short-id) args — the set auto-review should inspect.
  * A bare `generate` (no `slotIds`, or `"all"`) targets every current slot.
  */
-function collectGeneratedSlotIds(
+export function collectGeneratedSlotIds(
 	director: DirectorApi,
 	steps: AgentToolStep[],
 ): string[] {
@@ -1320,7 +1329,7 @@ async function consumeAgentStream(
 }
 
 /** Join a turn's text blocks into the user-facing message. */
-function textOf(content: Anthropic.ContentBlock[]): string {
+export function textOf(content: Anthropic.ContentBlock[]): string {
 	return content
 		.filter((b): b is Anthropic.TextBlock => b.type === "text")
 		.map((b) => b.text)
@@ -1888,10 +1897,14 @@ export async function runDirectorAgentLocal(opts: {
  *
  * Brain selection:
  *  - `"auto"` (default): frontier Claude via `/api/llm/agent`; if the relay
- *    reports no `ANTHROPIC_API_KEY`, transparently falls back to the local
- *    Ollama text loop (`chat`). The fallback decision happens on the FIRST
- *    relay call, before any tool has run, so no work is repeated.
+ *    reports no `ANTHROPIC_API_KEY`, tries the native Gemini brain
+ *    (`/api/llm/gemini` — see `agent-gemini.ts`), and if THAT relay reports no
+ *    `GEMINI_API_KEY` either, falls back to the local Ollama text loop
+ *    (`chat`). Each fallback decision happens on the brain's FIRST relay call,
+ *    before any tool has run, so no work is repeated — and with nothing
+ *    configured the outcome is exactly the old frontier→local path.
  *  - `"frontier"`: Claude only — a missing key surfaces as an error.
+ *  - `"gemini"`: Gemini only — a missing key surfaces as an error.
  *  - `"local"`: privacy mode — never leaves the machine (uses `chat` only).
  */
 export async function runDirectorAgent(opts: {
@@ -1903,15 +1916,23 @@ export async function runDirectorAgent(opts: {
 	onEvent?: DirectorEventSink;
 	/** Cooperative cancel — checked between model/tool calls and aborts the in-flight relay fetch. */
 	signal?: AbortSignal;
-	brain?: "auto" | "frontier" | "local";
+	brain?: "auto" | "frontier" | "gemini" | "local";
 }): Promise<AgentRunResult> {
 	const brain = opts.brain ?? "auto";
 	if (brain === "local") return runDirectorAgentLocal(opts);
+	if (brain === "gemini") return runDirectorAgentGemini(opts);
 	try {
 		return await runDirectorAgentFrontier(opts);
 	} catch (error) {
 		if (brain === "auto" && error instanceof AnthropicKeyMissingError) {
-			return runDirectorAgentLocal(opts);
+			try {
+				return await runDirectorAgentGemini(opts);
+			} catch (geminiError) {
+				if (geminiError instanceof GeminiKeyMissingError) {
+					return runDirectorAgentLocal(opts);
+				}
+				throw geminiError;
+			}
 		}
 		throw error;
 	}
