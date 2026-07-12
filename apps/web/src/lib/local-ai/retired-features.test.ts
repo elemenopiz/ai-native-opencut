@@ -7,15 +7,24 @@ import {
 } from "./retired-features";
 
 describe("RETIRED_FEATURES (ADR-004 beta freeze)", () => {
-	test("every retired feature ships gated OFF for the beta freeze", () => {
+	// Features deliberately RE-HOMED off the retired Python stack. Adding an
+	// entry here is the "deliberate post-freeze act" the gate test demands:
+	// findClips re-homed on Gemini structured output (lib/podcast/podcast-ai.ts).
+	const REHOMED: readonly RetiredFeature[] = ["findClips"];
+
+	test("every NOT-re-homed feature ships gated OFF for the beta freeze", () => {
 		// The freeze landing must be behavior-neutral for beta users: nothing
 		// that targets the retired Python stack may be reachable. Flipping a
-		// flag to true is a deliberate post-freeze act (new browser/cloud home)
-		// and should force this test to be updated alongside it.
+		// flag to true requires a new browser/cloud home AND an entry in
+		// REHOMED above — this test forces both to move together.
 		for (const [feature, enabled] of Object.entries(RETIRED_FEATURES)) {
-			expect(enabled, `${feature} must stay gated during the freeze`).toBe(
-				false,
-			);
+			const expected = REHOMED.includes(feature as RetiredFeature);
+			expect(
+				enabled,
+				expected
+					? `${feature} is re-homed and must be enabled`
+					: `${feature} must stay gated during the freeze`,
+			).toBe(expected);
 		}
 	});
 

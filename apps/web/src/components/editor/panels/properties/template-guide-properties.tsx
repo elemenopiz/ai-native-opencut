@@ -23,6 +23,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { aiClient } from "@/lib/ai-client";
+import { enhancePromptCloud } from "@/lib/ai/enhance-prompt-client";
 import { useEditor } from "@/hooks/use-editor";
 import { buildImageElement } from "@/lib/timeline/element-utils";
 import type { TextElement } from "@/types/timeline";
@@ -167,14 +168,12 @@ export function TemplateGuideProperties({
 		if (isEnhancingPrompt) return;
 		setIsEnhancingPrompt(true);
 		try {
-			const result = await aiClient.enhancePrompt(p);
-			setPrompt(result.enhanced);
+			// Cloud route (Gemini-first) — the retired local backend is gone.
+			setPrompt(await enhancePromptCloud(p, "image"));
 			toast.success("Prompt enhanced");
 		} catch (err) {
 			toast.error(
-				err instanceof Error
-					? err.message
-					: "Failed to enhance prompt. Make sure AI backend is running.",
+				err instanceof Error ? err.message : "Failed to enhance prompt.",
 			);
 		} finally {
 			setIsEnhancingPrompt(false);

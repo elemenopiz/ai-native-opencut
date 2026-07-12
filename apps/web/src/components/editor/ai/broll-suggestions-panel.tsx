@@ -16,6 +16,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { aiClient } from "@/lib/ai-client";
+import { enhancePromptCloud } from "@/lib/ai/enhance-prompt-client";
 import { useTranscriptStore } from "@/stores/transcript-store";
 import { useBackgroundTasksStore } from "@/stores/background-tasks-store";
 import { useEditor } from "@/hooks/use-editor";
@@ -243,10 +244,12 @@ export function BRollSuggestionsPanel({
 			if (enhancingPrompt !== null) return;
 			setEnhancingPrompt(idx);
 			try {
-				const result = await aiClient.enhancePrompt(
+				// Cloud route (Gemini-first) — the retired local backend is gone.
+				const enhanced = await enhancePromptCloud(
 					getEffectivePrompt(idx, suggestion),
+					"image",
 				);
-				setPromptOverrides((prev) => ({ ...prev, [idx]: result.enhanced }));
+				setPromptOverrides((prev) => ({ ...prev, [idx]: enhanced }));
 				toast.success("Prompt enhanced");
 			} catch (err) {
 				toast.error(

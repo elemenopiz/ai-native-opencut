@@ -15,7 +15,7 @@ export const RETIRED_FEATURES = {
 	voiceClone: false, // XTTS speaker_wav path (Task 8 already removed the UI)
 	// Not in the original plan list, but same stack, same treatment:
 	factCheck: false, // quick-actions fact check (local Ollama /api/factcheck)
-	findClips: false, // podcast-clips analyze/find-clips only existed on the local Ollama backend
+	findClips: true, // RE-HOMED on Gemini (lib/podcast/podcast-ai.ts) — cloud structured-output analysis over the transcript; the gate stays as a kill switch
 	legacyTTSEngines: false, // Sarvam/Smallest TTS proxied through the retired local backend; revisit as direct cloud routes post-beta
 	localBackendSetup: false, // docker setup guide, "AI features are not available" banner, header backend-status pill, settings optimization section
 } as const;
