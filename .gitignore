@@ -42,6 +42,7 @@ ai-generated/
 !apps/web/src/lib/studio/playbooks/*.md
 !apps/web/docs/poach/*.md
 !apps/web/docs/plans/*.md
+!apps/web/docs/**/*.md
 !CLAUDE.md
 !.claude/skills/**/*.md
 !.claude/agents/**/*.md
