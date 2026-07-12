@@ -16,6 +16,8 @@ import {
 	type GeminiContent,
 } from "./agent-gemini";
 import type { DirectorApi } from "./director-api";
+import { activeToolNamesForPhase } from "./phase-scope";
+import { toGeminiDeclarations } from "./tool-catalog";
 
 // `global.fetch` is replaced by direct assignment; `mock.restore()` does NOT
 // revert property assignment, so restore it by hand (see agent-streaming.test.ts
@@ -305,6 +307,74 @@ test("cooperative cancel stops the run but keeps completed steps", async () => {
 	expect(events.some((e) => e.type === "cancelled")).toBe(true);
 	// The loop stopped before requesting another model turn.
 	expect(call).toBe(1);
+});
+
+test("phase scoping: an empty reel sends ONLY the briefing bucket's declarations", async () => {
+	global.fetch = mock(async () =>
+		sseResponse([candidateFrame([{ text: "ok" }], "STOP")]),
+	) as unknown as typeof fetch;
+
+	const fetchMock = global.fetch;
+	await runDirectorAgentGemini({
+		director: fakeDirector(), // empty reel, no proposal → "briefing"
+		userMessage: "let's plan a reel",
+	});
+
+	const body = capturedBodies(fetchMock)[0];
+	const tools = body.tools as Array<{
+		functionDeclarations: Array<{ name: string }>;
+	}>;
+	const sent = tools[0].functionDeclarations.map((d) => d.name);
+
+	// Exactly the briefing bucket — nothing more, nothing less.
+	expect(sent).toEqual(activeToolNamesForPhase("briefing"));
+	// The request is genuinely scoped below the full catalog...
+	expect(sent.length).toBeLessThan(toGeminiDeclarations().length);
+	// ...planning verbs are in, deep-polish verbs are out.
+	expect(sent).toContain("storyboard");
+	expect(sent).toContain("proposeReel");
+	expect(sent).toContain("getReel"); // core rides every phase
+	expect(sent).not.toContain("trim");
+	expect(sent).not.toContain("export");
+});
+
+test("phase scoping: a reel with unfilled slots sends the production bucket", async () => {
+	global.fetch = mock(async () =>
+		sseResponse([candidateFrame([{ text: "ok" }], "STOP")]),
+	) as unknown as typeof fetch;
+
+	const fetchMock = global.fetch;
+	const director = {
+		...fakeDirector(),
+		getReel: () => ({
+			slots: [
+				{
+					id: "s1",
+					prompt: "a shot",
+					status: "generating",
+					takeCount: 1,
+					takes: [{ id: "t0", status: "generating", createdAt: Date.now() }],
+					start: 0,
+					duration: 4,
+				},
+			],
+			totalDuration: 4,
+		}),
+	} as unknown as DirectorApi;
+
+	await runDirectorAgentGemini({ director, userMessage: "how's shot 1?" });
+
+	const body = capturedBodies(fetchMock)[0];
+	const sent = (
+		body.tools as Array<{ functionDeclarations: Array<{ name: string }> }>
+	)[0].functionDeclarations.map((d) => d.name);
+
+	expect(sent).toEqual(activeToolNamesForPhase("production"));
+	expect(sent).toContain("reroll");
+	expect(sent).toContain("chainFrom");
+	expect(sent).toContain("reviewTake");
+	expect(sent).not.toContain("storyboard"); // briefing-only
+	expect(sent).not.toContain("export"); // polish-only
 });
 
 test("safety refusal → decline message, nothing appended or executed", async () => {
