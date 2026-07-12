@@ -7,6 +7,7 @@ import {
 	hasKeyframesForPath,
 	getChannelValueAtTime,
 	getElementLocalTime,
+	resolveOpacityAtTime,
 	resolveTransformAtTime,
 	splitAnimationsAtTime,
 } from "@/lib/animation";
@@ -230,11 +231,15 @@ describe("keyframe query helpers", () => {
 			channels: {
 				"transform.position.x": {
 					valueKind: "number",
-					keyframes: [{ id: "x-1", time: 1, value: 64, interpolation: "linear" }],
+					keyframes: [
+						{ id: "x-1", time: 1, value: 64, interpolation: "linear" },
+					],
 				},
 				opacity: {
 					valueKind: "number",
-					keyframes: [{ id: "o-1", time: 0, value: 1, interpolation: "linear" }],
+					keyframes: [
+						{ id: "o-1", time: 0, value: 1, interpolation: "linear" },
+					],
 				},
 			},
 		};
@@ -263,7 +268,9 @@ describe("keyframe query helpers", () => {
 			channels: {
 				"transform.position.x": {
 					valueKind: "number",
-					keyframes: [{ id: "x-1", time: 1, value: 64, interpolation: "linear" }],
+					keyframes: [
+						{ id: "x-1", time: 1, value: 64, interpolation: "linear" },
+					],
 				},
 				"transform.position.y": {
 					valueKind: "number",
@@ -309,5 +316,69 @@ describe("keyframe query helpers", () => {
 				time: 1.01,
 			}),
 		).toBeNull();
+	});
+});
+
+// A persisted element missing `transform`/`opacity` (malformed writer, old
+// project) must resolve to defaults — never crash a render or a project load.
+describe("malformed base value fallbacks", () => {
+	test("resolveTransformAtTime returns the default transform when baseTransform is undefined", () => {
+		const resolved = resolveTransformAtTime({
+			baseTransform: undefined,
+			animations: undefined,
+			localTime: 1,
+		});
+		expect(resolved).toEqual({
+			position: { x: 0, y: 0 },
+			scale: 1,
+			rotate: 0,
+		});
+	});
+
+	test("resolveTransformAtTime heals a partial transform (missing position) field-by-field", () => {
+		const resolved = resolveTransformAtTime({
+			baseTransform: { scale: 2, rotate: 45 } as never,
+			animations: undefined,
+			localTime: 0,
+		});
+		expect(resolved).toEqual({
+			position: { x: 0, y: 0 },
+			scale: 2,
+			rotate: 45,
+		});
+	});
+
+	test("resolveTransformAtTime with undefined baseTransform still honors animation channels", () => {
+		const animations: ElementAnimations = {
+			channels: {
+				"transform.position.x": {
+					valueKind: "number",
+					keyframes: [
+						{ id: "x-1", time: 0, value: 100, interpolation: "linear" },
+						{ id: "x-2", time: 2, value: 300, interpolation: "linear" },
+					],
+				},
+			},
+		};
+		const resolved = resolveTransformAtTime({
+			baseTransform: undefined,
+			animations,
+			localTime: 1,
+		});
+		expect(resolved.position.x).toBe(200);
+		// Unanimated channels fall back to defaults.
+		expect(resolved.position.y).toBe(0);
+		expect(resolved.scale).toBe(1);
+		expect(resolved.rotate).toBe(0);
+	});
+
+	test("resolveOpacityAtTime falls back to full opacity when baseOpacity is undefined", () => {
+		expect(
+			resolveOpacityAtTime({
+				baseOpacity: undefined,
+				animations: undefined,
+				localTime: 0,
+			}),
+		).toBe(1);
 	});
 });

@@ -4,6 +4,10 @@ import type {
 } from "@/types/animation";
 import type { Transform } from "@/types/timeline";
 import {
+	DEFAULT_OPACITY,
+	DEFAULT_TRANSFORM,
+} from "@/constants/timeline-constants";
+import {
 	getColorValueAtTime,
 	getNumberChannelValueAtTime,
 } from "./interpolation";
@@ -31,16 +35,38 @@ export function getElementLocalTime({
 	return localTime;
 }
 
+/**
+ * A persisted element can be missing `transform` (or carry a partial one) —
+ * e.g. written through the public insert API before defaults were enforced,
+ * or an old/corrupted project. A missing base transform must NEVER crash a
+ * render or a project load, so fall back field-by-field to DEFAULT_TRANSFORM.
+ */
+function getSafeBaseTransform({
+	baseTransform,
+}: {
+	baseTransform: Transform | undefined;
+}): Transform {
+	return {
+		position: {
+			x: baseTransform?.position?.x ?? DEFAULT_TRANSFORM.position.x,
+			y: baseTransform?.position?.y ?? DEFAULT_TRANSFORM.position.y,
+		},
+		scale: baseTransform?.scale ?? DEFAULT_TRANSFORM.scale,
+		rotate: baseTransform?.rotate ?? DEFAULT_TRANSFORM.rotate,
+	};
+}
+
 export function resolveTransformAtTime({
 	baseTransform,
 	animations,
 	localTime,
 }: {
-	baseTransform: Transform;
+	baseTransform: Transform | undefined;
 	animations: ElementAnimations | undefined;
 	localTime: number;
 }): Transform {
 	const safeLocalTime = Math.max(0, localTime);
+	const safeBase = getSafeBaseTransform({ baseTransform });
 	return {
 		position: {
 			x: getNumberChannelValueAtTime({
@@ -49,7 +75,7 @@ export function resolveTransformAtTime({
 					propertyPath: "transform.position.x",
 				}),
 				time: safeLocalTime,
-				fallbackValue: baseTransform.position.x,
+				fallbackValue: safeBase.position.x,
 			}),
 			y: getNumberChannelValueAtTime({
 				channel: getNumberChannelForPath({
@@ -57,7 +83,7 @@ export function resolveTransformAtTime({
 					propertyPath: "transform.position.y",
 				}),
 				time: safeLocalTime,
-				fallbackValue: baseTransform.position.y,
+				fallbackValue: safeBase.position.y,
 			}),
 		},
 		scale: getNumberChannelValueAtTime({
@@ -66,7 +92,7 @@ export function resolveTransformAtTime({
 				propertyPath: "transform.scale",
 			}),
 			time: safeLocalTime,
-			fallbackValue: baseTransform.scale,
+			fallbackValue: safeBase.scale,
 		}),
 		rotate: getNumberChannelValueAtTime({
 			channel: getNumberChannelForPath({
@@ -74,7 +100,7 @@ export function resolveTransformAtTime({
 				propertyPath: "transform.rotate",
 			}),
 			time: safeLocalTime,
-			fallbackValue: baseTransform.rotate,
+			fallbackValue: safeBase.rotate,
 		}),
 	};
 }
@@ -84,7 +110,7 @@ export function resolveOpacityAtTime({
 	animations,
 	localTime,
 }: {
-	baseOpacity: number;
+	baseOpacity: number | undefined;
 	animations: ElementAnimations | undefined;
 	localTime: number;
 }): number {
@@ -94,7 +120,9 @@ export function resolveOpacityAtTime({
 			propertyPath: "opacity",
 		}),
 		time: Math.max(0, localTime),
-		fallbackValue: baseOpacity,
+		// Same malformed-element hole as `transform`: a persisted element can be
+		// missing `opacity`; never let that poison the render with undefined/NaN.
+		fallbackValue: baseOpacity ?? DEFAULT_OPACITY,
 	});
 }
 
