@@ -32,13 +32,7 @@ import {
 	type AgentApproval,
 	type DirectorEvent,
 } from "@/lib/director/agent";
-import type { ReelSnapshot } from "@/lib/director/types";
-import {
-	needsApproval,
-	formatCostRange,
-	formatUsd,
-	type CostRange,
-} from "@/lib/studio/cost";
+import { formatCostRange, formatUsd } from "@/lib/studio/cost";
 import { useStudioSettingsStore } from "@/stores/studio-settings-store";
 import { CostApprovalDialog } from "@/components/studio/cost-approval-dialog";
 import { EnhancePromptButton } from "@/components/editor/ai/enhance-prompt-button";
@@ -116,7 +110,6 @@ interface WorkflowStep {
 }
 
 type StudioMode =
-	| "direct"
 	| "chat"
 	| "workflow"
 	| "transcript"
@@ -374,23 +367,16 @@ export function DirectorView() {
 	// ── Orchestrator (Director API) ──
 	const editor = useEditor();
 	const director = useDirector();
-	const [shotText, setShotText] = useState("");
-	const [alternatives, setAlternatives] = useState(1);
-	const [directing, setDirecting] = useState(false);
-	const [reel, setReel] = useState<ReelSnapshot | null>(null);
 
 	// Cost-preview approval gate (concept: cost-preview gate). Pending confirmation
-	// for the manual "Generate all" button and for a gated verb the chat agent
-	// proposed but paused on — both run only after the user approves the estimate.
+	// for a gated verb the chat agent proposed but paused on — it runs only after
+	// the user approves the estimate.
 	const approvalThresholdUsd = useStudioSettingsStore(
 		(s) => s.approvalThresholdUsd,
 	);
-	const [genAllApproval, setGenAllApproval] = useState<
-		(CostRange & { clips: number }) | null
-	>(null);
 	const [chatApproval, setChatApproval] = useState<AgentApproval | null>(null);
 
-	const [mode, setMode] = useState<StudioMode>("direct");
+	const [mode, setMode] = useState<StudioMode>("chat");
 	const [inputValue, setInputValue] = useState("");
 	const [isThinking, setIsThinking] = useState(false);
 	const thinkingMessage = useThinkingMessage(isThinking);
@@ -450,63 +436,6 @@ export function DirectorView() {
 			scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
 		}
 	}, [messages, isThinking]);
-
-	// Keep the reel summary live as slots/takes change (while directing).
-	useEffect(() => {
-		if (mode !== "direct") return;
-		const refresh = () => setReel(director.getReel());
-		refresh();
-		return editor.timeline.subscribe(refresh);
-	}, [mode, editor, director]);
-
-	const handleStoryboard = useCallback(() => {
-		const shots = shotText
-			.split("\n")
-			.map((line) => line.trim())
-			.filter(Boolean)
-			.map((line) => {
-				// "prompt | 6" → { prompt, duration: 6 }
-				const [prompt, dur] = line.split("|").map((s) => s.trim());
-				const duration = dur ? Number(dur) : 6;
-				return {
-					prompt,
-					duration: Number.isFinite(duration) && duration > 0 ? duration : 6,
-				};
-			});
-		if (shots.length === 0) {
-			toast.error("Add at least one shot (one per line).");
-			return;
-		}
-		const res = director.storyboard({ shots });
-		if (res.ok) {
-			toast.success(res.message);
-			setShotText("");
-		} else {
-			toast.error(res.message);
-		}
-	}, [shotText, director]);
-
-	const runGenerateAllNow = useCallback(async () => {
-		setDirecting(true);
-		try {
-			const res = await director.generate({ slotIds: "all", alternatives });
-			res.ok ? toast.success(res.message) : toast.error(res.message);
-		} finally {
-			setDirecting(false);
-		}
-	}, [director, alternatives]);
-
-	const handleGenerateAll = useCallback(() => {
-		const est = director.estimateGenerateCost({
-			slotIds: "all",
-			alternatives,
-		}).data;
-		if (est && needsApproval(est, approvalThresholdUsd)) {
-			setGenAllApproval(est);
-			return;
-		}
-		void runGenerateAllNow();
-	}, [director, alternatives, approvalThresholdUsd, runGenerateAllNow]);
 
 	// Run the gated verb the chat agent paused on, after the user approves its
 	// cost. Executes the exact proposed action deterministically (bypassing the
@@ -848,7 +777,7 @@ export function DirectorView() {
 		<div className="relative flex h-full flex-col overflow-hidden">
 			{/* Header */}
 			<div className="bg-background h-11 shrink-0 px-4 pr-2 flex items-center justify-between border-b">
-				<div className="flex items-center gap-2">
+				<div className="flex items-center gap-2 shrink-0">
 					{activeModel && (
 						<Badge
 							variant="secondary"
@@ -858,12 +787,13 @@ export function DirectorView() {
 						</Badge>
 					)}
 				</div>
-				<div className="flex items-center gap-1">
+				{/* Tab strip — scrolls horizontally so every panel stays reachable. */}
+				<div className="flex items-center gap-1 min-w-0 flex-1 overflow-x-auto [&>button]:shrink-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 					<Button
-						variant={mode === "direct" ? "secondary" : "ghost"}
+						variant={mode === "chat" ? "secondary" : "ghost"}
 						size="sm"
 						className="h-6 text-[10px] px-2 gap-1"
-						onClick={() => setMode("direct")}
+						onClick={() => setMode("chat")}
 					>
 						<HugeiconsIcon icon={FilmRoll01Icon} className="size-3" />
 						Direct
@@ -889,14 +819,6 @@ export function DirectorView() {
 							Script
 						</Button>
 					)}
-					<Button
-						variant={mode === "chat" ? "secondary" : "ghost"}
-						size="sm"
-						className="h-6 text-[10px] px-2"
-						onClick={() => setMode("chat")}
-					>
-						Chat
-					</Button>
 					<Button
 						variant={mode === "templates" ? "secondary" : "ghost"}
 						size="sm"
@@ -1047,96 +969,6 @@ export function DirectorView() {
 					>
 						Setup guide
 					</Button>
-				</div>
-			)}
-
-			{/* ── Direct Mode (orchestrator) ── */}
-			{mode === "direct" && (
-				<div className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-4">
-					<div className="space-y-1">
-						<p className="text-xs font-medium">Direct the reel</p>
-						<p className="text-[10px] text-muted-foreground leading-relaxed">
-							Storyboard a shot list into generative slots, then generate every
-							slot at once. Each shot becomes a slot on the timeline; takes drop
-							in as they finish.
-						</p>
-					</div>
-
-					{/* Reel status */}
-					<div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-						<span>{reel?.slots.length ?? 0} slots</span>
-						{(reel?.slots.filter((s) => s.status === "ready").length ?? 0) >
-							0 && (
-							<span>
-								· {reel?.slots.filter((s) => s.status === "ready").length} ready
-							</span>
-						)}
-						{(reel?.slots.filter((s) => s.status === "generating").length ??
-							0) > 0 && (
-							<span>
-								· {reel?.slots.filter((s) => s.status === "generating").length}{" "}
-								generating
-							</span>
-						)}
-					</div>
-
-					{/* Storyboard → slots */}
-					<div className="space-y-1.5">
-						<span className="text-[11px] font-medium">Storyboard</span>
-						<textarea
-							value={shotText}
-							onChange={(e) => setShotText(e.target.value)}
-							rows={5}
-							placeholder={
-								"One shot per line — optional | seconds:\nwide shot of a city at dusk\nclose-up of the hero | 4"
-							}
-							className="w-full resize-none rounded-md border bg-transparent px-2.5 py-2 text-xs outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50"
-						/>
-						<Button
-							size="sm"
-							variant="outline"
-							className="w-full text-[11px]"
-							onClick={handleStoryboard}
-						>
-							Reserve slots from shot list
-						</Button>
-					</div>
-
-					{/* Generate all */}
-					<div className="flex items-center gap-2 border-t pt-3">
-						<span className="text-[10px] text-muted-foreground">Takes ×</span>
-						<div className="flex gap-1">
-							{[1, 2, 3, 4].map((n) => (
-								<button
-									key={n}
-									type="button"
-									onClick={() => setAlternatives(n)}
-									className={cn(
-										"size-6 rounded border text-[11px] transition-colors",
-										alternatives === n
-											? "border-primary bg-primary text-primary-foreground"
-											: "border-border text-muted-foreground hover:border-foreground",
-									)}
-								>
-									{n}
-								</button>
-							))}
-						</div>
-						<Button
-							size="sm"
-							className="ml-auto h-7 text-[11px]"
-							disabled={directing || (reel?.slots.length ?? 0) === 0}
-							onClick={handleGenerateAll}
-						>
-							{directing ? "Generating…" : "Generate all"}
-						</Button>
-					</div>
-
-					<p className="text-[10px] text-muted-foreground leading-relaxed">
-						Drives the reel via the Director API. Natural-language control plugs
-						into these same verbs when the AI backend is connected — use Chat to
-						brainstorm the shot list first.
-					</p>
 				</div>
 			)}
 
@@ -1721,22 +1553,6 @@ export function DirectorView() {
 						)}
 					</div>
 				</div>
-			)}
-
-			{/* Cost-preview approval gate — manual "Generate all" button. */}
-			{genAllApproval && (
-				<CostApprovalDialog
-					open={!!genAllApproval}
-					onOpenChange={(o) => {
-						if (!o) setGenAllApproval(null);
-					}}
-					estimate={genAllApproval}
-					clips={genAllApproval.clips}
-					onApprove={() => {
-						setGenAllApproval(null);
-						void runGenerateAllNow();
-					}}
-				/>
 			)}
 
 			{/* Cost-preview approval gate — chat agent's paused generate/reroll. */}
