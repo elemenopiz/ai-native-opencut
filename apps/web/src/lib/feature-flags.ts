@@ -24,3 +24,48 @@ export function collabEnabled(
  * flip by setting NEXT_PUBLIC_FEATURE_COLLAB=true.
  */
 export const FEATURE_COLLAB = collabEnabled();
+
+/**
+ * Pure predicate for the media "Understanding Pass" gate — the demand-driven,
+ * paid VLM pass that reads each imported clip's role/caption/faces/style (see
+ * `services/search/asset-understanding-service.ts`) and surfaces in the
+ * Library "Insights" tab. NOT one of the three Gemini surfaces allowed to
+ * spend from the shared beta pool (Director / image gen / enhance-prompt) —
+ * default OFF so it can't burn the pool; env-overridable to re-enable once the
+ * beta has its own budget. Only the exact string "true" enables it.
+ */
+export function understandingPassEnabled(
+	value: string | undefined = process.env
+		.NEXT_PUBLIC_FEATURE_UNDERSTANDING_PASS,
+): boolean {
+	return value === "true";
+}
+
+/**
+ * Gate for the demand-driven Understanding Pass trigger (Director mount /
+ * media-add in `use-director.ts`, and the opt-in ingest autorun in
+ * `use-embedding-indexer.ts`) and its UI surface (the Insights tab). Default
+ * OFF for the closed beta — flip with NEXT_PUBLIC_FEATURE_UNDERSTANDING_PASS=true.
+ */
+export const FEATURE_UNDERSTANDING_PASS = understandingPassEnabled();
+
+/**
+ * Pure predicate for the Podcast AI gate — the three Gemini structured-output
+ * workflows in `lib/podcast/podcast-ai.ts` (find best clips, keyword
+ * highlighting, question cards). NOT one of the three Gemini surfaces allowed
+ * to spend from the shared beta pool — default OFF; env-overridable to
+ * re-enable post-beta. Only the exact string "true" enables it.
+ */
+export function podcastAiEnabled(
+	value: string | undefined = process.env.NEXT_PUBLIC_FEATURE_PODCAST_AI,
+): boolean {
+	return value === "true";
+}
+
+/**
+ * Gate for the Podcast Clips panel's Gemini-backed features (clip finder,
+ * keyword highlighting, question cards) in `podcast-clips.tsx` and the
+ * "Find clips" quick action. Default OFF for the closed beta — flip with
+ * NEXT_PUBLIC_FEATURE_PODCAST_AI=true.
+ */
+export const FEATURE_PODCAST_AI = podcastAiEnabled();

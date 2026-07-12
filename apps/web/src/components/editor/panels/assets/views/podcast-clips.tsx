@@ -24,6 +24,7 @@ import {
 	generateQuestionCards,
 	podcastAiErrorMessage,
 } from "@/lib/podcast/podcast-ai";
+import { FEATURE_PODCAST_AI } from "@/lib/feature-flags";
 import {
 	isFeatureAvailable,
 	retiredFeatureMessage,
@@ -57,9 +58,13 @@ export function PodcastClipsView() {
 	const [subtitlePreset, setSubtitlePreset] =
 		useState<PopoverSubtitlePreset>("hormozi");
 
-	// Feature toggles
-	const [enableQuestionCards, setEnableQuestionCards] = useState(true);
-	const [enableKeywordHighlight, setEnableKeywordHighlight] = useState(true);
+	// Feature toggles — default to the Gemini-backed extras only when the
+	// closed-beta Podcast AI gate is on (FEATURE_PODCAST_AI); otherwise they
+	// start off and their controls are hidden below.
+	const [enableQuestionCards, setEnableQuestionCards] =
+		useState(FEATURE_PODCAST_AI);
+	const [enableKeywordHighlight, setEnableKeywordHighlight] =
+		useState(FEATURE_PODCAST_AI);
 	const [cardTemplate, setCardTemplate] = useState("overlay");
 	const [cardTransparentBg, setCardTransparentBg] = useState(true);
 
@@ -277,6 +282,10 @@ export function PodcastClipsView() {
 			toast.error(retiredFeatureMessage("findClips"));
 			return;
 		}
+		if (!FEATURE_PODCAST_AI) {
+			toast.error("Clip finding is not available in this beta.");
+			return;
+		}
 
 		const taskId = `clip-finder-${Date.now()}`;
 		setIsFindingClips(true);
@@ -360,9 +369,12 @@ export function PodcastClipsView() {
 							})),
 					}));
 
-				// Extract keywords if enabled (Gemini; soft-fail keeps the clip usable)
+				// Extract keywords if enabled (Gemini; soft-fail keeps the clip usable).
+				// FEATURE_PODCAST_AI is the hard gate — the switch is hidden and its
+				// state forced off when the beta gate is off, but this guard is
+				// belt-and-suspenders against a stale `true` value.
 				let clipKeywords: { word: string; color: string }[] = [];
-				if (enableKeywordHighlight) {
+				if (enableKeywordHighlight && FEATURE_PODCAST_AI) {
 					try {
 						bgTasks.updateTask(taskId, { progress: "Extracting keywords..." });
 						const kwResult = await extractKeywords(clipSegments);
@@ -375,7 +387,7 @@ export function PodcastClipsView() {
 
 				// Generate question cards if enabled (Gemini; soft-fail)
 				let cards: QuestionCard[] = [];
-				if (enableQuestionCards) {
+				if (enableQuestionCards && FEATURE_PODCAST_AI) {
 					try {
 						bgTasks.updateTask(taskId, {
 							progress: "Generating topic cards...",
@@ -501,7 +513,7 @@ export function PodcastClipsView() {
 
 		try {
 			let kws: { word: string; color: string }[] = [];
-			if (enableKeywordHighlight) {
+			if (enableKeywordHighlight && FEATURE_PODCAST_AI) {
 				try {
 					bgTasks.updateTask(taskId, { progress: "Extracting keywords..." });
 					const kwResult = await extractKeywords(segments);
@@ -573,6 +585,12 @@ export function PodcastClipsView() {
 	// ── Generate Question Cards (full transcript — background task) ──
 	const handleGenerateCards = useCallback(async () => {
 		if (!hasTranscript) return;
+
+		// Defensive second gate (the button is hidden when gated too).
+		if (!FEATURE_PODCAST_AI) {
+			toast.error("Topic cards are not available in this beta.");
+			return;
+		}
 
 		const taskId = `question-cards-${Date.now()}`;
 		setIsApplying(true);
@@ -658,9 +676,11 @@ export function PodcastClipsView() {
 					<>
 						{/* ── Smart Clip Finder ── */}
 						{/* Cloud home: Gemini structured-output analysis over the
-						    transcript (lib/podcast/podcast-ai.ts). The gate stays as a
-						    kill switch. */}
-						{isFeatureAvailable("findClips") && (
+						    transcript (lib/podcast/podcast-ai.ts). isFeatureAvailable
+						    ("findClips") is the ADR-004 retirement kill switch (stays
+						    true — this IS the re-homed surface); FEATURE_PODCAST_AI is
+						    the separate closed-beta spend gate, default off. */}
+						{isFeatureAvailable("findClips") && FEATURE_PODCAST_AI && (
 							<div className="flex flex-col gap-2">
 								<Label className="text-xs font-medium">Find best clips</Label>
 								<p className="text-[11px] text-muted-foreground leading-relaxed">
@@ -799,35 +819,41 @@ export function PodcastClipsView() {
 						</div>
 
 						{/* ── Auto Features ── */}
-						<div className="border-t pt-3 flex flex-col gap-3">
-							<Label className="text-xs font-medium">Auto features</Label>
+						{/* Both switches gate Gemini calls (extractKeywords /
+						    generateQuestionCards) inside handleApplyClip /
+						    handleAddPopoverSubs — hidden entirely for the closed beta
+						    rather than left on as controls with nothing behind them. */}
+						{FEATURE_PODCAST_AI && (
+							<div className="border-t pt-3 flex flex-col gap-3">
+								<Label className="text-xs font-medium">Auto features</Label>
 
-							<div className="flex items-center justify-between">
-								<div className="flex flex-col">
-									<span className="text-xs">Keyword highlighting</span>
-									<span className="text-[10px] text-muted-foreground">
-										Color-code important words via AI
-									</span>
+								<div className="flex items-center justify-between">
+									<div className="flex flex-col">
+										<span className="text-xs">Keyword highlighting</span>
+										<span className="text-[10px] text-muted-foreground">
+											Color-code important words via AI
+										</span>
+									</div>
+									<Switch
+										checked={enableKeywordHighlight}
+										onCheckedChange={setEnableKeywordHighlight}
+									/>
 								</div>
-								<Switch
-									checked={enableKeywordHighlight}
-									onCheckedChange={setEnableKeywordHighlight}
-								/>
-							</div>
 
-							<div className="flex items-center justify-between">
-								<div className="flex flex-col">
-									<span className="text-xs">Question cards</span>
-									<span className="text-[10px] text-muted-foreground">
-										AI topic intro slides between segments
-									</span>
+								<div className="flex items-center justify-between">
+									<div className="flex flex-col">
+										<span className="text-xs">Question cards</span>
+										<span className="text-[10px] text-muted-foreground">
+											AI topic intro slides between segments
+										</span>
+									</div>
+									<Switch
+										checked={enableQuestionCards}
+										onCheckedChange={setEnableQuestionCards}
+									/>
 								</div>
-								<Switch
-									checked={enableQuestionCards}
-									onCheckedChange={setEnableQuestionCards}
-								/>
 							</div>
-						</div>
+						)}
 
 						{/* ── Auto-Reframe ── */}
 						{/* Depends on speaker-diarization positions + the retired
@@ -856,84 +882,89 @@ export function PodcastClipsView() {
 						)}
 
 						{/* ── Question Cards ── */}
-						<div className="border-t pt-3 flex flex-col gap-2">
-							<Label className="text-xs font-medium">Topic cards</Label>
-							<p className="text-[11px] text-muted-foreground leading-relaxed">
-								AI topic questions overlaid on video. Subtitles are hidden
-								during cards.
-							</p>
+						{/* generateQuestionCards is Gemini structured output — hide the
+						    whole standalone-generation section for the closed beta
+						    (handleGenerateCards also has a defensive gate above). */}
+						{FEATURE_PODCAST_AI && (
+							<div className="border-t pt-3 flex flex-col gap-2">
+								<Label className="text-xs font-medium">Topic cards</Label>
+								<p className="text-[11px] text-muted-foreground leading-relaxed">
+									AI topic questions overlaid on video. Subtitles are hidden
+									during cards.
+								</p>
 
-							<Select value={cardTemplate} onValueChange={setCardTemplate}>
-								<SelectTrigger className="h-8 text-xs">
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent>
-									{QUESTION_CARD_TEMPLATES.map((t) => (
-										<SelectItem key={t.id} value={t.id}>
-											<div className="flex flex-col">
-												<span className="text-xs">{t.name}</span>
-												<span className="text-[10px] text-muted-foreground">
-													{t.description}
-												</span>
-											</div>
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
+								<Select value={cardTemplate} onValueChange={setCardTemplate}>
+									<SelectTrigger className="h-8 text-xs">
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										{QUESTION_CARD_TEMPLATES.map((t) => (
+											<SelectItem key={t.id} value={t.id}>
+												<div className="flex flex-col">
+													<span className="text-xs">{t.name}</span>
+													<span className="text-[10px] text-muted-foreground">
+														{t.description}
+													</span>
+												</div>
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
 
-							<div className="flex items-center justify-between">
-								<div className="flex flex-col">
-									<span className="text-xs">Transparent background</span>
-									<span className="text-[10px] text-muted-foreground">
-										Show video behind card text
-									</span>
+								<div className="flex items-center justify-between">
+									<div className="flex flex-col">
+										<span className="text-xs">Transparent background</span>
+										<span className="text-[10px] text-muted-foreground">
+											Show video behind card text
+										</span>
+									</div>
+									<Switch
+										checked={cardTransparentBg}
+										onCheckedChange={setCardTransparentBg}
+									/>
 								</div>
-								<Switch
-									checked={cardTransparentBg}
-									onCheckedChange={setCardTransparentBg}
-								/>
-							</div>
 
-							<Button
-								variant="outline"
-								size="sm"
-								className="w-full"
-								onClick={handleGenerateCards}
-								disabled={isProcessing}
-							>
-								{isApplying && <Spinner className="mr-1 size-3" />}
-								Generate question cards
-							</Button>
+								<Button
+									variant="outline"
+									size="sm"
+									className="w-full"
+									onClick={handleGenerateCards}
+									disabled={isProcessing}
+								>
+									{isApplying && <Spinner className="mr-1 size-3" />}
+									Generate question cards
+								</Button>
 
-							{questionCards.length > 0 && (
-								<div className="flex flex-col gap-1 mt-1">
-									{questionCards.map((card, idx) => (
-										<div
-											key={`${card.timestamp}-${idx}`}
-											className="flex items-center gap-2 rounded-md border px-2 py-1.5"
-										>
-											{card.emoji && (
-												<span className="text-sm shrink-0">{card.emoji}</span>
-											)}
-											<div className="flex-1 min-w-0">
-												<p className="text-[11px] font-medium truncate">
-													{card.question}
-												</p>
-												<p className="text-[9px] text-muted-foreground tabular-nums">
-													{formatTime(card.timestamp)}
-												</p>
-											</div>
-											<Badge
-												variant="outline"
-												className="text-[8px] px-1 py-0 h-3.5 shrink-0"
+								{questionCards.length > 0 && (
+									<div className="flex flex-col gap-1 mt-1">
+										{questionCards.map((card, idx) => (
+											<div
+												key={`${card.timestamp}-${idx}`}
+												className="flex items-center gap-2 rounded-md border px-2 py-1.5"
 											>
-												{card.theme}
-											</Badge>
-										</div>
-									))}
-								</div>
-							)}
-						</div>
+												{card.emoji && (
+													<span className="text-sm shrink-0">{card.emoji}</span>
+												)}
+												<div className="flex-1 min-w-0">
+													<p className="text-[11px] font-medium truncate">
+														{card.question}
+													</p>
+													<p className="text-[9px] text-muted-foreground tabular-nums">
+														{formatTime(card.timestamp)}
+													</p>
+												</div>
+												<Badge
+													variant="outline"
+													className="text-[8px] px-1 py-0 h-3.5 shrink-0"
+												>
+													{card.theme}
+												</Badge>
+											</div>
+										))}
+									</div>
+								)}
+							</div>
+						)}
 
 						{/* ── Keywords (if extracted) ── */}
 						{keywords.length > 0 && (

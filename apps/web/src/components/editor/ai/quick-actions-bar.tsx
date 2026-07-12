@@ -28,6 +28,7 @@ import { useSmartCut } from "@/hooks/use-smart-cut";
 import { DEFAULT_TEXT_ELEMENT } from "@/constants/text-constants";
 import { computeCutsFromDeletedSegments } from "@/lib/text-timeline-sync";
 import { aiClient } from "@/lib/ai-client";
+import { FEATURE_PODCAST_AI } from "@/lib/feature-flags";
 import { isFeatureAvailable } from "@/lib/local-ai/retired-features";
 import { useAssetsPanelStore } from "@/stores/assets-panel-store";
 import { useBackgroundTasksStore } from "@/stores/background-tasks-store";
@@ -463,7 +464,12 @@ export function QuickActionsBar({ className }: { className?: string }) {
 		// gets a cloud home. Every other action here is pure client-side
 		// transcript math or routes to a live panel, so they all stay.
 	].filter(
-		(action) => action.id !== "factcheck" || isFeatureAvailable("factCheck"),
+		(action) =>
+			(action.id !== "factcheck" || isFeatureAvailable("factCheck")) &&
+			// "Find clips" opens the Podcast Clips panel, whose Gemini-backed
+			// clip finder is gated OFF for the closed beta — don't route the
+			// user to a panel with a hidden button.
+			(action.id !== "find-clips" || FEATURE_PODCAST_AI),
 	);
 
 	return (
