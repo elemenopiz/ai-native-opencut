@@ -65,6 +65,10 @@ export const RATE_LIMITS = {
 	// beta (free but rate-limited) — a human clicking "Enhance" a handful of
 	// times per prompt, so the burst cap is tight and the daily cap generous.
 	"llm:enhance": { perMinute: 10, perDay: 300 },
+	// Cloud text-to-speech (POST /api/tts). Un-metered for beta (free but
+	// rate-limited) — a human generates a handful of voiceover lines per
+	// session, so the burst cap is tight and the daily cap generous.
+	"tts:generate": { perMinute: 10, perDay: 300 },
 	"sounds:search": { perMinute: 60, perDay: 3000 },
 	// Client-error intake. Unauthenticated by design (errors happen logged-out),
 	// so the burst cap is tight; the client also self-caps per page load.
