@@ -38,6 +38,7 @@ import {
 import { useAIStatus } from "@/hooks/use-ai-status";
 import { useAIStore } from "@/stores/ai-store";
 import { aiClient } from "@/lib/ai-client";
+import { isFeatureAvailable } from "@/lib/local-ai/retired-features";
 import {
 	MemoryStatusBar,
 	type MemoryStatusInfo,
@@ -113,11 +114,15 @@ export function EditorHeader() {
 			</div>
 			<nav className="flex items-center gap-2">
 				{isConnected && <MemoryStatusBar status={memoryStatus} />}
-				<AIStatusIndicator
-					status={aiStatusInfo}
-					onSetupClick={toggleSetupGuide}
-					onRefresh={refresh}
-				/>
+				{/* Reports health of the retired local stack ("AI Off" forever for
+				    beta users) and opens its docker setup guide — hidden with it. */}
+				{isFeatureAvailable("localBackendSetup") && (
+					<AIStatusIndicator
+						status={aiStatusInfo}
+						onSetupClick={toggleSetupGuide}
+						onRefresh={refresh}
+					/>
+				)}
 				<Button
 					variant="outline"
 					size="sm"

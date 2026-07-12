@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { aiClient } from "@/lib/ai-client";
 import { useAIStatus } from "@/hooks/use-ai-status";
+import { isFeatureAvailable } from "@/lib/local-ai/retired-features";
 import { useAIStore } from "@/stores/ai-store";
 import { useEditor } from "@/hooks/use-editor";
 import { useAssetsPanelStore } from "@/stores/assets-panel-store";
@@ -125,6 +126,12 @@ export function AIToolbar({ className }: { className?: string }) {
 		},
 		[editor, getActiveProjectId],
 	);
+
+	// Every button here is keyed off the retired local backend's health: with
+	// the stack gone they all render "disabled" and funnel into its docker
+	// setup guide (also gated). Hide the strip rather than ship dead buttons;
+	// the live flows stay reachable via their Assets tabs.
+	if (!isFeatureAvailable("localBackendSetup")) return null;
 
 	return (
 		<>

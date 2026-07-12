@@ -9,6 +9,7 @@ import { LANGUAGES } from "@/constants/language-constants";
 import { cn } from "@/utils/ui";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { aiClient } from "@/lib/ai-client";
+import { isFeatureAvailable } from "@/lib/local-ai/retired-features";
 import { hasMediaId } from "@/lib/timeline";
 import type { TimelineElement } from "@/types/timeline";
 import {
@@ -94,7 +95,8 @@ export function TextEditingPanel({ className }: { className?: string }) {
 						(track.type === "video" || track.type === "audio") &&
 						hasMediaId(element as TimelineElement)
 					) {
-						foundMediaId = (element as TimelineElement & { mediaId: string }).mediaId;
+						foundMediaId = (element as TimelineElement & { mediaId: string })
+							.mediaId;
 						break;
 					}
 				}
@@ -110,7 +112,9 @@ export function TextEditingPanel({ className }: { className?: string }) {
 				return;
 			}
 
-			const mediaAsset = editor.media.getAssets().find((asset) => asset.id === foundMediaId);
+			const mediaAsset = editor.media
+				.getAssets()
+				.find((asset) => asset.id === foundMediaId);
 			if (!mediaAsset?.file) {
 				bgTasks.updateTask(taskId, {
 					status: "error",
@@ -120,14 +124,18 @@ export function TextEditingPanel({ className }: { className?: string }) {
 				return;
 			}
 
-			bgTasks.updateTask(taskId, { progress: "Running speaker diarization..." });
+			bgTasks.updateTask(taskId, {
+				progress: "Running speaker diarization...",
+			});
 
 			// Ensure proper file extension
 			let file = mediaAsset.file;
 			const fileName = file.name || "";
 			if (!fileName.includes(".")) {
 				const ext = file.type?.includes("video") ? ".mp4" : ".wav";
-				file = new File([file], `media${ext}`, { type: file.type || "video/mp4" });
+				file = new File([file], `media${ext}`, {
+					type: file.type || "video/mp4",
+				});
 			}
 
 			const result = await aiClient.analyzeSpeakers(file);
@@ -150,14 +158,21 @@ export function TextEditingPanel({ className }: { className?: string }) {
 				completedAt: Date.now(),
 			});
 		} catch (err) {
-			const message = err instanceof Error ? err.message : "Speaker detection failed";
+			const message =
+				err instanceof Error ? err.message : "Speaker detection failed";
 			let detail = message;
-			if (message.includes("Cannot connect") || message.includes("connection_refused")) {
-				detail = "AI backend not reachable. Start with: docker compose up -d ai-backend";
+			if (
+				message.includes("Cannot connect") ||
+				message.includes("connection_refused")
+			) {
+				detail =
+					"AI backend not reachable. Start with: docker compose up -d ai-backend";
 			} else if (message.includes("404")) {
-				detail = "Speaker endpoint not found. Restart the AI backend to load the new route: docker compose restart ai-backend";
+				detail =
+					"Speaker endpoint not found. Restart the AI backend to load the new route: docker compose restart ai-backend";
 			} else if (message.includes("503")) {
-				detail = "Speaker service is not running. Start with: docker compose up -d speaker-service";
+				detail =
+					"Speaker service is not running. Start with: docker compose up -d speaker-service";
 			}
 			bgTasks.updateTask(taskId, {
 				status: "error",
@@ -169,12 +184,17 @@ export function TextEditingPanel({ className }: { className?: string }) {
 		}
 	}, [editor]);
 
-	const handleRenameSpeaker = useCallback((speakerId: string, newName: string) => {
-		useTranscriptStore.getState().setSpeakerName(speakerId, newName);
-	}, []);
+	const handleRenameSpeaker = useCallback(
+		(speakerId: string, newName: string) => {
+			useTranscriptStore.getState().setSpeakerName(speakerId, newName);
+		},
+		[],
+	);
 
 	const originalLanguageName =
-		LANGUAGES.find((l) => l.code === storeLanguage)?.name ?? storeLanguage ?? "Original";
+		LANGUAGES.find((l) => l.code === storeLanguage)?.name ??
+		storeLanguage ??
+		"Original";
 
 	// Map store segments to panel format
 	const panelSegments: TranscriptSegment[] = useMemo(
@@ -259,7 +279,13 @@ export function TextEditingPanel({ className }: { className?: string }) {
 					onDeleteSegments={handleDeleteSegments}
 					onCutWords={handleCutWords}
 					onReorderSegments={handleReorderSegments}
-					onDetectSpeakers={handleDetectSpeakers}
+					// Diarization ran on the retired Python stack (pyannote) — omit
+					// the handler so TranscriptionPanel hides its button entirely.
+					onDetectSpeakers={
+						isFeatureAvailable("speakerLabels")
+							? handleDetectSpeakers
+							: undefined
+					}
 					speakerNames={speakerNames}
 					onRenameSpeaker={handleRenameSpeaker}
 					isDetectingSpeakers={isDetectingSpeakers}
@@ -317,9 +343,7 @@ function TranslationView({
 	if (!translation) {
 		return (
 			<div className="flex-1 flex items-center justify-center p-4">
-				<p className="text-sm text-muted-foreground">
-					Translation not found.
-				</p>
+				<p className="text-sm text-muted-foreground">Translation not found.</p>
 			</div>
 		);
 	}
@@ -328,8 +352,7 @@ function TranslationView({
 		<ScrollArea className="flex-1">
 			<div className="flex flex-col gap-0.5 p-3">
 				{translation.segments.map((seg, idx) => {
-					const isActive =
-						currentTime >= seg.start && currentTime < seg.end;
+					const isActive = currentTime >= seg.start && currentTime < seg.end;
 					return (
 						<button
 							key={seg.id ?? idx}

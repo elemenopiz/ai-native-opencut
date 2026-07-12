@@ -18,6 +18,7 @@ import { useTranscriptStore } from "@/stores/transcript-store";
 import { useBackgroundTasksStore } from "@/stores/background-tasks-store";
 import { useEditor } from "@/hooks/use-editor";
 import { aiClient } from "@/lib/ai-client";
+import { isFeatureAvailable } from "@/lib/local-ai/retired-features";
 import { toast } from "sonner";
 import {
 	POPOVER_SUBTITLE_PRESETS,
@@ -25,7 +26,10 @@ import {
 	distributeElementsToTracks,
 	type PopoverSubtitlePreset,
 } from "@/lib/podcast/subtitle-presets";
-import { buildQuestionCardElement, QUESTION_CARD_TEMPLATES } from "@/lib/templates/question-card";
+import {
+	buildQuestionCardElement,
+	QUESTION_CARD_TEMPLATES,
+} from "@/lib/templates/question-card";
 import type { ClipCandidate, QuestionCard, FaceFrame } from "@/types/ai";
 import { hasMediaId } from "@/lib/timeline";
 import type { TimelineElement } from "@/types/timeline";
@@ -41,7 +45,8 @@ export function PodcastClipsView() {
 	const [isApplying, setIsApplying] = useState(false);
 
 	// Subtitle style
-	const [subtitlePreset, setSubtitlePreset] = useState<PopoverSubtitlePreset>("hormozi");
+	const [subtitlePreset, setSubtitlePreset] =
+		useState<PopoverSubtitlePreset>("hormozi");
 
 	// Feature toggles
 	const [enableQuestionCards, setEnableQuestionCards] = useState(true);
@@ -51,7 +56,9 @@ export function PodcastClipsView() {
 
 	// Generated data
 	const [questionCards, setQuestionCards] = useState<QuestionCard[]>([]);
-	const [keywords, setKeywords] = useState<{ word: string; color: string }[]>([]);
+	const [keywords, setKeywords] = useState<{ word: string; color: string }[]>(
+		[],
+	);
 
 	const hasTranscript = segments.length > 0;
 	const [isReframing, setIsReframing] = useState(false);
@@ -79,7 +86,8 @@ export function PodcastClipsView() {
 						(track.type === "video" || track.type === "audio") &&
 						hasMediaId(element as TimelineElement)
 					) {
-						foundMediaId = (element as TimelineElement & { mediaId: string }).mediaId;
+						foundMediaId = (element as TimelineElement & { mediaId: string })
+							.mediaId;
 						break;
 					}
 				}
@@ -87,13 +95,23 @@ export function PodcastClipsView() {
 			}
 
 			if (!foundMediaId) {
-				bgTasks.updateTask(taskId, { status: "error", error: "No video found on timeline.", completedAt: Date.now() });
+				bgTasks.updateTask(taskId, {
+					status: "error",
+					error: "No video found on timeline.",
+					completedAt: Date.now(),
+				});
 				return;
 			}
 
-			const mediaAsset = editor.media.getAssets().find((a) => a.id === foundMediaId);
+			const mediaAsset = editor.media
+				.getAssets()
+				.find((a) => a.id === foundMediaId);
 			if (!mediaAsset?.file) {
-				bgTasks.updateTask(taskId, { status: "error", error: "Cannot access media file.", completedAt: Date.now() });
+				bgTasks.updateTask(taskId, {
+					status: "error",
+					error: "Cannot access media file.",
+					completedAt: Date.now(),
+				});
 				return;
 			}
 
@@ -101,13 +119,21 @@ export function PodcastClipsView() {
 
 			let file = mediaAsset.file;
 			if (!file.name?.includes(".")) {
-				file = new File([file], `media.mp4`, { type: file.type || "video/mp4" });
+				file = new File([file], `media.mp4`, {
+					type: file.type || "video/mp4",
+				});
 			}
 
-			const faceResult = await aiClient.detectFaces(file, { sampleInterval: 0.5 });
+			const faceResult = await aiClient.detectFaces(file, {
+				sampleInterval: 0.5,
+			});
 
 			if (faceResult.total_faces_detected === 0) {
-				bgTasks.updateTask(taskId, { status: "completed", progress: "No faces detected", completedAt: Date.now() });
+				bgTasks.updateTask(taskId, {
+					status: "completed",
+					progress: "No faces detected",
+					completedAt: Date.now(),
+				});
 				return;
 			}
 
@@ -119,11 +145,19 @@ export function PodcastClipsView() {
 
 			// Compute per-segment face positions based on speaker diarization
 			const storeSegs = useTranscriptStore.getState().segments;
-			const videoTracks = editor.timeline.getTracks().filter((t) => t.type === "video");
+			const videoTracks = editor.timeline
+				.getTracks()
+				.filter((t) => t.type === "video");
 
 			for (const track of videoTracks) {
 				for (const el of track.elements) {
-					const videoEl = el as TimelineElement & { transform?: { scale: number; position: { x: number; y: number }; rotate: number } };
+					const videoEl = el as TimelineElement & {
+						transform?: {
+							scale: number;
+							position: { x: number; y: number };
+							rotate: number;
+						};
+					};
 					if (!videoEl.transform) continue;
 
 					// Find the dominant face position for this element's time range
@@ -131,13 +165,20 @@ export function PodcastClipsView() {
 					const elEnd = el.startTime + el.duration;
 
 					// Find which speaker is active during this element
-					const activeSeg = storeSegs.find((seg) => seg.start < elEnd && seg.end > elStart);
+					const activeSeg = storeSegs.find(
+						(seg) => seg.start < elEnd && seg.end > elStart,
+					);
 					const speakerId = activeSeg?.speaker;
-					const position = speakerId ? (speakerPositions[speakerId] ?? "center") : "center";
+					const position = speakerId
+						? (speakerPositions[speakerId] ?? "center")
+						: "center";
 
 					// Find face frames within this element's time range
 					const relevantFrames = faceResult.frames.filter(
-						(f) => f.timestamp >= elStart && f.timestamp <= elEnd && f.faces.length > 0,
+						(f) =>
+							f.timestamp >= elStart &&
+							f.timestamp <= elEnd &&
+							f.faces.length > 0,
 					);
 
 					let targetX = 0.5; // center
@@ -150,11 +191,14 @@ export function PodcastClipsView() {
 						let count = 0;
 						for (const frame of relevantFrames) {
 							// Pick the face closest to the expected position
-							const face = position === "left"
-								? frame.faces.reduce((a, b) => (a.x < b.x ? a : b))
-								: position === "right"
-									? frame.faces.reduce((a, b) => (a.x + a.width > b.x + b.width ? a : b))
-									: frame.faces[0];
+							const face =
+								position === "left"
+									? frame.faces.reduce((a, b) => (a.x < b.x ? a : b))
+									: position === "right"
+										? frame.faces.reduce((a, b) =>
+												a.x + a.width > b.x + b.width ? a : b,
+											)
+										: frame.faces[0];
 							sumX += face.x + face.width / 2;
 							sumY += face.y + face.height / 2;
 							count++;
@@ -165,22 +209,25 @@ export function PodcastClipsView() {
 
 					if (!isAlreadyVertical) {
 						// Apply crop: scale up to fill 9:16 and offset to center on face
-						const scaleNeeded = canvasSize.width / (canvasSize.height * (9 / 16));
+						const scaleNeeded =
+							canvasSize.width / (canvasSize.height * (9 / 16));
 						const offsetX = (targetX - 0.5) * canvasSize.width * -scaleNeeded;
 						const offsetY = (targetY - 0.5) * canvasSize.height * -0.5;
 
 						editor.timeline.updateElements({
-							updates: [{
-								trackId: track.id,
-								elementId: el.id,
-								updates: {
-									transform: {
-										scale: Math.max(scaleNeeded, 1.5),
-										position: { x: offsetX, y: offsetY },
-										rotate: 0,
+							updates: [
+								{
+									trackId: track.id,
+									elementId: el.id,
+									updates: {
+										transform: {
+											scale: Math.max(scaleNeeded, 1.5),
+											position: { x: offsetX, y: offsetY },
+											rotate: 0,
+										},
 									},
 								},
-							}],
+							],
 						});
 					}
 				}
@@ -192,12 +239,21 @@ export function PodcastClipsView() {
 				completedAt: Date.now(),
 			});
 		} catch (err) {
-			const message = err instanceof Error ? err.message : "Auto-reframe failed";
+			const message =
+				err instanceof Error ? err.message : "Auto-reframe failed";
 			let detail = message;
-			if (message.includes("404")) detail = "Face endpoint not found. Restart the AI backend.";
-			else if (message.includes("503")) detail = "Face service not running. Start with: docker compose up -d face-service";
-			else if (message.includes("Cannot connect")) detail = "AI backend not reachable.";
-			bgTasks.updateTask(taskId, { status: "error", error: detail, completedAt: Date.now() });
+			if (message.includes("404"))
+				detail = "Face endpoint not found. Restart the AI backend.";
+			else if (message.includes("503"))
+				detail =
+					"Face service not running. Start with: docker compose up -d face-service";
+			else if (message.includes("Cannot connect"))
+				detail = "AI backend not reachable.";
+			bgTasks.updateTask(taskId, {
+				status: "error",
+				error: detail,
+				completedAt: Date.now(),
+			});
 		} finally {
 			setIsReframing(false);
 		}
@@ -235,12 +291,15 @@ export function PodcastClipsView() {
 				});
 			}
 		} catch (err) {
-			const message = err instanceof Error ? err.message : "Failed to find clips";
-			const detail = message.includes("Cannot connect") || message.includes("connection_refused")
-				? "Cannot connect to AI backend. Make sure it is running with Ollama (docker compose up -d)."
-				: message.includes("503")
-					? "Ollama LLM is not available. Start it with: docker compose up -d ollama"
-					: message;
+			const message =
+				err instanceof Error ? err.message : "Failed to find clips";
+			const detail =
+				message.includes("Cannot connect") ||
+				message.includes("connection_refused")
+					? "Cannot connect to AI backend. Make sure it is running with Ollama (docker compose up -d)."
+					: message.includes("503")
+						? "Ollama LLM is not available. Start it with: docker compose up -d ollama"
+						: message;
 			bgTasks.updateTask(taskId, {
 				status: "error",
 				error: detail,
@@ -318,7 +377,9 @@ export function PodcastClipsView() {
 				let cards: QuestionCard[] = [];
 				if (enableQuestionCards) {
 					try {
-						bgTasks.updateTask(taskId, { progress: "Generating topic cards..." });
+						bgTasks.updateTask(taskId, {
+							progress: "Generating topic cards...",
+						});
 						const cardsResult = await aiClient.generateQuestionCards(
 							clipSegments.map((s, i) => ({
 								id: i,
@@ -340,7 +401,10 @@ export function PodcastClipsView() {
 				const canvasSize = editor.project.getActive().settings.canvasSize;
 
 				// Build card time ranges so subtitles can skip them
-				const cardRanges = cards.map((c) => ({ start: c.timestamp, end: c.timestamp + 2.5 }));
+				const cardRanges = cards.map((c) => ({
+					start: c.timestamp,
+					end: c.timestamp + 2.5,
+				}));
 
 				// Build popover elements (skipping card time ranges)
 				const subtitleElements = buildPopoverSubtitleElements({
@@ -356,10 +420,14 @@ export function PodcastClipsView() {
 				const trackBuckets = distributeElementsToTracks(subtitleElements);
 
 				for (let t = 0; t < trackBuckets.length; t++) {
-					const subTrackId = editor.timeline.addTrack({ type: "text", index: 0 });
-					const label = trackBuckets.length === 1
-						? "Popover Subs"
-						: `Popover Subs ${t + 1}`;
+					const subTrackId = editor.timeline.addTrack({
+						type: "text",
+						index: 0,
+					});
+					const label =
+						trackBuckets.length === 1
+							? "Popover Subs"
+							: `Popover Subs ${t + 1}`;
 					editor.timeline.renameTrack({ trackId: subTrackId, name: label });
 
 					for (const el of trackBuckets[t]) {
@@ -372,8 +440,14 @@ export function PodcastClipsView() {
 
 				// Add question card track if cards were generated
 				if (cards.length > 0) {
-					const cardTrackId = editor.timeline.addTrack({ type: "text", index: 0 });
-					editor.timeline.renameTrack({ trackId: cardTrackId, name: "Topic Cards" });
+					const cardTrackId = editor.timeline.addTrack({
+						type: "text",
+						index: 0,
+					});
+					editor.timeline.renameTrack({
+						trackId: cardTrackId,
+						name: "Topic Cards",
+					});
 
 					for (const card of cards) {
 						const cardElement = buildQuestionCardElement({
@@ -397,7 +471,8 @@ export function PodcastClipsView() {
 					completedAt: Date.now(),
 				});
 			} catch (err) {
-				const message = err instanceof Error ? err.message : "Failed to apply clip";
+				const message =
+					err instanceof Error ? err.message : "Failed to apply clip";
 				bgTasks.updateTask(taskId, {
 					status: "error",
 					error: message,
@@ -407,7 +482,16 @@ export function PodcastClipsView() {
 				setIsApplying(false);
 			}
 		},
-		[segments, editor, subtitlePreset, enableKeywordHighlight, enableQuestionCards, cardTemplate, cardTransparentBg, bgTasks],
+		[
+			segments,
+			editor,
+			subtitlePreset,
+			enableKeywordHighlight,
+			enableQuestionCards,
+			cardTemplate,
+			cardTransparentBg,
+			bgTasks,
+		],
 	);
 
 	// ── Add Popover Subtitles (full transcript — background task) ──
@@ -458,9 +542,8 @@ export function PodcastClipsView() {
 
 			for (let t = 0; t < trackBuckets.length; t++) {
 				const trackId = editor.timeline.addTrack({ type: "text", index: 0 });
-				const label = trackBuckets.length === 1
-					? "Popover Subs"
-					: `Popover Subs ${t + 1}`;
+				const label =
+					trackBuckets.length === 1 ? "Popover Subs" : `Popover Subs ${t + 1}`;
 				editor.timeline.renameTrack({ trackId, name: label });
 
 				for (const el of trackBuckets[t]) {
@@ -477,7 +560,8 @@ export function PodcastClipsView() {
 				completedAt: Date.now(),
 			});
 		} catch (err) {
-			const message = err instanceof Error ? err.message : "Failed to add popover subtitles";
+			const message =
+				err instanceof Error ? err.message : "Failed to add popover subtitles";
 			bgTasks.updateTask(taskId, {
 				status: "error",
 				error: message,
@@ -486,7 +570,14 @@ export function PodcastClipsView() {
 		} finally {
 			setIsApplying(false);
 		}
-	}, [segments, editor, subtitlePreset, enableKeywordHighlight, hasTranscript, bgTasks]);
+	}, [
+		segments,
+		editor,
+		subtitlePreset,
+		enableKeywordHighlight,
+		hasTranscript,
+		bgTasks,
+	]);
 
 	// ── Generate Question Cards (full transcript — background task) ──
 	const handleGenerateCards = useCallback(async () => {
@@ -518,7 +609,10 @@ export function PodcastClipsView() {
 			bgTasks.updateTask(taskId, { progress: "Adding cards to timeline..." });
 
 			const cardTrackId = editor.timeline.addTrack({ type: "text", index: 0 });
-			editor.timeline.renameTrack({ trackId: cardTrackId, name: "Topic Cards" });
+			editor.timeline.renameTrack({
+				trackId: cardTrackId,
+				name: "Topic Cards",
+			});
 
 			for (const card of result.cards) {
 				const cardElement = buildQuestionCardElement({
@@ -540,12 +634,17 @@ export function PodcastClipsView() {
 				completedAt: Date.now(),
 			});
 		} catch (err) {
-			const message = err instanceof Error ? err.message : "Failed to generate question cards";
-			const detail = message.includes("Cannot connect") || message.includes("connection_refused")
-				? "Cannot connect to AI backend. Make sure Ollama is running."
-				: message.includes("503")
-					? "Ollama LLM is not available. Start it with: docker compose up -d ollama"
-					: message;
+			const message =
+				err instanceof Error
+					? err.message
+					: "Failed to generate question cards";
+			const detail =
+				message.includes("Cannot connect") ||
+				message.includes("connection_refused")
+					? "Cannot connect to AI backend. Make sure Ollama is running."
+					: message.includes("503")
+						? "Ollama LLM is not available. Start it with: docker compose up -d ollama"
+						: message;
 			bgTasks.updateTask(taskId, {
 				status: "error",
 				error: detail,
@@ -554,7 +653,14 @@ export function PodcastClipsView() {
 		} finally {
 			setIsApplying(false);
 		}
-	}, [segments, editor, hasTranscript, cardTemplate, cardTransparentBg, bgTasks]);
+	}, [
+		segments,
+		editor,
+		hasTranscript,
+		cardTemplate,
+		cardTransparentBg,
+		bgTasks,
+	]);
 
 	const isProcessing = isFindingClips || isApplying;
 
@@ -564,7 +670,8 @@ export function PodcastClipsView() {
 				{!hasTranscript ? (
 					<div className="flex flex-col gap-3">
 						<p className="text-xs text-muted-foreground leading-relaxed">
-							Transcribe your video first using the Transcript tab, then come back here to create podcast-style clips.
+							Transcribe your video first using the Transcript tab, then come
+							back here to create podcast-style clips.
 						</p>
 					</div>
 				) : (
@@ -573,7 +680,8 @@ export function PodcastClipsView() {
 						<div className="flex flex-col gap-2">
 							<Label className="text-xs font-medium">Find best clips</Label>
 							<p className="text-[11px] text-muted-foreground leading-relaxed">
-								AI analyzes your transcript and finds the most viral-worthy moments. You can switch tabs while it runs.
+								AI analyzes your transcript and finds the most viral-worthy
+								moments. You can switch tabs while it runs.
 							</p>
 							<Button
 								variant="default"
@@ -668,10 +776,14 @@ export function PodcastClipsView() {
 
 						{/* ── Subtitle Style ── */}
 						<div className="border-t pt-3 flex flex-col gap-2">
-							<Label className="text-xs font-medium">Popover subtitle style</Label>
+							<Label className="text-xs font-medium">
+								Popover subtitle style
+							</Label>
 							<Select
 								value={subtitlePreset}
-								onValueChange={(v) => setSubtitlePreset(v as PopoverSubtitlePreset)}
+								onValueChange={(v) =>
+									setSubtitlePreset(v as PopoverSubtitlePreset)
+								}
 							>
 								<SelectTrigger className="h-8 text-xs">
 									<SelectValue />
@@ -733,34 +845,40 @@ export function PodcastClipsView() {
 						</div>
 
 						{/* ── Auto-Reframe ── */}
-						<div className="border-t pt-3 flex flex-col gap-2">
-							<Label className="text-xs font-medium">Auto-reframe for Shorts</Label>
-							<p className="text-[11px] text-muted-foreground leading-relaxed">
-								Detect faces and auto-crop 16:9 video to 9:16 vertical, centering on the active speaker.
-							</p>
-							<Button
-								variant="outline"
-								size="sm"
-								className="w-full"
-								onClick={handleAutoReframe}
-								disabled={isProcessing || isReframing}
-							>
-								{isReframing && <Spinner className="mr-1 size-3" />}
-								{isReframing ? "Reframing..." : "Auto-reframe 9:16"}
-							</Button>
-						</div>
+						{/* Depends on speaker-diarization positions + the retired
+						    stack's face service — hidden until both have new homes
+						    (face detection will NOT go server-side: biometrics). */}
+						{isFeatureAvailable("speakerLabels") && (
+							<div className="border-t pt-3 flex flex-col gap-2">
+								<Label className="text-xs font-medium">
+									Auto-reframe for Shorts
+								</Label>
+								<p className="text-[11px] text-muted-foreground leading-relaxed">
+									Detect faces and auto-crop 16:9 video to 9:16 vertical,
+									centering on the active speaker.
+								</p>
+								<Button
+									variant="outline"
+									size="sm"
+									className="w-full"
+									onClick={handleAutoReframe}
+									disabled={isProcessing || isReframing}
+								>
+									{isReframing && <Spinner className="mr-1 size-3" />}
+									{isReframing ? "Reframing..." : "Auto-reframe 9:16"}
+								</Button>
+							</div>
+						)}
 
 						{/* ── Question Cards ── */}
 						<div className="border-t pt-3 flex flex-col gap-2">
 							<Label className="text-xs font-medium">Topic cards</Label>
 							<p className="text-[11px] text-muted-foreground leading-relaxed">
-								AI topic questions overlaid on video. Subtitles are hidden during cards.
+								AI topic questions overlaid on video. Subtitles are hidden
+								during cards.
 							</p>
 
-							<Select
-								value={cardTemplate}
-								onValueChange={setCardTemplate}
-							>
+							<Select value={cardTemplate} onValueChange={setCardTemplate}>
 								<SelectTrigger className="h-8 text-xs">
 									<SelectValue />
 								</SelectTrigger>

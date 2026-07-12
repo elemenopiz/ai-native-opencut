@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogTitle } from "../ui/dialog";
 import { useAIStatus } from "@/hooks/use-ai-status";
 import { useAIStore } from "@/stores/ai-store";
 import { useAssetsPanelStore } from "@/stores/assets-panel-store";
+import { isFeatureAvailable } from "@/lib/local-ai/retired-features";
 import { cn } from "@/utils/ui";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -213,29 +214,35 @@ export function Onboarding() {
 										title="Generations cost credits"
 										desc="Every account starts with a granted balance. The Director previews the cost before it spends any of it."
 									/>
-									<BetaNote
-										icon={CpuIcon}
-										title={
-											<>
-												Some features are{" "}
-												<span className="text-foreground/90">Local AI</span>
-											</>
-										}
-										desc={
-											<>
-												Transcription, voiceover, and denoise run on the Byorn
-												desktop engine{" "}
-												<button
-													type="button"
-													onClick={openLocalAI}
-													className="text-primary underline-offset-2 hover:underline"
-												>
-													{isConnected ? "(connected)" : "(set it up)"}
-												</button>
-												.
-											</>
-										}
-									/>
+									{/* Points at the retired local desktop engine's setup
+									    guide (its copy is also stale: transcription is
+									    in-browser, voiceover is cloud now) — hidden with the
+									    stack. */}
+									{isFeatureAvailable("localBackendSetup") && (
+										<BetaNote
+											icon={CpuIcon}
+											title={
+												<>
+													Some features are{" "}
+													<span className="text-foreground/90">Local AI</span>
+												</>
+											}
+											desc={
+												<>
+													Transcription, voiceover, and denoise run on the Byorn
+													desktop engine{" "}
+													<button
+														type="button"
+														onClick={openLocalAI}
+														className="text-primary underline-offset-2 hover:underline"
+													>
+														{isConnected ? "(connected)" : "(set it up)"}
+													</button>
+													.
+												</>
+											}
+										/>
+									)}
 								</div>
 							)}
 

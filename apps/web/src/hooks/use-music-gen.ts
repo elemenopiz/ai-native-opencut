@@ -2,6 +2,10 @@ import { useCallback, useState } from "react";
 import { useEditor } from "@/hooks/use-editor";
 import { useBackgroundTasksStore } from "@/stores/background-tasks-store";
 import { aiClient } from "@/lib/ai-client";
+import {
+	isFeatureAvailable,
+	retiredFeatureMessage,
+} from "@/lib/local-ai/retired-features";
 import { buildUploadAudioElement } from "@/lib/timeline/element-utils";
 import type { MusicGenParams } from "@/lib/music/music-gen-types";
 import { toast } from "sonner";
@@ -14,6 +18,13 @@ export function useMusicGen() {
 
 	const generate = useCallback(
 		async (params: MusicGenParams) => {
+			// Retired with the Python music stack. Without this gate the prompt
+			// would go to the cloud TTS route and come back as SPOKEN WORDS.
+			if (!isFeatureAvailable("musicGen")) {
+				toast.error(retiredFeatureMessage("musicGen"));
+				return null;
+			}
+
 			const taskId = `music-gen-${Date.now()}`;
 			bgTasks.addTask({
 				id: taskId,
@@ -23,7 +34,9 @@ export function useMusicGen() {
 			});
 
 			try {
-				const prompt = params.prompt || `${params.mood} ${params.genre} music, ${params.tempo} tempo, ${params.duration}s`;
+				const prompt =
+					params.prompt ||
+					`${params.mood} ${params.genre} music, ${params.tempo} tempo, ${params.duration}s`;
 
 				const result = await aiClient.generateSpeechBlob({
 					text: prompt,
@@ -61,10 +74,13 @@ export function useMusicGen() {
 					completedAt: Date.now(),
 				});
 
-				toast.success(`Generated ${duration.toFixed(1)}s of ${params.genre} music`);
+				toast.success(
+					`Generated ${duration.toFixed(1)}s of ${params.genre} music`,
+				);
 				return { url, duration, waveformPeaks };
 			} catch (err) {
-				const msg = err instanceof Error ? err.message : "Music generation failed";
+				const msg =
+					err instanceof Error ? err.message : "Music generation failed";
 				bgTasks.updateTask(taskId, {
 					status: "error",
 					error: msg,
@@ -98,7 +114,8 @@ export function useMusicGen() {
 
 			const tracks = editor.timeline.getTracks();
 			const audioTracks = tracks.filter((t) => t.type === "audio");
-			const targetTrack = audioTracks[audioTracks.length - 1] || tracks[tracks.length - 1];
+			const targetTrack =
+				audioTracks[audioTracks.length - 1] || tracks[tracks.length - 1];
 
 			if (!targetTrack) return;
 

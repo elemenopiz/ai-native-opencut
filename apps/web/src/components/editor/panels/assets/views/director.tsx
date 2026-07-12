@@ -20,6 +20,7 @@ import {
 	StopIcon,
 } from "@hugeicons/core-free-icons";
 import { aiClient } from "@/lib/ai-client";
+import { isFeatureAvailable } from "@/lib/local-ai/retired-features";
 import { useAIStatus } from "@/hooks/use-ai-status";
 import { useAIStore } from "@/stores/ai-store";
 import { useTranscriptStore } from "@/stores/transcript-store";
@@ -935,7 +936,9 @@ export function DirectorView() {
 							B-Roll
 						</Button>
 					)}
-					{hasTranscript && (
+					{/* Dubbing is retired with the Python TTS chain (see
+					    lib/local-ai/retired-features.ts). */}
+					{hasTranscript && isFeatureAvailable("dubbing") && (
 						<Button
 							variant={mode === "dubbing" ? "secondary" : "ghost"}
 							size="sm"
@@ -963,14 +966,17 @@ export function DirectorView() {
 					>
 						Workflows
 					</Button>
-					<Button
-						variant={mode === "youtube-reels" ? "secondary" : "ghost"}
-						size="sm"
-						className="h-6 text-[10px] px-2"
-						onClick={() => setMode("youtube-reels")}
-					>
-						YT Reels
-					</Button>
+					{/* YouTube import ran on the retired stack's yt-dlp service. */}
+					{isFeatureAvailable("youtubeImport") && (
+						<Button
+							variant={mode === "youtube-reels" ? "secondary" : "ghost"}
+							size="sm"
+							className="h-6 text-[10px] px-2"
+							onClick={() => setMode("youtube-reels")}
+						>
+							YT Reels
+						</Button>
+					)}
 					<Button
 						variant={mode === "reframe" ? "secondary" : "ghost"}
 						size="sm"
@@ -995,14 +1001,17 @@ export function DirectorView() {
 					>
 						A/B Test
 					</Button>
-					<Button
-						variant={mode === "script-to-video" ? "secondary" : "ghost"}
-						size="sm"
-						className="h-6 text-[10px] px-2"
-						onClick={() => setMode("script-to-video")}
-					>
-						Script→Video
-					</Button>
+					{/* Script-to-video is retired with the Python stack. */}
+					{isFeatureAvailable("scriptToVideo") && (
+						<Button
+							variant={mode === "script-to-video" ? "secondary" : "ghost"}
+							size="sm"
+							className="h-6 text-[10px] px-2"
+							onClick={() => setMode("script-to-video")}
+						>
+							Script→Video
+						</Button>
+					)}
 					<Button
 						variant={mode === "shorts" ? "secondary" : "ghost"}
 						size="sm"
@@ -1030,8 +1039,9 @@ export function DirectorView() {
 				</div>
 			</div>
 
-			{/* Not connected banner */}
-			{!isConnected && (
+			{/* Not connected banner — points at the retired local stack's docker
+			    setup, so it only renders while that stack is a supported path. */}
+			{!isConnected && isFeatureAvailable("localBackendSetup") && (
 				<div className="mx-2 mt-2 rounded-lg bg-yellow-500/10 px-3 py-2 text-[11px] text-yellow-500 shrink-0">
 					<p className="font-medium">AI backend not connected</p>
 					<p className="text-yellow-500/70 mt-0.5">
@@ -1425,7 +1435,7 @@ export function DirectorView() {
 			{mode === "broll" && <BRollSuggestionsPanel className="flex-1 min-h-0" />}
 
 			{/* ── Dubbing Mode ── */}
-			{mode === "dubbing" && (
+			{mode === "dubbing" && isFeatureAvailable("dubbing") && (
 				<div className="flex-1 min-h-0 overflow-y-auto">
 					<AIDubbingPanel />
 				</div>
@@ -1439,7 +1449,7 @@ export function DirectorView() {
 			)}
 
 			{/* ── YouTube Reels Mode ── */}
-			{mode === "youtube-reels" && (
+			{mode === "youtube-reels" && isFeatureAvailable("youtubeImport") && (
 				<div className="flex-1 min-h-0 overflow-y-auto px-2 py-3">
 					<YouTubeReelsPanel />
 				</div>
@@ -1457,7 +1467,7 @@ export function DirectorView() {
 			{mode === "ab-testing" && <ABTestingPanel className="flex-1 min-h-0" />}
 
 			{/* ── Script-to-Video Mode ── */}
-			{mode === "script-to-video" && (
+			{mode === "script-to-video" && isFeatureAvailable("scriptToVideo") && (
 				<ScriptToVideoPanel className="flex-1 min-h-0" />
 			)}
 

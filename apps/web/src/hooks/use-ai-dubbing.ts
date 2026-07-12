@@ -3,6 +3,10 @@ import { useEditor } from "@/hooks/use-editor";
 import { useTranscriptStore } from "@/stores/transcript-store";
 import { useBackgroundTasksStore } from "@/stores/background-tasks-store";
 import { aiClient } from "@/lib/ai-client";
+import {
+	isFeatureAvailable,
+	retiredFeatureMessage,
+} from "@/lib/local-ai/retired-features";
 import { generateUUID } from "@/utils/id";
 import {
 	SARVAM_TTS_SUPPORTED_CODES,
@@ -52,6 +56,14 @@ export function useAIDubbing() {
 
 	const runDubbing = useCallback(
 		async (options: DubbingOptions) => {
+			// Retired with the Python diarization/TTS chain. Without this gate
+			// the "local" engine path would push legacy voice ids at the cloud
+			// TTS route and fail (or worse, speak with the wrong voice).
+			if (!isFeatureAvailable("dubbing")) {
+				toast.error(retiredFeatureMessage("dubbing"));
+				return;
+			}
+
 			const targetSegments =
 				options.segmentIndices?.map((i) => segments[i]).filter(Boolean) ??
 				segments;

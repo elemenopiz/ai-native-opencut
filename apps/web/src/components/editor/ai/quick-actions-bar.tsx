@@ -28,6 +28,7 @@ import { useSmartCut } from "@/hooks/use-smart-cut";
 import { DEFAULT_TEXT_ELEMENT } from "@/constants/text-constants";
 import { computeCutsFromDeletedSegments } from "@/lib/text-timeline-sync";
 import { aiClient } from "@/lib/ai-client";
+import { isFeatureAvailable } from "@/lib/local-ai/retired-features";
 import { useAssetsPanelStore } from "@/stores/assets-panel-store";
 import { useBackgroundTasksStore } from "@/stores/background-tasks-store";
 import {
@@ -458,7 +459,12 @@ export function QuickActionsBar({ className }: { className?: string }) {
 			status: factcheckStatus,
 			handler: handleFactCheck,
 		},
-	];
+		// Fact check ran on the retired local Ollama backend — hidden until it
+		// gets a cloud home. Every other action here is pure client-side
+		// transcript math or routes to a live panel, so they all stay.
+	].filter(
+		(action) => action.id !== "factcheck" || isFeatureAvailable("factCheck"),
+	);
 
 	return (
 		<div

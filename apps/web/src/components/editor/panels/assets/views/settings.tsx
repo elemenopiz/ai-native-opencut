@@ -28,6 +28,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/utils/ui";
 import { aiClient } from "@/lib/ai-client";
+import { isFeatureAvailable } from "@/lib/local-ai/retired-features";
 import type { TurboQuantStatus } from "@/types/ai";
 import { toast } from "sonner";
 import { BackgroundSettings } from "./background-settings";
@@ -87,14 +88,18 @@ export function SettingsView() {
 						<ProxyEditingSection />
 					</SectionContent>
 				</Section>
-				<Section>
-					<SectionHeader>
-						<SectionTitle>AI Optimization</SectionTitle>
-					</SectionHeader>
-					<SectionContent>
-						<AIOptimizationSection />
-					</SectionContent>
-				</Section>
+				{/* Quant/device tuning for the retired local Python stack — its
+				    only state without it is "AI backend not reachable". */}
+				{isFeatureAvailable("localBackendSetup") && (
+					<Section>
+						<SectionHeader>
+							<SectionTitle>AI Optimization</SectionTitle>
+						</SectionHeader>
+						<SectionContent>
+							<AIOptimizationSection />
+						</SectionContent>
+					</Section>
+				)}
 				<Section>
 					<SectionHeader>
 						<SectionTitle>API Keys</SectionTitle>
@@ -111,8 +116,9 @@ export function SettingsView() {
 						<CrossProjectMemorySection />
 					</SectionContent>
 				</Section>
-				{/* Fact Check renders its own PanelView header */}
-				<FactCheckView />
+				{/* Fact Check renders its own PanelView header. Its backend was
+				    the retired local Ollama — hidden until it has a cloud home. */}
+				{isFeatureAvailable("factCheck") && <FactCheckView />}
 			</div>
 		</PanelView>
 	);

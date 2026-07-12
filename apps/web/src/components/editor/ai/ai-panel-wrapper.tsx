@@ -8,6 +8,7 @@ import { AICommandPanel, type AIMessage } from "./ai-command-panel";
 import { SmartSuggestions, type AISuggestion } from "./smart-suggestions";
 import { MemoryStatusBar, type MemoryStatusInfo } from "./memory-status-bar";
 import { AISetupGuide } from "./ai-setup-guide";
+import { isFeatureAvailable } from "@/lib/local-ai/retired-features";
 import { cn } from "@/utils/ui";
 import { Button } from "@/components/ui/button";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -105,9 +106,7 @@ export function AIPanelWrapper() {
 						? {
 								...msg,
 								actions: msg.actions?.map((a) =>
-									a.id === actionId
-										? { ...a, status: "applied" as const }
-										: a,
+									a.id === actionId ? { ...a, status: "applied" as const } : a,
 								),
 							}
 						: msg,
@@ -177,7 +176,12 @@ export function AIPanelWrapper() {
 		[backendStatus],
 	);
 
-	const showSetupBanner = !isConnected && !isSetupBannerDismissed;
+	// The banner + guide walk users through the retired local stack's docker
+	// setup — noise for beta users who never had it. Gated, not deleted
+	// (ADR-004): flipping the flag revives both.
+	const showLocalBackendSetup = isFeatureAvailable("localBackendSetup");
+	const showSetupBanner =
+		showLocalBackendSetup && !isConnected && !isSetupBannerDismissed;
 
 	return (
 		<>
@@ -208,7 +212,7 @@ export function AIPanelWrapper() {
 									? "The AI backend is not running. Start it to enable transcription, AI commands, and more."
 									: errorType === "timeout"
 										? "The AI backend is not responding. It may be starting up."
-										: connectionError ?? "Cannot connect to AI backend."}
+										: (connectionError ?? "Cannot connect to AI backend.")}
 							</p>
 						</div>
 						<div className="flex items-center gap-1.5 shrink-0">
@@ -226,10 +230,7 @@ export function AIPanelWrapper() {
 								className="size-6"
 								onClick={() => setIsSetupBannerDismissed(true)}
 							>
-								<HugeiconsIcon
-									icon={Cancel01Icon}
-									className="size-3"
-								/>
+								<HugeiconsIcon icon={Cancel01Icon} className="size-3" />
 							</Button>
 						</div>
 					</div>
@@ -241,7 +242,9 @@ export function AIPanelWrapper() {
 				className={cn(
 					"fixed top-[3.4rem] right-0 bottom-0 z-30 w-80 overflow-hidden",
 					"transition-transform duration-200 ease-out shadow-lg",
-					isCommandPanelOpen ? "translate-x-0" : "translate-x-full pointer-events-none"
+					isCommandPanelOpen
+						? "translate-x-0"
+						: "translate-x-full pointer-events-none",
 				)}
 			>
 				<AICommandPanel
@@ -263,13 +266,15 @@ export function AIPanelWrapper() {
 			/>
 
 			{/* AI Setup Guide Dialog */}
-			<AISetupGuide
-				isOpen={isSetupGuideOpen}
-				onOpenChange={(open) => {
-					if (!open && isSetupGuideOpen) toggleSetupGuide();
-					if (open && !isSetupGuideOpen) toggleSetupGuide();
-				}}
-			/>
+			{showLocalBackendSetup && (
+				<AISetupGuide
+					isOpen={isSetupGuideOpen}
+					onOpenChange={(open) => {
+						if (!open && isSetupGuideOpen) toggleSetupGuide();
+						if (open && !isSetupGuideOpen) toggleSetupGuide();
+					}}
+				/>
+			)}
 		</>
 	);
 }

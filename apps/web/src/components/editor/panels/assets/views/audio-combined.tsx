@@ -1,5 +1,6 @@
 "use client";
 
+import { isFeatureAvailable } from "@/lib/local-ai/retired-features";
 import { SubTabView } from "./sub-tab-view";
 import { SoundsView } from "./sounds";
 import { VoiceoverView } from "./voiceover";
@@ -18,7 +19,11 @@ export function AudioCombinedView() {
 				{ key: "podcast", label: "Podcast", content: <PodcastClipsView /> },
 				{ key: "enhance", label: "Enhance", content: <AudioEnhanceView /> },
 				{ key: "record", label: "Record", content: <AudioRecordingPanel /> },
-				{ key: "music", label: "Music", content: <MusicGenPanel /> },
+				// Music gen is retired with the Python stack (its prompt would be
+				// SPOKEN by cloud TTS) — hide the tab until it has a new home.
+				...(isFeatureAvailable("musicGen")
+					? [{ key: "music", label: "Music", content: <MusicGenPanel /> }]
+					: []),
 				{ key: "beats", label: "Beats", content: <BeatDetectionPanel /> },
 			]}
 		/>

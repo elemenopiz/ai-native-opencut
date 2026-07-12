@@ -2,6 +2,10 @@ import { useCallback } from "react";
 import { useEditor } from "@/hooks/use-editor";
 import { useBackgroundTasksStore } from "@/stores/background-tasks-store";
 import { aiClient } from "@/lib/ai-client";
+import {
+	isFeatureAvailable,
+	retiredFeatureMessage,
+} from "@/lib/local-ai/retired-features";
 import type { ScriptToVideoConfig } from "@/lib/script-to-video/script-types";
 import { DEFAULT_SCRIPT_CONFIG } from "@/lib/script-to-video/script-types";
 import { toast } from "sonner";
@@ -12,6 +16,14 @@ export function useScriptToVideo() {
 
 	const generate = useCallback(
 		async (script: string, config: Partial<ScriptToVideoConfig> = {}) => {
+			// Retired with the Python stack. Without this gate the narration
+			// would go to the cloud TTS route (and visuals to a dead image
+			// endpoint) — a half-broken timeline instead of a hidden feature.
+			if (!isFeatureAvailable("scriptToVideo")) {
+				toast.error(retiredFeatureMessage("scriptToVideo"));
+				return;
+			}
+
 			const cfg = { ...DEFAULT_SCRIPT_CONFIG, ...config };
 			const taskId = `s2v-${Date.now()}`;
 
@@ -42,9 +54,7 @@ export function useScriptToVideo() {
 
 				bgTasks.updateTask(taskId, { progress: "Generating voiceover..." });
 
-				const fullText = lines
-					.filter((l) => !l.startsWith("#"))
-					.join(" ");
+				const fullText = lines.filter((l) => !l.startsWith("#")).join(" ");
 
 				if (fullText.trim().length === 0) {
 					throw new Error("Script has no narration text");

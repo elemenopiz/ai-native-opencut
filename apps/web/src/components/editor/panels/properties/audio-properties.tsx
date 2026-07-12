@@ -17,6 +17,7 @@ import { useElementPlayhead } from "./hooks/use-element-playhead";
 import { resolveVolumeAtTime } from "@/lib/animation";
 import { isPropertyAtDefault } from "./sections/transform";
 import { useNoiseReduction } from "@/hooks/use-noise-reduction";
+import { isFeatureAvailable } from "@/lib/local-ai/retired-features";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	VolumeHighIcon,
@@ -90,11 +91,7 @@ export function AudioProperties({
 
 	return (
 		<div className="flex h-full flex-col">
-			<Section
-				collapsible
-				sectionKey="audio:volume"
-				showTopBorder={false}
-			>
+			<Section collapsible sectionKey="audio:volume" showTopBorder={false}>
 				<SectionHeader>
 					<SectionTitle>Volume</SectionTitle>
 				</SectionHeader>
@@ -129,9 +126,7 @@ export function AudioProperties({
 									onBlur={volume.onBlur}
 									onScrub={volume.scrubTo}
 									onScrubEnd={volume.commitScrub}
-									onReset={() =>
-										volume.commitValue({ value: DEFAULT_VOLUME })
-									}
+									onReset={() => volume.commitValue({ value: DEFAULT_VOLUME })}
 									isDefault={isPropertyAtDefault({
 										hasAnimatedKeyframes: volume.hasAnimatedKeyframes,
 										isPlayheadWithinElementRange,
@@ -158,63 +153,60 @@ export function AudioProperties({
 					</div>
 
 					<div className="text-muted-foreground mt-3 flex items-center justify-between text-xs tabular-nums">
-						<span>
-							{volumeToDb(resolvedVolume)} dB
-						</span>
-						<span>
-							{Math.round(resolvedVolume * 100)}%
-						</span>
+						<span>{volumeToDb(resolvedVolume)} dB</span>
+						<span>{Math.round(resolvedVolume * 100)}%</span>
 					</div>
 				</SectionContent>
 			</Section>
 
-			<Section
-				collapsible
-				sectionKey="audio:noise-reduction"
-			>
-				<SectionHeader>
-					<SectionTitle>Noise Reduction</SectionTitle>
-				</SectionHeader>
-				<SectionContent>
-					<SectionField label="Strength">
-						<div className="flex items-center gap-2">
-							<Slider
-								value={[denoiseStrength]}
-								onValueChange={([v]) => setDenoiseStrength(v)}
-								min={0}
-								max={1}
-								step={0.05}
-								disabled={isProcessing}
-							/>
-							<span className="text-muted-foreground w-9 shrink-0 text-right text-xs tabular-nums">
-								{Math.round(denoiseStrength * 100)}%
-							</span>
-						</div>
-					</SectionField>
+			{/* Denoise only ever ran on the retired Python stack — hidden, not
+			    broken, until a browser/cloud implementation lands. */}
+			{isFeatureAvailable("denoise") && (
+				<Section collapsible sectionKey="audio:noise-reduction">
+					<SectionHeader>
+						<SectionTitle>Noise Reduction</SectionTitle>
+					</SectionHeader>
+					<SectionContent>
+						<SectionField label="Strength">
+							<div className="flex items-center gap-2">
+								<Slider
+									value={[denoiseStrength]}
+									onValueChange={([v]) => setDenoiseStrength(v)}
+									min={0}
+									max={1}
+									step={0.05}
+									disabled={isProcessing}
+								/>
+								<span className="text-muted-foreground w-9 shrink-0 text-right text-xs tabular-nums">
+									{Math.round(denoiseStrength * 100)}%
+								</span>
+							</div>
+						</SectionField>
 
-					<Button
-						size="sm"
-						variant="secondary"
-						className="mt-3 w-full"
-						disabled={isProcessing}
-						onClick={() =>
-							applyNoiseReduction({
-								trackId,
-								element,
-								strength: denoiseStrength,
-							})
-						}
-					>
-						<HugeiconsIcon icon={SparklesIcon} className="size-3.5" />
-						{isProcessing ? "Reducing noise..." : "Reduce Noise"}
-					</Button>
+						<Button
+							size="sm"
+							variant="secondary"
+							className="mt-3 w-full"
+							disabled={isProcessing}
+							onClick={() =>
+								applyNoiseReduction({
+									trackId,
+									element,
+									strength: denoiseStrength,
+								})
+							}
+						>
+							<HugeiconsIcon icon={SparklesIcon} className="size-3.5" />
+							{isProcessing ? "Reducing noise..." : "Reduce Noise"}
+						</Button>
 
-					<p className="text-muted-foreground mt-2 text-[11px]">
-						Runs spectral-gating denoise on this clip's source audio and
-						swaps in the cleaned result.
-					</p>
-				</SectionContent>
-			</Section>
+						<p className="text-muted-foreground mt-2 text-[11px]">
+							Runs spectral-gating denoise on this clip's source audio and swaps
+							in the cleaned result.
+						</p>
+					</SectionContent>
+				</Section>
+			)}
 		</div>
 	);
 }

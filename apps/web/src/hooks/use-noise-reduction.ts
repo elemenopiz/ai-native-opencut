@@ -2,6 +2,10 @@ import { useCallback, useState } from "react";
 import { useEditor } from "@/hooks/use-editor";
 import { useBackgroundTasksStore } from "@/stores/background-tasks-store";
 import { aiClient } from "@/lib/ai-client";
+import {
+	isFeatureAvailable,
+	retiredFeatureMessage,
+} from "@/lib/local-ai/retired-features";
 import type { AudioElement, CreateUploadAudioElement } from "@/types/timeline";
 import { toast } from "sonner";
 
@@ -26,6 +30,13 @@ export function useNoiseReduction() {
 			element: AudioElement;
 			strength?: number;
 		}) => {
+			// The denoise endpoint only ever existed on the retired Python
+			// stack — gate until a browser/cloud implementation lands.
+			if (!isFeatureAvailable("denoise")) {
+				toast.error(retiredFeatureMessage("denoise"));
+				return;
+			}
+
 			const taskId = `denoise-${Date.now()}`;
 			setIsProcessing(true);
 			bgTasks.addTask({
@@ -49,11 +60,9 @@ export function useNoiseReduction() {
 						throw new Error("Could not fetch library audio source");
 					}
 					const blob = await response.blob();
-					sourceFile = new File(
-						[blob],
-						`${element.name || "audio"}.wav`,
-						{ type: blob.type || "audio/wav" },
-					);
+					sourceFile = new File([blob], `${element.name || "audio"}.wav`, {
+						type: blob.type || "audio/wav",
+					});
 				}
 
 				if (!sourceFile) {
