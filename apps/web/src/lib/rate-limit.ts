@@ -76,6 +76,10 @@ export const RATE_LIMITS = {
 	// Client-error intake. Unauthenticated by design (errors happen logged-out),
 	// so the burst cap is tight; the client also self-caps per page load.
 	"telemetry:error": { perMinute: 10, perDay: 300 },
+	// Closed-beta access-code check (POST /api/beta-gate). A 4-digit code has
+	// only 10k combinations — the tight per-IP caps are what make brute force
+	// impractical (~months of continuous guessing per IP).
+	"beta:gate": { perMinute: 5, perDay: 60 },
 	// Anonymous arrangement publish (no-login-to-try posture). Every call inserts
 	// a Postgres row, and publishing is a rare, deliberate human action — keep the
 	// per-IP caps tight.

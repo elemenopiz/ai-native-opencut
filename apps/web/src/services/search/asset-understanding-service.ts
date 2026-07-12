@@ -37,6 +37,7 @@ import {
 	type UnderstandAssetFn,
 } from "@/lib/search/asset-understanding";
 import { gateOn402 } from "@/lib/credits/client-gate";
+import { FEATURE_UNDERSTANDING_PASS } from "@/lib/feature-flags";
 import {
 	getUnderstanding,
 	saveUnderstanding,
@@ -80,9 +81,19 @@ const SAMPLE_WIDTH = 384;
 /** JPEG quality for the frames sent to the VLM. */
 const SAMPLE_QUALITY = 0.6;
 
-/** Whether the ingest hook should auto-run the (paid) understanding pass on import. */
+/**
+ * Whether the ingest hook should auto-run the (paid) understanding pass on
+ * import. Requires BOTH the closed-beta master switch
+ * (`FEATURE_UNDERSTANDING_PASS` — Understanding is not one of the three
+ * Gemini surfaces allowed to spend from the shared beta pool) AND the
+ * per-deployment opt-in (`NEXT_PUBLIC_UNDERSTANDING_AUTORUN=1`), so flipping
+ * the autorun var alone can never re-enable spend while the beta gate is on.
+ */
 export function isUnderstandingAutorunEnabled(): boolean {
-	return process.env.NEXT_PUBLIC_UNDERSTANDING_AUTORUN === "1";
+	return (
+		FEATURE_UNDERSTANDING_PASS &&
+		process.env.NEXT_PUBLIC_UNDERSTANDING_AUTORUN === "1"
+	);
 }
 
 interface SampledFrame {

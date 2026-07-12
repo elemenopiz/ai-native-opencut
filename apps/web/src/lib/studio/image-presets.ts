@@ -1,5 +1,5 @@
 /**
- * GPT Image generation presets — Higgsfield-style structured image workflows.
+ * Image generation presets — Higgsfield-style structured image workflows.
  *
  * Like the camera presets, each is a prompt template woven around the user's
  * input plus sensible size/count defaults. The two beyond "freeform" target the
@@ -25,7 +25,7 @@ export interface ImagePreset {
 	recommendedSize: ImageSize;
 	/** Whether the multi-image count control applies (storyboard is one board). */
 	allowsMultiple: boolean;
-	/** Builds the final prompt sent to GPT Image. */
+	/** Builds the final prompt sent to the image backend. */
 	buildPrompt: (input: string, opts?: { panels?: number }) => string;
 }
 

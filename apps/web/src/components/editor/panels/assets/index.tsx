@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect } from "react";
 import { Separator } from "@/components/ui/separator";
+import { FEATURE_UNDERSTANDING_PASS } from "@/lib/feature-flags";
 import { type Tab, useAssetsPanelStore } from "@/stores/assets-panel-store";
 import { TabBar } from "./tabbar";
 import { DirectorView } from "./views/director";
@@ -20,7 +22,17 @@ import { MulticamPanel } from "./views/multicam";
 import { TemplateGalleryPanel } from "./views/template-gallery";
 
 export function AssetsPanel() {
-	const { activeTab } = useAssetsPanelStore();
+	const { activeTab, setActiveTab } = useAssetsPanelStore();
+
+	// "insights" is dropped from the visible tab list (see TabBar) when the
+	// Understanding Pass gate is off, but `activeTab` persists across
+	// sessions — bounce a stale selection back to Media so the panel can
+	// never land on a hidden tab.
+	useEffect(() => {
+		if (activeTab === "insights" && !FEATURE_UNDERSTANDING_PASS) {
+			setActiveTab("media");
+		}
+	}, [activeTab, setActiveTab]);
 
 	const viewMap: Record<Tab, React.ReactNode> = {
 		media: <MediaView />,

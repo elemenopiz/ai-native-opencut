@@ -32,7 +32,9 @@ const IMAGE_CREDITS_FLAT: Record<string, number> = {
 	"openai-gpt-image": 4,
 	"bfl-flux": 4,
 	"google-imagen": 4,
-	"google-nano-banana": 4,
+	// Nano Banana Pro (Gemini 3 Pro Image): ~$0.134/image at 1K/2K → ceil to 14.
+	// 4K (~$0.24) is not exposed in the beta UI (cost control).
+	"google-nano-banana": 14,
 	ideogram: 3,
 };
 

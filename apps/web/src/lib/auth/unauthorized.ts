@@ -54,8 +54,11 @@ export function handleUnauthorized(response: Response, url: string): boolean {
 	if (now - lastPromptAt < DEBOUNCE_MS) return true;
 	lastPromptAt = now;
 
-	toast.error("Please sign in to continue", {
-		description: "Your session has expired or you are not signed in.",
+	// An invitation, not an error: in the closed beta, anonymous editing is the
+	// normal state and this is the first money-moment touchpoint.
+	toast("Sign up to use AI features", {
+		description:
+			"Editing is free and stays on your device. Generation needs an account — new accounts come with free credits.",
 	});
 	window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
 	return true;

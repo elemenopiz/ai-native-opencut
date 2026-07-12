@@ -90,7 +90,7 @@ const CONSISTENCY_OPTIONS: {
 	{
 		value: "high",
 		label: "Balanced",
-		hint: "Renders a fresh per-shot reference still (GPT Image / Gemini) from the persona's photos — best all-round likeness (+1 image per shot).",
+		hint: "Renders a fresh per-shot reference still from the persona's photos — best all-round likeness (+1 image per shot).",
 	},
 ];
 

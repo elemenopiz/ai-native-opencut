@@ -4,6 +4,8 @@ import path from "node:path";
 import { eq, inArray, like, or, sql } from "drizzle-orm";
 import { webEnv } from "@byorn/env/web";
 import { accounts, sessions, users, verifications } from "@/lib/db/schema";
+import { creditAccounts, creditLedger } from "@/lib/db/schema-credits";
+import { SIGNUP_GRANT_CREDITS } from "@/lib/credits/signup-grant";
 import { commits, projectRepositories } from "@/lib/db/schema-version-control";
 
 // ── Real-module re-pin (the arrangements/__tests__/route.test.ts pattern) ────
@@ -244,6 +246,37 @@ describe("sign-up — mints a user and a working session", () => {
 		const { email, cookie } = await signUp();
 		// The session works immediately, before any verification link is clicked.
 		expect((await sessionUser(cookie))?.email).toBe(email);
+	});
+
+	it("grants the private-beta welcome credits exactly once (user.create.after hook)", async () => {
+		const { email } = await signUp();
+		const row = await findUser(email);
+		expect(row).not.toBeNull();
+		const userId = row!.id;
+
+		// The hook funds the account the moment the user row exists.
+		const [account] = await db
+			.select({ balance: creditAccounts.balance })
+			.from(creditAccounts)
+			.where(eq(creditAccounts.userId, userId));
+		expect(account?.balance).toBe(SIGNUP_GRANT_CREDITS);
+
+		// One signup_grant ledger row, carrying the per-account idempotency key —
+		// a re-fired hook can never double-grant.
+		const ledger = await db
+			.select({
+				reason: creditLedger.reason,
+				delta: creditLedger.delta,
+				idempotencyKey: creditLedger.idempotencyKey,
+			})
+			.from(creditLedger)
+			.where(eq(creditLedger.userId, userId));
+		expect(ledger).toHaveLength(1);
+		expect(ledger[0]).toMatchObject({
+			reason: "signup_grant",
+			delta: SIGNUP_GRANT_CREDITS,
+			idempotencyKey: `grant:signup:${userId}`,
+		});
 	});
 });
 

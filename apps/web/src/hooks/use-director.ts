@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo } from "react";
 import { useEditor } from "@/hooks/use-editor";
+import { FEATURE_UNDERSTANDING_PASS } from "@/lib/feature-flags";
 import {
 	createDirectorApi,
 	type BackendCatalogEntry,
@@ -234,14 +235,21 @@ export function useDirector(): DirectorApi {
 	// re-runs are cheap and never re-bill).
 	useEffect(() => {
 		const runner = createUnderstandingRunner(editor);
-		void primeUnderstandingCache().then(runner.run);
+		// Understanding is one of the paid Gemini surfaces gated OFF for the
+		// closed beta (it isn't Director chat / image gen / enhance-prompt — see
+		// FEATURE_UNDERSTANDING_PASS). Priming still reads the local IndexedDB
+		// cache (free, no network) so any records from before the gate flipped
+		// still ground the Director; only the paid trigger is skipped.
+		void primeUnderstandingCache().then(() => {
+			if (FEATURE_UNDERSTANDING_PASS) runner.run();
+		});
 		// The speech sibling: prime the transcript cache, then auto-transcribe
 		// whatever it didn't cover (free/local — see createTranscriptionRunner).
 		const transcriber = createTranscriptionRunner(editor);
 		void primeTranscriptCache().then(transcriber.run);
 		const unsubscribe = editor.media.subscribe(() => {
 			// Defer so we don't run during React's commit phase.
-			setTimeout(runner.run, 0);
+			if (FEATURE_UNDERSTANDING_PASS) setTimeout(runner.run, 0);
 			setTimeout(transcriber.run, 0);
 		});
 		return () => {

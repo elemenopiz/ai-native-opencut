@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/utils/ui";
 import { useEditor } from "@/hooks/use-editor";
 import { getDragData } from "@/lib/drag-data";
+import { FEATURE_UNDERSTANDING_PASS } from "@/lib/feature-flags";
 import { addItemsToProjectMedia } from "@/lib/studio/add-to-editor";
 import {
 	TAB_KEYS,
@@ -57,7 +58,9 @@ export function TabBar() {
 			const { added } = await addItemsToProjectMedia({
 				editor,
 				projectId,
-				items: [{ url: dragData.url, name: dragData.name, kind: dragData.kind }],
+				items: [
+					{ url: dragData.url, name: dragData.name, kind: dragData.kind },
+				],
 				source: "ai",
 			});
 			if (added > 0) toast.success("Saved to assets.");
@@ -115,8 +118,20 @@ export function TabBar() {
 					className="flex items-center justify-center size-5 rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
 					aria-label="Scroll up for more tabs"
 				>
-					<svg width="10" height="6" viewBox="0 0 10 6" fill="none" className="shrink-0">
-						<path d="M1 5L5 1L9 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+					<svg
+						width="10"
+						height="6"
+						viewBox="0 0 10 6"
+						fill="none"
+						className="shrink-0"
+					>
+						<path
+							d="M1 5L5 1L9 5"
+							stroke="currentColor"
+							strokeWidth="1.5"
+							strokeLinecap="round"
+							strokeLinejoin="round"
+						/>
 					</svg>
 				</button>
 			</div>
@@ -126,7 +141,12 @@ export function TabBar() {
 				ref={scrollRef}
 				className="scrollbar-hidden relative flex flex-1 min-h-0 p-2 flex-col items-center justify-start gap-1.5 overflow-y-auto"
 			>
-				{TAB_KEYS.map((tabKey) => {
+				{TAB_KEYS.filter(
+					// "Insights" surfaces the paid Understanding Pass — gated OFF for
+					// the closed beta (see FEATURE_UNDERSTANDING_PASS). Hide the tab
+					// entirely rather than leaving a dead entry point.
+					(tabKey) => tabKey !== "insights" || FEATURE_UNDERSTANDING_PASS,
+				).map((tabKey) => {
 					const tab = tabs[tabKey];
 					const acceptsTakeDrop = tabKey === "media";
 					// The "starred" tab is the Takes home — its icon doubles as the
@@ -164,9 +184,7 @@ export function TabBar() {
 											: undefined
 									}
 									onDragLeave={
-										acceptsTakeDrop
-											? () => setTakeDropTarget(null)
-											: undefined
+										acceptsTakeDrop ? () => setTakeDropTarget(null) : undefined
 									}
 									onDrop={acceptsTakeDrop ? handleTakeDrop : undefined}
 								>
@@ -205,8 +223,20 @@ export function TabBar() {
 					className="flex items-center justify-center size-5 rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
 					aria-label="Scroll down for more tabs"
 				>
-					<svg width="10" height="6" viewBox="0 0 10 6" fill="none" className="shrink-0">
-						<path d="M1 1L5 5L9 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+					<svg
+						width="10"
+						height="6"
+						viewBox="0 0 10 6"
+						fill="none"
+						className="shrink-0"
+					>
+						<path
+							d="M1 1L5 5L9 1"
+							stroke="currentColor"
+							strokeWidth="1.5"
+							strokeLinecap="round"
+							strokeLinejoin="round"
+						/>
 					</svg>
 				</button>
 			</div>
