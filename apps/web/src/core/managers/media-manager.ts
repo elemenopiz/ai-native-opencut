@@ -12,6 +12,10 @@ import {
 import { generateProxy } from "@/services/proxy";
 import { deleteEmbedding } from "@/services/search/embedding-store";
 import { deleteTranscript } from "@/services/search/asset-transcript-store";
+// Per-project understanding rows die with the asset; the cross-project
+// user-media memory (user-memory-store, keyed by CONTENT hash) is deliberately
+// left intact — its whole purpose is reuse after this asset is gone.
+import { deleteUnderstanding } from "@/services/search/asset-understanding-store";
 
 export class MediaManager {
 	private assets: MediaAsset[] = [];
@@ -88,6 +92,7 @@ export class MediaManager {
 		videoCache.clearVideo({ mediaId: id });
 		deleteEmbedding(id).catch(() => undefined);
 		deleteTranscript(id).catch(() => undefined);
+		deleteUnderstanding(id).catch(() => undefined);
 
 		if (asset?.url) {
 			URL.revokeObjectURL(asset.url);
@@ -189,11 +194,12 @@ export class MediaManager {
 		this.assets = [];
 		this.notify();
 
-		// Drop embedding + transcript index entries for the removed assets
-		// (fire-and-forget).
+		// Drop embedding + transcript + understanding index entries for the
+		// removed assets (fire-and-forget).
 		mediaIds.forEach((id) => {
 			deleteEmbedding(id).catch(() => undefined);
 			deleteTranscript(id).catch(() => undefined);
+			deleteUnderstanding(id).catch(() => undefined);
 		});
 
 		try {
