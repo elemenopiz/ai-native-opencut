@@ -1869,3 +1869,194 @@ export function scopeForTool(name: string): "reel:read" | "reel:write" {
 	if (!tool) return "reel:write";
 	return tool.mutating ? "reel:write" : "reel:read";
 }
+
+// ── Gemini function declarations (native authoring, not a mechanical strip) ──
+//
+// Gemini's `functionDeclarations` speak an OpenAPI-3.0 SUBSET, not JSON Schema
+// draft-07: types are UPPERCASE enums, and `oneOf` / `additionalProperties` /
+// `default` / vendor keywords (`x-seconds`) don't exist. Rather than stripping
+// the Anthropic-facing schemas and hoping, `toGeminiDeclarations()` AUTHORS the
+// Gemini contract from the same catalog: unsupported constructs are restructured
+// into shapes the handlers already coerce (the handlers are lenient by design),
+// units/defaults are folded into descriptions, and the highest-traffic verbs get
+// descriptions tuned for Gemini's triggering behavior (explicit "call this
+// when..." phrasing), which its function-calling responds to markedly better
+// than terse noun phrases.
+
+/** A schema node in Gemini's OpenAPI-subset dialect (v1beta `Schema`). */
+export interface GeminiSchema {
+	type?: "STRING" | "NUMBER" | "INTEGER" | "BOOLEAN" | "ARRAY" | "OBJECT";
+	description?: string;
+	enum?: string[];
+	items?: GeminiSchema;
+	properties?: Record<string, GeminiSchema>;
+	required?: string[];
+	nullable?: boolean;
+	minimum?: number;
+	maximum?: number;
+	minItems?: number;
+	maxItems?: number;
+}
+
+/** One entry in a Gemini `tools[].functionDeclarations` array. */
+export interface GeminiFunctionDeclaration {
+	name: string;
+	description: string;
+	parameters?: GeminiSchema;
+}
+
+/** Map a draft-07 `type` to Gemini's uppercase enum. */
+const GEMINI_TYPE: Record<string, GeminiSchema["type"]> = {
+	object: "OBJECT",
+	array: "ARRAY",
+	string: "STRING",
+	number: "NUMBER",
+	integer: "INTEGER",
+	boolean: "BOOLEAN",
+};
+
+/**
+ * Translate one catalog {@link JSONSchema} node into the Gemini dialect.
+ * Restructuring rules (all verified against the handlers' coercion):
+ *  - `oneOf` collapses to the FIRST branch, with every alternative described in
+ *    prose — the two catalog uses (generate.slotIds, extractFrame.position) are
+ *    ADDITIONALLY hand-authored in {@link GEMINI_PROPERTY_OVERRIDES}, so this
+ *    generic collapse is only the safety net for future schema additions.
+ *  - `default` folds into the description (Gemini has no default keyword).
+ *  - `x-seconds` folds a "Value is in SECONDS." note into the description.
+ *  - `additionalProperties` is dropped (unsupported; handlers ignore extras).
+ */
+function geminiSchemaOf(node: JSONSchema): GeminiSchema {
+	// oneOf: collapse to the first branch, describing the alternatives.
+	if (node.oneOf?.length) {
+		const first = geminiSchemaOf(node.oneOf[0]);
+		const alts = node.oneOf.map((b) => b.type ?? "value").join(" | ");
+		return {
+			...first,
+			description: [node.description, `Accepts: ${alts}.`]
+				.filter(Boolean)
+				.join(" "),
+		};
+	}
+
+	const out: GeminiSchema = {};
+	if (node.type && GEMINI_TYPE[node.type]) out.type = GEMINI_TYPE[node.type];
+
+	const descParts: string[] = [];
+	if (node.description) descParts.push(node.description);
+	if (node["x-seconds"] && !/second/i.test(node.description ?? ""))
+		descParts.push("Value is in SECONDS.");
+	if (node.default !== undefined)
+		descParts.push(`Default: ${JSON.stringify(node.default)}.`);
+	if (descParts.length) out.description = descParts.join(" ");
+
+	if (node.enum) {
+		// Gemini enums are string-typed; the catalog's are already strings.
+		out.type = "STRING";
+		out.enum = node.enum.map((e) => String(e));
+	}
+	if (node.items) out.items = geminiSchemaOf(node.items);
+	if (node.properties) {
+		out.properties = Object.fromEntries(
+			Object.entries(node.properties).map(([k, v]) => [k, geminiSchemaOf(v)]),
+		);
+	}
+	if (node.required?.length) out.required = [...node.required];
+	if (typeof node.minimum === "number") out.minimum = node.minimum;
+	if (typeof node.maximum === "number") out.maximum = node.maximum;
+	if (typeof node.minItems === "number") out.minItems = node.minItems;
+	if (typeof node.maxItems === "number") out.maxItems = node.maxItems;
+	return out;
+}
+
+/**
+ * Hand-authored property replacements for the schema shapes Gemini's dialect
+ * can't express (the catalog's two `oneOf` unions). Each replacement targets a
+ * shape the verb's handler already coerces:
+ *  - `generate.slotIds` — draft-07 says `array | "all"`; the handler treats any
+ *    NON-array (including omitted) as "all", so the Gemini contract is simply
+ *    "an array; omit for all slots".
+ *  - `extractFrame.position` — draft-07 says `"first" | "last" | number`; the
+ *    handler runs the value through `numOrUndefined` first, so a STRING that
+ *    parses as a number ("2.5") lands on the seconds path and "first"/"last"
+ *    fall through to the named positions.
+ */
+const GEMINI_PROPERTY_OVERRIDES: Record<
+	string,
+	Record<string, GeminiSchema>
+> = {
+	generate: {
+		slotIds: {
+			type: "ARRAY",
+			items: { type: "STRING" },
+			description:
+				"Short slot ids (from the REEL listing) to render. OMIT this field entirely to render every slot in the reel.",
+		},
+	},
+	extractFrame: {
+		position: {
+			type: "STRING",
+			description:
+				'Where to grab the frame: "first", "last", or a number of SECONDS into the source as a string (e.g. "2.5").',
+		},
+	},
+};
+
+/**
+ * Description overrides for the highest-traffic verbs, tuned for Gemini's
+ * function-calling trigger behavior: lead with an explicit "Call this when...",
+ * then the catalog's own contract text. Verbs not listed keep their catalog
+ * description verbatim — the contract content is identical either way.
+ */
+const GEMINI_DESCRIPTION_OVERRIDES: Record<string, string> = {
+	storyboard:
+		"Call this FIRST whenever the brief implies MORE THAN ONE shot (a sequence, story, ad, or montage): it decomposes the brief into ordered shots under one shared style bible and persists the plan.",
+	reserveSlot:
+		"Call this for a single quick clip (no storyboard needed): it adds one empty generative slot with a prompt, ready to generate.",
+	generate:
+		"Call this to actually render takes for planned slots — nothing is generated until you do. Renders one or more takes per listed slot (or every slot when slotIds is omitted).",
+	reroll:
+		"Call this when a slot's current take is fundamentally wrong (wrong subject/scene): it renders fresh alternate take(s) for that one slot from its current prompt.",
+	remix:
+		"Call this when a take is MOSTLY right but has one flaw: it edits the slot's current take in place from a short delta prompt, keeping seed/identity anchored.",
+	reviewTake:
+		"Call this to SEE a generated take before judging it — you cannot evaluate a clip from its prompt alone. Returns the take's actual frames (first→mid→last) as images.",
+	chooseTake:
+		"Call this to make a specific take the slot's active take (e.g. after reviewing alternates).",
+	setPrompt:
+		"Call this to rewrite a slot's generation prompt (and optionally its per-shot spec) BEFORE rerolling it.",
+	getReel:
+		"Call this whenever you need the CURRENT reel state (slots, takes, ids, plan) — the listing in the system prompt is a snapshot from the start of the turn.",
+	addVoiceover:
+		"Call this when the brief mentions narration/voiceover: it renders TTS timed to the narrated shot (pass that shot's slotId). One voiceover per shot/beat it narrates.",
+	addMusicBed:
+		"Call this to lay background music/ambience under the whole reel. A reel is not silent — add audio as part of building it, not as an afterthought.",
+	intakeReferences:
+		"Call this FIRST when the user attaches reference images (style refs or a character photo): it looks at the pixels and derives a style bible (and optionally a persona) that seeds every later shot.",
+};
+
+/**
+ * The Director verbs as native Gemini `functionDeclarations` — same names, same
+ * arg contracts, authored for Gemini's schema dialect and triggering behavior
+ * (see the section comment above). The Gemini Director brain
+ * (`agent-gemini.ts`) sends these; the verbs execute through the SAME handlers,
+ * so behavior differs only in how the model is addressed.
+ */
+export function toGeminiDeclarations(): GeminiFunctionDeclaration[] {
+	return toolCatalog().map((t) => {
+		const parameters = geminiSchemaOf(t.inputSchema);
+		const propOverrides = GEMINI_PROPERTY_OVERRIDES[t.name];
+		if (propOverrides && parameters.properties) {
+			parameters.properties = { ...parameters.properties, ...propOverrides };
+		}
+		return {
+			name: t.name,
+			description: GEMINI_DESCRIPTION_OVERRIDES[t.name] ?? t.description,
+			// Gemini rejects an OBJECT parameters node with no properties — omit
+			// `parameters` for zero-arg verbs instead.
+			...(parameters.properties && Object.keys(parameters.properties).length
+				? { parameters }
+				: {}),
+		};
+	});
+}

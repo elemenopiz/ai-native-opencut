@@ -61,6 +61,9 @@ export const RATE_LIMITS = {
 	"studio:persona-still": { perMinute: 12, perDay: 300 },
 	"studio:promote": { perMinute: 6, perDay: 120 },
 	"llm:agent": { perMinute: 30, perDay: 1500 },
+	// Native Gemini Director relay (POST /api/llm/gemini) — same loop profile as
+	// llm:agent (one call per model turn of the same agent loop), so same caps.
+	"llm:gemini": { perMinute: 30, perDay: 1500 },
 	// One-shot prompt rewriter (POST /api/llm/enhance-prompt). Un-metered for
 	// beta (free but rate-limited) — a human clicking "Enhance" a handful of
 	// times per prompt, so the burst cap is tight and the daily cap generous.

@@ -67,6 +67,9 @@ mock.module("@/lib/studio/backends", () => ({
 // pattern as api/tts/__tests__/route.test.ts (webEnv is a shared live object).
 import { webEnv } from "@byorn/env/web";
 webEnv.OPENAI_API_KEY ||= "sweep-fake-key";
+// llm/gemini has the same key-before-session 503 contract (client brain-fallback
+// signal) — pin a fake key so its 401 gate is reachable too.
+webEnv.GEMINI_API_KEY ||= "sweep-fake-key";
 
 const API_DIR = path.join(import.meta.dir, "..");
 
@@ -176,6 +179,12 @@ const SWEEP: SweepCase[] = [
 		file: "llm/agent/route.ts",
 		calls: {
 			POST: [makeRequest("POST", `${BASE}/llm/agent`, { messages: [] })],
+		},
+	},
+	{
+		file: "llm/gemini/route.ts",
+		calls: {
+			POST: [makeRequest("POST", `${BASE}/llm/gemini`, { contents: [] })],
 		},
 	},
 	{
