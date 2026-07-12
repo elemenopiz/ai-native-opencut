@@ -22,11 +22,12 @@
  *    Multiple tool_use blocks per assistant turn are executed and answered
  *    with tool_result blocks in a single user message; the loop runs until
  *    `stop_reason === "end_turn"` (or a hard ceiling).
- *  - LOCAL (privacy mode / fallback): the original plain-text ReAct loop over
- *    the Ollama backend (`aiClient.chat` injected as `AgentChatFn`), one JSON
- *    action per turn. Kept intact as `runDirectorAgentLocal`; `runDirectorAgent`
- *    falls back to it automatically when the relay reports no ANTHROPIC_API_KEY
- *    (or when the caller passes `brain: "local"`).
+ *  - LOCAL (RETIRED for now): the original plain-text ReAct loop over the
+ *    Ollama backend (`aiClient.chat` injected as `AgentChatFn`), one JSON
+ *    action per turn. Kept intact as `runDirectorAgentLocal` for revival, but
+ *    `runDirectorAgent` no longer routes to it — with no cloud key configured
+ *    the run fails with a clear configuration error instead of silently
+ *    degrading to a weak local brain.
  *
  * Both brains drive the SAME verb registry ({@link TOOLS}) and the
  * SAME `DirectorApi`, expand SHORT ids at the same choke point
@@ -1777,11 +1778,12 @@ function parseReply(text: string): ParsedAction | ParsedFinal {
 }
 
 /**
- * PRIVACY MODE / FALLBACK: the original plain-text ReAct loop over the local
- * Ollama backend. One JSON action per turn, whole system prompt + scratchpad
- * re-sent each step, capped at {@link MAX_STEPS}. Kept as a first-class export
- * so callers can force local inference; `runDirectorAgent` also routes here
- * automatically when the frontier relay reports no API key.
+ * RETIRED FOR NOW (2026-07-12): the original plain-text ReAct loop over the
+ * local Ollama backend. One JSON action per turn, whole system prompt +
+ * scratchpad re-sent each step, capped at {@link MAX_STEPS}. No longer routed
+ * to by `runDirectorAgent` — with no cloud key the run fails with a clear
+ * configuration error instead of degrading to a weak local brain. Kept intact
+ * as an export so the privacy-mode path can be revived deliberately later.
  */
 export async function runDirectorAgentLocal(opts: {
 	director: DirectorApi;
@@ -1898,14 +1900,13 @@ export async function runDirectorAgentLocal(opts: {
  * Brain selection:
  *  - `"auto"` (default): frontier Claude via `/api/llm/agent`; if the relay
  *    reports no `ANTHROPIC_API_KEY`, tries the native Gemini brain
- *    (`/api/llm/gemini` — see `agent-gemini.ts`), and if THAT relay reports no
- *    `GEMINI_API_KEY` either, falls back to the local Ollama text loop
- *    (`chat`). Each fallback decision happens on the brain's FIRST relay call,
- *    before any tool has run, so no work is repeated — and with nothing
- *    configured the outcome is exactly the old frontier→local path.
+ *    (`/api/llm/gemini` — see `agent-gemini.ts`). Each fallback decision
+ *    happens on the brain's FIRST relay call, before any tool has run, so no
+ *    work is repeated. If BOTH relays report no key, the run fails with a
+ *    clear configuration error — the local Ollama fallback is retired for now
+ *    (`runDirectorAgentLocal` is kept intact but unrouted).
  *  - `"frontier"`: Claude only — a missing key surfaces as an error.
  *  - `"gemini"`: Gemini only — a missing key surfaces as an error.
- *  - `"local"`: privacy mode — never leaves the machine (uses `chat` only).
  */
 export async function runDirectorAgent(opts: {
 	director: DirectorApi;
@@ -1916,10 +1917,9 @@ export async function runDirectorAgent(opts: {
 	onEvent?: DirectorEventSink;
 	/** Cooperative cancel — checked between model/tool calls and aborts the in-flight relay fetch. */
 	signal?: AbortSignal;
-	brain?: "auto" | "frontier" | "gemini" | "local";
+	brain?: "auto" | "frontier" | "gemini";
 }): Promise<AgentRunResult> {
 	const brain = opts.brain ?? "auto";
-	if (brain === "local") return runDirectorAgentLocal(opts);
 	if (brain === "gemini") return runDirectorAgentGemini(opts);
 	try {
 		return await runDirectorAgentFrontier(opts);
@@ -1929,7 +1929,11 @@ export async function runDirectorAgent(opts: {
 				return await runDirectorAgentGemini(opts);
 			} catch (geminiError) {
 				if (geminiError instanceof GeminiKeyMissingError) {
-					return runDirectorAgentLocal(opts);
+					// Local Ollama fallback retired for now — fail loud and
+					// actionable rather than degrading to a weak local brain.
+					throw new Error(
+						"No Director brain is configured. Set ANTHROPIC_API_KEY (Claude) or GEMINI_API_KEY (Gemini) in apps/web/.env.local.",
+					);
 				}
 				throw geminiError;
 			}

@@ -241,7 +241,7 @@ test("brain seam: explicit gemini brain surfaces GeminiKeyMissingError when unco
 	).rejects.toBeInstanceOf(GeminiKeyMissingError);
 });
 
-test("brain seam: auto falls frontier → gemini → local as each relay reports no key", async () => {
+test("brain seam: auto falls frontier → gemini, then fails loud with a config error (local fallback retired)", async () => {
 	const relaysHit: string[] = [];
 	global.fetch = mock(async (input: string | URL | Request) => {
 		const url = String(input);
@@ -258,17 +258,23 @@ test("brain seam: auto falls frontier → gemini → local as each relay reports
 		);
 	}) as unknown as typeof fetch;
 
-	const result = await runDirectorAgent({
-		director: fakeDirector(),
-		chat: async () => '{"final":"local brain speaking"}',
-		userMessage: "hi",
-		brain: "auto",
-	});
+	let chatInvoked = false;
+	await expect(
+		runDirectorAgent({
+			director: fakeDirector(),
+			chat: async () => {
+				chatInvoked = true;
+				return '{"final":"local brain speaking"}';
+			},
+			userMessage: "hi",
+			brain: "auto",
+		}),
+	).rejects.toThrow(/No Director brain is configured/);
 
-	// Both relays were consulted (in order), then the local text loop answered.
+	// Both relays were consulted (in order); the retired local text loop never ran.
 	expect(relaysHit[0]).toContain("/api/llm/agent");
 	expect(relaysHit[1]).toContain("/api/llm/gemini");
-	expect(result.finalMessage).toBe("local brain speaking");
+	expect(chatInvoked).toBe(false);
 });
 
 test("cooperative cancel stops the run but keeps completed steps", async () => {

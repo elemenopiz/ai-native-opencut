@@ -706,19 +706,19 @@ export function DirectorView() {
 			} catch (error) {
 				commitLive();
 				const detail = error instanceof Error ? error.message : "";
-				// Frontier (Claude relay) failures carry their own explanation;
-				// everything else is the local Ollama path.
+				// Relay failures and the no-brain-configured error carry their own
+				// actionable explanation (the local Ollama fallback is retired, so
+				// there is no silent-degrade path to hint at anymore).
 				const isRelayIssue = detail.includes("Claude relay");
-				const isOllamaDown =
-					detail.includes("503") || detail.includes("Ollama");
+				const isConfigIssue = detail.includes("No Director brain");
 				addMessage({
 					id: crypto.randomUUID(),
 					role: "assistant",
 					content: isRelayIssue
-						? `${detail} Check ANTHROPIC_API_KEY / DIRECTOR_MODEL in apps/web/.env.local, or leave the key unset to use the local Ollama brain.`
-						: isOllamaDown
-							? "Ollama is not running or no LLM model is loaded. Open the AI Setup guide (click the AI indicator in the header) to pull a model like `llama3.2:1b`."
-							: `Something went wrong: ${detail || "Unknown error"}. Make sure the AI backend and Ollama are running with a model loaded.`,
+						? `${detail} Check ANTHROPIC_API_KEY / GEMINI_API_KEY / DIRECTOR_MODEL in apps/web/.env.local.`
+						: isConfigIssue
+							? detail
+							: `Something went wrong: ${detail || "Unknown error"}.`,
 				});
 			} finally {
 				abortRef.current = null;
