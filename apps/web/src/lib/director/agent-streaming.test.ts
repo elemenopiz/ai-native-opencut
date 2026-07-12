@@ -11,6 +11,14 @@ import { afterEach, expect, mock, test } from "bun:test";
 import { runDirectorAgent, type DirectorEvent } from "./agent";
 import type { DirectorApi } from "./director-api";
 
+// These tests replace `global.fetch` with a synthetic-SSE stub by direct
+// assignment. `mock.restore()` only undoes mock()/spyOn — it does NOT revert a
+// property assignment — so without this the stub leaks process-globally to
+// every later test file (bun shares one process). A later file that relies on
+// the real fetch (e.g. embedding-service's sampleImageFrame fetching a data:
+// URL) would then break purely on test-file order. Capture and restore it.
+const originalFetch = globalThis.fetch;
+
 /** Build one SSE frame (`event:` + `data:` + blank line). */
 function frame(event: string, data: unknown): string {
 	return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -56,6 +64,7 @@ const noopChat = async () => "";
 
 afterEach(() => {
 	mock.restore();
+	globalThis.fetch = originalFetch;
 });
 
 test("frontier run streams reasoning + tool progress, then a final answer (multi-step)", async () => {
