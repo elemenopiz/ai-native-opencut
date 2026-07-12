@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { signIn, signUp } from "@/lib/auth/client";
+import { SIGNUP_GRANT_CREDITS } from "@/lib/credits/signup-grant";
 import { Button } from "@/components/ui/button";
 import {
 	Card,
@@ -80,7 +81,7 @@ export function AuthForm({
 					</CardTitle>
 					<CardDescription>
 						{isSignup
-							? "Sign up to save projects and connect AI agents."
+							? `Sign up to start creating — every new account gets ${SIGNUP_GRANT_CREDITS} free credits.`
 							: "Sign in to continue to your projects."}
 					</CardDescription>
 				</CardHeader>

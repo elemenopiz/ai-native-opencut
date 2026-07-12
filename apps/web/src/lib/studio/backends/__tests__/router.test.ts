@@ -19,7 +19,7 @@ import type { GenerationSpec } from "@/types/timeline";
  */
 
 const VIDEO_DEFAULT = "byteplus-seedance";
-const IMAGE_DEFAULT = "openai-gpt-image";
+const IMAGE_DEFAULT = "google-nano-banana";
 const ROSTER = [VIDEO_DEFAULT, IMAGE_DEFAULT, "vidA", "vidB", "vidC", "imgA"];
 
 function caps(

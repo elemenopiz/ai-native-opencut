@@ -174,7 +174,7 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 	return (
 		<div className={cn("flex flex-col gap-4", className)}>
 			<div className="space-y-1">
-				<h3 className="text-sm font-medium">GPT Image</h3>
+				<h3 className="text-sm font-medium">Image generation</h3>
 				<p className="text-xs text-muted-foreground">{preset.description}</p>
 			</div>
 

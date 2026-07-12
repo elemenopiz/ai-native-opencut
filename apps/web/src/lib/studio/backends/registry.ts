@@ -41,12 +41,13 @@ export function availableBackends(
 
 /**
  * The always-on default per modality — the backend we fall back to when nothing
- * better is available/configured. Today: Seedance (video), GPT Image (image).
+ * better is available/configured. Today: Seedance (video), Gemini Flash Image
+ * (image — the same GEMINI_API_KEY as the Director brain, so one key funds both).
  * A stable id keeps the router deterministic even as partner adapters come and go.
  */
 export const DEFAULT_BACKEND_ID: Record<GenerationModality, BackendId> = {
 	video: "byteplus-seedance",
-	image: "openai-gpt-image",
+	image: "google-nano-banana",
 };
 
 export function defaultBackend(

@@ -40,6 +40,17 @@ ADR-005; the short version, in order:
 #6–#10 (residual failures under-charge US, never users), #13 NOT-NULL flip, #5c biome.
 Songs tab = deploy-day call (fresh FREESOUND key or hide).
 
+**Beta onboarding packet (user-directed, 2026-07-13, branch `beta-gate-credits`):** forced
+sign-in for the private beta (`src/proxy.ts` cookie wall on /projects·/editor·/account,
+E2E builds exempt — the e2e runner can't mint sessions), **500-credit signup grant**
+(user.create.after hook → idempotent `grant:signup:${userId}`; ≈$5 Seedance = 10×5s clips;
+budget: $25 Seedance pool ⇒ first-come ~50 clips total, $10 Gemini pool covers images+chat),
+default image backend flipped **openai-gpt-image → google-nano-banana** (same GEMINI_API_KEY
+as the Director; /api/studio/image routes through the registry with availability fallback,
+default quality now "medium"/1K to stretch the Gemini pool), GPT Image de-branded from UI
+(/models lineup, image panel, persona hints). ⚠️ Post-deploy: accounts created BEFORE this
+ships got no grant — top up via POST /api/admin/credits/grant.
+
 ## 🧊 Architect session (2026-07-12, late) — push #3, FEATURE FREEZE, B2 prep
 
 **Push record (user-approved):** origin/main `73706b6f → 80118e7f`. Carried the 17 commits

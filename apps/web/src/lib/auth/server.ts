@@ -3,6 +3,8 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { Redis } from "@upstash/redis";
 import { db } from "@/lib/db";
 import { sendEmail } from "@/lib/auth/email";
+import { grant } from "@/lib/credits/ledger";
+import { SIGNUP_GRANT_CREDITS } from "@/lib/credits/signup-grant";
 import { webEnv } from "@byorn/env/web";
 
 const redis = new Redis({
@@ -34,6 +36,32 @@ export const auth = betterAuth({
 	user: {
 		deleteUser: {
 			enabled: true,
+		},
+	},
+	databaseHooks: {
+		user: {
+			create: {
+				// Private-beta welcome credits, granted the moment the account row
+				// exists so the header pill is funded on first load. Idempotent via
+				// the derived key `grant:signup:${user.id}` — one grant per account,
+				// ever, even if the hook re-fires. Never blocks signup: on failure we
+				// log and move on (an admin can re-run the grant).
+				after: async (user) => {
+					try {
+						await grant(user.id, SIGNUP_GRANT_CREDITS, {
+							reason: "signup_grant",
+							refType: "signup",
+							refId: user.id,
+							note: "Private-beta welcome credits",
+						});
+					} catch (err) {
+						console.error(
+							`Signup credit grant failed for user ${user.id}:`,
+							err,
+						);
+					}
+				},
+			},
 		},
 	},
 	emailAndPassword: {

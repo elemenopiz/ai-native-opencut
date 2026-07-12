@@ -63,16 +63,10 @@ const videoModels: RoutedModel[] = [
 
 const imageModels: RoutedModel[] = [
 	{
-		name: "FLUX1.1 [pro] Ultra",
-		vendor: "Black Forest Labs",
-		note: "High-detail stills and style frames.",
-		tags: ["stills"],
-	},
-	{
-		name: "GPT Image 2",
-		vendor: "OpenAI",
-		note: "Instruction-following image generation and edits.",
-		tags: ["edits"],
+		name: "Gemini Flash Image",
+		vendor: "Google",
+		note: "The default image model — fast generation and reference-guided edits that carry a persona's likeness into new scenes.",
+		tags: ["default", "references", "edits"],
 	},
 	{
 		name: "Imagen 4",
@@ -81,10 +75,10 @@ const imageModels: RoutedModel[] = [
 		tags: ["photoreal"],
 	},
 	{
-		name: "Gemini 2.5 Flash Image",
-		vendor: "Google",
-		note: "Fast iteration and reference-guided edits (Nano Banana).",
-		tags: ["fast", "edits"],
+		name: "FLUX1.1 [pro] Ultra",
+		vendor: "Black Forest Labs",
+		note: "High-detail stills and style frames.",
+		tags: ["stills"],
 	},
 	{
 		name: "Ideogram 3.0",

@@ -57,6 +57,9 @@ mock.module("@/lib/studio/backends", () => ({
 	},
 	allBackends: () => [],
 	availableBackends: () => [],
+	defaultBackend: () => {
+		throw new Error("unreachable: sweep requests are sessionless (401)");
+	},
 	relativeCostTier: () => "standard",
 }));
 

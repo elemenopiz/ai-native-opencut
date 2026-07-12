@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogTitle } from "../ui/dialog";
 import { useAIStatus } from "@/hooks/use-ai-status";
 import { useAIStore } from "@/stores/ai-store";
 import { useAssetsPanelStore } from "@/stores/assets-panel-store";
+import { SIGNUP_GRANT_CREDITS } from "@/lib/credits/signup-grant";
 import { isFeatureAvailable } from "@/lib/local-ai/retired-features";
 import { cn } from "@/utils/ui";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -212,7 +213,7 @@ export function Onboarding() {
 									<BetaNote
 										icon={Coins01Icon}
 										title="Generations cost credits"
-										desc="Every account starts with a granted balance. The Director previews the cost before it spends any of it."
+										desc={`Every account starts with ${SIGNUP_GRANT_CREDITS} credits on us. The Director previews the cost before it spends any of it.`}
 									/>
 									{/* Points at the retired local desktop engine's setup
 									    guide (its copy is also stale: transcription is

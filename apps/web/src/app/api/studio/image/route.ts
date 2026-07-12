@@ -1,17 +1,18 @@
 import { NextResponse } from "next/server";
 import { nanoid } from "nanoid";
-import {
-	generateReferenceImage,
-	type ImageSize,
-	type ImageQuality,
-} from "@/lib/studio/image-generator";
+import type { ImageSize, ImageQuality } from "@/lib/studio/image-generator";
 import { canRehost, rehostToR2, fetchBytes } from "@/lib/studio/media-storage";
 import { db } from "@/lib/db";
 import { imageStills } from "@/lib/db/schema-studio";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth/server";
 import { enforceRateLimit } from "@/lib/rate-limit";
-import { DEFAULT_BACKEND_ID } from "@/lib/studio/backends/registry";
+import {
+	availableBackends,
+	defaultBackend,
+	ensureBackendsRegistered,
+	type GenerationBackend,
+} from "@/lib/studio/backends";
 import { costFor } from "@/lib/credits/cost-table";
 import { InsufficientCredits } from "@/lib/credits/ledger";
 import {
@@ -48,7 +49,13 @@ export async function POST(req: Request) {
 			n?: number;
 		};
 
-		const { prompt, size = "1024x1024", quality = "high", n = 1 } = body;
+		// Default quality is "medium" (1K) for the beta — 2K "high" renders cost
+		// ~3× more real provider spend on the shared Gemini pool for little gain
+		// in a reference/reel context. Callers can still ask for "high".
+		const { prompt, size = "1024x1024", quality = "medium", n = 1 } = body;
+		// Clamp the batch size: `n` now drives a loop of provider calls (one
+		// submit per image), so an unclamped client value must not fan out.
+		const count = Math.min(4, Math.max(1, Math.floor(n)));
 
 		if (!prompt?.trim()) {
 			return NextResponse.json(
@@ -57,19 +64,33 @@ export async function POST(req: Request) {
 			);
 		}
 
+		// Routed, not hardcoded: the default image backend (Gemini Flash Image),
+		// falling back to whichever image backend has a key configured — so a
+		// self-hosted instance with only an OpenAI key still works.
+		ensureBackendsRegistered();
+		const preferred = defaultBackend("image");
+		const backend: GenerationBackend | undefined = preferred?.isAvailable()
+			? preferred
+			: availableBackends("image")[0];
+		if (!backend) {
+			return NextResponse.json(
+				{ error: "No image provider is configured on this server." },
+				{ status: 503 },
+			);
+		}
+
 		// Credits: image generation is synchronous — reserve the server-computed
 		// cost BEFORE the paid provider call, settle on success, release on any
-		// failure. The image route always renders via GPT Image (the default image
-		// backend); cost is flat per image × n.
-		const imageBackendId = DEFAULT_BACKEND_ID.image;
-		const creditCost = costFor(imageBackendId, "image", { count: n });
+		// failure. Cost is flat per image × n for the routed backend.
+		const imageBackendId = backend.id;
+		const creditCost = costFor(imageBackendId, "image", { count });
 		const chargeId = nanoid();
 		try {
 			await meteredReserve(session.user.id, creditCost, {
 				refType: STUDIO_REF_TYPE,
 				refId: chargeId,
 				idempotencyKey: `${chargeId}:reserve`,
-				metadata: { backendId: imageBackendId, count: n },
+				metadata: { backendId: imageBackendId, count },
 			});
 		} catch (err) {
 			if (err instanceof InsufficientCredits) {
@@ -78,9 +99,25 @@ export async function POST(req: Request) {
 			throw err;
 		}
 
-		let results: Awaited<ReturnType<typeof generateReferenceImage>>;
+		// Sync image backends return the finished image inline from submit(); one
+		// submit per requested image. Any failure in the batch releases the whole
+		// hold — we never charge for a partial batch.
+		let results: Array<{ imageUrl: string }>;
 		try {
-			results = await generateReferenceImage({ prompt, size, quality, n });
+			results = await Promise.all(
+				Array.from({ length: count }, async () => {
+					const submitted = await backend.submit({
+						modality: "image",
+						prompt,
+						size,
+						quality,
+					});
+					if (submitted.status !== "completed" || !submitted.mediaUrl) {
+						throw new Error(submitted.error ?? "Image generation failed");
+					}
+					return { imageUrl: submitted.mediaUrl };
+				}),
+			);
 		} catch (err) {
 			await meteredRelease(session.user.id, creditCost, {
 				refType: STUDIO_REF_TYPE,
@@ -95,13 +132,14 @@ export async function POST(req: Request) {
 				refType: STUDIO_REF_TYPE,
 				refId: chargeId,
 				idempotencyKey: `${chargeId}:settle`,
-				metadata: { backendId: imageBackendId, count: n },
+				metadata: { backendId: imageBackendId, count },
 			});
 		}
 
-		// gpt-image-2 returns base64; rehost into R2 so the still has a stable,
-		// publicly-fetchable URL (needed as an image-to-video reference, and so
-		// it survives beyond the response). Falls back to the original on failure.
+		// Sync image backends return inline base64 (data: URLs); rehost into R2 so
+		// the still has a stable, publicly-fetchable URL (needed as an
+		// image-to-video reference, and so it survives beyond the response).
+		// Falls back to the original on failure.
 		const records = await Promise.all(
 			results.map(async (r) => {
 				let imageUrl = r.imageUrl;
@@ -118,7 +156,7 @@ export async function POST(req: Request) {
 					userId: session.user.id,
 					prompt,
 					imageUrl,
-					revisedPrompt: r.revisedPrompt ?? null,
+					revisedPrompt: null,
 					size,
 					quality,
 				};
