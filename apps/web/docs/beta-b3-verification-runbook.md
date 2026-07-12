@@ -147,6 +147,29 @@ bun run start` (no flag) compiles `E2E_ENABLED=false`, so `E2EBridge` no-ops and
 5. `ffprobe` the file: duration ≈ timeline, resolution == canvas, video codec == h264/vp9, audio
    stream present with matching duration.
 
+**Local-run gotchas (learned the hard way, 2026-07-12):**
+- **No sign-in needed.** There is no `middleware.ts`; `/projects` and `/editor/*` serve
+  anonymously and projects persist client-side in IndexedDB (`storageService`). Skip signup.
+- **Any port ≠ 3000 breaks auth APIs anyway** — the auth client baseURL is baked to
+  `NEXT_PUBLIC_SITE_URL` (`lib/auth/client.ts:23`), so `/api/auth/*` from another port is
+  CORS-blocked. Harmless for this check (export never touches auth); expect benign console 401s.
+- **Do NOT set the Upstash vars to empty strings** to dodge the prod-mode fail-closed-Redis
+  issue: `packages/env/src/web.ts` zod-parses `process.env` and `z.url().default()` only
+  defaults on `undefined` — `""` fails validation and kills the lazy `@/lib/db` import
+  (health shows `db:false`). The recognized dead placeholders `UPSTASH_REDIS_REST_URL=http://localhost:8079`
+  + `UPSTASH_REDIS_REST_TOKEN=example_token` pass zod AND read as "not-configured".
+- **The onboarding tour modal auto-opens in the editor and blocks the Export button** — dismiss
+  via "skip the tour" first.
+- **A blank project's canvas adapts to the first imported media** (e.g. a 1280×720 clip ⇒
+  1280×720@30 canvas), it is NOT pinned to `DEFAULT_CANVAS_SIZE` 1920×1080 — read the expected
+  resolution from the export dialog, don't assume the default.
+
+> ✅ **VERIFIED LOCALLY 2026-07-12 (first machine verification of the real encoder ever):**
+> prod build @80118e7f, headless Chromium, 8s h264/aac fixture → exported MP4 passed all
+> probes — h264 + aac 44.1kHz stereo, 1280×720@30 (== live canvas), video duration 8.000s,
+> A/V drift 0.08s, 2.88 MB, full decode clean, and 242 gradual per-frame progress samples
+> (stub-leak check clear). Remaining export risk is production-only (below).
+
 This catches corrupt-output / wrong-resolution / dropped-audio / wrong-codec bugs **before** the
 deploy. It **cannot** pre-verify production-only concerns — CDN/hosting quirks, a prod CSP or
 COOP/COEP header blocking `SharedArrayBuffer`/WebCodecs, HTTPS-only feature gating — which is
