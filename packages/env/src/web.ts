@@ -11,6 +11,14 @@ const webEnvSchema = z.object({
 	NEXT_PUBLIC_MARBLE_API_URL: z.url().default("https://api.marblecms.com"),
 	NEXT_PUBLIC_AI_BACKEND_URL: z.url().default("http://localhost:8420"),
 
+	// Feature flag: shared-projects / collaboration UI (invite-by-email,
+	// "Shared with me", share dialog, shared-project onboarding). Default OFF
+	// for the private beta per ADR-003 — the collab API routes stay live and
+	// auth-gated; this flag only hides discoverability, not the security
+	// boundary. Read directly in client components (process.env.…) since it is
+	// inlined at build; unset reads as OFF. Flip to "true" to expose the UI.
+	NEXT_PUBLIC_FEATURE_COLLAB: z.enum(["true", "false"]).default("false"),
+
 	// Server — required for the app to function
 	DATABASE_URL: z
 		.string()

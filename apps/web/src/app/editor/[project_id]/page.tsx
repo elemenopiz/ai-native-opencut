@@ -32,6 +32,7 @@ import { BackgroundTasksWidget } from "@/components/editor/background-tasks";
 import { CommandPalette } from "@/components/editor/command-palette";
 import { ReelBoard } from "@/components/editor/board/reel-board";
 import { E2EBridge } from "@/components/editor/e2e-bridge";
+import { FEATURE_COLLAB } from "@/lib/feature-flags";
 
 export default function Editor() {
 	const params = useParams();
@@ -47,7 +48,9 @@ export default function Editor() {
 					</div>
 					<AIPanelWrapper />
 					<Onboarding />
-					<SharedProjectProvider />
+					{/* Collab runtime (background sync + shared-project onboarding)
+						hidden for the private beta per ADR-003. */}
+					{FEATURE_COLLAB && <SharedProjectProvider />}
 					<MigrationDialog />
 					<BackgroundTasksWidget />
 					<CommandPalette />
