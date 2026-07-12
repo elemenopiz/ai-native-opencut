@@ -32,9 +32,19 @@
  *
  * PURE LOGIC by default: no React, no DOM, no IndexedDB, no `DirectorApi`. The
  * frame sampling + persistence live in `services/search/asset-understanding-*`;
- * everything here is unit-testable. {@link relayUnderstandAsset} is the one
- * production seam that touches the network (the same stateless `/api/llm/agent`
- * relay the Director uses), injected so headless tests swap in a stub.
+ * everything here is unit-testable. The production seams that touch the network
+ * are injected so headless tests swap in stubs:
+ *
+ *  - {@link relayUnderstandAsset} — the default: the same stateless
+ *    `/api/llm/agent` relay the Director uses (Anthropic-shaped body).
+ *  - {@link geminiUnderstandAsset} — the NATIVE Gemini path: a Gemini-shaped
+ *    body (`contents` + `inlineData` parts + `generationConfig.responseSchema`)
+ *    against the stateless `/api/llm/gemini` relay.
+ *
+ * WHICH seam runs is a build-time config ({@link configuredUnderstandingModel},
+ * `NEXT_PUBLIC_UNDERSTANDING_MODEL`) resolved by {@link selectUnderstandAssetFn}:
+ * unset ⇒ today's behavior (the Director relay, its default brain); a
+ * `gemini-*` model (e.g. `gemini-3.5-flash`) ⇒ the native Gemini seam.
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
@@ -263,23 +273,34 @@ export function buildUnderstandingUserBlocks(
 	frames: string[],
 	opts?: { personas?: PersonaRef[]; hint?: string },
 ): Anthropic.ContentBlockParam[] {
-	const hint = cleanStr(opts?.hint);
-	const roster = renderPersonaRoster(opts?.personas ?? []);
-	const introParts: string[] = [];
-	if (hint) introParts.push(`HINT (what the user is doing): ${hint}`);
-	if (roster) introParts.push(roster);
-	introParts.push(
-		`The ${frames.length} frame(s) from ONE asset follow in time order (index 0 first). Describe the asset as the JSON record.`,
-	);
-
 	const blocks: Anthropic.ContentBlockParam[] = [
-		{ type: "text", text: introParts.join("\n\n") },
+		{ type: "text", text: understandingIntroText(frames.length, opts) },
 	];
 	for (const frame of frames) {
 		const block = dataUrlToImageBlock(frame);
 		if (block) blocks.push(block);
 	}
 	return blocks;
+}
+
+/**
+ * The shared intro text (hint + known cast + frame count) every understanding
+ * request leads with, regardless of which relay dialect carries the frames —
+ * kept as one helper so the Anthropic and Gemini builders can never drift.
+ */
+function understandingIntroText(
+	frameCount: number,
+	opts?: { personas?: PersonaRef[]; hint?: string },
+): string {
+	const hint = cleanStr(opts?.hint);
+	const roster = renderPersonaRoster(opts?.personas ?? []);
+	const introParts: string[] = [];
+	if (hint) introParts.push(`HINT (what the user is doing): ${hint}`);
+	if (roster) introParts.push(roster);
+	introParts.push(
+		`The ${frameCount} frame(s) from ONE asset follow in time order (index 0 first). Describe the asset as the JSON record.`,
+	);
+	return introParts.join("\n\n");
 }
 
 // ── parsing (fail-safe) ──────────────────────────────────────────────────────
@@ -604,7 +625,43 @@ export function pickShotRepresentatives(
 	return Array.from(new Set(out));
 }
 
-// ── production model call (the one network seam) ─────────────────────────────
+// ── model config (which brain runs the pass) ─────────────────────────────────
+
+/**
+ * The SINGLE source of truth for which model the understanding pass requests:
+ * `NEXT_PUBLIC_UNDERSTANDING_MODEL`, trimmed; unset/blank ⇒ `undefined` ⇒
+ * today's behavior (no `model` sent — the Director relay picks its default).
+ *
+ * Read PER CALL (not at module load) so bun tests can override `process.env`
+ * without module-reload tricks; the literal member access keeps Next's
+ * build-time inlining working in the client bundle (same convention as
+ * `NEXT_PUBLIC_UNDERSTANDING_AUTORUN` in the service).
+ */
+export function configuredUnderstandingModel(): string | undefined {
+	const raw = process.env.NEXT_PUBLIC_UNDERSTANDING_MODEL;
+	const trimmed = typeof raw === "string" ? raw.trim() : "";
+	return trimmed ? trimmed : undefined;
+}
+
+/** Is `model` one the NATIVE Gemini relay serves (vs. the Director's Anthropic-compatible relay)? */
+export function isGeminiModel(model: string | undefined): boolean {
+	return !!model && model.trim().toLowerCase().startsWith("gemini");
+}
+
+/**
+ * Pick the {@link UnderstandAssetFn} that serves `modelName` (the RESOLVED tag
+ * the record will be stored under — see the service's
+ * `resolveUnderstandingModelName`): a `gemini-*` model runs on the native
+ * {@link geminiUnderstandAsset} seam; everything else (including the default
+ * `vlm-v1` pipeline tag) stays on {@link relayUnderstandAsset}.
+ */
+export function selectUnderstandAssetFn(modelName: string): UnderstandAssetFn {
+	return isGeminiModel(modelName)
+		? geminiUnderstandAsset
+		: relayUnderstandAsset;
+}
+
+// ── production model calls (the network seams) ───────────────────────────────
 
 /** The tool-less model call that turns an asset's frames into an understanding. */
 export type UnderstandAssetFn = (
@@ -669,10 +726,19 @@ function textOfContent(content: unknown): string {
  * understanding.
  */
 export const relayUnderstandAsset: UnderstandAssetFn = async (frames, ctx) => {
+	// A configured NON-Gemini model rides the request as an explicit override
+	// (the relay resolves `body.model || DIRECTOR_MODEL || default`). Unset ⇒ no
+	// `model` field at all — byte-identical to the pre-config behavior. Gemini
+	// models never reach this seam ({@link selectUnderstandAssetFn} routes them
+	// to {@link geminiUnderstandAsset}), so they are never sent here either.
+	const configured = configuredUnderstandingModel();
+	const model =
+		configured && !isGeminiModel(configured) ? configured : undefined;
 	const res = await fetch(AGENT_RELAY_URL, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({
+			...(model ? { model } : {}),
 			messages: [
 				{
 					role: "user",
@@ -707,6 +773,195 @@ export const relayUnderstandAsset: UnderstandAssetFn = async (frames, ctx) => {
 	}
 	const body = (await res.json()) as { content?: unknown };
 	return parseAssetUnderstanding(textOfContent(body.content), {
+		mediaId: ctx.mediaId,
+		imageCount: frames.length,
+		personas: ctx.personas,
+		modelName: ctx.modelName,
+	});
+};
+
+// ── native Gemini seam ───────────────────────────────────────────────────────
+
+/**
+ * The browser-side endpoint of the stateless NATIVE Gemini relay (a Gemini-shaped
+ * passthrough: `{ model, contents, systemInstruction, generationConfig }` in,
+ * a raw `generateContent` response out; server-side `GEMINI_API_KEY`; same
+ * auth / rate-limit / 402 contracts as {@link AGENT_RELAY_URL}).
+ */
+const GEMINI_RELAY_URL = "/api/llm/gemini";
+
+/** A Gemini `inlineData` content part (base64 media riding in the request). */
+export interface GeminiInlineDataPart {
+	inlineData: { mimeType: string; data: string };
+}
+
+/** A Gemini text content part. */
+export interface GeminiTextPart {
+	text: string;
+}
+
+/** One Gemini content part — the minimal local shape (no Gemini SDK dependency). */
+export type GeminiPart = GeminiTextPart | GeminiInlineDataPart;
+
+/** Accepted image data-URL shape (mirrors the vision critic's `DATA_URL_RE`). */
+const GEMINI_DATA_URL_RE =
+	/^data:(image\/(?:jpeg|jpg|png|gif|webp));base64,([A-Za-z0-9+/=]+)$/;
+
+/**
+ * Turn a sampled frame (a base64 `data:` URL) into a Gemini `inlineData` part,
+ * or null when the URL isn't a decodable base64 image (the caller drops it —
+ * same silent-drop behavior as {@link dataUrlToImageBlock} on the Anthropic
+ * side). `image/jpg` is normalized to the canonical `image/jpeg`.
+ */
+export function dataUrlToInlineDataPart(
+	dataUrl: string,
+): GeminiInlineDataPart | null {
+	const match = dataUrl.match(GEMINI_DATA_URL_RE);
+	if (!match) return null;
+	const mimeType = match[1] === "image/jpg" ? "image/jpeg" : match[1];
+	return { inlineData: { mimeType, data: match[2] } };
+}
+
+/**
+ * Build the Gemini-native content parts for an understanding call: the SAME
+ * intro text as {@link buildUnderstandingUserBlocks} (one shared helper, so the
+ * dialects can never drift), then each sampled frame as an `inlineData` part in
+ * index order (so `anchorIndex` lines up). Undecodable frames are silently
+ * dropped.
+ *
+ * Deliberately a SEPARABLE step from the request framing in
+ * {@link geminiUnderstandAsset}: phase 2 swaps these per-frame image parts for
+ * native video input (Files API / `inlineData` video) without touching the
+ * envelope around them.
+ */
+export function buildUnderstandingGeminiParts(
+	frames: string[],
+	opts?: { personas?: PersonaRef[]; hint?: string },
+): GeminiPart[] {
+	const parts: GeminiPart[] = [
+		{ text: understandingIntroText(frames.length, opts) },
+	];
+	for (const frame of frames) {
+		const part = dataUrlToInlineDataPart(frame);
+		if (part) parts.push(part);
+	}
+	return parts;
+}
+
+/**
+ * Gemini structured-output schema (`generationConfig.responseSchema`, OpenAPI
+ * subset with Gemini's UPPERCASE `Type` enums) for the understanding reply —
+ * derived from the exact shape {@link parseAssetUnderstanding} expects, so the
+ * model is CONSTRAINED to parseable output instead of free-texting JSON.
+ * `faces`/`style` stay optional (the prompt says to omit them when absent) and
+ * {@link parseAssetUnderstanding} remains the validator/coercer on top — the
+ * schema improves reliability, it does not replace the fail-safe parse.
+ */
+export const ASSET_UNDERSTANDING_RESPONSE_SCHEMA = {
+	type: "OBJECT",
+	properties: {
+		caption: { type: "STRING" },
+		role: { type: "STRING", enum: [...ASSET_ROLES] },
+		roleConfidence: { type: "NUMBER" },
+		tags: { type: "ARRAY", items: { type: "STRING" } },
+		faces: {
+			type: "ARRAY",
+			items: {
+				type: "OBJECT",
+				properties: {
+					persona: { type: "STRING" },
+					descriptor: { type: "STRING" },
+					recurring: { type: "BOOLEAN" },
+					anchorIndex: { type: "INTEGER" },
+					confidence: { type: "NUMBER" },
+				},
+			},
+		},
+		style: {
+			type: "OBJECT",
+			properties: {
+				palette: { type: "STRING" },
+				lensMood: { type: "STRING" },
+				setting: { type: "STRING" },
+			},
+		},
+	},
+	required: ["caption", "role", "roleConfidence", "tags"],
+} as const;
+
+/** Pull the concatenated text out of a raw Gemini `generateContent` response. */
+function textOfGeminiCandidates(body: unknown): string {
+	const candidates = (body as { candidates?: unknown } | null)?.candidates;
+	if (!Array.isArray(candidates)) return "";
+	const first = candidates[0] as { content?: { parts?: unknown } } | undefined;
+	const parts = first?.content?.parts;
+	if (!Array.isArray(parts)) return "";
+	return parts
+		.map((p) => {
+			const text = (p as { text?: unknown } | null)?.text;
+			return typeof text === "string" ? text : "";
+		})
+		.join("");
+}
+
+/**
+ * NATIVE-Gemini {@link UnderstandAssetFn}: one non-streaming, Gemini-shaped
+ * call against the stateless `/api/llm/gemini` relay — frames as `inlineData`
+ * parts, the understanding prompt as `systemInstruction`, and native structured
+ * output ({@link ASSET_UNDERSTANDING_RESPONSE_SCHEMA}). Selected by
+ * {@link selectUnderstandAssetFn} when the configured model is `gemini-*`, so
+ * `ctx.modelName` here IS the Gemini model id — it rides as `body.model` and
+ * (via the parse context) lands verbatim in the stored record's `modelName`.
+ *
+ * Error contract mirrors {@link relayUnderstandAsset} exactly: a non-OK
+ * response throws an {@link UnderstandingRelayError} carrying the un-consumed
+ * `Response`, so the batch runner's 402 → `gateOn402` credit path fires
+ * unchanged; a PARSE failure fails safe to a degraded understanding.
+ */
+export const geminiUnderstandAsset: UnderstandAssetFn = async (frames, ctx) => {
+	const res = await fetch(GEMINI_RELAY_URL, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({
+			model: ctx.modelName,
+			contents: [
+				{
+					role: "user",
+					parts: buildUnderstandingGeminiParts(frames, {
+						personas: ctx.personas,
+						hint: ctx.hint,
+					}),
+				},
+			],
+			systemInstruction: {
+				parts: [{ text: ASSET_UNDERSTANDING_SYSTEM_PROMPT }],
+			},
+			generationConfig: {
+				responseMimeType: "application/json",
+				responseSchema: ASSET_UNDERSTANDING_RESPONSE_SCHEMA,
+			},
+		}),
+	});
+	if (!res.ok) {
+		// Read the message from a CLONE so `res` itself stays un-consumed — the
+		// credit gate downstream needs to `clone().json()` the original.
+		const body = (await res
+			.clone()
+			.json()
+			.catch(() => null)) as {
+			error?: string;
+			message?: string;
+		} | null;
+		throw new UnderstandingRelayError(
+			`Asset understanding relay error (${res.status}): ${
+				body?.message ?? body?.error ?? "unknown error"
+			}`,
+			res.status,
+			res,
+		);
+	}
+	const body = (await res.json()) as unknown;
+	return parseAssetUnderstanding(textOfGeminiCandidates(body), {
 		mediaId: ctx.mediaId,
 		imageCount: frames.length,
 		personas: ctx.personas,

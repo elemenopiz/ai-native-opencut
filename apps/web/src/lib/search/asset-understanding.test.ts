@@ -2,19 +2,29 @@ import { describe, expect, it } from "bun:test";
 import {
 	type AssetUnderstanding,
 	ASSET_ROLES,
+	ASSET_UNDERSTANDING_RESPONSE_SCHEMA,
 	applyRoleSignal,
+	buildUnderstandingGeminiParts,
 	buildUnderstandingUserBlocks,
 	computeLumaGrid,
+	configuredUnderstandingModel,
+	dataUrlToInlineDataPart,
 	degradedUnderstanding,
 	effectiveRole,
+	geminiUnderstandAsset,
 	gridDiff,
+	isCreditGateError,
+	isGeminiModel,
 	type LumaGrid,
 	normalizeRole,
 	parseAssetUnderstanding,
 	type PersonaRef,
 	pickShotRepresentatives,
+	relayUnderstandAsset,
 	renderPersonaRoster,
 	segmentShots,
+	selectUnderstandAssetFn,
+	UnderstandingRelayError,
 } from "./asset-understanding";
 
 const PNG =
@@ -349,5 +359,289 @@ describe("computeLumaGrid / gridDiff / segmentShots", () => {
 		const reps = pickShotRepresentatives(shots, 3);
 		expect(reps.length).toBeLessThanOrEqual(3);
 		expect(reps[0]).toBe(0);
+	});
+});
+
+// ── model config + seam selection (NEXT_PUBLIC_UNDERSTANDING_MODEL) ──────────
+
+/**
+ * Run `fn` with NEXT_PUBLIC_UNDERSTANDING_MODEL set (or deleted for undefined),
+ * restoring the previous value afterwards. The config is read PER CALL, so a
+ * plain env assignment is enough — no module-reload tricks (the known bun-test
+ * env-mock gotcha).
+ */
+async function withEnvModel<T>(
+	value: string | undefined,
+	fn: () => T | Promise<T>,
+): Promise<T> {
+	const prev = process.env.NEXT_PUBLIC_UNDERSTANDING_MODEL;
+	if (value === undefined) delete process.env.NEXT_PUBLIC_UNDERSTANDING_MODEL;
+	else process.env.NEXT_PUBLIC_UNDERSTANDING_MODEL = value;
+	try {
+		return await fn();
+	} finally {
+		if (prev === undefined) delete process.env.NEXT_PUBLIC_UNDERSTANDING_MODEL;
+		else process.env.NEXT_PUBLIC_UNDERSTANDING_MODEL = prev;
+	}
+}
+
+/**
+ * Stub `globalThis.fetch` for the duration of `fn`, restoring the ORIGINAL by
+ * direct reassignment (mock.restore does not undo property assignment — the
+ * known global-fetch-leak gotcha).
+ */
+async function withFetchStub<T>(
+	stub: typeof fetch,
+	fn: () => T | Promise<T>,
+): Promise<T> {
+	const real = globalThis.fetch;
+	globalThis.fetch = stub;
+	try {
+		return await fn();
+	} finally {
+		globalThis.fetch = real;
+	}
+}
+
+/** A minimal OK Anthropic-relay response whose text is a parseable record. */
+function anthropicOkResponse(): Response {
+	return new Response(
+		JSON.stringify({
+			content: [
+				{
+					type: "text",
+					text: JSON.stringify({
+						caption: "a clip",
+						role: "b-roll",
+						roleConfidence: 0.5,
+						tags: ["clip"],
+					}),
+				},
+			],
+		}),
+		{ status: 200, headers: { "Content-Type": "application/json" } },
+	);
+}
+
+/** A minimal OK NATIVE-Gemini response (raw generateContent shape). */
+function geminiOkResponse(): Response {
+	return new Response(
+		JSON.stringify({
+			candidates: [
+				{
+					content: {
+						parts: [
+							{
+								text: JSON.stringify({
+									caption: "a gemini-read clip",
+									role: "hero",
+									roleConfidence: 0.7,
+									tags: ["clip"],
+								}),
+							},
+						],
+					},
+				},
+			],
+		}),
+		{ status: 200, headers: { "Content-Type": "application/json" } },
+	);
+}
+
+describe("configuredUnderstandingModel / isGeminiModel / selectUnderstandAssetFn", () => {
+	it("reads the env per call: unset/blank → undefined, value → trimmed", async () => {
+		await withEnvModel(undefined, () => {
+			expect(configuredUnderstandingModel()).toBeUndefined();
+		});
+		await withEnvModel("   ", () => {
+			expect(configuredUnderstandingModel()).toBeUndefined();
+		});
+		await withEnvModel(" gemini-3.5-flash ", () => {
+			expect(configuredUnderstandingModel()).toBe("gemini-3.5-flash");
+		});
+	});
+
+	it("classifies gemini-* models and routes them to the native seam", () => {
+		expect(isGeminiModel("gemini-3.5-flash")).toBe(true);
+		expect(isGeminiModel("Gemini-3.5-Pro")).toBe(true);
+		expect(isGeminiModel("vlm-v1")).toBe(false);
+		expect(isGeminiModel(undefined)).toBe(false);
+		expect(selectUnderstandAssetFn("gemini-3.5-flash")).toBe(
+			geminiUnderstandAsset,
+		);
+		expect(selectUnderstandAssetFn("vlm-v1")).toBe(relayUnderstandAsset);
+		expect(selectUnderstandAssetFn("claude-opus-4-8")).toBe(
+			relayUnderstandAsset,
+		);
+	});
+});
+
+describe("relayUnderstandAsset — request body vs. the model config", () => {
+	const RELAY_CTX = {
+		mediaId: "m1",
+		personas: ROSTER,
+		modelName: "vlm-v1",
+	};
+
+	it("default config: sends NO model field (byte-identical to today) and records ctx.modelName", async () => {
+		let captured: { url: string; body: Record<string, unknown> } | null = null;
+		const stub = (async (url: unknown, init?: RequestInit) => {
+			captured = {
+				url: String(url),
+				body: JSON.parse(String(init?.body)) as Record<string, unknown>,
+			};
+			return anthropicOkResponse();
+		}) as typeof fetch;
+
+		const u = await withEnvModel(undefined, () =>
+			withFetchStub(stub, () => relayUnderstandAsset([PNG], RELAY_CTX)),
+		);
+		expect(captured!.url).toBe("/api/llm/agent");
+		expect("model" in captured!.body).toBe(false);
+		expect(Object.keys(captured!.body).sort()).toEqual([
+			"messages",
+			"stream",
+			"system",
+			"tools",
+		]);
+		expect(u.modelName).toBe("vlm-v1");
+		expect(u.caption).toBe("a clip");
+	});
+
+	it("a configured NON-gemini model rides the body as `model`", async () => {
+		let captured: Record<string, unknown> | null = null;
+		const stub = (async (_url: unknown, init?: RequestInit) => {
+			captured = JSON.parse(String(init?.body)) as Record<string, unknown>;
+			return anthropicOkResponse();
+		}) as typeof fetch;
+
+		await withEnvModel("claude-haiku-4-5", () =>
+			withFetchStub(stub, () =>
+				relayUnderstandAsset([PNG], {
+					...RELAY_CTX,
+					modelName: "claude-haiku-4-5",
+				}),
+			),
+		);
+		expect(captured!.model).toBe("claude-haiku-4-5");
+	});
+});
+
+describe("geminiUnderstandAsset — the native seam", () => {
+	const GEMINI_CTX = {
+		mediaId: "m1",
+		personas: ROSTER,
+		modelName: "gemini-3.5-flash",
+		hint: "brand reel",
+	};
+
+	it("posts a Gemini-native body (inlineData parts + responseSchema) and records the model honestly", async () => {
+		let captured: { url: string; body: Record<string, unknown> } | null = null;
+		const stub = (async (url: unknown, init?: RequestInit) => {
+			captured = {
+				url: String(url),
+				body: JSON.parse(String(init?.body)) as Record<string, unknown>,
+			};
+			return geminiOkResponse();
+		}) as typeof fetch;
+
+		const u = await withFetchStub(stub, () =>
+			geminiUnderstandAsset([PNG, "not-a-data-url"], GEMINI_CTX),
+		);
+
+		expect(captured!.url).toBe("/api/llm/gemini");
+		expect(captured!.body.model).toBe("gemini-3.5-flash");
+
+		// contents: ONE user turn — intro text part, then the decodable frame as
+		// inlineData (the junk frame silently dropped).
+		const contents = captured!.body.contents as Array<{
+			role: string;
+			parts: Array<Record<string, unknown>>;
+		}>;
+		expect(contents).toHaveLength(1);
+		expect(contents[0].role).toBe("user");
+		const parts = contents[0].parts;
+		expect(parts).toHaveLength(2);
+		expect(String(parts[0].text)).toContain("HINT (what the user is doing)");
+		expect(String(parts[0].text)).toContain("KNOWN CAST");
+		expect(parts[1].inlineData).toEqual({
+			mimeType: "image/png",
+			data: PNG.slice("data:image/png;base64,".length),
+		});
+
+		// System prompt rides as systemInstruction; structured output is native.
+		const sys = captured!.body.systemInstruction as {
+			parts: Array<{ text: string }>;
+		};
+		expect(sys.parts[0].text).toContain("ingest EYE");
+		const gen = captured!.body.generationConfig as Record<string, unknown>;
+		expect(gen.responseMimeType).toBe("application/json");
+		expect(gen.responseSchema).toEqual(ASSET_UNDERSTANDING_RESPONSE_SCHEMA);
+
+		// The requested model IS the stored modelName (invalidation honesty).
+		expect(u.modelName).toBe("gemini-3.5-flash");
+		expect(u.mediaId).toBe("m1");
+		expect(u.role).toBe("hero");
+		expect(u.caption).toBe("a gemini-read clip");
+	});
+
+	it("a 402 throws an UnderstandingRelayError whose un-consumed response feeds the credit gate", async () => {
+		const stub = (async () =>
+			new Response(
+				JSON.stringify({ error: "insufficient_credits", needed: 5 }),
+				{ status: 402 },
+			)) as unknown as typeof fetch;
+
+		const err = await withFetchStub(stub, () =>
+			geminiUnderstandAsset([PNG], GEMINI_CTX).then(
+				() => null,
+				(e: unknown) => e,
+			),
+		);
+		expect(err).toBeInstanceOf(UnderstandingRelayError);
+		expect(isCreditGateError(err)).toBe(true);
+		// gateOn402 needs the ORIGINAL body still readable.
+		const body = await (err as UnderstandingRelayError).response.clone().json();
+		expect(body).toEqual({ error: "insufficient_credits", needed: 5 });
+	});
+
+	it("an unusable Gemini reply fails safe to a degraded record (never throws on parse)", async () => {
+		const stub = (async () =>
+			new Response(JSON.stringify({ candidates: [] }), {
+				status: 200,
+			})) as unknown as typeof fetch;
+		const u = await withFetchStub(stub, () =>
+			geminiUnderstandAsset([PNG], GEMINI_CTX),
+		);
+		expect(u.role).toBe("b-roll");
+		expect(u.roleConfidence).toBe(0);
+		expect(u.modelName).toBe("gemini-3.5-flash");
+	});
+});
+
+describe("buildUnderstandingGeminiParts / dataUrlToInlineDataPart", () => {
+	it("mirrors the Anthropic builder's intro and frame order", () => {
+		const parts = buildUnderstandingGeminiParts([PNG, PNG], {
+			personas: ROSTER,
+			hint: "demo",
+		});
+		const blocks = buildUnderstandingUserBlocks([PNG, PNG], {
+			personas: ROSTER,
+			hint: "demo",
+		});
+		// Identical intro text (one shared helper — the dialects can't drift).
+		expect((parts[0] as { text: string }).text).toBe(
+			(blocks[0] as { text: string }).text,
+		);
+		expect(parts).toHaveLength(3); // intro + 2 frames
+	});
+
+	it("normalizes image/jpg → image/jpeg and rejects non-image data URLs", () => {
+		expect(
+			dataUrlToInlineDataPart("data:image/jpg;base64,AAAA")?.inlineData
+				.mimeType,
+		).toBe("image/jpeg");
+		expect(dataUrlToInlineDataPart("data:text/plain;base64,AAAA")).toBeNull();
+		expect(dataUrlToInlineDataPart("https://example.com/a.png")).toBeNull();
 	});
 });

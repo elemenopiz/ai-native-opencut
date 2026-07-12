@@ -26,13 +26,14 @@
 import {
 	type AssetUnderstanding,
 	computeLumaGrid,
+	configuredUnderstandingModel,
 	degradedUnderstanding,
 	isCreditGateError,
 	type LumaGrid,
 	type PersonaRef,
 	pickShotRepresentatives,
-	relayUnderstandAsset,
 	segmentShots,
+	selectUnderstandAssetFn,
 	type UnderstandAssetFn,
 } from "@/lib/search/asset-understanding";
 import { gateOn402 } from "@/lib/credits/client-gate";
@@ -50,6 +51,23 @@ import type { MediaAsset } from "@/types/assets";
 
 /** Version tag for the understanding model/pipeline — bump to invalidate old records. */
 export const UNDERSTANDING_MODEL = "vlm-v1";
+
+/**
+ * Resolve the model tag a NEW understanding record is produced and stored
+ * under — the ONE place `AssetUnderstanding.modelName` originates:
+ * explicit per-call override (tests) → the configured model
+ * (`NEXT_PUBLIC_UNDERSTANDING_MODEL`, e.g. `gemini-3.5-flash`) → the default
+ * {@link UNDERSTANDING_MODEL} pipeline tag.
+ *
+ * The stored `modelName` is thus always the ACTUAL model requested, and the
+ * `existing.modelName === modelName` checks in {@link understandAsset} (the
+ * per-project store and the FLOW E cross-project cache) keep working: flipping
+ * the config changes the resolved tag, so records produced under the old model
+ * stop short-circuiting and become re-computable.
+ */
+export function resolveUnderstandingModelName(override?: string): string {
+	return override ?? configuredUnderstandingModel() ?? UNDERSTANDING_MODEL;
+}
 
 /** Candidate frame cadence (seconds) before shot-aware selection thins it down. */
 const CANDIDATE_INTERVAL_SEC = 2;
@@ -219,9 +237,18 @@ export async function sampleUnderstandingFrames(
 export interface UnderstandAssetOptions {
 	/** Persona roster to reconcile faces against (default: none). */
 	personas?: PersonaRef[];
-	/** The VLM call (default {@link relayUnderstandAsset}); tests inject a stub. */
+	/**
+	 * The VLM call (default: {@link selectUnderstandAssetFn} on the resolved
+	 * model — the Director relay, or the native Gemini relay for `gemini-*`);
+	 * tests inject a stub.
+	 */
 	understand?: UnderstandAssetFn;
-	/** Model/pipeline tag stored on the record (default {@link UNDERSTANDING_MODEL}). */
+	/**
+	 * Model/pipeline tag stored on the record (default
+	 * {@link resolveUnderstandingModelName}: the configured
+	 * `NEXT_PUBLIC_UNDERSTANDING_MODEL`, else {@link UNDERSTANDING_MODEL}).
+	 * Also drives which default seam runs when `understand` is not injected.
+	 */
 	modelName?: string;
 	/** Free-text hint about what the user is doing (passed to the VLM). */
 	hint?: string;
@@ -293,8 +320,10 @@ export async function understandAsset(
 	media: MediaAsset,
 	options?: UnderstandAssetOptions,
 ): Promise<AssetUnderstanding | null> {
-	const modelName = options?.modelName ?? UNDERSTANDING_MODEL;
-	const understand = options?.understand ?? relayUnderstandAsset;
+	const modelName = resolveUnderstandingModelName(options?.modelName);
+	// The seam follows the resolved model: `gemini-*` runs on the native Gemini
+	// relay, everything else on the Director relay (an injected stub wins).
+	const understand = options?.understand ?? selectUnderstandAssetFn(modelName);
 	const personas = options?.personas ?? [];
 
 	if (!options?.force) {

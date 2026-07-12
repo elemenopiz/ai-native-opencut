@@ -4,7 +4,11 @@ import {
 	type AssetUnderstanding,
 	UnderstandingRelayError,
 } from "@/lib/search/asset-understanding";
-import { understandAssetBatch } from "./asset-understanding-service";
+import {
+	resolveUnderstandingModelName,
+	UNDERSTANDING_MODEL,
+	understandAssetBatch,
+} from "./asset-understanding-service";
 
 /** A minimal visual asset; override per test. */
 function asset(id: string): MediaAsset {
@@ -133,5 +137,45 @@ describe("understandAssetBatch", () => {
 		release();
 		expect(await first).toEqual({ processed: 1, understood: 1, gated: false });
 		expect(attempts).toEqual(["dup"]);
+	});
+});
+
+describe("resolveUnderstandingModelName — where a record's modelName originates", () => {
+	/** Run `fn` with the env config set/cleared, restoring it afterwards (per-call read, no module reload). */
+	function withEnvModel<T>(value: string | undefined, fn: () => T): T {
+		const prev = process.env.NEXT_PUBLIC_UNDERSTANDING_MODEL;
+		if (value === undefined)
+			delete process.env.NEXT_PUBLIC_UNDERSTANDING_MODEL;
+		else process.env.NEXT_PUBLIC_UNDERSTANDING_MODEL = value;
+		try {
+			return fn();
+		} finally {
+			if (prev === undefined)
+				delete process.env.NEXT_PUBLIC_UNDERSTANDING_MODEL;
+			else process.env.NEXT_PUBLIC_UNDERSTANDING_MODEL = prev;
+		}
+	}
+
+	it("defaults to the vlm-v1 pipeline tag (today's behavior)", () => {
+		withEnvModel(undefined, () => {
+			expect(resolveUnderstandingModelName()).toBe(UNDERSTANDING_MODEL);
+			expect(resolveUnderstandingModelName()).toBe("vlm-v1");
+		});
+	});
+
+	it("a configured model becomes the stored tag — flipping it invalidates old records", () => {
+		withEnvModel("gemini-3.5-flash", () => {
+			const tag = resolveUnderstandingModelName();
+			expect(tag).toBe("gemini-3.5-flash");
+			// The de-dupe check in understandAsset is `existing.modelName === tag`;
+			// a record produced under the default tag no longer short-circuits.
+			expect(tag === UNDERSTANDING_MODEL).toBe(false);
+		});
+	});
+
+	it("an explicit per-call override wins over the env config", () => {
+		withEnvModel("gemini-3.5-flash", () => {
+			expect(resolveUnderstandingModelName("vlm-test")).toBe("vlm-test");
+		});
 	});
 });
