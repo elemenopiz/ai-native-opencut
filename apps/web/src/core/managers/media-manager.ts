@@ -11,6 +11,7 @@ import {
 } from "@/services/storage/types";
 import { generateProxy } from "@/services/proxy";
 import { deleteEmbedding } from "@/services/search/embedding-store";
+import { deleteTranscript } from "@/services/search/asset-transcript-store";
 
 export class MediaManager {
 	private assets: MediaAsset[] = [];
@@ -86,6 +87,7 @@ export class MediaManager {
 
 		videoCache.clearVideo({ mediaId: id });
 		deleteEmbedding(id).catch(() => undefined);
+		deleteTranscript(id).catch(() => undefined);
 
 		if (asset?.url) {
 			URL.revokeObjectURL(asset.url);
@@ -187,8 +189,12 @@ export class MediaManager {
 		this.assets = [];
 		this.notify();
 
-		// Drop embedding index entries for the removed assets (fire-and-forget).
-		mediaIds.forEach((id) => deleteEmbedding(id).catch(() => undefined));
+		// Drop embedding + transcript index entries for the removed assets
+		// (fire-and-forget).
+		mediaIds.forEach((id) => {
+			deleteEmbedding(id).catch(() => undefined);
+			deleteTranscript(id).catch(() => undefined);
+		});
 
 		try {
 			await Promise.all(

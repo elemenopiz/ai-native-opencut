@@ -96,6 +96,12 @@ import {
 	type StyleProbeSeedResult,
 } from "./project-bible";
 import type { StyleProbeLookup } from "./understanding-lookup";
+import type { AssetTranscriptLookup } from "./transcript-lookup";
+import {
+	renderTranscriptDigest,
+	windowSegments,
+	type TranscriptSegmentLite,
+} from "@/lib/search/asset-transcript";
 import { useVoiceConsentStore } from "@/stores/voice-consent-store";
 import type { ClonedVoiceProfile } from "./voice-consent";
 import type { BibleApproval } from "@/types/project";
@@ -362,6 +368,16 @@ export interface CreateDirectorApiOptions {
 	 * there is nothing to seed. Pure + injectable like `understanding`.
 	 */
 	styleProbe?: StyleProbeLookup;
+	/**
+	 * Transcript-pass seam (see `lib/search/asset-transcript.ts`): a per-asset
+	 * lookup returning the SPEECH TRANSCRIPT for a media id — timestamped
+	 * sentence segments in asset-relative seconds, the timebase `trim` already
+	 * speaks. Feeds the manifest's speech facet and the `getTranscript` verb.
+	 * Default in the app is `assetTranscriptLookup` (transcript-lookup.ts);
+	 * ABSENT ⇒ the verb reports no transcripts and the digest omits the facet.
+	 * Pure + injectable like `understanding`.
+	 */
+	transcripts?: AssetTranscriptLookup;
 }
 
 const ok = <T>(message: string, data?: T): DirectorResult<T> => ({
@@ -846,6 +862,12 @@ export function createDirectorApi(
 			assets: assets.map((a) => ({ id: a.id, name: a.name, type: a.type })),
 			understanding: options.understanding,
 			personas: personas.map((p) => ({ id: p.id, name: p.name })),
+			speech: options.transcripts
+				? (mediaId) => {
+						const t = options.transcripts?.(mediaId);
+						return t ? t.segments.some((s) => s.text.trim() !== "") : undefined;
+					}
+				: undefined,
 		});
 	}
 
@@ -901,6 +923,77 @@ export function createDirectorApi(
 	function getLibraryManifest(): DirectorResult<LibraryManifest> {
 		const manifest = buildManifest();
 		return ok(manifest.digest, manifest);
+	}
+
+	/** The `getTranscript` verb's payload shape. */
+	interface TranscriptData {
+		mediaId: string;
+		language: string;
+		durationSec: number;
+		/** Total segments in the whole transcript (pre-window, pre-cap). */
+		segmentCount: number;
+		/** The windowed, capped segments (asset-relative seconds). */
+		segments: TranscriptSegmentLite[];
+		/** True when the cap dropped segments — re-query a narrower window. */
+		truncated: boolean;
+	}
+
+	/**
+	 * Read the speech transcript of ONE media asset — timestamped sentence
+	 * segments in ASSET-RELATIVE seconds, the same timebase as `trim`'s
+	 * `trimStart`/`trimEnd`, so segment boundaries are directly usable as cut
+	 * points. Optional `startSec`/`endSec` window the read (a long source can
+	 * exceed the observation cap). Read-only — nothing mutates. Transcripts are
+	 * produced by the auto-transcribe ingest pass (on-device Whisper); an asset
+	 * without one is either silent media, still pending, or an unsupported
+	 * browser — the message distinguishes "no record" from "no speech".
+	 */
+	function getTranscript(input: {
+		mediaId: string;
+		startSec?: number;
+		endSec?: number;
+	}): DirectorResult<TranscriptData> {
+		if (!options.transcripts) {
+			return fail(
+				"No transcript pass is wired in this context — speech-aware cuts are unavailable.",
+			);
+		}
+		const t = options.transcripts(input.mediaId);
+		if (!t) {
+			return fail(
+				`No transcript for media "${input.mediaId}" — it may still be transcribing, or transcription is unavailable here. For placed footage you can still cut on visual boundaries.`,
+			);
+		}
+		if (t.segments.length === 0) {
+			return ok(`Media "${input.mediaId}" was transcribed: no speech found.`, {
+				mediaId: t.mediaId,
+				language: t.language,
+				durationSec: t.durationSec,
+				segmentCount: 0,
+				segments: [],
+				truncated: false,
+			});
+		}
+		const windowed = windowSegments(t.segments, input.startSec, input.endSec);
+		const digest = renderTranscriptDigest(windowed);
+		const windowNote =
+			input.startSec !== undefined || input.endSec !== undefined
+				? ` in window [${input.startSec ?? 0}s–${input.endSec ?? t.durationSec}s]`
+				: "";
+		const truncNote = digest.truncated
+			? ` (showing first ${digest.included} — re-query with startSec/endSec for the rest)`
+			: "";
+		return ok(
+			`Transcript of "${input.mediaId}"${windowNote}: ${digest.included} segment(s)${truncNote}. Timestamps are asset-relative seconds — align trim/split points to segment boundaries so speech is never cut mid-sentence.\n${digest.lines.join("\n")}`,
+			{
+				mediaId: t.mediaId,
+				language: t.language,
+				durationSec: t.durationSec,
+				segmentCount: t.segments.length,
+				segments: windowed.slice(0, digest.included),
+				truncated: digest.truncated,
+			},
+		);
 	}
 
 	/**
@@ -4041,6 +4134,7 @@ export function createDirectorApi(
 		getSlot,
 		getProjectInfo,
 		getLibraryManifest,
+		getTranscript,
 		getBackends,
 		// media search / placement
 		searchMedia,

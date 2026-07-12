@@ -80,6 +80,16 @@ export type AssetUnderstandingLookup = (
 	mediaId: string,
 ) => AssetUnderstanding | undefined;
 
+/**
+ * Injected read-through to the per-asset TRANSCRIPT pass (a sibling ingest
+ * layer to understanding): `true` ⇒ transcribed with real speech, `false` ⇒
+ * transcribed and silent, `undefined` ⇒ not transcribed (yet). ABSENT (the
+ * whole lookup) ⇒ the digest simply omits its speech facet. Deliberately a
+ * boolean facet, not the transcript itself — the digest names THAT footage has
+ * speech; the `getTranscript` verb carries the actual segments.
+ */
+export type AssetSpeechLookup = (mediaId: string) => boolean | undefined;
+
 /** A library asset as the manifest sees it — id/name/type only. */
 export interface ManifestAsset {
 	id: string;
@@ -129,6 +139,8 @@ export interface LibraryManifest {
 	faceAnchors: ManifestFaceAnchor[];
 	/** The searchable residual pointer — the b-roll bucket — if any. */
 	tail?: { count: number; role?: AssetRole };
+	/** Assets transcribed with real speech (0 when nothing is transcribed). */
+	speechCount: number;
 	/** The compact one-line digest string for the system prompt. */
 	digest: string;
 }
@@ -165,13 +177,22 @@ export function buildLibraryManifest(input: {
 	assets: ManifestAsset[];
 	understanding?: AssetUnderstandingLookup;
 	personas?: ManifestPersona[];
+	/** Optional speech facet from the transcript pass (see {@link AssetSpeechLookup}). */
+	speech?: AssetSpeechLookup;
 }): LibraryManifest {
-	const { assets, understanding, personas } = input;
+	const { assets, understanding, personas, speech } = input;
 	const total = assets.length;
 
 	// Media-type counts: always cheap, and the fallback digest's basis.
 	const typeCounts: Partial<Record<MediaType, number>> = {};
 	for (const a of assets) typeCounts[a.type] = (typeCounts[a.type] ?? 0) + 1;
+
+	// Speech facet: independent of the (visual) understanding pass, so it rides
+	// BOTH the grounded and the fallback digest.
+	let speechCount = 0;
+	if (speech) {
+		for (const a of assets) if (speech(a.id) === true) speechCount += 1;
+	}
 
 	// Resolve understanding rows in library order (index → `#N` ref).
 	const rows = understanding
@@ -200,7 +221,11 @@ export function buildLibraryManifest(input: {
 			typeCounts,
 			heroes: [],
 			faceAnchors: [],
-			digest: formatFallbackDigest(assets, total, typeCounts),
+			speechCount,
+			digest: withSpeechFacet(
+				formatFallbackDigest(assets, total, typeCounts),
+				speechCount,
+			),
 		};
 	}
 
@@ -257,17 +282,31 @@ export function buildLibraryManifest(input: {
 		heroes,
 		faceAnchors,
 		tail,
-		digest: formatGroundedDigest({
-			total,
-			roleCounts,
-			heroes,
-			faceAnchors,
-			tail,
-		}),
+		speechCount,
+		digest: withSpeechFacet(
+			formatGroundedDigest({
+				total,
+				roleCounts,
+				heroes,
+				faceAnchors,
+				tail,
+			}),
+			speechCount,
+		),
 	};
 }
 
 // ── formatting ────────────────────────────────────────────────────────────────
+
+/**
+ * Append the speech facet to a digest (grounded OR fallback): tells the brain
+ * some footage has a transcript and names the verb that reads it. Zero
+ * transcribed-with-speech assets ⇒ digest unchanged, zero bytes added.
+ */
+function withSpeechFacet(digest: string, speechCount: number): string {
+	if (speechCount === 0) return digest;
+	return `${digest} ${speechCount} with speech — getTranscript(mediaId) for sentence-aligned cut points.`;
+}
 
 /** "1 asset" / "N assets". */
 function pluralAssets(n: number): string {

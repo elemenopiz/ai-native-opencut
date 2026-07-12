@@ -204,19 +204,20 @@ test("every phase includes the always-on core", () => {
 	}
 });
 
-test("per-phase active counts stay generous but bounded (15–25)", () => {
+test("per-phase active counts stay generous but bounded (15–26)", () => {
 	// Target is 15–22 (Google's 10–20 guidance, buckets deliberately generous).
 	// Polish is REQUIRED to carry the full timeline/text/audio surface plus
 	// export/approveFinalCut/voice verbs plus generate+reroll on top of the
-	// 7-verb core — that mandated content alone is 25, so the enforced ceiling
-	// is 25, still half the catalog and close to guidance.
+	// 7-verb core — that mandated content alone is 25 — plus getTranscript
+	// (speech-aligned trim/split is a polish move), so the enforced ceiling is
+	// 26, still about half the catalog and close to guidance.
 	for (const phase of PHASES) {
 		const count = activeToolNamesForPhase(phase).length;
 		expect(
 			count,
 			`${phase} bucket too small (${count})`,
 		).toBeGreaterThanOrEqual(15);
-		expect(count, `${phase} bucket too fat (${count})`).toBeLessThanOrEqual(25);
+		expect(count, `${phase} bucket too fat (${count})`).toBeLessThanOrEqual(26);
 	}
 });
 
