@@ -4,7 +4,7 @@ import { Redis } from "@upstash/redis";
 import { db } from "@/lib/db";
 import { sendEmail } from "@/lib/auth/email";
 import { grant } from "@/lib/credits/ledger";
-import { SIGNUP_GRANT_CREDITS } from "@/lib/credits/signup-grant";
+import { signupGrantFor } from "@/lib/credits/signup-grant";
 import { webEnv } from "@byorn/env/web";
 
 const redis = new Redis({
@@ -44,11 +44,12 @@ export const auth = betterAuth({
 				// Private-beta welcome credits, granted the moment the account row
 				// exists so the header pill is funded on first load. Idempotent via
 				// the derived key `grant:signup:${user.id}` — one grant per account,
-				// ever, even if the hook re-fires. Never blocks signup: on failure we
-				// log and move on (an admin can re-run the grant).
+				// ever, even if the hook re-fires. Owner emails get an effectively
+				// unlimited balance. Never blocks signup: on failure we log and move
+				// on (an admin can re-run the grant).
 				after: async (user) => {
 					try {
-						await grant(user.id, SIGNUP_GRANT_CREDITS, {
+						await grant(user.id, signupGrantFor(user.email), {
 							reason: "signup_grant",
 							refType: "signup",
 							refId: user.id,

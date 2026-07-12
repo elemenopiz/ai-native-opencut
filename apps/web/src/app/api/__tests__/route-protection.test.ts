@@ -90,6 +90,8 @@ const PUBLIC_ROUTES: Record<string, string> = {
 	"arrangements/[id]/route.ts": "public share read/remix by design",
 	"auth/[...all]/route.ts":
 		"the better-auth handler itself — IS the auth system",
+	"beta-gate/route.ts":
+		"the closed-beta door itself — anonymous by definition, per-IP rate-limited (beta:gate), compares the code server-side",
 	"health/route.ts": "deploy health probe, no user data",
 	"images/search/route.ts":
 		"key-based auth of its own (server env key or per-request X-Pexels-Api-Key); 401s without either",
