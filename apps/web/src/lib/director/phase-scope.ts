@@ -150,6 +150,10 @@ export const PHASE_TOOL_ASSIGNMENTS: Readonly<
 > = {
 	// reads beyond the core set
 	getLibraryManifest: ["briefing"],
+	// getTranscript: briefing (proposals want to know what footage SAYS) +
+	// polish (speech-aligned trim/split live there). Production is generative —
+	// generated takes have no source transcript to consult.
+	getTranscript: ["briefing", "polish"],
 	getBackends: ["production"],
 	getBrief: ["briefing"],
 	getProposal: ["briefing"],

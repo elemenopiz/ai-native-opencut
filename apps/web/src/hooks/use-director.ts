@@ -19,6 +19,13 @@ import {
 } from "@/lib/director/understanding-lookup";
 import { selectUnderstandingCandidates } from "@/lib/search/understanding-batch";
 import { understandAssetBatch } from "@/services/search/asset-understanding-service";
+import {
+	assetTranscriptLookup,
+	clearTranscriptCache,
+	primeTranscriptCache,
+} from "@/lib/director/transcript-lookup";
+import { selectTranscriptionCandidates } from "@/lib/search/asset-transcript";
+import { transcribeAssetBatch } from "@/services/search/asset-transcript-service";
 import { usePersonaStore } from "@/stores/persona-store";
 import type { EditorCore } from "@/core";
 import { toast } from "sonner";
@@ -150,6 +157,60 @@ function createUnderstandingRunner(editor: EditorCore) {
 }
 
 /**
+ * Demand-driven auto-transcription — the speech sibling of the Understanding
+ * Pass runner above, with the same single-flight/attempted/queued mechanics but
+ * NO credit gate: transcription is on-device Whisper (free, audio never leaves
+ * the device). Silent by design — no toast. The understanding toast announces
+ * grounding because it is paid and user-visible in the digest immediately;
+ * transcription is a background nicety whose absence degrades softly (the
+ * agent just cuts without a transcript), and Whisper's model download on first
+ * run can take a while — a lingering toast would read as a stuck job. Results
+ * surface through the LIBRARY digest's "with speech" facet as they land.
+ */
+function createTranscriptionRunner(editor: EditorCore) {
+	let cancelled = false;
+	let running = false;
+	let queued = false;
+	const attempted = new Set<string>();
+
+	const run = async () => {
+		if (cancelled) return;
+		if (running) {
+			queued = true;
+			return;
+		}
+		const assets = editor.media.getAssets();
+		const exclude = new Set(attempted);
+		for (const a of assets) {
+			if (assetTranscriptLookup(a.id)) exclude.add(a.id);
+		}
+		const candidates = selectTranscriptionCandidates(assets, { exclude });
+		if (candidates.length === 0) return;
+
+		running = true;
+		for (const a of candidates) attempted.add(a.id);
+		try {
+			await transcribeAssetBatch(candidates, {
+				shouldContinue: () => !cancelled,
+			});
+		} finally {
+			running = false;
+			if (queued && !cancelled) {
+				queued = false;
+				setTimeout(() => void run(), 0);
+			}
+		}
+	};
+
+	return {
+		run: () => void run(),
+		cancel: () => {
+			cancelled = true;
+		},
+	};
+}
+
+/**
  * The Director API wired to the real generation executor — the in-house,
  * MCP-style control layer over the reel. Optional (off by default); the UI
  * surfaces it only when the Director toggle is on.
@@ -174,14 +235,21 @@ export function useDirector(): DirectorApi {
 	useEffect(() => {
 		const runner = createUnderstandingRunner(editor);
 		void primeUnderstandingCache().then(runner.run);
+		// The speech sibling: prime the transcript cache, then auto-transcribe
+		// whatever it didn't cover (free/local — see createTranscriptionRunner).
+		const transcriber = createTranscriptionRunner(editor);
+		void primeTranscriptCache().then(transcriber.run);
 		const unsubscribe = editor.media.subscribe(() => {
 			// Defer so we don't run during React's commit phase.
 			setTimeout(runner.run, 0);
+			setTimeout(transcriber.run, 0);
 		});
 		return () => {
 			runner.cancel();
+			transcriber.cancel();
 			unsubscribe();
 			clearUnderstandingCache();
+			clearTranscriptCache();
 		};
 	}, [editor]);
 	return useMemo(
@@ -191,6 +259,7 @@ export function useDirector(): DirectorApi {
 				backends: fetchBackendCatalog,
 				understanding: manifestUnderstandingLookup,
 				styleProbe: styleProbeLookup,
+				transcripts: assetTranscriptLookup,
 				critic: createVisionTakeCritic({
 					relay: callVisionRelay,
 					extractFrames: ({ takeId, mediaId }) =>

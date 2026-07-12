@@ -555,6 +555,38 @@ export function toolCatalog(): ToolDescriptor[] {
 			handler: (d) => d.getLibraryManifest(),
 		},
 		{
+			name: "getTranscript",
+			description:
+				"read the SPEECH TRANSCRIPT of a media asset: timestamped sentence segments in ASSET-RELATIVE seconds — the same timebase as trim's trimStart/trimEnd, so segment boundaries ARE valid cut points. Call this BEFORE trimming or splitting footage that contains speech, and align cuts to segment boundaries so a sentence is never cut mid-word. Takes a FULL mediaId (from searchMedia, the library manifest, or a slot's take). Optional startSec/endSec window the read for long sources.",
+			mutating: false,
+			inputSchema: {
+				type: "object",
+				properties: {
+					mediaId: {
+						type: "string",
+						description: "FULL media id (not a reel slot id).",
+					},
+					startSec: {
+						type: "number",
+						minimum: 0,
+						description: "Window start, asset-relative seconds.",
+					},
+					endSec: {
+						type: "number",
+						minimum: 0,
+						description: "Window end, asset-relative seconds.",
+					},
+				},
+				required: ["mediaId"],
+			},
+			handler: (d, a) =>
+				d.getTranscript({
+					mediaId: str(a.mediaId),
+					startSec: numOrUndefined(a.startSec),
+					endSec: numOrUndefined(a.endSec),
+				}),
+		},
+		{
 			name: "getBackends",
 			description:
 				"list the generation models available now — each with modality, safety tier, seed-lock/reference-edit support, and a RELATIVE cost tier (cheap/standard/premium). Use to pick a backendId: drafts on cheap, final/hero on premium, persona-critical on a seed-lock-capable model.",
