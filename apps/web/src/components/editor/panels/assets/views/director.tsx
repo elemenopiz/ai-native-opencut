@@ -296,23 +296,6 @@ const STARTER_PROMPTS = [
 		label: "Write a script for a 60-second reel",
 		prompt: "Write a script for a 60-second vertical video/reel about ",
 	},
-	{
-		label: "Give me 5 video ideas about...",
-		prompt: "Give me 5 unique video content ideas about ",
-	},
-	{
-		label: "Help me write a video intro",
-		prompt:
-			"Help me write a compelling 10-second video intro for a video about ",
-	},
-	{
-		label: "Create an outline for a tutorial",
-		prompt: "Create a detailed outline for a tutorial video about ",
-	},
-	{
-		label: "Suggest a thumbnail concept",
-		prompt: "Describe a compelling thumbnail concept for a video about ",
-	},
 ];
 
 const TRANSCRIPT_PROMPTS = [
@@ -327,11 +310,6 @@ const TRANSCRIPT_PROMPTS = [
 			"Rewrite this transcript in a more professional and polished tone:\n\n",
 	},
 	{
-		label: "Simplify the language",
-		prompt:
-			"Rewrite this transcript using simpler, more accessible language that a general audience can understand:\n\n",
-	},
-	{
 		label: "Add more energy",
 		prompt:
 			"Rewrite this transcript to be more engaging and energetic, with stronger hooks and more dynamic phrasing:\n\n",
@@ -340,11 +318,6 @@ const TRANSCRIPT_PROMPTS = [
 		label: "Fix grammar and flow",
 		prompt:
 			"Fix any grammar issues and improve the flow of this transcript while keeping the original meaning:\n\n",
-	},
-	{
-		label: "Summarize key points",
-		prompt:
-			"Summarize the key points from this transcript in bullet points:\n\n",
 	},
 ];
 

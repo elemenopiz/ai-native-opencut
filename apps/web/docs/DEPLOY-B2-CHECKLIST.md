@@ -1,5 +1,9 @@
 # B2 First-Production-Deploy Checklist
 
+> ✅ **DONE 2026-07-13.** Live at `https://byorn-liart.vercel.app` (public, Vercel Authentication
+> disabled). Kept below as the reference runbook for future deploys/re-provisioning — see
+> `PROD-READINESS.md`'s B2 row for the full completion record.
+
 Human-operator checklist for the first-ever prod deploy: Vercel + fresh Neon Postgres (migrations 0001–0009) + Upstash + R2 + Polar + Resend. Target ~30 minutes. Full rationale for every step lives in [`DEPLOY.md`](./DEPLOY.md) — this is the click-by-click distillation.
 
 ## 1. Provision

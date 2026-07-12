@@ -1,0 +1,465 @@
+[     437ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[    1092ms] [ERROR] Failed to load resource: the server responded with a status of 402 () @ https://basket.databuddy.cc/batch?client_id=UP-Wcoy5arxFeK7oyjMMZ:0
+[    2287ms] [LOG] [Fast Refresh] done in 1955ms @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[    4078ms] [LOG] %c[·] %cReact Scan font-weight:bold;color:#7a68e8;font-size:20px; font-weight:bold;font-size:14px; @ http://unpkg.com/react-scan/dist/auto.global.js:1
+[    4148ms] [LOG] [HMR] connected @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[    4266ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[    4312ms] [WARNING] [React Scan] react-grab v0.1.32 is outdated (latest: v0.1.48). Update react-scan to pick up the newer react-grab. @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[    4639ms] [LOG] [Fast Refresh] done in 474ms @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[   22386ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[   25812ms] [LOG] [Fast Refresh] done in 3529ms @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[   26095ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[   26101ms] [LOG] [Fast Refresh] done in 106ms @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[   26813ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[   27039ms] [LOG] [Fast Refresh] done in 363ms @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[   68269ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[   68367ms] [LOG] [Fast Refresh] done in 199ms @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[   68504ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[   68848ms] [LOG] [Fast Refresh] done in 444ms @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[   69675ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[   69705ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[   69729ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[   69754ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[   69787ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[   69813ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[   69833ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[   69853ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[   69873ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[   69896ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[   99547ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[   99634ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[   99685ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[   99702ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[   99729ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  105439ms] [WARNING] Unable to determine content-length from response headers. Will expand buffer when needed. @ http://localhost:3000/_next/static/chunks/29e02_%40huggingface_transformers_dist_transformers_web_c68f482f.js:33119
+[  105441ms] [WARNING] Unable to determine content-length from response headers. Will expand buffer when needed. @ http://localhost:3000/_next/static/chunks/29e02_%40huggingface_transformers_dist_transformers_web_c68f482f.js:33119
+[  105451ms] [WARNING] Unable to determine content-length from response headers. Will expand buffer when needed. @ http://localhost:3000/_next/static/chunks/29e02_%40huggingface_transformers_dist_transformers_web_c68f482f.js:33119
+[  105467ms] [WARNING] Unable to determine content-length from response headers. Will expand buffer when needed. @ http://localhost:3000/_next/static/chunks/29e02_%40huggingface_transformers_dist_transformers_web_c68f482f.js:33119
+[  105652ms] [WARNING] Unable to determine content-length from response headers. Will expand buffer when needed. @ http://localhost:3000/_next/static/chunks/29e02_%40huggingface_transformers_dist_transformers_web_c68f482f.js:33119
+[  105667ms] [WARNING] Unable to determine content-length from response headers. Will expand buffer when needed. @ http://localhost:3000/_next/static/chunks/29e02_%40huggingface_transformers_dist_transformers_web_c68f482f.js:33119
+[  107093ms] [WARNING] Canvas2D: Multiple readback operations using getImageData are faster with the willReadFrequently attribute set to true. See: https://html.spec.whatwg.org/multipage/canvas.html#concept-canvas-will-read-frequently @ http://localhost:3000/_next/static/chunks/apps_web_src_services_b746968c._.js:8748
+[  107382ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[  107605ms] [WARNING] Unable to determine content-length from response headers. Will expand buffer when needed. @ http://localhost:3000/_next/static/chunks/29e02_%40huggingface_transformers_dist_transformers_web_c68f482f.js:33119
+[  107613ms] [WARNING] Unable to determine content-length from response headers. Will expand buffer when needed. @ http://localhost:3000/_next/static/chunks/29e02_%40huggingface_transformers_dist_transformers_web_c68f482f.js:33119
+[  107792ms] [WARNING] Unable to determine content-length from response headers. Will expand buffer when needed. @ http://localhost:3000/_next/static/chunks/29e02_%40huggingface_transformers_dist_transformers_web_c68f482f.js:33119
+[  108271ms] [LOG] [Fast Refresh] done in 989ms @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[  129539ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  129612ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  129670ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  129694ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  129742ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  132346ms] [ERROR] [0;93m2026-07-12 23:19:43.094200 [W:onnxruntime:, session_state.cc:1280 VerifyEachNodeIsAssignedToAnEp] Some nodes were not assigned to the preferred execution providers which may or may not have an negative impact on performance. e.g. ORT explicitly assigns shape related ops to CPU to improve perf.[m @ https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/ort-wasm-simd-threaded.jsep.mjs:99
+[  132350ms] [ERROR] [0;93m2026-07-12 23:19:43.101200 [W:onnxruntime:, session_state.cc:1282 VerifyEachNodeIsAssignedToAnEp] Rerunning with verbose output on a non-minimal build will show node assignments.[m @ https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/ort-wasm-simd-threaded.jsep.mjs:99
+[  157951ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[  159571ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  160049ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  160365ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  160412ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  160438ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  160471ms] [LOG] [Fast Refresh] done in 2623ms @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[  168083ms] [ERROR] [0;93m2026-07-12 23:20:18.828699 [W:onnxruntime:, session_state.cc:1280 VerifyEachNodeIsAssignedToAnEp] Some nodes were not assigned to the preferred execution providers which may or may not have an negative impact on performance. e.g. ORT explicitly assigns shape related ops to CPU to improve perf.[m @ https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/ort-wasm-simd-threaded.jsep.mjs:99
+[  168083ms] [ERROR] [0;93m2026-07-12 23:20:18.831199 [W:onnxruntime:, session_state.cc:1282 VerifyEachNodeIsAssignedToAnEp] Rerunning with verbose output on a non-minimal build will show node assignments.[m @ https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/ort-wasm-simd-threaded.jsep.mjs:99
+[  177264ms] [ERROR] [0;93m2026-07-12 23:20:28.005699 [W:onnxruntime:, session_state.cc:1280 VerifyEachNodeIsAssignedToAnEp] Some nodes were not assigned to the preferred execution providers which may or may not have an negative impact on performance. e.g. ORT explicitly assigns shape related ops to CPU to improve perf.[m @ https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/ort-wasm-simd-threaded.jsep.mjs:99
+[  177267ms] [ERROR] [0;93m2026-07-12 23:20:28.014799 [W:onnxruntime:, session_state.cc:1282 VerifyEachNodeIsAssignedToAnEp] Rerunning with verbose output on a non-minimal build will show node assignments.[m @ https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/ort-wasm-simd-threaded.jsep.mjs:99
+[  189552ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  189756ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  190215ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  190237ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  190262ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  205632ms] [ERROR] [0;93m2026-07-12 23:20:56.340000 [W:onnxruntime:, session_state.cc:1280 VerifyEachNodeIsAssignedToAnEp] Some nodes were not assigned to the preferred execution providers which may or may not have an negative impact on performance. e.g. ORT explicitly assigns shape related ops to CPU to improve perf.[m @ https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/ort-wasm-simd-threaded.jsep.mjs:99
+[  205640ms] [ERROR] [0;93m2026-07-12 23:20:56.392200 [W:onnxruntime:, session_state.cc:1282 VerifyEachNodeIsAssignedToAnEp] Rerunning with verbose output on a non-minimal build will show node assignments.[m @ https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/ort-wasm-simd-threaded.jsep.mjs:99
+[  219635ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  220131ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  220274ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  220361ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  220391ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  220480ms] [WARNING] No language specified - defaulting to English (en). @ http://localhost:3000/_next/static/chunks/29e02_%40huggingface_transformers_dist_transformers_web_c68f482f.js:11534
+[  226540ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[  228652ms] [LOG] [Fast Refresh] done in 2213ms @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[  236476ms] [WARNING] No language specified - defaulting to English (en). @ http://localhost:3000/_next/static/chunks/29e02_%40huggingface_transformers_dist_transformers_web_c68f482f.js:11534
+[  249669ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  249700ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  249730ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  249752ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  249775ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  279729ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  280125ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  280187ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  280223ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  280257ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  309628ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  309786ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  309889ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  309910ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  309932ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  339573ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  339695ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  339745ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  339807ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  339825ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  369567ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  369664ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  369720ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  369748ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  369766ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  399560ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  399653ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  399709ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  399749ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  399771ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  429564ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  429654ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  429707ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  429727ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  429744ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  459563ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  459661ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  459699ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  459720ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  459737ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  489565ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  489672ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  489711ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  489732ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  489749ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  519558ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  519686ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  519735ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  519753ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  519770ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  549557ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  549675ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  549733ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  549755ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  549783ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  579559ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  579656ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  579701ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  579719ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  579739ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  609558ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  609652ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  609708ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  609732ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  609756ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  639567ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  639660ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  639704ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  639724ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  639741ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  650172ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[  650960ms] [LOG] [Fast Refresh] done in 889ms @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[  651595ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[  652934ms] [LOG] [Fast Refresh] done in 1442ms @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[  653574ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[  653594ms] [LOG] [Fast Refresh] done in 122ms @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[  669559ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  669690ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  669744ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  669823ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  669844ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  699556ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  699663ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  699729ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  699755ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  699776ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  729573ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  729667ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  729710ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  729731ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  729750ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  759566ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  759681ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  759748ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  759777ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  759797ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  789555ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  789698ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  789785ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  789850ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  789895ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  819572ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  819666ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  819710ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  819727ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  819745ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  840224ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[  843446ms] [LOG] [Fast Refresh] done in 3335ms @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[  849598ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  849727ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  849784ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  849806ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  849827ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  879563ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  879693ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  879736ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  879754ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  879772ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  909561ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  909663ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  909710ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  909727ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  909745ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  939572ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  939658ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  939734ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  939753ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  939772ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  969562ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  969649ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  969690ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  969717ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  969735ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  984362ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[  984470ms] [LOG] [Fast Refresh] done in 213ms @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[  999638ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  999759ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  999833ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  999856ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[  999883ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1029643ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1029768ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1029819ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1029853ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1029877ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1059556ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1059636ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1059681ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1059715ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1059734ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1060822ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[ 1060943ms] [LOG] [Fast Refresh] done in 222ms @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[ 1089571ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1089654ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1089698ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1089715ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1089734ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1104493ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[ 1104837ms] [LOG] [Fast Refresh] done in 415ms @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[ 1104996ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[ 1105760ms] [LOG] [Fast Refresh] done in 866ms @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[ 1106073ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[ 1106099ms] [LOG] [Fast Refresh] done in 127ms @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[ 1119568ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1119669ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1119735ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1119761ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1119779ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1127908ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[ 1127914ms] [LOG] [Fast Refresh] done in 107ms @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[ 1149572ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1149660ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1149707ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1149725ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1149745ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1179563ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1179648ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1179692ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1179711ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1179730ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1209567ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1209659ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1209707ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1209725ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1209744ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1239563ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1239655ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1239698ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1239717ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1239734ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1262954ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[ 1263136ms] [LOG] [Fast Refresh] done in 283ms @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[ 1269561ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1269652ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1269696ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1269727ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1269745ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1287374ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[ 1287404ms] [LOG] [Fast Refresh] done in 130ms @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[ 1297310ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[ 1297315ms] [LOG] [Fast Refresh] done in 105ms @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[ 1299559ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1299662ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1299706ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1299728ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1299747ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1329562ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1329657ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1329709ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1329726ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1329744ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1359580ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1359677ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1359719ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1359741ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1359758ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1389563ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1389658ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1389732ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1389752ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1389771ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1419589ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1419694ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1419744ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1419764ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1419783ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1449564ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1449715ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1449769ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1449790ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1449815ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1479563ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1479662ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1479709ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1479727ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1479746ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1509574ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1509672ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1509716ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1509734ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1509751ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1539558ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1539642ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1539684ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1539703ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1539721ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1569557ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1569633ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1569677ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1569698ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1569725ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1599556ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1599624ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1599668ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1599686ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1599705ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1629558ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1629631ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1629674ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1629694ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1629714ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1659562ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1659649ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1659692ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1659713ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1659729ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1689560ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1689646ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1689692ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1689715ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1689734ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1719564ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1719655ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1719698ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1719715ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1719732ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1749563ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1749648ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1749691ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1749716ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1749737ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1779563ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1779650ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1779693ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1779711ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1779728ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1809561ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1809652ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1809693ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1809716ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1809733ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1839563ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1839665ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1839717ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1839737ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1839759ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1869558ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1869630ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1869671ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1869698ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1869717ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1899558ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1899634ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1899678ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1899696ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1899715ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1929575ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1929679ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1929724ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1929741ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1929760ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1959571ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1959677ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1959725ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1959746ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1959766ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1989562ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1989660ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1989708ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1989726ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 1989745ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2019564ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2019668ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2019715ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2019733ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2019752ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2049565ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2049663ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2049712ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2049729ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2049750ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2079573ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2079716ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2079771ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2079791ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2079813ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2109563ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2109651ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2109693ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2109712ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2109729ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2139577ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2139716ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2139773ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2139801ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2139824ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2169577ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2169670ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2169710ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2169729ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2169747ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2199558ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2199629ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2199673ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2199690ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2199709ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2229573ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2229665ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2229709ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2229731ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2229752ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2259559ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2259623ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2259664ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2259681ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2259698ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2289573ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2289669ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2289713ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2289731ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2289751ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2319567ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2319693ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2319740ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2319758ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2319777ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2349565ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2349653ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2349698ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2349716ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2349734ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2379568ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2379677ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2379725ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2379743ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0
+[ 2379763ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8420/health:0

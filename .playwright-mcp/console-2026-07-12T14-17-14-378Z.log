@@ -1,0 +1,5 @@
+[    7979ms] [LOG] %c[·] %cReact Scan font-weight:bold;color:#7a68e8;font-size:20px; font-weight:bold;font-size:14px; @ http://unpkg.com/react-scan/dist/auto.global.js:1
+[    8103ms] [LOG] [HMR] connected @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[    9251ms] [WARNING] [React Scan] react-grab v0.1.32 is outdated (latest: v0.1.48). Update react-scan to pick up the newer react-grab. @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[    9404ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297
+[    9782ms] [LOG] [Fast Refresh] done in 479ms @ http://localhost:3000/_next/static/chunks/e6005_next_dist_0e7986ba._.js:2297

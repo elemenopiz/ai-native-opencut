@@ -1,0 +1,42 @@
+- generic [active] [ref=f1e1]:
+  - region "Notifications alt+T"
+  - generic [ref=f1e2]:
+    - link "Byorn Byorn" [ref=f1e3] [cursor=pointer]:
+      - /url: /
+      - img "Byorn" [ref=f1e4]
+      - generic [ref=f1e5]: Byorn
+    - generic [ref=f1e6]:
+      - generic [ref=f1e7]:
+        - generic [ref=f1e8]: Create your account
+        - generic [ref=f1e9]: Sign up to save projects and connect AI agents.
+      - generic [ref=f1e11]:
+        - generic [ref=f1e12]:
+          - generic [ref=f1e13]: Name
+          - textbox "Name" [ref=f1e15]:
+            - /placeholder: Jane Doe
+            - text: Verify Lane
+        - generic [ref=f1e16]:
+          - generic [ref=f1e17]: Email
+          - textbox "Email" [ref=f1e19]:
+            - /placeholder: you@example.com
+            - text: verify-lane-b3@byorn.test
+        - generic [ref=f1e20]:
+          - generic [ref=f1e21]: Password
+          - generic [ref=f1e23]:
+            - textbox "Password" [ref=f1e24]:
+              - /placeholder: At least 8 characters
+              - text: verify-lane-b3-pass!
+            - button "Show password" [ref=f1e25] [cursor=pointer]
+        - button "Create account" [ref=f1e26] [cursor=pointer]
+    - paragraph [ref=f1e27]:
+      - text: Already have an account?
+      - link "Sign in" [ref=f1e28] [cursor=pointer]:
+        - /url: /login
+  - button "Open Next.js Dev Tools" [ref=f1e39] [cursor=pointer]:
+    - generic [ref=f1e42]:
+      - text: Compiling
+      - generic [ref=f1e43]:
+        - generic [ref=f1e44]: .
+        - generic [ref=f1e45]: .
+        - generic [ref=f1e46]: .
+  - alert [ref=f1e38]

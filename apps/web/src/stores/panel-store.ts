@@ -41,7 +41,7 @@ export const usePanelStore = create<PanelState>()(
 		}),
 		{
 			name: "panel-sizes",
-			version: 2,
+			version: 3,
 			migrate: (persistedState) => {
 				const state = persistedState as
 					| {
@@ -61,12 +61,18 @@ export const usePanelStore = create<PanelState>()(
 				if (!state) return { panels: { ...PANEL_CONFIG.panels } };
 
 				if (state.panels && typeof state.panels === "object") {
-					return {
-						panels: {
-							...PANEL_CONFIG.panels,
-							...state.panels,
-						},
+					const merged = {
+						...PANEL_CONFIG.panels,
+						...state.panels,
 					};
+					// v3 shrinks the default starting timeline height so the empty-editor
+					// guide isn't clipped on first open. Only reset users still sitting on
+					// the old 50/50 default — anyone who deliberately resized keeps their size.
+					if (state.panels.mainContent === 50 && state.panels.timeline === 50) {
+						merged.mainContent = PANEL_CONFIG.panels.mainContent;
+						merged.timeline = PANEL_CONFIG.panels.timeline;
+					}
+					return { panels: merged };
 				}
 
 				return {

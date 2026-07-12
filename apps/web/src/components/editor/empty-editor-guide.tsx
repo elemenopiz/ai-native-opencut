@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-	ImageAdd01Icon,
 	AiMagicIcon,
 	FilmRoll01Icon,
 	Download01Icon,
@@ -14,19 +13,13 @@ import {
 import { useAIStore } from "@/stores/ai-store";
 
 interface GuideStep {
-	icon: typeof ImageAdd01Icon;
+	icon: typeof AiMagicIcon;
 	title: string;
 	description: string;
 	shortcut?: string;
 }
 
 const GUIDE_STEPS: GuideStep[] = [
-	{
-		icon: ImageAdd01Icon,
-		title: "Feed the Bible",
-		description:
-			"Drop reference images or a character photo — the Project Bible learns your look",
-	},
 	{
 		icon: AiMagicIcon,
 		title: "Ask the Director",

@@ -12,7 +12,6 @@ import { cn } from "@/utils/ui";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	FolderAddIcon,
-	ImageAdd01Icon,
 	AiMagicIcon,
 	FilmRoll01Icon,
 	SlidersHorizontalIcon,
@@ -29,11 +28,11 @@ import {
  *
  * Wiring is inherited from the previous onboarding: a localStorage flag
  * gates a single dialog rendered in the editor page. The key is bumped
- * (v3) so existing beta testers see the rebuilt tour exactly once. The
+ * (v4) so existing beta testers see the rebuilt tour exactly once. The
  * final CTA drops the user straight into the Director tab.
  * ------------------------------------------------------------------ */
 
-type StepId = "project" | "bible" | "direct" | "takes" | "edit" | "export";
+type StepId = "project" | "direct" | "takes" | "edit" | "export";
 
 interface Step {
 	id: StepId;
@@ -48,7 +47,7 @@ interface Step {
 export function Onboarding() {
 	const [step, setStep] = useState(0);
 	const [hasSeenOnboarding, setHasSeenOnboarding] = useLocalStorage({
-		key: "hasSeenOnboarding-v3",
+		key: "hasSeenOnboarding-v4",
 		defaultValue: false,
 	});
 	const { isConnected } = useAIStatus();
@@ -325,27 +324,10 @@ const STEPS: Step[] = [
 			<>
 				Byorn is an AI-native editor: every shot is generated onto a real
 				timeline you can still trim, layer, and export. It all lives inside a{" "}
-				<Term>project</Term> — spin up a blank timeline or start from an
-				arrangement, and you're in.
+				<Term>project</Term> — spin up a blank timeline and you're in.
 			</>
 		),
 		illustration: <ProjectArt />,
-	},
-	{
-		id: "bible",
-		rail: "Feed the Bible",
-		icon: ImageAdd01Icon,
-		kicker: "Consistency",
-		title: "Drop your references. Lock your look.",
-		body: (
-			<>
-				Add a few style images or a character photo and the Director distills
-				them into a <Term>Project Bible</Term> — your style, characters, and
-				setting. Every shot you generate after that inherits the look. This is
-				the part other tools can't do.
-			</>
-		),
-		illustration: <BibleArt />,
 	},
 	{
 		id: "direct",
@@ -506,51 +488,6 @@ function ProjectArt() {
 				</div>
 				<div className="h-1.5 w-20 rounded-full bg-primary/50" />
 				<div className="h-1.5 w-24 rounded-full bg-muted/60" />
-			</div>
-		</div>
-	);
-}
-
-function BibleArt() {
-	return (
-		<div className="flex items-center gap-3">
-			<div className="flex flex-col gap-2">
-				{["character", "palette", "setting"].map((label, i) => (
-					<div
-						key={label}
-						className={cn(cardCls, "flex items-center gap-2 px-2.5 py-1.5")}
-					>
-						<span
-							className="size-6 rounded-md"
-							style={{
-								background:
-									i === 0
-										? "conic-gradient(from 200deg, color-mix(in srgb, var(--primary) 60%, transparent), var(--muted))"
-										: i === 1
-											? "linear-gradient(90deg, var(--primary), #f0a)"
-											: "linear-gradient(90deg, var(--muted), color-mix(in srgb, var(--primary) 40%, transparent))",
-							}}
-						/>
-						<span className="font-mono text-[9px] uppercase tracking-wide text-muted-foreground">
-							{label}
-						</span>
-					</div>
-				))}
-			</div>
-			<HugeiconsIcon icon={ArrowRight01Icon} className="size-4 text-primary" />
-			<div className={cn(cardCls, "w-40 p-3")}>
-				<div className="mb-2 flex items-center gap-1.5">
-					<span className="size-1.5 rounded-full bg-primary" />
-					<span className="font-mono text-[9px] uppercase tracking-[0.14em] text-foreground">
-						Project Bible
-					</span>
-				</div>
-				<div className="flex flex-col gap-1.5">
-					<div className="h-1.5 w-full rounded-full bg-muted" />
-					<div className="h-1.5 w-24 rounded-full bg-muted/60" />
-					<div className="h-1.5 w-28 rounded-full bg-primary/40" />
-					<div className="h-1.5 w-20 rounded-full bg-muted/60" />
-				</div>
 			</div>
 		</div>
 	);

@@ -1,0 +1,103 @@
+- generic:
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=f1e34] [cursor=pointer]
+  - alert
+  - generic:
+    - banner:
+      - generic:
+        - generic:
+          - navigation:
+            - list:
+              - listitem:
+                - link:
+                  - /url: /
+                  - text: Home
+              - listitem
+              - listitem:
+                - generic: All projects
+          - generic:
+            - button [pressed]
+            - button
+        - generic:
+          - generic:
+            - generic:
+              - textbox:
+                - /placeholder: Search...
+          - button:
+            - generic: New project
+    - generic:
+      - generic:
+        - generic:
+          - checkbox
+          - generic: Select all
+        - button: Modified
+        - button
+    - main:
+      - generic:
+        - generic:
+          - link:
+            - /url: /editor/7fc89c05-da70-45b8-9982-784281a5d73c
+            - generic:
+              - generic: 00:05
+              - generic:
+                - heading [level=3]: New project
+                - generic: Created Jun 29, 2026
+          - checkbox
+          - button
+  - dialog [ref=f1e96]:
+    - generic [ref=f1e97]:
+      - heading "Start a new project" [level=2] [ref=f1e98]
+      - paragraph [ref=f1e99]: Pick an arrangement to storyboard your reel in one click, or start from a blank timeline.
+    - generic [ref=f1e100]:
+      - button "Blank timeline Start empty and build from scratch." [active] [ref=f1e101]:
+        - generic [ref=f1e105]:
+          - generic [ref=f1e106]: Blank timeline
+          - generic [ref=f1e107]: Start empty and build from scratch.
+      - generic [ref=f1e111]:
+        - heading "Featured" [level=4] [ref=f1e112]
+        - generic [ref=f1e113]:
+          - button "Sleek product reveal on a rotating pedes Close-up detail shot of the product's te Product in use, bright lifestyle setting Bold logo sting on a clean gradient back 9:16 Product launch A punchy 4-shot product reveal for vertical feeds. 4 slots · 12s" [ref=f1e114] [cursor=pointer]:
+            - generic [ref=f1e115]:
+              - generic [ref=f1e116]:
+                - generic "Sleek product reveal on a rotating pedes" [ref=f1e117]
+                - generic "Close-up detail shot of the product's te" [ref=f1e118]
+                - generic "Product in use, bright lifestyle setting" [ref=f1e119]
+                - generic "Bold logo sting on a clean gradient back" [ref=f1e120]
+              - generic [ref=f1e121]: 9:16
+            - generic [ref=f1e122]:
+              - heading "Product launch" [level=3] [ref=f1e123]
+              - paragraph [ref=f1e124]: A punchy 4-shot product reveal for vertical feeds.
+              - generic [ref=f1e125]:
+                - generic [ref=f1e126]: 4 slots
+                - generic [ref=f1e127]: ·
+                - generic [ref=f1e128]: 12s
+          - button "Sweeping aerial drone shot over a coastl POV walking through a bustling local mar Slow-motion of waves crashing on rocks, Timelapse of a city skyline transitionin 16:9 Travel montage Cinematic landscape montage with fade cuts. 4 slots · 15s" [ref=f1e129] [cursor=pointer]:
+            - generic [ref=f1e130]:
+              - generic [ref=f1e131]:
+                - generic "Sweeping aerial drone shot over a coastl" [ref=f1e132]
+                - generic "POV walking through a bustling local mar" [ref=f1e133]
+                - generic "Slow-motion of waves crashing on rocks," [ref=f1e134]
+                - generic "Timelapse of a city skyline transitionin" [ref=f1e135]
+              - generic [ref=f1e136]: 16:9
+            - generic [ref=f1e137]:
+              - heading "Travel montage" [level=3] [ref=f1e138]
+              - paragraph [ref=f1e139]: Cinematic landscape montage with fade cuts.
+              - generic [ref=f1e140]:
+                - generic [ref=f1e141]: 4 slots
+                - generic [ref=f1e142]: ·
+                - generic [ref=f1e143]: 15s
+          - button "Confident presenter speaking to camera, B-roll illustrating the main point, matc Presenter delivering the call to action, 9:16 Talking head + B-roll Presenter-led explainer with a B-roll cutaway. 3 slots · 13s" [ref=f1e144] [cursor=pointer]:
+            - generic [ref=f1e145]:
+              - generic [ref=f1e146]:
+                - generic "Confident presenter speaking to camera," [ref=f1e147]
+                - generic "B-roll illustrating the main point, matc" [ref=f1e148]
+                - generic "Presenter delivering the call to action," [ref=f1e149]
+              - generic [ref=f1e150]: 9:16
+            - generic [ref=f1e151]:
+              - heading "Talking head + B-roll" [level=3] [ref=f1e152]
+              - paragraph [ref=f1e153]: Presenter-led explainer with a B-roll cutaway.
+              - generic [ref=f1e154]:
+                - generic [ref=f1e155]: 3 slots
+                - generic [ref=f1e156]: ·
+                - generic [ref=f1e157]: 13s
+    - button "Close" [ref=f1e158] [cursor=pointer]

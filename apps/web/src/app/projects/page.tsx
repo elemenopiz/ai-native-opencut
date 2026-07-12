@@ -64,9 +64,10 @@ import { ProjectInfoDialog } from "@/components/editor/dialogs/project-info-dial
 import { RenameProjectDialog } from "@/components/editor/dialogs/rename-project-dialog";
 import { ShareProjectDialog } from "@/components/editor/dialogs/share-project-dialog";
 import { SharedProjectsSection } from "@/components/projects/shared-projects-section";
-import { NewProjectDialog } from "@/components/arrangements/new-project-dialog";
 import { FEATURE_COLLAB } from "@/lib/feature-flags";
 import { cn } from "@/utils/ui";
+import { toast } from "sonner";
+import { useRouter } from "next/navigation";
 
 const formatProjectDuration = ({
 	duration,
@@ -505,21 +506,38 @@ function SortDropdown({ children }: { children: React.ReactNode }) {
 	);
 }
 
+async function createBlankProject({
+	editor,
+	router,
+}: {
+	editor: ReturnType<typeof useEditor>;
+	router: ReturnType<typeof useRouter>;
+}) {
+	try {
+		const projectId = await editor.project.createNewProject({
+			name: "New project",
+		});
+		router.push(`/editor/${projectId}`);
+	} catch (error) {
+		toast.error("Failed to create project", {
+			description: error instanceof Error ? error.message : "Please try again",
+		});
+	}
+}
+
 function NewProjectButton() {
-	const [isDialogOpen, setIsDialogOpen] = useState(false);
+	const editor = useEditor();
+	const router = useRouter();
 
 	return (
-		<>
-			<Button
-				size="lg"
-				className="flex px-5 md:px-6"
-				onClick={() => setIsDialogOpen(true)}
-			>
-				<span className="text-sm font-medium hidden md:block">New project</span>
-				<span className="text-sm font-medium block md:hidden">New</span>
-			</Button>
-			<NewProjectDialog isOpen={isDialogOpen} onOpenChange={setIsDialogOpen} />
-		</>
+		<Button
+			size="lg"
+			className="flex px-5 md:px-6"
+			onClick={() => createBlankProject({ editor, router })}
+		>
+			<span className="text-sm font-medium hidden md:block">New project</span>
+			<span className="text-sm font-medium block md:hidden">New</span>
+		</Button>
 	);
 }
 
@@ -983,12 +1001,10 @@ function ProjectsSkeleton() {
 function EmptyState() {
 	const { searchQuery, setSearchQuery } = useProjectsStore();
 	const editor = useEditor();
+	const router = useRouter();
 	const savedProjects = editor.project.getSavedProjects();
-	const [isDialogOpen, setIsDialogOpen] = useState(false);
 
-	const handleCreateProject = () => {
-		setIsDialogOpen(true);
-	};
+	const handleCreateProject = () => createBlankProject({ editor, router });
 
 	if (savedProjects.length > 0) {
 		return (
@@ -1035,7 +1051,6 @@ function EmptyState() {
 				<HugeiconsIcon icon={PlusSignIcon} />
 				Create your first project
 			</Button>
-			<NewProjectDialog isOpen={isDialogOpen} onOpenChange={setIsDialogOpen} />
 		</div>
 	);
 }

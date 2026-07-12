@@ -1,0 +1,270 @@
+- generic [ref=f1e1]:
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=f1e34] [cursor=pointer]
+  - alert [ref=f1e38]
+  - generic [ref=f1e262]:
+    - banner [ref=f1e263]:
+      - generic [ref=f1e264]:
+        - button [ref=f1e265] [cursor=pointer]:
+          - img "Byorn" [ref=f1e266]
+        - textbox [ref=f1e267] [cursor=pointer]: New project
+        - generic [ref=f1e268]: Saved just now
+      - generic [ref=f1e164]:
+        - button "main" [ref=f1e269]
+        - button "Commit" [ref=f1e597]
+        - button "Quick" [ref=f1e598]
+        - button "History" [ref=f1e270]
+      - navigation [ref=f1e271]:
+        - button "Board" [ref=f1e272] [cursor=pointer]
+        - button "Export" [ref=f1e273] [cursor=pointer]
+        - link "0" [ref=f1e282] [cursor=pointer]:
+          - /url: /account#credits
+        - button "Account menu" [ref=f1e291] [cursor=pointer]:
+          - generic [ref=f1e292]: VL
+    - generic [ref=f1e295]:
+      - generic [ref=f1e297]:
+        - generic [ref=f1e299]:
+          - generic [ref=f1e300]:
+            - button "Scroll up for more tabs" [ref=f1e301]
+            - generic [ref=f1e304]:
+              - button "Media" [ref=f1e305] [cursor=pointer]
+              - button "Director" [ref=f1e306] [cursor=pointer]
+              - button "Takes" [ref=f1e307] [cursor=pointer]
+              - button "Text" [ref=f1e308] [cursor=pointer]
+              - button "Captions" [ref=f1e309] [cursor=pointer]
+              - button "Speakers" [ref=f1e310] [cursor=pointer]
+              - button "Audio" [ref=f1e311] [cursor=pointer]
+              - button "Elements" [ref=f1e312] [cursor=pointer]
+              - button "Visuals" [ref=f1e313] [cursor=pointer]
+              - button "Multicam" [ref=f1e314] [cursor=pointer]
+              - button "Templates" [ref=f1e315] [cursor=pointer]
+              - button "Search" [ref=f1e316] [cursor=pointer]
+              - button "Brand Kit" [ref=f1e317] [cursor=pointer]
+              - button "Insights" [ref=f1e318] [cursor=pointer]
+              - button "Settings" [ref=f1e319] [cursor=pointer]
+            - button "Scroll down for more tabs" [ref=f1e321]
+          - generic [ref=f1e325]:
+            - generic [ref=f1e326]:
+              - generic [ref=f1e327]: Assets
+              - generic [ref=f1e328]:
+                - button [ref=f1e329] [cursor=pointer]
+                - button [ref=f1e330] [cursor=pointer]
+                - button "Import" [ref=f1e331] [cursor=pointer]
+            - generic [ref=f1e333]:
+              - generic [ref=f1e551]:
+                - button "All 2" [ref=f1e552]:
+                  - text: All
+                  - generic [ref=f1e558]: "2"
+                - button "Videos 2" [ref=f1e559]:
+                  - text: Videos
+                  - generic [ref=f1e564]: "2"
+              - generic [ref=f1e565]:
+                - generic [ref=f1e571]:
+                  - generic [ref=f1e573]:
+                    - generic [ref=f1e574]:
+                      - img "fixture-av.mp4" [ref=f1e575]
+                      - generic [ref=f1e576]: MP4
+                      - generic [ref=f1e577]: 0:10
+                    - button [active] [ref=f1e578] [cursor=pointer]
+                  - generic "fixture-av.mp4" [ref=f1e579]: fixture-av.mp4...mp4
+                - generic [ref=f1e586]:
+                  - generic [ref=f1e588]:
+                    - generic [ref=f1e589]:
+                      - img "fixture-av.mp4" [ref=f1e590]
+                      - generic [ref=f1e591]: MP4
+                      - generic [ref=f1e592]: 0:10
+                    - button [ref=f1e593] [cursor=pointer]
+                  - generic "fixture-av.mp4" [ref=f1e594]: fixture-av.mp4...mp4
+        - separator [ref=f1e341]
+        - generic [ref=f1e343]:
+          - generic [ref=f1e344]:
+            - generic [ref=f1e345]:
+              - button "16:9" [ref=f1e346]
+              - button "9:16" [ref=f1e350]
+              - button "1:1" [ref=f1e354]
+              - button "4:3" [ref=f1e358]
+            - button "Guides" [ref=f1e363] [cursor=pointer]
+          - generic [ref=f1e369]:
+            - generic [ref=f1e370]:
+              - button "00:00:00:00" [ref=f1e371] [cursor=pointer]
+              - generic [ref=f1e372]: /
+              - generic [ref=f1e373]: 00:00:10:00
+            - button "Play (Space or k)" [ref=f1e374] [cursor=pointer]
+            - generic [ref=f1e375]:
+              - button "Auto" [ref=f1e376] [cursor=pointer]
+              - generic [ref=f1e377]:
+                - button "Pan tool (drag to pan, middle-drag anytime)" [ref=f1e378] [cursor=pointer]
+                - button "Zoom out" [ref=f1e379] [cursor=pointer]
+                - button "26%" [ref=f1e599] [cursor=pointer]
+                - button "Zoom in" [ref=f1e381] [cursor=pointer]
+                - button "1:1" [ref=f1e382] [cursor=pointer]
+              - button "Social media" [ref=f1e383] [cursor=pointer]:
+                - img "Social media"
+              - button "Enter fullscreen" [ref=f1e384] [cursor=pointer]
+        - separator [ref=f1e385]
+        - generic [ref=f1e600]:
+          - generic [ref=f1e601]:
+            - button "Generate" [ref=f1e602]
+            - button "Properties" [ref=f1e603]
+            - button "Bible" [ref=f1e604]
+            - button "Scopes" [ref=f1e605]
+          - generic [ref=f1e610]:
+            - tablist [ref=f1e611]:
+              - tab "Shot" [selected] [ref=f1e612] [cursor=pointer]
+              - tab "Image" [ref=f1e613] [cursor=pointer]
+              - tab "Personas" [ref=f1e614] [cursor=pointer]
+            - tabpanel "Shot" [ref=f1e615]:
+              - generic [ref=f1e616]:
+                - generic [ref=f1e617]:
+                  - text: Mode
+                  - generic [ref=f1e618]:
+                    - button "Omni" [ref=f1e619]
+                    - button "First/Last" [ref=f1e620]
+                    - button "Multiframe" [ref=f1e621]
+                  - paragraph [ref=f1e622]: Omni reference — references guide the shot; @mention them in the prompt. None is a fixed frame.
+                - generic [ref=f1e623]:
+                  - generic [ref=f1e624]:
+                    - generic [ref=f1e625]: References
+                    - generic [ref=f1e626]: optional · drag, drop, or @mention
+                  - button [ref=f1e628]:
+                    - paragraph [ref=f1e629]: Drag from Assets, or drop images / videos here
+                    - paragraph [ref=f1e630]: click to browse · keeps subject, style & scene consistent
+                - generic [ref=f1e631]:
+                  - generic [ref=f1e632]:
+                    - generic [ref=f1e633]: Prompt
+                    - button "Enhance prompt" [ref=f1e635]
+                  - textbox "Describe your shot… Type @ to reference attached media." [ref=f1e640]:
+                    - /placeholder: Describe your shot…  Type @ to reference attached media.
+                - generic [ref=f1e641]:
+                  - text: Camera motion
+                  - button [ref=f1e642]
+                - generic [ref=f1e646]:
+                  - text: Orientation
+                  - generic [ref=f1e647]:
+                    - button "Portrait 9:16" [ref=f1e648]:
+                      - generic [ref=f1e651]: Portrait
+                      - generic [ref=f1e652]: 9:16
+                    - button "Landscape 16:9" [ref=f1e653]:
+                      - generic [ref=f1e656]: Landscape
+                      - generic [ref=f1e657]: 16:9
+                    - button "Square 1:1" [ref=f1e658]:
+                      - generic [ref=f1e661]: Square
+                      - generic [ref=f1e662]: 1:1
+                - generic [ref=f1e663]:
+                  - generic [ref=f1e664]:
+                    - generic [ref=f1e665]: Seed
+                    - button "Random" [ref=f1e666]
+                  - generic [ref=f1e667]:
+                    - spinbutton "Leave blank for random" [disabled]
+                  - paragraph [ref=f1e668]: Every take stores its seed, so you can promote any winner to 1080p — no upscaling.
+                - generic [ref=f1e669]:
+                  - text: Resolution
+                  - generic [ref=f1e670]:
+                    - button "480p" [ref=f1e671]
+                    - button "720p" [ref=f1e672]
+                    - button "1080p" [ref=f1e673]
+                  - paragraph [ref=f1e674]: ~$0.07–0.10/sec · normal drafting
+                - generic [ref=f1e675]:
+                  - generic [ref=f1e676]:
+                    - generic [ref=f1e677]: Duration
+                    - generic [ref=f1e678]: 5s
+                  - slider [ref=f1e683]
+                - generic [ref=f1e684]:
+                  - generic [ref=f1e685]:
+                    - generic [ref=f1e686]: Variations
+                    - generic [ref=f1e687]: one take
+                  - generic [ref=f1e688]:
+                    - button "1" [ref=f1e689]
+                    - button "2" [ref=f1e690]
+                    - button "3" [ref=f1e691]
+                    - button "4" [ref=f1e692]
+                - generic [ref=f1e693]:
+                  - generic [ref=f1e694]:
+                    - generic [ref=f1e695]: Estimated cost
+                    - generic [ref=f1e696]: 5s · 720p
+                  - generic [ref=f1e697]: 35¢–50¢
+                - button "Generate" [disabled]
+      - separator [ref=f1e419]
+      - region "Timeline" [ref=f1e421]:
+        - generic [ref=f1e423]:
+          - generic [ref=f1e425]:
+            - button [ref=f1e426] [cursor=pointer]
+            - button [ref=f1e427] [cursor=pointer]
+            - button [ref=f1e428] [cursor=pointer]
+            - button [ref=f1e429] [cursor=pointer]
+            - button [ref=f1e430] [cursor=pointer]
+            - button [ref=f1e431] [cursor=pointer]
+            - button [ref=f1e432] [cursor=pointer]
+            - button [ref=f1e434] [cursor=pointer]
+            - button [ref=f1e435] [cursor=pointer]
+            - button [ref=f1e436] [cursor=pointer]
+            - button [ref=f1e438] [cursor=pointer]
+            - button [ref=f1e439]
+          - generic [ref=f1e441]:
+            - button "Main scene" [ref=f1e442]
+            - button [ref=f1e444] [cursor=pointer]
+          - generic [ref=f1e446]:
+            - button "Audio tools" [ref=f1e447] [cursor=pointer]
+            - button [ref=f1e448] [cursor=pointer]
+            - button [ref=f1e449] [cursor=pointer]
+            - button [ref=f1e450] [cursor=pointer]
+            - generic [ref=f1e452]:
+              - button [ref=f1e453] [cursor=pointer]
+              - slider [ref=f1e457]
+              - button [ref=f1e458] [cursor=pointer]
+        - generic [ref=f1e460]:
+          - generic [ref=f1e461]:
+            - generic [ref=f1e462]: .
+            - generic [ref=f1e464]: .
+            - generic [ref=f1e469]:
+              - img "Video" [ref=f1e475]
+              - button "Main Track" [ref=f1e478]
+          - generic [ref=f1e489]:
+            - generic [ref=f1e490]:
+              - slider "Timeline ruler" [ref=f1e491]:
+                - generic [ref=f1e492]: 00:00
+                - generic [ref=f1e497]: 15f
+                - generic [ref=f1e502]: 00:01
+                - generic [ref=f1e507]: 15f
+                - generic [ref=f1e512]: 00:02
+                - generic [ref=f1e517]: 15f
+                - generic [ref=f1e522]: 00:03
+                - generic [ref=f1e527]: 15f
+                - generic [ref=f1e532]: 00:04
+                - generic [ref=f1e703]: 15f
+              - button "Timeline ruler" [ref=f1e534]
+            - slider "Timeline playhead":
+              - button "Drag playhead" [ref=f1e535]
+            - button [ref=f1e538]:
+              - button [ref=f1e710] [cursor=pointer]
+        - generic [ref=f1e541]:
+          - button "Show Mixer" [ref=f1e542]
+          - button "Show Effects" [ref=f1e543]
+          - button "Show Markers" [ref=f1e544]
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: AI Studio
+            - generic: Beta
+          - generic:
+            - generic: ⌘K
+            - button "Close AI panel"
+        - generic:
+          - generic:
+            - generic:
+              - paragraph: AI Studio
+              - paragraph: Brainstorm ideas, plan your video, or run AI commands.
+            - generic:
+              - button "Remove filler words"
+              - button "Add subtitles"
+              - button "Remove silences"
+              - button "Improve audio"
+              - button "Generate thumbnail"
+              - button "Auto color grade"
+        - generic:
+          - generic:
+            - generic:
+              - textbox "Ask anything..."
+            - button "Send message" [disabled]
+          - paragraph: Press Enter to send · Save responses as ideas
