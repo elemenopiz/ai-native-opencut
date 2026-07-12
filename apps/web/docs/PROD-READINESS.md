@@ -47,7 +47,9 @@ shared 4-digit code **6715** (`BETA_ACCESS_CODE`, /beta-gate page, server-checke
 (2) forced signup: no session ⇒ /signup?redirect= (auth+legal pages exempt; E2E builds
 exempt — runner can't mint sessions). **650-credit signup grant** (user.create.after hook,
 idempotent `grant:signup:${userId}`; ≈$5 Seedance = 10×5s clips + ≈$1.50 Nano Banana Pro
-≈10 images; balance fungible, split enforced by pricing); **owner unlimited**:
+≈10 images; split is a HARD ledger earmark @09de9786 — MODALITY_SPLIT video 500/image 150
+enforced inside reserve()'s locked tx, 402 body gains `budget`, scales with lifetime
+grants); **owner unlimited**:
 zsrumishaikh@gmail.com gets 1,000,000 cr at signup (signupGrantFor). Image model =
 **Nano Banana Pro (gemini-3-pro-image)**, bills 14 cr/image, panel speaks 1K/2K+aspect
 ratios, GPT Image de-branded everywhere; /api/studio/image routes through the registry,
