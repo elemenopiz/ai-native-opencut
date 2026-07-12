@@ -67,6 +67,39 @@ function useNotConfigured(): boolean {
 
 type EnhanceState = "idle" | "loading";
 
+// ── @mention handle preservation ──────────────────────────────────────────
+// Omni/persona surfaces let users insert literal handles (@Image1, @Video2,
+// ...) that resolve to attached reference media server-side. The rewrite is a
+// free-form LLM call with no structural awareness of these tokens, so nothing
+// guarantees it keeps one verbatim. Belt-and-suspenders: the server prompt asks
+// it to preserve them (see enhance-prompt/route.ts), and this is the backstop
+// — if a handle present in the original text is missing from the rewrite, it
+// gets appended back so a reference never silently drops out from under the
+// user. ONLY the exact shapes generation-form.tsx mints (@Image<n>/@Video<n>):
+// this button is shared with surfaces that have no mention system (Director,
+// image gen, B-roll), where a looser pattern would false-positive on ordinary
+// @-words the user typed and force them into the rewrite.
+const HANDLE_RE = /@(?:Image|Video)\d+/g;
+
+// A plain `.includes(handle)` would let a longer handle satisfy a shorter
+// one's presence check (e.g. "@Image10" in the text would count as "@Image1"
+// surviving, since the latter is a literal substring of the former) — so the
+// presence check must reject a match immediately followed by another digit.
+function handleSurvives(handle: string, text: string): boolean {
+	const escaped = handle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	return new RegExp(`${escaped}(?!\\d)`).test(text);
+}
+
+export function restoreDroppedHandles(
+	original: string,
+	enhanced: string,
+): string {
+	const originalHandles = [...new Set(original.match(HANDLE_RE) ?? [])];
+	if (originalHandles.length === 0) return enhanced;
+	const missing = originalHandles.filter((h) => !handleSurvives(h, enhanced));
+	return missing.length ? `${enhanced} ${missing.join(" ")}` : enhanced;
+}
+
 /**
  * A compact sparkle button that rewrites the adjacent prompt field into a
  * detailed, generation-ready prompt via `/api/llm/enhance-prompt`, then shows an
@@ -126,7 +159,7 @@ export function EnhancePromptButton({
 			const data = (await res.json()) as { enhanced?: string };
 			const enhanced = data.enhanced?.trim();
 			if (!enhanced) return;
-			setPrompt(enhanced);
+			setPrompt(restoreDroppedHandles(current, enhanced));
 			setCanUndo(true);
 		} catch {
 			// Network/parse failure — silently leave the field untouched. The button
