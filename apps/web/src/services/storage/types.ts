@@ -36,6 +36,26 @@ export const PROXY_PRESETS: Record<
 export const PROXY_THRESHOLD_WIDTH = 1920;
 export const PROXY_THRESHOLD_HEIGHT = 1080;
 
+/** Which visible frame of the source clip an extracted still came from. */
+export type DerivedFrameLabel = "first frame" | "last frame" | "frame";
+
+/**
+ * Provenance for a still IMAGE asset extracted from a video clip. Ties the frame
+ * back to its source video (by media-asset id) and records exactly which
+ * SOURCE-media time was decoded, so the chain "last frame of clip N → first
+ * frame of clip N+1" stays auditable. Additive/optional — pre-existing assets
+ * (and any asset that wasn't extracted from a clip) simply lack it, so old
+ * projects load unchanged.
+ */
+export interface DerivedFrom {
+	/** `MediaAsset.id` of the source video this frame was decoded from. */
+	assetId: string;
+	/** SOURCE-media timestamp (seconds) that was decoded. */
+	sourceTimeSec: number;
+	/** Which visible frame this represents (drives the badge/name). */
+	label: DerivedFrameLabel;
+}
+
 export interface MediaAssetData {
 	id: string;
 	name: string;
@@ -53,6 +73,8 @@ export interface MediaAssetData {
 	/** Where the asset came from. "ai" marks Studio-generated images/videos so
 	 *  they can be filtered in the Assets panel. Undefined ⇒ uploaded/imported. */
 	source?: "ai";
+	/** Present ⇒ this asset is a still frame extracted from a source video clip. */
+	derivedFrom?: DerivedFrom;
 	proxy?: ProxyInfo;
 	needsProxy?: boolean;
 }

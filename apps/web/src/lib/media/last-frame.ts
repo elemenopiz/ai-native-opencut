@@ -203,3 +203,62 @@ export async function extractTakeFrames(
 		return extractFrames({ videoUrl: asset.url, name: opts.name }, count);
 	return [];
 }
+
+/** A single frame decoded at the source's native resolution, plus its size. */
+export interface FullFrame {
+	/** Lossless PNG data URL of the frame at NATIVE resolution (no 720p clamp). */
+	dataUrl: string;
+	/** Native pixel dimensions of the decoded frame. */
+	width: number;
+	height: number;
+}
+
+/**
+ * Decode ONE frame at an arbitrary SOURCE-media `timeSec` at the video's NATIVE
+ * resolution (no thumbnail clamp), returning the PNG data URL plus the frame's
+ * pixel dimensions. This is the extraction primitive behind the "Extract frame"
+ * UI and the Director `extractFrame` verb: unlike {@link extractLastFrame} it
+ * samples any time (first / last / playhead), keeps full resolution so the frame
+ * is fit to seed a new generation, and reports dimensions so the resulting image
+ * asset carries correct width/height. Never throws — returns `undefined` when
+ * the frame can't be produced (non-decodable, time out of range, missing source).
+ */
+export async function extractFrameFull(
+	source: LastFrameSource,
+	timeSec: number,
+): Promise<FullFrame | undefined> {
+	try {
+		const file = await resolveSourceFile(source);
+		if (!file) return undefined;
+		const info = await getVideoInfo({ videoFile: file });
+		const clampedTime = Number.isFinite(timeSec) ? Math.max(0, timeSec) : 0;
+		const dataUrl = await generateThumbnail({
+			videoFile: file,
+			timeInSeconds: clampedTime,
+			fullResolution: true,
+		});
+		return { dataUrl, width: info.width, height: info.height };
+	} catch (error) {
+		console.warn("extractFrameFull failed", error);
+		return undefined;
+	}
+}
+
+/**
+ * Convenience over {@link extractFrameFull} for a resolved media asset
+ * (structurally typed so this module stays free of editor/store types). Prefers
+ * the in-memory `file`, falls back to `url`, and returns `undefined` for
+ * non-video / missing assets.
+ */
+export async function extractTakeFrameFull(
+	asset: { type?: string; file?: File; url?: string } | undefined,
+	timeSec: number,
+	name?: string,
+): Promise<FullFrame | undefined> {
+	if (asset?.type !== "video") return undefined;
+	if (asset.file)
+		return extractFrameFull({ videoFile: asset.file, name }, timeSec);
+	if (asset.url)
+		return extractFrameFull({ videoUrl: asset.url, name }, timeSec);
+	return undefined;
+}

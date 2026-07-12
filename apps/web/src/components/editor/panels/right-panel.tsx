@@ -8,6 +8,7 @@ import { GenerateView } from "@/components/editor/panels/assets/views/generate";
 import { ScopesPanel } from "@/components/editor/panels/scopes";
 import { BiblePanel } from "@/components/editor/panels/bible";
 import { useTranscriptStore } from "@/stores/transcript-store";
+import { useFrameChainStore } from "@/stores/frame-chain-store";
 import { useElementSelection } from "@/hooks/timeline/element/use-element-selection";
 
 type RightTab = "generate" | "properties" | "bible" | "transcript" | "scopes";
@@ -39,6 +40,19 @@ export function RightPanel({ className }: { className?: string }) {
 	useEffect(() => {
 		if (!hasTranscript && activeTab === "transcript") setActiveTab("generate");
 	}, [hasTranscript, activeTab]);
+
+	// Frame chaining: when a user sends an extracted frame to Generate ("Use as
+	// next first frame"), jump to the Generate tab so the GenerationForm — which
+	// consumes the same store — is visible as it fills the First-frame slot.
+	// Only on a nonce ADVANCE past the mount-time value — the store outlives this
+	// panel, so a bare `nonce > 0` check would snap a remounted panel back to
+	// Generate after any earlier chain in the session.
+	const frameChainNonce = useFrameChainStore((s) => s.nonce);
+	const lastSeenChainNonce = useRef(frameChainNonce);
+	useEffect(() => {
+		if (frameChainNonce > lastSeenChainNonce.current) setActiveTab("generate");
+		lastSeenChainNonce.current = frameChainNonce;
+	}, [frameChainNonce]);
 
 	return (
 		<div

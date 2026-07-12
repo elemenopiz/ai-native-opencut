@@ -29,6 +29,9 @@ import {
 	ContextMenuContent,
 	ContextMenuItem,
 	ContextMenuSeparator,
+	ContextMenuSub,
+	ContextMenuSubContent,
+	ContextMenuSubTrigger,
 	ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import type {
@@ -67,6 +70,7 @@ import {
 	KeyframeIcon,
 	MagicWand05Icon,
 	Unlink04Icon,
+	ImageCropIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { uppercase } from "@/utils/string";
@@ -77,6 +81,19 @@ import { useCallback, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { usePropertiesStore } from "@/stores/properties-store";
 import { useTimelineStore } from "@/stores/timeline-store";
+import { useFrameChainStore } from "@/stores/frame-chain-store";
+import { toast } from "sonner";
+import {
+	extractAndAddFrame,
+	firstFrameSourceTime,
+	lastFrameSourceTime,
+	playheadSourceTime,
+	isPlayheadWithinElement,
+	type FrameDecodeSource,
+} from "@/lib/media/frame-extraction";
+import type { DerivedFrameLabel } from "@/services/storage/types";
+import { dataUrlToFile } from "@/lib/media/data-url";
+import { uploadReferenceFile } from "@/lib/studio/reference-upload";
 
 const KEYFRAME_INDICATOR_MIN_WIDTH_PX = 40;
 const ELEMENT_RING_WIDTH_PX = 1.5;
@@ -339,6 +356,115 @@ export function TimelineElement({
 		}
 	};
 
+	// ── Extract frame ──────────────────────────────────────────────────────────
+	// Grab a full-resolution still from this video clip and add it to the library
+	// with provenance. Offered on single-selected VIDEO clips whose media is
+	// resolved. "Frame at playhead" is enabled only while the playhead sits over
+	// the clip (read live so a stale render doesn't offer an out-of-span grab).
+	const setPendingFirstFrame = useFrameChainStore(
+		(s) => s.setPendingFirstFrame,
+	);
+	const canExtractFrame =
+		element.type === "video" &&
+		selectedElements.length === 1 &&
+		!!mediaAsset &&
+		(!!mediaAsset.file || !!mediaAsset.url);
+	const playheadOverElement =
+		canExtractFrame &&
+		isPlayheadWithinElement(element, editor.playback.getCurrentTime());
+
+	async function handleExtractFrame(kind: "first" | "last" | "playhead") {
+		if (element.type !== "video" || !mediaAsset) return;
+		let projectId: string;
+		try {
+			projectId = editor.project.getActive().metadata.id;
+		} catch {
+			toast.error("No active project to add the frame to.");
+			return;
+		}
+
+		const label: DerivedFrameLabel =
+			kind === "first"
+				? "first frame"
+				: kind === "last"
+					? "last frame"
+					: "frame";
+		const timeSec =
+			kind === "first"
+				? firstFrameSourceTime(element)
+				: kind === "last"
+					? lastFrameSourceTime(element)
+					: playheadSourceTime(element, editor.playback.getCurrentTime());
+
+		if (
+			kind === "playhead" &&
+			!isPlayheadWithinElement(element, editor.playback.getCurrentTime())
+		) {
+			toast.error("Move the playhead over this clip first.");
+			return;
+		}
+
+		const source: FrameDecodeSource = {
+			videoFile: mediaAsset.file,
+			videoUrl: mediaAsset.url,
+			name: mediaAsset.name,
+		};
+		const toastId = toast.loading("Extracting frame…");
+		try {
+			const result = await extractAndAddFrame({
+				editor,
+				projectId,
+				source,
+				sourceAssetId: mediaAsset.id,
+				sourceName: element.name || mediaAsset.name,
+				timeSec,
+				label,
+			});
+			const isFirst = kind === "first";
+			toast.success(`Added "${result.name}" to your library.`, {
+				id: toastId,
+				action: {
+					label: isFirst ? "Use in Generate" : "Use as next first frame",
+					onClick: () => {
+						void chainFrameToGenerate(result.dataUrl, result.name);
+					},
+				},
+				// Secondary affordance: jump to the Media tab and flash-highlight the
+				// new frame asset (reuses the "Reveal media" seam). No auto tab-switch
+				// on extraction itself — the toast is the navigation hub.
+				cancel: {
+					label: "Reveal",
+					onClick: () => requestRevealMedia(result.mediaId),
+				},
+			});
+		} catch (err) {
+			toast.error(
+				err instanceof Error ? err.message : "Couldn't extract the frame.",
+				{ id: toastId },
+			);
+		}
+	}
+
+	async function chainFrameToGenerate(dataUrl: string, name: string) {
+		const uploadingId = toast.loading("Preparing frame for Generate…");
+		try {
+			const file = dataUrlToFile(dataUrl, name);
+			const { url } = await uploadReferenceFile(file);
+			setPendingFirstFrame({ url, label: name });
+			// Neutral on purpose: whether the frame can seed the next
+			// generation depends on the model selected IN the form (First/Last
+			// support) — the form surfaces an inline warning when it can't.
+			toast.success("Frame sent to Generate.", {
+				id: uploadingId,
+			});
+		} catch (err) {
+			toast.error(
+				err instanceof Error ? err.message : "Couldn't prepare the frame.",
+				{ id: uploadingId },
+			);
+		}
+	}
+
 	const isMuted = canElementHaveAudio(element) && element.muted === true;
 
 	const transitionInfo = getTransitionOutInfo({ element, track });
@@ -463,6 +589,30 @@ export function TimelineElement({
 					>
 						Duplicate
 					</ActionMenuItem>
+				)}
+				{canExtractFrame && (
+					<ContextMenuSub>
+						<ContextMenuSubTrigger
+							icon={<HugeiconsIcon icon={ImageCropIcon} />}
+						>
+							Extract frame
+						</ContextMenuSubTrigger>
+						<ContextMenuSubContent className="w-48">
+							<ContextMenuItem onClick={() => void handleExtractFrame("first")}>
+								First frame
+							</ContextMenuItem>
+							<ContextMenuItem onClick={() => void handleExtractFrame("last")}>
+								Last frame
+							</ContextMenuItem>
+							{playheadOverElement && (
+								<ContextMenuItem
+									onClick={() => void handleExtractFrame("playhead")}
+								>
+									Frame at playhead
+								</ContextMenuItem>
+							)}
+						</ContextMenuSubContent>
+					</ContextMenuSub>
 				)}
 				{selectedElements.length === 1 && hasMediaId(element) && (
 					<>

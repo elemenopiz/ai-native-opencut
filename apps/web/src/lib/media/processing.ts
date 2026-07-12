@@ -36,6 +36,7 @@ const renderToThumbnailDataUrl = ({
 	width,
 	height,
 	draw,
+	fullResolution = false,
 }: {
 	width: number;
 	height: number;
@@ -48,8 +49,17 @@ const renderToThumbnailDataUrl = ({
 		width: number;
 		height: number;
 	}) => void;
+	/**
+	 * When true, render at the source's NATIVE resolution (no 1280×720 clamp) and
+	 * emit lossless PNG instead of JPEG. Used for extracted frames that seed a new
+	 * generation, where the 720p thumbnail clamp would degrade the seed. Default
+	 * (false) keeps the cheap clamped JPEG every thumbnail caller relies on.
+	 */
+	fullResolution?: boolean;
 }): string => {
-	const size = getThumbnailSize({ width, height });
+	const size = fullResolution
+		? { width, height }
+		: getThumbnailSize({ width, height });
 	const canvas = document.createElement("canvas");
 	canvas.width = size.width;
 	canvas.height = size.height;
@@ -60,7 +70,9 @@ const renderToThumbnailDataUrl = ({
 	}
 
 	draw({ context, width: size.width, height: size.height });
-	return canvas.toDataURL("image/jpeg", 0.8);
+	return fullResolution
+		? canvas.toDataURL("image/png")
+		: canvas.toDataURL("image/jpeg", 0.8);
 };
 
 /**
@@ -76,9 +88,12 @@ const renderToThumbnailDataUrl = ({
 export async function generateThumbnails({
 	videoFile,
 	timesInSeconds,
+	fullResolution = false,
 }: {
 	videoFile: File;
 	timesInSeconds: number[];
+	/** Decode at native resolution as PNG (see {@link renderToThumbnailDataUrl}). */
+	fullResolution?: boolean;
 }): Promise<string[]> {
 	if (timesInSeconds.length === 0) return [];
 
@@ -111,6 +126,7 @@ export async function generateThumbnails({
 						draw: ({ context, width, height }) => {
 							frame.draw(context, 0, 0, width, height);
 						},
+						fullResolution,
 					}),
 				);
 			} finally {
@@ -127,13 +143,17 @@ export async function generateThumbnails({
 export async function generateThumbnail({
 	videoFile,
 	timeInSeconds,
+	fullResolution = false,
 }: {
 	videoFile: File;
 	timeInSeconds: number;
+	/** Decode at native resolution as PNG (see {@link renderToThumbnailDataUrl}). */
+	fullResolution?: boolean;
 }): Promise<string> {
 	const [thumbnail] = await generateThumbnails({
 		videoFile,
 		timesInSeconds: [timeInSeconds],
+		fullResolution,
 	});
 
 	if (!thumbnail) {

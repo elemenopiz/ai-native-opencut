@@ -341,6 +341,7 @@ class StorageService {
 			ephemeral: mediaAsset.ephemeral,
 			label: mediaAsset.label,
 			source: mediaAsset.source,
+			derivedFrom: mediaAsset.derivedFrom,
 			proxy: mediaAsset.proxy,
 			needsProxy: mediaAsset.needsProxy,
 		};
@@ -407,6 +408,7 @@ class StorageService {
 			ephemeral: metadata.ephemeral,
 			label: metadata.label,
 			source: metadata.source,
+			derivedFrom: metadata.derivedFrom,
 			proxy: metadata.proxy,
 			needsProxy: metadata.needsProxy,
 		};
