@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, gt } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { creditAccounts, creditLedger } from "@/lib/db/schema-credits";
 import { generateUUID } from "@/utils/id";
@@ -97,6 +97,19 @@ export async function getAccount(userId: string): Promise<AccountState> {
 	const balance = row.balance;
 	const reserved = row.reserved;
 	return { balance, reserved, spendable: Math.max(0, balance - reserved) };
+}
+
+/**
+ * Sum of every credit ever granted to (or purchased by) this user — all
+ * positive ledger rows. Drives the beta courtesy-extension backstop and the
+ * client's "you've used your allowance" pacing nudge.
+ */
+export async function lifetimeGranted(userId: string): Promise<number> {
+	const rows = await db
+		.select({ delta: creditLedger.delta })
+		.from(creditLedger)
+		.where(and(eq(creditLedger.userId, userId), gt(creditLedger.delta, 0)));
+	return rows.reduce((sum, row) => sum + row.delta, 0);
 }
 
 export interface ReserveOptions {

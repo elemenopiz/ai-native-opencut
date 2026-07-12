@@ -47,9 +47,12 @@ shared 4-digit code **6715** (`BETA_ACCESS_CODE`, /beta-gate page, server-checke
 (2) forced signup: no session ⇒ /signup?redirect= (auth+legal pages exempt; E2E builds
 exempt — runner can't mint sessions). **650-credit signup grant** (user.create.after hook,
 idempotent `grant:signup:${userId}`; ≈$5 Seedance = 10×5s clips + ≈$1.50 Nano Banana Pro
-≈10 images; split is a HARD ledger earmark @09de9786 — MODALITY_SPLIT video 500/image 150
-enforced inside reserve()'s locked tx, 402 body gains `budget`, scales with lifetime
-grants); **owner unlimited**:
+≈10 images; the 650 is a SOFT allowance — earmarks @09de9786 REVERTED @d5cdd2f2 per
+product call: meteredReserve auto-extends a dry balance in 650-cr courtesy chunks
+(idempotent on the lifetime-granted watermark) instead of 402ing, client toasts a
+once-per-chunk "pace yourself, the pool is shared" nudge off lifetimeGranted in
+/api/credits/balance; runaway backstop = 10,000 lifetime cr (~$100/user,
+BETA_COURTESY_BACKSTOP_CREDITS) where the hard 402 wall returns); **owner unlimited**:
 zsrumishaikh@gmail.com gets 1,000,000 cr at signup (signupGrantFor). Image model =
 **Nano Banana Pro (gemini-3-pro-image)**, bills 14 cr/image, panel speaks 1K/2K+aspect
 ratios, GPT Image de-branded everywhere; /api/studio/image routes through the registry,

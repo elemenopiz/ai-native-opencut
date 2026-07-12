@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { webEnv } from "@byorn/env/web";
 import {
 	type AccountState,
+	grant,
 	InsufficientCredits,
+	lifetimeGranted,
 	release,
 	type ReleaseOptions,
 	reserve,
@@ -10,6 +12,10 @@ import {
 	settle,
 	type SettleOptions,
 } from "@/lib/credits/ledger";
+import {
+	BETA_COURTESY_BACKSTOP_CREDITS,
+	SIGNUP_GRANT_CREDITS,
+} from "@/lib/credits/signup-grant";
 
 /** Shared ref type for every studio generation charge. */
 export const STUDIO_REF_TYPE = "studio_job";
@@ -37,7 +43,37 @@ export async function meteredReserve(
 	opts: ReserveOptions,
 ): Promise<AccountState | null> {
 	if (!creditsEnforced()) return null;
-	return reserve(userId, credits, opts);
+	try {
+		return await reserve(userId, credits, opts);
+	} catch (err) {
+		if (!(err instanceof InsufficientCredits)) throw err;
+
+		// ── Beta courtesy extension ─────────────────────────────────────────
+		// The 650-credit allowance is a SOFT limit: instead of blocking, extend
+		// the balance in further allowance-sized chunks and let the client nag
+		// the user to pace themselves (the pool is shared). The extension is
+		// idempotent on the lifetime-granted watermark, so a raced retry can't
+		// double-grant; the lifetime backstop (~$100) only exists to stop a
+		// runaway script, never a human.
+		const granted = await lifetimeGranted(userId);
+		if (granted >= BETA_COURTESY_BACKSTOP_CREDITS) throw err;
+
+		const shortfall = credits - err.spendable;
+		const chunks = Math.max(1, Math.ceil(shortfall / SIGNUP_GRANT_CREDITS));
+		await grant(userId, chunks * SIGNUP_GRANT_CREDITS, {
+			reason: "beta_courtesy",
+			refType: "courtesy",
+			// Derived key `grant:courtesy:${userId}:${granted}`: one extension
+			// per watermark — concurrent losers re-reserve against the same
+			// single grant instead of stacking extensions.
+			refId: `${userId}:${granted}`,
+			note: "Beta courtesy extension — allowance exceeded, pool is shared",
+		});
+
+		// One retry; a second failure (e.g. two big concurrent asks raced for
+		// one extension) surfaces as the normal 402 and succeeds on next click.
+		return await reserve(userId, credits, opts);
+	}
 }
 
 export async function meteredSettle(

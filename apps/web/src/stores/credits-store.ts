@@ -1,4 +1,9 @@
 import { create } from "zustand";
+import { toast } from "sonner";
+import {
+	OWNER_GRANT_CREDITS,
+	SIGNUP_GRANT_CREDITS,
+} from "@/lib/credits/signup-grant";
 
 /**
  * Client-side credit state: the header balance pill reads `spendable`; the
@@ -9,6 +14,50 @@ import { create } from "zustand";
 
 /** Show the pill in amber below this many spendable credits. */
 export const LOW_CREDIT_THRESHOLD = 50;
+
+/**
+ * Beta pacing nudge: the 650-credit allowance is a soft limit — the server
+ * auto-extends the balance rather than blocking — so once LIFETIME spend
+ * (granted − balance) crosses each allowance-sized chunk, show a one-time
+ * "please pace yourself" toast. Owner-scale accounts (the 1M grant) are
+ * exempt. localStorage keys the once-per-chunk behavior per browser.
+ */
+
+/**
+ * Which allowance chunk (1, 2, …) the user's lifetime spend has reached, or
+ * null when no nudge is due. Pure — the DOM/toast wrapper below stays thin.
+ */
+export function pacingNudgeChunk(
+	lifetimeGranted: number,
+	balance: number,
+): number | null {
+	if (lifetimeGranted <= 0 || lifetimeGranted >= OWNER_GRANT_CREDITS) {
+		return null;
+	}
+	const spent = Math.max(0, lifetimeGranted - balance);
+	if (spent < SIGNUP_GRANT_CREDITS) return null;
+	return Math.floor(spent / SIGNUP_GRANT_CREDITS);
+}
+
+function maybeShowPacingNudge(lifetimeGranted: number, balance: number): void {
+	if (typeof window === "undefined") return;
+	const chunk = pacingNudgeChunk(lifetimeGranted, balance);
+	if (chunk === null) return;
+
+	const key = `byorn-beta-pace-nudge-${chunk}`;
+	try {
+		if (window.localStorage.getItem(key)) return;
+		window.localStorage.setItem(key, "1");
+	} catch {
+		return; // storage unavailable — skip rather than nag on every refresh
+	}
+
+	toast("You've used your beta allowance", {
+		description:
+			"Keep creating — we've extended your credits. The beta pool is shared with the other testers, so please pace yourself.",
+		duration: 10_000,
+	});
+}
 
 interface OutOfCreditsInfo {
 	open: boolean;
@@ -55,6 +104,7 @@ export const useCreditsStore = create<CreditsStore>((set, get) => ({
 				spendable: number;
 				balance: number;
 				reserved: number;
+				lifetimeGranted?: number;
 			};
 			set({
 				spendable: data.spendable,
@@ -63,6 +113,9 @@ export const useCreditsStore = create<CreditsStore>((set, get) => ({
 				loaded: true,
 				loading: false,
 			});
+			if (typeof data.lifetimeGranted === "number") {
+				maybeShowPacingNudge(data.lifetimeGranted, data.balance);
+			}
 		} catch {
 			set({ loading: false });
 		}

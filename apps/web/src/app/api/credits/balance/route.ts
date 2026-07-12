@@ -2,14 +2,17 @@
  * GET /api/credits/balance — the caller's credit balance.
  *
  * Session-gated (matches the other authed routes in this repo). Returns
- * `{ spendable, balance, reserved }` where spendable = balance - reserved. The
- * balance pill in the editor header reads this.
+ * `{ spendable, balance, reserved, lifetimeGranted }` where spendable =
+ * balance - reserved. The balance pill in the editor header reads this;
+ * `lifetimeGranted` lets the client compute lifetime spend
+ * (granted − balance) and show the beta pacing nudge once the 650-credit
+ * allowance is used.
  */
 
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth/server";
-import { getAccount } from "@/lib/credits/ledger";
+import { getAccount, lifetimeGranted } from "@/lib/credits/ledger";
 
 export async function GET() {
 	try {
@@ -18,8 +21,16 @@ export async function GET() {
 			return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 		}
 
-		const { spendable, balance, reserved } = await getAccount(session.user.id);
-		return NextResponse.json({ spendable, balance, reserved });
+		const [{ spendable, balance, reserved }, granted] = await Promise.all([
+			getAccount(session.user.id),
+			lifetimeGranted(session.user.id),
+		]);
+		return NextResponse.json({
+			spendable,
+			balance,
+			reserved,
+			lifetimeGranted: granted,
+		});
 	} catch (error) {
 		console.error("Error reading credit balance:", error);
 		return NextResponse.json(
