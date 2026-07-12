@@ -51,7 +51,12 @@ export const commits = pgTable(
 		mergeParentId: text("merge_parent_id"),
 		hash: text("hash").notNull(),
 		message: text("message").notNull(),
-		authorId: text("author_id").references(() => users.id),
+		// ON DELETE SET NULL (migration 0009): a user who authored commits must be
+		// able to delete their account. author_name/author_avatar below are
+		// denormalized, so author display survives the linkage being nulled.
+		authorId: text("author_id").references(() => users.id, {
+			onDelete: "set null",
+		}),
 		authorName: text("author_name"),
 		authorAvatar: text("author_avatar"),
 
@@ -126,7 +131,10 @@ export const tags = pgTable(
 		name: text("name").notNull(),
 		type: text("type").default("custom").notNull(),
 		note: text("note"),
-		createdBy: text("created_by").references(() => users.id),
+		// ON DELETE SET NULL (migration 0009): don't block account deletion.
+		createdBy: text("created_by").references(() => users.id, {
+			onDelete: "set null",
+		}),
 		createdAt: timestamp("created_at")
 			.$defaultFn(() => new Date())
 			.notNull(),
@@ -169,7 +177,10 @@ export const mediaObjects = pgTable("vc_media_objects", {
 	width: integer("width"),
 	height: integer("height"),
 	duration: real("duration"),
-	uploadedBy: text("uploaded_by").references(() => users.id),
+	// ON DELETE SET NULL (migration 0009): don't block account deletion.
+	uploadedBy: text("uploaded_by").references(() => users.id, {
+		onDelete: "set null",
+	}),
 	uploadedAt: timestamp("uploaded_at")
 		.$defaultFn(() => new Date())
 		.notNull(),
@@ -233,7 +244,11 @@ export const projectMembers = pgTable(
 			.notNull()
 			.references(() => users.id, { onDelete: "cascade" }),
 		role: text("role").default("editor").notNull(), // "editor" | "viewer"
-		invitedBy: text("invited_by").references(() => users.id),
+		// ON DELETE SET NULL (migration 0009): the inviter deleting their account
+		// must not block deletion nor orphan this row.
+		invitedBy: text("invited_by").references(() => users.id, {
+			onDelete: "set null",
+		}),
 		createdAt: timestamp("created_at")
 			.$defaultFn(() => new Date())
 			.notNull(),
@@ -260,7 +275,11 @@ export const projectInvitations = pgTable(
 		email: text("email").notNull(),
 		role: text("role").default("editor").notNull(), // "editor" | "viewer"
 		status: text("status").default("pending").notNull(), // "pending" | "accepted" | "declined" | "revoked"
-		invitedBy: text("invited_by").references(() => users.id),
+		// ON DELETE SET NULL (migration 0009): the inviter deleting their account
+		// must not block deletion nor orphan this row.
+		invitedBy: text("invited_by").references(() => users.id, {
+			onDelete: "set null",
+		}),
 		createdAt: timestamp("created_at")
 			.$defaultFn(() => new Date())
 			.notNull(),
