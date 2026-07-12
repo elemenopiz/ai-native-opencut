@@ -22,6 +22,7 @@ import { SyncStatusIndicator } from "./panels/version-history/sync-status";
 import { VersionStorage } from "@/services/storage/version-storage";
 import { SyncEngine } from "@/services/sync/sync-engine";
 import { ShareProjectDialog } from "./dialogs/share-project-dialog";
+import { FEATURE_COLLAB } from "@/lib/feature-flags";
 
 type DrawerTab = "history" | "diff";
 
@@ -245,20 +246,25 @@ export function VersionControlDrawer({
 								</Button>
 							</div>
 						)}
-						<div className="flex items-center justify-between">
-							<span className="text-[11px] text-muted-foreground">
-								Teamwork
-							</span>
-							<Button
-								size="sm"
-								variant="outline"
-								className="h-7 text-[11px]"
-								onClick={() => setShareDialogOpen(true)}
-								disabled={!projectId}
-							>
-								Share with teammates
-							</Button>
-						</div>
+						{/* Teamwork / invite entry point — hidden for the private beta
+							per ADR-003 (NEXT_PUBLIC_FEATURE_COLLAB, default off).
+							Version control itself (sync, commit, branches) stays. */}
+						{FEATURE_COLLAB && (
+							<div className="flex items-center justify-between">
+								<span className="text-[11px] text-muted-foreground">
+									Teamwork
+								</span>
+								<Button
+									size="sm"
+									variant="outline"
+									className="h-7 text-[11px]"
+									onClick={() => setShareDialogOpen(true)}
+									disabled={!projectId}
+								>
+									Share with teammates
+								</Button>
+							</div>
+						)}
 					</div>
 
 					{/* Action buttons */}
@@ -309,7 +315,7 @@ export function VersionControlDrawer({
 				onOpenChange={setCherryPickOpen}
 				commit={selectedCommit}
 			/>
-			{projectId && (
+			{FEATURE_COLLAB && projectId && (
 				<ShareProjectDialog
 					isOpen={shareDialogOpen}
 					onOpenChange={setShareDialogOpen}

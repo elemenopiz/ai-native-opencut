@@ -19,16 +19,22 @@ import {
 	type SharedProject,
 } from "@/services/collaboration/collaboration-client";
 import { cloneSharedProject } from "@/services/collaboration/clone";
+import { FEATURE_COLLAB } from "@/lib/feature-flags";
 
 /**
  * "Shared with me" on the projects page: pending invitations (accept/decline)
  * and the projects the user collaborates on. Opening a shared project clones
  * it locally (history + media) on first open, then routes into the editor.
+ *
+ * Hidden behind NEXT_PUBLIC_FEATURE_COLLAB (default off) for the private beta —
+ * see ADR-003. When the flag is off this renders nothing and never calls the
+ * collab listing endpoint.
  */
 export function SharedProjectsSection() {
 	const [listing, setListing] = useState<SharedListing | null>(null);
 
 	const refresh = useCallback(async () => {
+		if (!FEATURE_COLLAB) return;
 		try {
 			// Plain fetch on purpose: an anonymous visitor's 401 must stay silent
 			// here (apiFetch would pop the login toast on every projects visit).
@@ -45,6 +51,7 @@ export function SharedProjectsSection() {
 	}, [refresh]);
 
 	if (
+		!FEATURE_COLLAB ||
 		!listing ||
 		(listing.invitations.length === 0 && listing.projects.length === 0)
 	) {

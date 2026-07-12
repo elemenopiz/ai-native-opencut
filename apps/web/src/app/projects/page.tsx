@@ -65,6 +65,7 @@ import { RenameProjectDialog } from "@/components/editor/dialogs/rename-project-
 import { ShareProjectDialog } from "@/components/editor/dialogs/share-project-dialog";
 import { SharedProjectsSection } from "@/components/projects/shared-projects-section";
 import { NewProjectDialog } from "@/components/arrangements/new-project-dialog";
+import { FEATURE_COLLAB } from "@/lib/feature-flags";
 import { cn } from "@/utils/ui";
 
 const formatProjectDuration = ({
@@ -757,12 +758,14 @@ function ProjectItem({
 				project={project}
 			/>
 
-			<ShareProjectDialog
-				isOpen={isShareDialogOpen}
-				onOpenChange={setIsShareDialogOpen}
-				projectId={project.id}
-				projectName={project.name}
-			/>
+			{FEATURE_COLLAB && (
+				<ShareProjectDialog
+					isOpen={isShareDialogOpen}
+					onOpenChange={setIsShareDialogOpen}
+					projectId={project.id}
+					projectName={project.name}
+				/>
+			)}
 		</>
 	);
 }
@@ -782,12 +785,14 @@ function ProjectContextMenuContent({
 }) {
 	return (
 		<ContextMenuContent>
-			<ContextMenuItem
-				icon={<HugeiconsIcon icon={UserAdd01Icon} />}
-				onClick={onShareClick}
-			>
-				Share
-			</ContextMenuItem>
+			{FEATURE_COLLAB && (
+				<ContextMenuItem
+					icon={<HugeiconsIcon icon={UserAdd01Icon} />}
+					onClick={onShareClick}
+				>
+					Share
+				</ContextMenuItem>
+			)}
 			<ContextMenuItem
 				icon={<HugeiconsIcon icon={Edit03Icon} />}
 				onClick={onRenameClick}
@@ -917,10 +922,12 @@ function ProjectMenu({
 				</Button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent className="w-48" align="end">
-				<DropdownMenuItem onClick={handleShare}>
-					<HugeiconsIcon icon={UserAdd01Icon} />
-					Share
-				</DropdownMenuItem>
+				{FEATURE_COLLAB && (
+					<DropdownMenuItem onClick={handleShare}>
+						<HugeiconsIcon icon={UserAdd01Icon} />
+						Share
+					</DropdownMenuItem>
+				)}
 				<DropdownMenuItem onClick={handleRename}>
 					<HugeiconsIcon icon={Edit03Icon} />
 					Rename
