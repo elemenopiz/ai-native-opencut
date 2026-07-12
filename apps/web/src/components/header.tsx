@@ -5,7 +5,6 @@ import Link from "next/link";
 import { motion } from "motion/react";
 import { Button } from "./ui/button";
 import { ArrowRight } from "lucide-react";
-import { ThemeToggle } from "./theme-toggle";
 import { Menu02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { cn } from "@/utils/ui";
@@ -66,7 +65,6 @@ export function Header() {
 								<ArrowRight className="size-4" />
 							</Button>
 						</Link>
-						<ThemeToggle />
 					</div>
 				</div>
 				<div
@@ -118,14 +116,6 @@ export function Header() {
 								</motion.div>
 							))}
 						</nav>
-						<ThemeToggle
-							className="absolute right-8 bottom-8 size-10"
-							iconClassName="!size-[1.2rem]"
-							onToggle={(e) => {
-								e.preventDefault();
-								e.stopPropagation();
-							}}
-						/>
 					</div>
 				</div>
 			</div>
