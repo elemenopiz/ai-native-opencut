@@ -40,16 +40,24 @@ ADR-005; the short version, in order:
 #6–#10 (residual failures under-charge US, never users), #13 NOT-NULL flip, #5c biome.
 Songs tab = deploy-day call (fresh FREESOUND key or hide).
 
-**Beta onboarding packet (user-directed, 2026-07-13, branch `beta-gate-credits`):** forced
-sign-in for the private beta (`src/proxy.ts` cookie wall on /projects·/editor·/account,
-E2E builds exempt — the e2e runner can't mint sessions), **500-credit signup grant**
-(user.create.after hook → idempotent `grant:signup:${userId}`; ≈$5 Seedance = 10×5s clips;
-budget: $25 Seedance pool ⇒ first-come ~50 clips total, $10 Gemini pool covers images+chat),
-default image backend flipped **openai-gpt-image → google-nano-banana** (same GEMINI_API_KEY
-as the Director; /api/studio/image routes through the registry with availability fallback,
-default quality now "medium"/1K to stretch the Gemini pool), GPT Image de-branded from UI
-(/models lineup, image panel, persona hints). ⚠️ Post-deploy: accounts created BEFORE this
-ships got no grant — top up via POST /api/admin/credits/grant.
+**Beta onboarding packet (user-directed, 2026-07-13, branch `beta-gate-credits`, final
+shape after two product pivots):** `src/proxy.ts` is a DOUBLE DOOR — (1) whole site behind
+shared 4-digit code **6715** (`BETA_ACCESS_CODE`, /beta-gate page, server-checked POST
+/api/beta-gate, per-IP rate-limited `beta:gate` 5/min·60/day, httpOnly year cookie), then
+(2) forced signup: no session ⇒ /signup?redirect= (auth+legal pages exempt; E2E builds
+exempt — runner can't mint sessions). **650-credit signup grant** (user.create.after hook,
+idempotent `grant:signup:${userId}`; ≈$5 Seedance = 10×5s clips + ≈$1.50 Nano Banana Pro
+≈10 images; balance fungible, split enforced by pricing); **owner unlimited**:
+zsrumishaikh@gmail.com gets 1,000,000 cr at signup (signupGrantFor). Image model =
+**Nano Banana Pro (gemini-3-pro-image)**, bills 14 cr/image, panel speaks 1K/2K+aspect
+ratios, GPT Image de-branded everywhere; /api/studio/image routes through the registry,
+n clamped 1–4, default quality 1K. **Gemini surface trim**: ONLY Director chat, image gen,
+enhance-prompt may call Gemini — Understanding Pass + Insights tab + Podcast AI gated off
+(FEATURE_UNDERSTANDING_PASS / FEATURE_PODCAST_AI, default off, env-re-enablable).
+⚠️ Post-deploy: (a) set nothing new — code default is 6715; override via BETA_ACCESS_CODE
+if rotating; (b) accounts created BEFORE this ships got no grant — top up via
+POST /api/admin/credits/grant; (c) watch the BytePlus balance — grants are first-come
+against the $25 pool.
 
 ## 🧊 Architect session (2026-07-12, late) — push #3, FEATURE FREEZE, B2 prep
 
