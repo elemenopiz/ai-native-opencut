@@ -676,13 +676,21 @@ class AIClient {
 		});
 	}
 
+	/**
+	 * Synthesize speech via the app's OWN cloud `/api/tts` route (browser-first
+	 * local AI plan Task 8) — a same-origin call, NOT `this.baseUrl` (the retired
+	 * local Python backend). Returns finished mp3 bytes as a Blob; failures throw
+	 * with the route's own `message` so callers surface actionable text.
+	 */
 	async generateSpeechBlob(request: TTSRequest): Promise<Blob> {
-		const url = `${this.baseUrl}/api/tts/generate`;
+		const url = "/api/tts";
 		const controller = new AbortController();
 		const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
 		try {
-			const response = await fetch(url, {
+			// `apiFetch` so a 401 (signed-out user on a keyed instance) surfaces the
+			// global login prompt like every other gated route.
+			const response = await apiFetch(url, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify(request),
@@ -690,9 +698,24 @@ class AIClient {
 			});
 
 			if (!response.ok) {
-				const errorBody = await response.text().catch(() => "Unknown error");
+				// The route always answers errors as JSON `{ error, message }`.
+				const body = (await response.json().catch(() => null)) as {
+					error?: string;
+					message?: string;
+				} | null;
+				// Machine-readable "no key" signal — say the feature is unavailable,
+				// not that a request failed.
+				if (body?.error === "tts_not_configured") {
+					throw new AIClientError(
+						"Text-to-speech isn't configured on this server — voiceover generation is unavailable.",
+						"backend_error",
+						response.status,
+					);
+				}
 				throw new AIClientError(
-					`TTS error (${response.status}): ${errorBody}`,
+					body?.message ??
+						body?.error ??
+						`Speech generation failed (${response.status})`,
 					response.status >= 500 ? "backend_error" : "network_error",
 					response.status,
 				);

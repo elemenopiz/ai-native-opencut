@@ -5,6 +5,7 @@ import {
 	voiceLockFragment,
 	type VoiceProfile,
 } from "@/lib/director/consistency-prompt";
+import { isTTSVoice } from "@/lib/tts/voices";
 import { assertReferenceUsable } from "@/stores/voice-consent-store";
 import { processMediaAssets } from "@/lib/media/processing";
 import { generateUUID } from "@/utils/id";
@@ -21,9 +22,11 @@ import type { GenerationSpec, TimelineElement } from "@/types/timeline";
  * take-to-take (seed-lock's audio analog).
  *
  * Pipeline: resolve voice-lock → `aiClient.generateSpeechBlob`
- * (POST /api/tts/generate) → import the audio through the normal media
- * pipeline → patch the take `ready` with its `mediaId`, using the same
- * `addTakeToElement`/`updateTake`/`selectTake` bookkeeping visual takes use.
+ * (POST /api/tts — the app's own cloud route) → import the audio through the
+ * normal media pipeline → patch the take `ready` with its `mediaId`, using the
+ * same `addTakeToElement`/`updateTake`/`selectTake` bookkeeping visual takes
+ * use. Voice cloning (`voiceRef` as a spoken identity) is RETIRED for beta
+ * with the local XTTS backend — a clone-backed spec fails its take early.
  */
 
 /** Terminal result of generating one voiceover take's media. */
@@ -31,8 +34,9 @@ export type GenerateVoiceoverTakeResult =
 	| { status: "ready"; mediaId: string; seed?: number }
 	| { status: "failed"; error: string };
 
-/** The local TTS service's default model (`services/tts-service`). */
-export const DEFAULT_TTS_MODEL = "xtts_v2";
+/** The cloud TTS route's fixed model (`/api/tts` → OpenAI) — recorded on specs
+ *  purely as provenance; the route does not accept a model parameter. */
+const CLOUD_TTS_MODEL = "gpt-4o-mini-tts";
 
 /**
  * Build a voiceover `GenerationSpec`. Reuses the shared spec type (so the
@@ -42,7 +46,6 @@ export const DEFAULT_TTS_MODEL = "xtts_v2";
  */
 export function makeVoiceoverSpec({
 	text,
-	model,
 	voice,
 	voiceRef,
 	language,
@@ -53,7 +56,6 @@ export function makeVoiceoverSpec({
 }: {
 	/** The spoken dialogue — stored as the spec's `prompt` (provenance). */
 	text: string;
-	model?: string;
 	voice?: string;
 	voiceRef?: string;
 	language?: string;
@@ -65,7 +67,7 @@ export function makeVoiceoverSpec({
 	return {
 		kind: "voiceover",
 		prompt: text,
-		model: model ?? DEFAULT_TTS_MODEL,
+		model: CLOUD_TTS_MODEL,
 		voice,
 		voiceRef,
 		language: language ?? "en",
@@ -115,7 +117,10 @@ export async function importAudioAsset(
 	blob: Blob,
 	name: string,
 ): Promise<{ mediaId: string }> {
-	const fileName = name.toLowerCase().endsWith(".wav") ? name : `${name}.wav`;
+	// The cloud TTS route returns mp3; older/local paths produced wav — name the
+	// file to match the actual bytes so nothing downstream trusts a wrong ext.
+	const ext = blob.type === "audio/mpeg" ? ".mp3" : ".wav";
+	const fileName = /\.(wav|mp3)$/i.test(name) ? name : `${name}${ext}`;
 	const type = blob.type.startsWith("audio/") ? blob.type : "audio/wav";
 	const file = new File([blob], fileName, { type });
 	const [processed] = await processMediaAssets({ files: [file] });
@@ -149,8 +154,19 @@ export async function generateVoiceoverTakeMedia({
 		// CONSENT GATE (Flow D #1): a cloned-voice reference may only be spoken once
 		// its profile is `consented`. Throws for a pending/revoked clone — caught
 		// below and surfaced as a failed take, so an unconsented clone never reaches
-		// the TTS backend. A built-in speaker / unknown ref passes.
+		// the TTS backend. A built-in speaker / unknown ref passes. Kept AHEAD of
+		// the beta gate below so a consent violation surfaces its own message, not
+		// the generic "unavailable" one.
 		assertReferenceUsable(spec.voiceRef);
+		// BETA GATE: voice cloning retired with the local XTTS backend — the cloud
+		// route has no `speakerWav` equivalent, so a clone-backed spec fails early
+		// rather than silently speaking in a stock voice that isn't the clone.
+		if (spec.voiceRef) {
+			return {
+				status: "failed",
+				error: "Voice cloning is unavailable in beta",
+			};
+		}
 		// Voice-lock: restate the character's vocal identity ahead of every
 		// beat's dialogue — the per-beat analog of `withConsistencyContext`.
 		const text = spec.voiceLock ? `${spec.voiceLock}\n\n${dialogue}` : dialogue;
@@ -158,9 +174,11 @@ export async function generateVoiceoverTakeMedia({
 		const blob = await aiClient.generateSpeechBlob({
 			text,
 			language: spec.language ?? "en",
-			// A cloned-voice reference wins over a built-in speaker name.
-			speakerWav: spec.voiceRef,
-			speaker: spec.voiceRef ? undefined : spec.voice,
+			// Only a route-allowlisted voice is forwarded. `spec.voice` can carry
+			// legacy values (the old "male"/"female" toggle, XTTS speaker names,
+			// free-form agent input) that would 400 the whole call — omit them and
+			// let the route default apply instead.
+			voice: isTTSVoice(spec.voice) ? spec.voice : undefined,
 		});
 
 		const { mediaId } = await importAudioAsset(
@@ -214,7 +232,7 @@ export async function runVoiceoverTake({
 	const effectiveSpec: GenerationSpec = {
 		...spec,
 		kind: "voiceover",
-		model: spec.model ?? DEFAULT_TTS_MODEL,
+		model: spec.model ?? CLOUD_TTS_MODEL,
 		voiceLock,
 	};
 

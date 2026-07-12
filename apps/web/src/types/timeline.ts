@@ -193,10 +193,13 @@ export interface GenerationSpec {
 	 *  spoken text/dialogue, and the visual fields (`mode`/`resolution`/
 	 *  `orientation`) are carried but ignored. */
 	kind?: "video" | "voiceover";
-	/** Built-in TTS speaker/voice id (e.g. "male", "female"). */
+	/** Built-in cloud TTS voice id (allowlist in `lib/tts/voices.ts`, e.g.
+	 *  "alloy", "nova"). Legacy values ("male"/"female", XTTS speaker names) may
+	 *  survive on old specs — the TTS path omits anything not allowlisted. */
 	voice?: string;
-	/** Cloned-voice reference — the server path returned by
-	 *  `aiClient.cloneVoice`; takes precedence over `voice` when both are set. */
+	/** Cloned-voice reference (retired local-XTTS path). Kept for provenance on
+	 *  old takes; a spec carrying one now FAILS early — voice cloning is
+	 *  unavailable in beta (see `lib/studio/generate-voiceover-take.ts`). */
 	voiceRef?: string;
 	/** TTS language code (voiceover takes; defaults to "en"). */
 	language?: string;

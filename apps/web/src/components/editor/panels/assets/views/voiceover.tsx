@@ -5,7 +5,6 @@ import { PanelView } from "./base-view";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
-import { Badge } from "@/components/ui/badge";
 import {
 	Select,
 	SelectContent,
@@ -22,10 +21,8 @@ import {
 	runVoiceoverTake,
 } from "@/lib/studio/generate-voiceover-take";
 import { buildUploadAudioElement } from "@/lib/timeline/element-utils";
+import { DEFAULT_TTS_VOICE, TTS_VOICES, type TTSVoice } from "@/lib/tts/voices";
 import { useBackgroundTasksStore } from "@/stores/background-tasks-store";
-import { useVoiceConsentStore } from "@/stores/voice-consent-store";
-import { captureConsent } from "@/lib/director/voice-consent-service";
-import { consentPhraseFor } from "@/lib/director/voice-consent";
 import { cn } from "@/utils/ui";
 import { toast } from "sonner";
 import {
@@ -45,72 +42,12 @@ import {
 // Constants
 // ---------------------------------------------------------------------------
 
-type TTSEngine = "local" | "sarvam" | "smallest";
+type TTSEngine = "standard" | "sarvam" | "smallest";
 
-const TTS_MODELS = [
-	{
-		id: "xtts_v2",
-		name: "Coqui XTTS v2",
-		description: "Multilingual with voice cloning",
-		size: "~1.8 GB",
-		supportsCloning: true,
-		quality: "High",
-		speed: "Slow",
-		installed: true,
-	},
-	{
-		id: "styletts2",
-		name: "StyleTTS 2",
-		description: "Human-level quality with style transfer",
-		size: "~500 MB",
-		supportsCloning: true,
-		quality: "Very High",
-		speed: "Medium",
-		installed: false,
-	},
-	{
-		id: "bark",
-		name: "Bark (Suno)",
-		description: "Expressive speech with emotions",
-		size: "~5 GB",
-		supportsCloning: false,
-		quality: "Very High",
-		speed: "Very Slow",
-		installed: false,
-	},
-	{
-		id: "piper",
-		name: "Piper",
-		description: "Fast and lightweight",
-		size: "~50 MB/voice",
-		supportsCloning: false,
-		quality: "Good",
-		speed: "Very Fast",
-		installed: false,
-	},
-	{
-		id: "fish-speech",
-		name: "Fish Speech",
-		description: "Multilingual zero-shot voice cloning",
-		size: "~1 GB",
-		supportsCloning: true,
-		quality: "High",
-		speed: "Fast",
-		installed: false,
-	},
-	{
-		id: "kokoro",
-		name: "Kokoro TTS",
-		description: "Small, fast, surprisingly natural",
-		size: "~80 MB",
-		supportsCloning: false,
-		quality: "High",
-		speed: "Very Fast",
-		installed: false,
-	},
-];
-
-const COQUI_LANGUAGES = [
+// Translation targets offered for the standard (cloud) engine. The cloud TTS
+// model has no language parameter — it speaks whatever language the text is in
+// — so this list only drives the pre-TTS transcript translation step.
+const STANDARD_TTS_LANGUAGES = [
 	{ code: "en", name: "English" },
 	{ code: "es", name: "Spanish" },
 	{ code: "fr", name: "French" },
@@ -126,11 +63,11 @@ const COQUI_LANGUAGES = [
 ];
 
 const ALL_TTS_LANGUAGES = [
-	...COQUI_LANGUAGES,
+	...STANDARD_TTS_LANGUAGES,
 	...SARVAM_TTS_LANGUAGES.filter((l) => l.code !== "en"),
 	...SMALLEST_TTS_LANGUAGES.filter(
 		(l) =>
-			!COQUI_LANGUAGES.some((c) => c.code === l.code) &&
+			!STANDARD_TTS_LANGUAGES.some((c) => c.code === l.code) &&
 			!SARVAM_TTS_LANGUAGES.some((s) => s.code === l.code),
 	),
 ];
@@ -145,7 +82,7 @@ export function VoiceoverView() {
 	const hasTranscript = segments.length > 0;
 
 	// Engine selection — top-level toggle
-	const [engine, setEngine] = useState<TTSEngine>("local");
+	const [engine, setEngine] = useState<TTSEngine>("standard");
 
 	// Shared state
 	const [language, setLanguage] = useState("en");
@@ -170,32 +107,10 @@ export function VoiceoverView() {
 	const [useTranscript, setUseTranscript] = useState(true);
 	const audioRef = useRef<HTMLAudioElement>(null);
 
-	// Local engine state
-	const [selectedModel, setSelectedModel] = useState("xtts_v2");
-	const [voiceGender, setVoiceGender] = useState<"male" | "female">("male");
-	const [clonedVoicePath, setClonedVoicePath] = useState<string | null>(null);
-	const [clonedVoiceName, setClonedVoiceName] = useState<string | null>(null);
-	const [isUploading, setIsUploading] = useState(false);
-	const fileInputRef = useRef<HTMLInputElement>(null);
-
-	// Voice-clone CONSENT gate (Flow D #1). A freshly-cloned voice is UNUSABLE
-	// until the speaker records a consent statement containing the required
-	// phrase. `pendingClone` holds a cloned-but-unconsented voice; `clonedVoicePath`
-	// is only set (usable) once consent verifies, so nothing here can generate
-	// speech from an unconsented clone.
-	const registerClone = useVoiceConsentStore((s) => s.registerClone);
-	const revokeProfileConsent = useVoiceConsentStore(
-		(s) => s.revokeProfileConsent,
-	);
-	const [pendingClone, setPendingClone] = useState<{
-		profileId: string;
-		name: string;
-		referencePath: string;
-		phrase: string;
-	} | null>(null);
-	const [consentBusy, setConsentBusy] = useState(false);
-	const [consentError, setConsentError] = useState<string | null>(null);
-	const consentFileInputRef = useRef<HTMLInputElement>(null);
+	// Standard (cloud) engine state. Voice cloning + the XTTS model picker are
+	// GONE for beta with the retired local backend — the only knob is which of
+	// the route's built-in voices to speak in (see `lib/tts/voices.ts`).
+	const [voice, setVoice] = useState<TTSVoice>(DEFAULT_TTS_VOICE);
 
 	// Sarvam engine state
 	const [sarvamSpeaker, setSarvamSpeaker] = useState(SARVAM_DEFAULT_SPEAKER);
@@ -208,9 +123,6 @@ export function VoiceoverView() {
 	const [liveSmallestVoices, setLiveSmallestVoices] = useState<
 		{ id: string; name: string; language: string; gender: string }[] | null
 	>(null);
-
-	const currentModel =
-		TTS_MODELS.find((m) => m.id === selectedModel) ?? TTS_MODELS[0];
 
 	// Available voices for the selected language (Smallest, static fallback)
 	const smallestVoicesForLang = useMemo(
@@ -263,16 +175,6 @@ export function VoiceoverView() {
 		else if (e === "smallest") setLanguage("en");
 		else setLanguage("en");
 	};
-
-	// Auto-select cloning model when voice is uploaded
-	useEffect(() => {
-		if (clonedVoicePath) {
-			const cloningModel = TTS_MODELS.find(
-				(m) => m.supportsCloning && m.installed,
-			);
-			if (cloningModel) setSelectedModel(cloningModel.id);
-		}
-	}, [clonedVoicePath]);
 
 	// Text to generate from
 	const textToGenerate = useMemo(() => {
@@ -345,19 +247,10 @@ export function VoiceoverView() {
 			return aiClient.generateSpeechBlob({
 				text,
 				language,
-				speakerWav: clonedVoicePath ?? undefined,
-				speaker: clonedVoicePath ? undefined : voiceGender,
+				voice,
 			});
 		},
-		[
-			engine,
-			language,
-			sarvamSpeaker,
-			smallestVoice,
-			smallestSpeed,
-			clonedVoicePath,
-			voiceGender,
-		],
+		[engine, language, sarvamSpeaker, smallestVoice, smallestSpeed, voice],
 	);
 
 	// Persist a generated voiceover blob as a durable project MediaAsset and drop
@@ -499,8 +392,8 @@ export function VoiceoverView() {
 		setError(null);
 
 		const trackId = editor.timeline.addTrack({ type: "audio", index: 0 });
-		// The local engine routes through the first-class voiceover-Take pipeline
-		// (provenance + voice-lock); that needs the active project id.
+		// The standard engine routes through the first-class voiceover-Take
+		// pipeline (provenance + voice-lock); that needs the active project id.
 		const voiceoverProjectId = (() => {
 			try {
 				return editor.project.getActive().metadata.id;
@@ -527,16 +420,14 @@ export function VoiceoverView() {
 				setGenerationProgress(progress);
 				updateTask(taskId, { progress });
 
-				if (engine === "local" && voiceoverProjectId) {
+				if (engine === "standard" && voiceoverProjectId) {
 					// First-class Take path: each segment becomes a voiceover slot
-					// carrying its TTS recipe (model / voice / voiceRef = provenance)
-					// with a landed Take, using the same bookkeeping visual
-					// generations use. Voice-lock is resolved inside runVoiceoverTake.
+					// carrying its TTS recipe (voice / language = provenance) with a
+					// landed Take, using the same bookkeeping visual generations use.
+					// Voice-lock is resolved inside runVoiceoverTake.
 					const spec = makeVoiceoverSpec({
 						text: ttsText,
-						model: selectedModel,
-						voice: voiceGender,
-						voiceRef: clonedVoicePath ?? undefined,
+						voice,
 						language,
 					});
 					const elementId = editor.timeline.addVoiceoverSlot({
@@ -587,9 +478,7 @@ export function VoiceoverView() {
 		needsTranslation,
 		editor,
 		engine,
-		selectedModel,
-		voiceGender,
-		clonedVoicePath,
+		voice,
 		translateForTTS,
 		generateSpeech,
 		landVoiceoverAudio,
@@ -614,95 +503,6 @@ export function VoiceoverView() {
 
 		toast.success("Voiceover added to timeline");
 	}, [editor, generatedBlob, landVoiceoverAudio]);
-
-	// Upload voice sample for cloning (local engine only). The clone is NOT usable
-	// yet — it enters the consent gate as `pending`; the speaker must record a
-	// consent statement before it can generate speech.
-	const handleUploadVoice = useCallback(
-		async (file: File) => {
-			setIsUploading(true);
-			setError(null);
-			setConsentError(null);
-			try {
-				const result = await aiClient.cloneVoice(
-					file,
-					file.name.replace(/\.[^.]+$/, ""),
-				);
-				const profile = registerClone({
-					name: result.name,
-					referencePath: result.path,
-				});
-				// Gate: do NOT set clonedVoicePath (usable) — hold it pending consent.
-				setPendingClone({
-					profileId: profile.id,
-					name: result.name,
-					referencePath: result.path,
-					phrase: consentPhraseFor(result.name),
-				});
-				toast.info(
-					`Voice "${result.name}" cloned — consent required before use`,
-				);
-			} catch (err) {
-				setError(err instanceof Error ? err.message : "Voice cloning failed");
-			} finally {
-				setIsUploading(false);
-			}
-		},
-		[registerClone],
-	);
-
-	// Consent capture: verify the recorded consent statement contains the required
-	// phrase (via the app's Whisper transcription), then activate the clone.
-	const handleGrantConsent = useCallback(
-		async (consentAudio: File) => {
-			if (!pendingClone) return;
-			setConsentBusy(true);
-			setConsentError(null);
-			try {
-				const res = await captureConsent({
-					profileId: pendingClone.profileId,
-					consentAudio,
-					phrase: pendingClone.phrase,
-					grantedBy: pendingClone.name,
-				});
-				if (!res.ok) {
-					setConsentError(res.reason ?? "Consent verification failed.");
-					return;
-				}
-				// Consent recorded — the clone is now usable.
-				setClonedVoicePath(pendingClone.referencePath);
-				setClonedVoiceName(pendingClone.name);
-				setPendingClone(null);
-				toast.success(`Consent recorded — "${pendingClone.name}" ready to use`);
-			} catch (err) {
-				setConsentError(
-					err instanceof Error ? err.message : "Consent verification failed.",
-				);
-			} finally {
-				setConsentBusy(false);
-			}
-		},
-		[pendingClone],
-	);
-
-	// Remove / revoke the active or pending clone — immediately disables it.
-	const handleRemoveClone = useCallback(() => {
-		const profileId =
-			pendingClone?.profileId ??
-			(clonedVoicePath
-				? useVoiceConsentStore.getState().getByReference(clonedVoicePath)?.id
-				: undefined);
-		if (profileId)
-			revokeProfileConsent(profileId, { reason: "removed by user" });
-		setClonedVoicePath(null);
-		setClonedVoiceName(null);
-		setPendingClone(null);
-		setConsentError(null);
-	}, [pendingClone, clonedVoicePath, revokeProfileConsent]);
-
-	// Can generate?
-	const canGenerate =
-		engine === "sarvam" || engine === "smallest" || currentModel.installed;
 
 	return (
 		<PanelView title="Voiceover">
@@ -777,7 +577,7 @@ export function VoiceoverView() {
 							<SelectValue />
 						</SelectTrigger>
 						<SelectContent>
-							<SelectItem value="local">Local (Coqui XTTS)</SelectItem>
+							<SelectItem value="standard">Standard voices</SelectItem>
 							<SelectItem value="sarvam">
 								Sarvam AI (Indian Languages)
 							</SelectItem>
@@ -791,7 +591,7 @@ export function VoiceoverView() {
 							? "Cloud — 10 Indian languages, 37+ natural speakers"
 							: engine === "smallest"
 								? "Cloud — 15 languages, 80+ voices, ~100ms latency"
-								: "On-device — 12 global languages, voice cloning"}
+								: "Cloud — 11 natural voices, speaks the language of your text"}
 					</p>
 				</div>
 
@@ -934,7 +734,8 @@ export function VoiceoverView() {
 					</>
 				) : (
 					<>
-						{/* Local: Language */}
+						{/* Standard: Language (drives the pre-TTS translation step only —
+						    the cloud voice speaks whatever language the text is in) */}
 						<div className="flex flex-col gap-2">
 							<Label className="text-xs">Language</Label>
 							<Select value={language} onValueChange={setLanguage}>
@@ -942,7 +743,7 @@ export function VoiceoverView() {
 									<SelectValue />
 								</SelectTrigger>
 								<SelectContent>
-									{COQUI_LANGUAGES.map((lang) => (
+									{STANDARD_TTS_LANGUAGES.map((lang) => (
 										<SelectItem key={lang.code} value={lang.code}>
 											{lang.name}
 										</SelectItem>
@@ -953,225 +754,34 @@ export function VoiceoverView() {
 								<div className="rounded-md bg-blue-500/10 border border-blue-500/20 px-2.5 py-1.5">
 									<p className="text-[10px] text-blue-400 leading-relaxed">
 										Transcript will be auto-translated to{" "}
-										{COQUI_LANGUAGES.find((l) => l.code === language)?.name ||
-											language}{" "}
+										{STANDARD_TTS_LANGUAGES.find((l) => l.code === language)
+											?.name || language}{" "}
 										before generating speech.
 									</p>
 								</div>
 							)}
 						</div>
 
-						{/* Local: Voice type */}
+						{/* Standard: Voice — the cloud route's 11 built-in voices. Voice
+						    cloning is unavailable in beta (retired with the local XTTS
+						    backend), so this simple picker is the only voice control. */}
 						<div className="flex flex-col gap-2">
-							<Label className="text-xs">Voice type</Label>
-							<div className="flex gap-1.5">
-								<button
-									type="button"
-									className={cn(
-										"flex-1 rounded-md border px-3 py-2 text-xs font-medium transition-colors",
-										voiceGender === "male"
-											? "bg-primary text-primary-foreground border-primary"
-											: "text-muted-foreground hover:bg-accent border-border",
-									)}
-									onClick={() => setVoiceGender("male")}
-								>
-									Male
-								</button>
-								<button
-									type="button"
-									className={cn(
-										"flex-1 rounded-md border px-3 py-2 text-xs font-medium transition-colors",
-										voiceGender === "female"
-											? "bg-primary text-primary-foreground border-primary"
-											: "text-muted-foreground hover:bg-accent border-border",
-									)}
-									onClick={() => setVoiceGender("female")}
-								>
-									Female
-								</button>
-							</div>
-							{clonedVoiceName && (
-								<p className="text-[9px] text-muted-foreground">
-									Voice type is overridden by the cloned voice below.
-								</p>
-							)}
-						</div>
-
-						{/* Local: Voice cloning */}
-						<div className="flex flex-col gap-2">
-							<Label className="text-xs">Voice clone (optional)</Label>
-							{clonedVoiceName ? (
-								<div className="flex items-center justify-between rounded-md bg-green-500/10 border border-green-500/20 px-2.5 py-2">
-									<div className="flex items-center gap-2">
-										<span className="size-1.5 rounded-full bg-green-500" />
-										<span className="text-[11px] font-medium">
-											Cloned (consented): {clonedVoiceName}
-										</span>
-									</div>
-									<button
-										type="button"
-										className="text-[10px] text-destructive hover:text-destructive/80"
-										onClick={handleRemoveClone}
-									>
-										Remove
-									</button>
-								</div>
-							) : pendingClone ? (
-								// CONSENT GATE: a cloned voice cannot be used until the speaker
-								// records a consent statement containing the required phrase.
-								<div className="flex flex-col gap-2 rounded-md bg-amber-500/10 border border-amber-500/20 px-2.5 py-2">
-									<div className="flex items-center justify-between">
-										<div className="flex items-center gap-2">
-											<span className="size-1.5 rounded-full bg-amber-500" />
-											<span className="text-[11px] font-medium">
-												Consent required: {pendingClone.name}
-											</span>
-										</div>
-										<button
-											type="button"
-											className="text-[10px] text-destructive hover:text-destructive/80"
-											onClick={handleRemoveClone}
-										>
-											Cancel
-										</button>
-									</div>
-									<p className="text-[10px] text-muted-foreground leading-relaxed">
-										To use this cloned voice, the speaker must record themselves
-										reading this consent statement aloud:
-									</p>
-									<p className="rounded bg-muted/60 px-2 py-1.5 text-[10px] italic leading-relaxed">
-										“{pendingClone.phrase}”
-									</p>
-									<Button
-										variant="outline"
-										size="sm"
-										className="w-full text-[10px] h-7"
-										disabled={consentBusy}
-										onClick={() => consentFileInputRef.current?.click()}
-									>
-										{consentBusy ? (
-											<>
-												<Spinner className="size-3 mr-1" />
-												Verifying consent...
-											</>
-										) : (
-											"Upload consent recording"
-										)}
-									</Button>
-									{consentError && (
-										<p className="text-[10px] text-destructive leading-relaxed">
-											{consentError}
-										</p>
-									)}
-									<input
-										ref={consentFileInputRef}
-										type="file"
-										accept=".wav,.mp3,.flac,.ogg,.m4a"
-										className="hidden"
-										onChange={(e) => {
-											const file = e.target.files?.[0];
-											if (file) handleGrantConsent(file);
-											e.target.value = "";
-										}}
-									/>
-								</div>
-							) : (
-								<div className="flex flex-col gap-1.5">
-									<div className="flex gap-1.5">
-										<Button
-											variant="outline"
-											size="sm"
-											className="flex-1 text-[10px] h-7"
-											disabled={isUploading}
-											onClick={() => fileInputRef.current?.click()}
-										>
-											{isUploading ? (
-												<>
-													<Spinner className="size-3 mr-1" />
-													Uploading...
-												</>
-											) : (
-												"Upload voice sample"
-											)}
-										</Button>
-										<Badge
-											variant="secondary"
-											className="text-[9px] px-1.5 py-0 self-center"
-										>
-											or use default
-										</Badge>
-									</div>
-									<p className="text-[9px] text-muted-foreground">
-										Upload 10-30s audio to clone a specific voice. You'll be
-										asked for a spoken consent statement before it can be used.
-									</p>
-									<input
-										ref={fileInputRef}
-										type="file"
-										accept=".wav,.mp3,.flac,.ogg,.m4a"
-										className="hidden"
-										onChange={(e) => {
-											const file = e.target.files?.[0];
-											if (file) handleUploadVoice(file);
-											e.target.value = "";
-										}}
-									/>
-								</div>
-							)}
-						</div>
-
-						{/* Local: Model */}
-						<div className="flex flex-col gap-1.5">
-							<Label className="text-xs">Model</Label>
-							<Select value={selectedModel} onValueChange={setSelectedModel}>
+							<Label className="text-xs">Voice</Label>
+							<Select
+								value={voice}
+								onValueChange={(v) => setVoice(v as TTSVoice)}
+							>
 								<SelectTrigger>
 									<SelectValue />
 								</SelectTrigger>
 								<SelectContent>
-									{TTS_MODELS.map((model) => (
-										<SelectItem key={model.id} value={model.id}>
-											<div className="flex items-center gap-2">
-												<span>{model.name}</span>
-												{model.installed && (
-													<Badge
-														variant="secondary"
-														className="text-[8px] px-1 py-0"
-													>
-														Installed
-													</Badge>
-												)}
-												{!model.installed && (
-													<Badge
-														variant="outline"
-														className="text-[8px] px-1 py-0"
-													>
-														Not installed
-													</Badge>
-												)}
-											</div>
+									{TTS_VOICES.map((v) => (
+										<SelectItem key={v} value={v}>
+											{v.charAt(0).toUpperCase() + v.slice(1)}
 										</SelectItem>
 									))}
 								</SelectContent>
 							</Select>
-							<div className="flex items-center gap-1.5 flex-wrap">
-								<Badge variant="secondary" className="text-[9px] px-1 py-0">
-									{currentModel.quality}
-								</Badge>
-								<Badge variant="secondary" className="text-[9px] px-1 py-0">
-									{currentModel.speed}
-								</Badge>
-								<Badge variant="secondary" className="text-[9px] px-1 py-0">
-									{currentModel.size}
-								</Badge>
-								{currentModel.supportsCloning && (
-									<Badge
-										variant="outline"
-										className="text-[9px] px-1 py-0 text-green-500 border-green-500/30"
-									>
-										Cloning
-									</Badge>
-								)}
-							</div>
 						</div>
 					</>
 				)}
@@ -1196,7 +806,7 @@ export function VoiceoverView() {
 						<Button
 							className="w-full"
 							onClick={handleGeneratePerSegment}
-							disabled={isGenerating || !canGenerate}
+							disabled={isGenerating}
 						>
 							{isGenerating && <Spinner className="mr-1" />}
 							Generate per segment
@@ -1207,20 +817,13 @@ export function VoiceoverView() {
 						variant={hasTranscript && useTranscript ? "outline" : "default"}
 						className="w-full"
 						onClick={handleGenerate}
-						disabled={isGenerating || !textToGenerate || !canGenerate}
+						disabled={isGenerating || !textToGenerate}
 					>
 						{isGenerating && !generationProgress.includes("segment") && (
 							<Spinner className="mr-1" />
 						)}
 						Generate full voiceover
 					</Button>
-
-					{engine === "local" && !currentModel.installed && (
-						<p className="text-[10px] text-yellow-500 text-center">
-							This model is not installed. Use Coqui XTTS v2 (installed) or
-							install this model on the backend.
-						</p>
-					)}
 				</div>
 
 				{/* ── Audio preview ── */}

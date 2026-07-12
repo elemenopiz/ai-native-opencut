@@ -111,7 +111,9 @@ export function buildConsistencyContext(
  * sixsevenstudio's `<global_context>` structure (three labeled sections, one
  * character per line with its full descriptor).
  */
-export function serializeConsistencyContext(context: ConsistencyContext): string {
+export function serializeConsistencyContext(
+	context: ConsistencyContext,
+): string {
 	const lines: string[] = [`STYLE: ${context.style || DEFAULT_STYLE}`];
 
 	if (context.characters.length > 0) {
@@ -182,9 +184,9 @@ export function storeConsistencyContext(
 // take-to-take, exactly like restating CHARACTERS keeps faces from drifting
 // shot-to-shot.
 //
-// WIRED: the TTS pipeline is `aiClient.generateSpeech`/`generateSpeechBlob`
-// (`@/lib/ai-client` → POST /api/tts/generate) plus `aiClient.cloneVoice` for
-// cloned-voice refs. Voice-lock is applied per beat in
+// WIRED: the TTS pipeline is `aiClient.generateSpeechBlob` (`@/lib/ai-client`
+// → the app's own POST /api/tts cloud route; voice cloning is unavailable in
+// beta). Voice-lock is applied per beat in
 // `lib/studio/generate-voiceover-take.ts` — `runVoiceoverTake` resolves the
 // beat's `VoiceProfile` (spec override, else the consistency context's
 // character matching `spec.personaId` via `getVoiceProfileForPersona` below),

@@ -53,9 +53,8 @@ export function useAIDubbing() {
 	const runDubbing = useCallback(
 		async (options: DubbingOptions) => {
 			const targetSegments =
-				options.segmentIndices
-					?.map((i) => segments[i])
-					.filter(Boolean) ?? segments;
+				options.segmentIndices?.map((i) => segments[i]).filter(Boolean) ??
+				segments;
 
 			if (targetSegments.length === 0) {
 				toast.error("No segments to dub");
@@ -126,8 +125,7 @@ export function useAIDubbing() {
 					const isSmallest = options.engine === "smallest";
 
 					if (isSarvam) {
-						const sarvamCode =
-							toSarvamCode(options.targetLanguage) ?? "hi-IN";
+						const sarvamCode = toSarvamCode(options.targetLanguage) ?? "hi-IN";
 						audioBlob = await aiClient.sarvamTTS(
 							translatedText,
 							sarvamCode,
@@ -142,10 +140,13 @@ export function useAIDubbing() {
 							options.pace ?? 1.0,
 						);
 					} else {
+						// Mechanical rename for the cloud /api/tts request shape (Task 8);
+						// dubbing itself is feature-gated separately (Task 9) — a legacy
+						// voiceId that isn't a cloud voice will be rejected by the route.
 						audioBlob = await aiClient.generateSpeechBlob({
 							text: translatedText,
 							language: options.targetLanguage,
-							speaker: options.voiceId,
+							voice: options.voiceId,
 						});
 					}
 

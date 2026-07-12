@@ -74,12 +74,17 @@ export interface CommandResult {
 	clarificationQuestion?: string;
 }
 
-// TTS types
+// TTS types — the request shape of the app's own cloud `/api/tts` route.
+// Voice cloning (`speakerWav`) retired for beta along with the local XTTS backend.
 export interface TTSRequest {
 	text: string;
-	language: string;
-	speakerWav?: string;
-	speaker?: string;
+	/** One of the route's allowed voices (see `lib/tts/voices.ts`); any other
+	 *  value 400s at the route — omit to get the route's default. */
+	voice?: string;
+	/** Accepted for forward-compat; the cloud provider follows the input
+	 *  text's language, so the route validates but does not forward this. */
+	language?: string;
+	speed?: number;
 }
 
 export interface TTSResult {
@@ -351,9 +356,18 @@ export interface ReelTemplate {
 }
 
 // Video generation types
-export type VideoProvider = "replicate" | "seedance" | "stability" | "luma" | "kling" | "local";
+export type VideoProvider =
+	| "replicate"
+	| "seedance"
+	| "stability"
+	| "luma"
+	| "kling"
+	| "local";
 
-export type VideoGenMode = "text-to-video" | "image-to-video" | "video-to-video";
+export type VideoGenMode =
+	| "text-to-video"
+	| "image-to-video"
+	| "video-to-video";
 
 export interface VideoGenRequest {
 	prompt: string;

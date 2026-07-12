@@ -1235,11 +1235,13 @@ export function toolCatalog(): ToolDescriptor[] {
 					),
 					voice: {
 						type: "string",
-						description: "Built-in TTS speaker id (e.g. male/female).",
+						description:
+							"Built-in cloud TTS voice: alloy, ash, ballad, coral, echo, fable, onyx, nova, sage, shimmer or verse. Other values are ignored (the default voice applies).",
 					},
 					voiceRef: {
 						type: "string",
-						description: "Cloned-voice reference path (wins over voice).",
+						description:
+							"Cloned-voice reference path. Voice cloning is unavailable in beta — a voiceRef-backed take fails.",
 					},
 					personaId: {
 						type: "string",

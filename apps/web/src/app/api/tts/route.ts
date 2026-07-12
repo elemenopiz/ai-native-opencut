@@ -13,7 +13,7 @@
  * per-account rate limiting. It is UN-METERED for beta (free but rate-limited)
  * — no credit/ledger gate BY DECISION, not omission; metering decision is on
  * the backlog — see plan Task 13
- * (apps/web/docs/plans/2026-07-12-local-ai-browser-first-design.md).
+ * (apps/web/docs/plans/2026-07-12-local-ai-browser-first.md).
  *
  * Provider: OpenAI `gpt-4o-mini-tts` (rides the existing OPENAI_API_KEY
  * plumbing used by the image backends). No streaming, no voice cloning, no
@@ -32,6 +32,7 @@ import { auth } from "@/lib/auth/server";
 import { reportError } from "@/lib/observability/logger";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { fetchWithTimeout } from "@/lib/studio/fetch-timeout";
+import { DEFAULT_TTS_VOICE, TTS_VOICES } from "@/lib/tts/voices";
 
 export const runtime = "nodejs";
 // Synthesis of a long paragraph can take tens of seconds — give the invocation
@@ -47,27 +48,14 @@ const PROVIDER_TIMEOUT_MS = 55_000;
 /** Hard cap on the raw request body, before JSON parsing (abuse bound). */
 const MAX_BODY_BYTES = 32 * 1024;
 
-/** OpenAI's built-in voices — an allowlist so an unknown voice is a 400 here,
- *  not an opaque provider error after we've already spent the round-trip. */
-const VOICES = [
-	"alloy",
-	"ash",
-	"ballad",
-	"coral",
-	"echo",
-	"fable",
-	"onyx",
-	"nova",
-	"sage",
-	"shimmer",
-	"verse",
-] as const;
-
 const bodySchema = z
 	.object({
 		// 4000 chars mirrors OpenAI's own input cap for the speech endpoint.
 		text: z.string().min(1).max(4000),
-		voice: z.enum(VOICES).default("alloy"),
+		// Allowlist (shared with the client — see `lib/tts/voices.ts`) so an
+		// unknown voice is a 400 here, not an opaque provider error after we've
+		// already spent the round-trip.
+		voice: z.enum(TTS_VOICES).default(DEFAULT_TTS_VOICE),
 		// Accepted for forward-compat with the client's caption language hint;
 		// gpt-4o-mini-tts has no language parameter (it follows the input text),
 		// so it is validated but NOT forwarded.

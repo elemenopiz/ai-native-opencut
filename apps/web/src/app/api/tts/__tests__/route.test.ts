@@ -199,6 +199,20 @@ test("happy path returns mp3 bytes as audio/mpeg and sends the right OpenAI call
 	expect(sent.speed).toBe(1.25);
 });
 
+test("language is accepted but NOT forwarded to OpenAI", async () => {
+	// gpt-4o-mini-tts has no language parameter (it follows the input text) —
+	// the field exists only for client forward-compat, so it must be validated
+	// here and then dropped, never sent upstream.
+	const res = await POST(makeReq({ text: "hola mundo", language: "es" }));
+
+	expect(res.status).toBe(200);
+	const sent = JSON.parse(String(lastFetch.init?.body)) as Record<
+		string,
+		unknown
+	>;
+	expect("language" in sent).toBe(false);
+});
+
 test("voice defaults to alloy and speed is omitted when not provided", async () => {
 	const res = await POST(makeReq({ text: "hello world" }));
 
