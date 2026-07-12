@@ -150,6 +150,14 @@ export async function callGeminiRelay(request: {
 			systemInstruction: { parts: [{ text: request.system }] },
 			tools: request.tools,
 			...(request.toolConfig ? { toolConfig: request.toolConfig } : {}),
+			// Gemini 3.x thinking knob: Flash defaults to "medium"; Google's docs
+			// recommend the maximum level for multi-step planning — which is
+			// exactly the Director's workload. (Temperature is deliberately NOT
+			// set: Gemini 3 docs say keep the 1.0 default; lowering it degrades
+			// reasoning.) Validate against the live API in the first smoke run —
+			// if the provider rejects thinkingConfig, drop to the default rather
+			// than pinning an unsupported shape.
+			generationConfig: { thinkingConfig: { thinkingLevel: "high" } },
 			stream: true,
 		}),
 		signal: request.signal,

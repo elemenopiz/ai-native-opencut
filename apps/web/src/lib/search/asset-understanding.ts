@@ -856,6 +856,9 @@ export function buildUnderstandingGeminiParts(
  * `faces`/`style` stay optional (the prompt says to omit them when absent) and
  * {@link parseAssetUnderstanding} remains the validator/coercer on top — the
  * schema improves reliability, it does not replace the fail-safe parse.
+ * `propertyOrdering` is a Gemini structured-output recommendation: a stable
+ * key order measurably improves output quality/consistency, and it mirrors the
+ * field order the system prompt documents.
  */
 export const ASSET_UNDERSTANDING_RESPONSE_SCHEMA = {
 	type: "OBJECT",
@@ -875,6 +878,13 @@ export const ASSET_UNDERSTANDING_RESPONSE_SCHEMA = {
 					anchorIndex: { type: "INTEGER" },
 					confidence: { type: "NUMBER" },
 				},
+				propertyOrdering: [
+					"persona",
+					"descriptor",
+					"recurring",
+					"anchorIndex",
+					"confidence",
+				],
 			},
 		},
 		style: {
@@ -884,9 +894,18 @@ export const ASSET_UNDERSTANDING_RESPONSE_SCHEMA = {
 				lensMood: { type: "STRING" },
 				setting: { type: "STRING" },
 			},
+			propertyOrdering: ["palette", "lensMood", "setting"],
 		},
 	},
 	required: ["caption", "role", "roleConfidence", "tags"],
+	propertyOrdering: [
+		"caption",
+		"role",
+		"roleConfidence",
+		"tags",
+		"faces",
+		"style",
+	],
 } as const;
 
 /** Pull the concatenated text out of a raw Gemini `generateContent` response. */
@@ -939,6 +958,11 @@ export const geminiUnderstandAsset: UnderstandAssetFn = async (frames, ctx) => {
 			generationConfig: {
 				responseMimeType: "application/json",
 				responseSchema: ASSET_UNDERSTANDING_RESPONSE_SCHEMA,
+				// Perception/extraction, not planning: Gemini's docs recommend the
+				// LOWER thinking levels for classification/fact-extraction — cuts
+				// latency and cost on this high-volume bulk call with no quality
+				// stake in deep reasoning.
+				thinkingConfig: { thinkingLevel: "low" },
 			},
 		}),
 	});
