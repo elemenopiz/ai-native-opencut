@@ -5,11 +5,21 @@ const webEnvSchema = z.object({
 	NODE_ENV: z.enum(["development", "production", "test"]),
 	ANALYZE: z.string().optional(),
 	NEXT_RUNTIME: z.enum(["nodejs", "edge"]).optional(),
+	// Overrides the server logger's minimum emitted level (debug|info|warn|error).
+	// Unrecognized/empty values fall back to the built-in default (info in
+	// production, debug in dev) — see lib/observability/logger.ts `minLevel`.
+	LOG_LEVEL: z.string().default(""),
 
 	// Public
 	NEXT_PUBLIC_SITE_URL: z.url().default("http://localhost:3000"),
 	NEXT_PUBLIC_MARBLE_API_URL: z.url().default("https://api.marblecms.com"),
 	NEXT_PUBLIC_AI_BACKEND_URL: z.url().default("http://localhost:8420"),
+
+	// Asset-understanding pass model override (see
+	// lib/search/asset-understanding.ts `configuredUnderstandingModel`). Empty =
+	// no `model` sent, the Director relay picks its default. A `gemini-*` value
+	// (e.g. `gemini-3.5-flash`) runs the pass natively via the Gemini relay.
+	NEXT_PUBLIC_UNDERSTANDING_MODEL: z.string().default(""),
 
 	// Feature flag: shared-projects / collaboration UI (invite-by-email,
 	// "Shared with me", share dialog, shared-project onboarding). Default OFF
