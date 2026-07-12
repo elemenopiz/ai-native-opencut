@@ -1,5 +1,12 @@
 # Browser-First Local AI Implementation Plan
 
+> **FROZEN 2026-07-12 per ADR-004** (`docs/decisions/ADR-004-park-local-ai-migration.md`): Tasks 1–9
+> (incl. amendments 3.5/5.5 + freeze-completeness gates) are DONE on `feat/local-ai-browser-first`,
+> reviewed (spec + quality per task, final whole-branch integration review: READY TO LAND, all four
+> freeze criteria PASS), battery green (unit/typecheck/prod build), and browser-verified. Tasks 10–13
+> (engagement rehome, `services/` deletion sweep, bookkeeping) are PARKED until after beta — the
+> Python stack stays in-repo untouched by design (delete-last). Resume here post-beta.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 > Repo rules apply on top of this plan: run `impact` before editing symbols, `detect_changes()` before
 > committing (see root CLAUDE.md). Multi-session repo — do all work in a dedicated worktree, merge atomically.
