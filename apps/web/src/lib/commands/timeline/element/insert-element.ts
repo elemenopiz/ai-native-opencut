@@ -9,6 +9,7 @@ import type {
 } from "@/types/timeline";
 import { generateUUID } from "@/utils/id";
 import {
+	ensureVisualElementDefaults,
 	requiresMediaId,
 	wouldElementOverlap,
 } from "@/lib/timeline/element-utils";
@@ -134,7 +135,7 @@ export class InsertElementCommand extends Command {
 	}: {
 		element: CreateTimelineElement;
 	}): TimelineElement {
-		return {
+		const built = {
 			...element,
 			id: this.elementId,
 			startTime: element.startTime,
@@ -142,6 +143,12 @@ export class InsertElementCommand extends Command {
 			trimEnd: element.trimEnd ?? 0,
 			duration: element.duration ?? TIMELINE_CONSTANTS.DEFAULT_ELEMENT_DURATION,
 		} as TimelineElement;
+
+		// The UI always sends complete elements (buildElementFromMedia), but the
+		// public insert API can hand us a visual element with no transform/opacity/
+		// blendMode. Default them instead of persisting a malformed element that
+		// crashes every subsequent render and project load.
+		return ensureVisualElementDefaults({ element: built });
 	}
 
 	private validateElementBasics({
