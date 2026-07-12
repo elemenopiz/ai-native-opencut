@@ -31,15 +31,57 @@ Scrutiny of each service against "users call better models via API for generatio
 
 ## Why not the two obvious alternatives
 
-- **Byorn-hosted understanding**: data gravity. Understanding operates on the user's raw
-  footage library; server-side means uploading tens of GB before search works, plus storage/
-  egress cost, plus it kills the "your footage never leaves your device" differentiator.
+- **Byorn-hosted understanding**: weighed fully in the next section (revised — the tradeoff
+  is closer than this doc's first draft claimed, so we're buying a hedge).
 - **Native Mac engine**: weeks of packaging/notarization/auto-update work, an install step,
   Mac-only, with beta 1–2 weeks out. The models worth keeping local are small enough for the
   browser; the browser IS the user's local device. Revisit native only if beta shows users
   hitting an indexing-speed wall on large libraries.
 
 Bonus: browser-first makes the platform question moot (Mac + Windows for free).
+
+## Server-side understanding: what it would buy, and why browser still wins (revised 2026-07-12)
+
+A shared Byorn inference server (or a third-party embeddings API) is genuinely attractive, and
+the gains deserve an honest record — they're the mirror image of the costs of crowding the
+user's browser:
+
+- **Zero editor contention.** In-browser inference shares the GPU with the WebGL compositor
+  and CPU cores with video decode; server-side, playback fps is untouchable by AI work.
+- **Uniform speed on every machine.** No WebGPU-less/low-RAM slow path, no laptop battery
+  drain; the weakest user's library indexes as fast as the strongest's.
+- **No model download or cold start.** Skips the ~340MB first-use pull and per-session model
+  load entirely.
+- **Bigger models.** Server GPUs fit CLIP variants (and pyannote diarization, currently
+  deferred) that a browser never will; model upgrades ship centrally, every user improves
+  overnight.
+
+And one correction to this doc's first draft: **"uploading tens of GB" overstated the data-
+gravity cost.** Frame/audio sampling happens in-browser either way; a hybrid would upload only
+downsampled samples (224px frames, 16kHz mono) — megabytes per asset, not gigabytes.
+
+Why the browser-first decision stands anyway:
+
+1. **Face is biometric data — non-negotiable local.** Shipping face crops or embeddings to any
+   server puts us under BIPA-class biometric-privacy law (consent, retention, deletion
+   obligations). The "deliberate privacy decision" is also a legal-exposure decision. Face
+   never flips server-side.
+2. **Marginal cost.** Understanding runs over entire libraries — our highest-volume inference.
+   Local is $0/user forever; server-side is a permanent per-user COGS line at a stage with no
+   pricing model.
+3. **The server doesn't exist and beta is 1–2 weeks out.** GPU serving (queueing, autoscaling,
+   abuse controls) is weeks of infra. The realistic near-term variant is a third-party
+   embeddings API — viable, but per-call cost plus footage samples flowing to a third party.
+4. **The differentiator.** "Your footage never leaves your device" survives only in the local
+   design; even sample-upload hybrids soften it to a caveat.
+
+**The hedge we're buying (new in this revision):** the consumer seam (`embedText`/`embedImage`
+and the understanding pass's frame-embedding calls) stays **backend-swappable** — the local
+CLIP worker and a hosted-API client implement one interface, and sampling/extraction is
+identical either way. Flipping CLIP to a server later is a config change, not a rebuild.
+Flip triggers: beta users hit an indexing-speed wall on WASM-class hardware; editor contention
+the scheduler (below) can't fix; or an owner call that COGS is worth instant-on. Face is
+excluded from the flip (point 1).
 
 ## Architecture
 
@@ -62,13 +104,23 @@ Generalize the shipped Whisper worker into a small shared framework:
 - model download w/ progress + Cache API storage, resumable/retryable
 - WebGPU detection with WASM fallback ("slower device" notice)
 - a single load queue so low-RAM machines never hold two models at once
-- Whisper worker refactors onto it (no behavior change)
+- **editor-has-priority scheduler**: understanding inference runs only while the editor is
+  idle or paused — active playback, scrubbing, or export pauses (or heavily throttles) worker
+  inference, since in-browser models share the GPU with the WebGL compositor and CPU cores
+  with video decode. Playback fps is the top-priority workload; AI never competes with it.
+- **idle unload**: models are released after a period of no use instead of staying warm for
+  the whole session (today's Whisper worker holds ~hundreds of MB resident forever after first
+  use — on unified-memory Macs that's the same pool as video frames and GPU textures). Reload
+  from Cache API is cheap.
+- Whisper worker refactors onto it (transcription output unchanged; it gains the scheduler
+  and idle-unload behavior above)
 
 ### New: CLIP worker
 Transformers.js `clip-vit-base-patch32`-class (~340MB cached). Replaces
 `aiClient.embedText`/`embedImage`; `use-visual-search.ts` and the understanding pass's
 frame-embedding calls repoint to it. Vector search over locally stored embeddings is already
-local — unchanged.
+local — unchanged. Consumers call the embedding *interface*, never the worker directly, so a
+hosted-API backend can slot in later (see the server-side hedge above).
 
 ### New: face worker
 ONNX Runtime Web, ArcFace-class embeddings. Replaces face-service calls in
