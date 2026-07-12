@@ -60,6 +60,14 @@ mock.module("@/lib/studio/backends", () => ({
 	relativeCostTier: () => "standard",
 }));
 
+// Some routes deliberately 503 BEFORE the session check when their provider key
+// is unconfigured (tts, enhance-prompt: "no key → hide the feature" contract).
+// Pin a fake key when the machine has none so the sweep reaches the 401 gate it
+// exists to assert; `||=` keeps real keys untouched. Same direct-mutation
+// pattern as api/tts/__tests__/route.test.ts (webEnv is a shared live object).
+import { webEnv } from "@byorn/env/web";
+webEnv.OPENAI_API_KEY ||= "sweep-fake-key";
+
 const API_DIR = path.join(import.meta.dir, "..");
 
 /** Session-check pattern shared by every gated route in this repo. */
@@ -283,6 +291,12 @@ const SWEEP: SweepCase[] = [
 		file: "studio/upload/route.ts",
 		calls: {
 			POST: [makeRequest("POST", `${BASE}/studio/upload`)],
+		},
+	},
+	{
+		file: "tts/route.ts",
+		calls: {
+			POST: [makeRequest("POST", `${BASE}/tts`, { text: "hello" })],
 		},
 	},
 	{
