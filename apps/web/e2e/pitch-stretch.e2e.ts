@@ -103,7 +103,7 @@ test.describe("pitch-preserved speed changes", () => {
 			consoleLines.push(`[${message.type()}] ${message.text()}`);
 		});
 		await page.addInitScript(() => {
-			window.localStorage.setItem("hasSeenOnboarding-v2", "true");
+			window.localStorage.setItem("hasSeenOnboarding-v3", "true");
 		});
 		await page.goto("/editor/e2e-pitch-stretch");
 		await page.waitForFunction(
