@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ByornLogo } from "@/components/footer";
 
@@ -43,16 +43,38 @@ function GateForm() {
 		inputs.current[0]?.focus();
 	};
 
+	// Distribute whatever landed in box `i` across the boxes. Fast typing (or
+	// an OS one-time-code fill) can deliver several characters to one input
+	// before React re-renders — a naive "keep the last char" drops digits, so
+	// this spreads them forward and uses a functional update to dodge stale
+	// closures from rapid successive keystrokes.
 	const setDigit = (i: number, value: string) => {
-		const v = value.replace(/\D/g, "").slice(-1);
-		const nextDigits = [...digits];
-		nextDigits[i] = v;
-		setDigits(nextDigits);
+		const chars = value.replace(/\D/g, "");
 		setStatus("idle");
-		if (v && i < 3) inputs.current[i + 1]?.focus();
-		const code = nextDigits.join("");
-		if (code.length === 4) void submit(code);
+		setDigits((prev) => {
+			const nextDigits = [...prev];
+			if (chars.length === 0) {
+				nextDigits[i] = "";
+				return nextDigits;
+			}
+			let j = i;
+			for (const c of chars.slice(0, 4 - i)) {
+				nextDigits[j] = c;
+				j += 1;
+			}
+			const focusAt = Math.min(j, 3);
+			queueMicrotask(() => inputs.current[focusAt]?.focus());
+			return nextDigits;
+		});
 	};
+
+	// Auto-submit once all four boxes are filled (single source of truth for
+	// the completed code, whatever path filled it — typing, paste, or autofill).
+	const code = digits.join("");
+	useEffect(() => {
+		if (code.length === 4 && status === "idle") void submit(code);
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- submit is stable per render; re-running on status change would double-post
+	}, [code]);
 
 	const onKeyDown = (i: number, e: React.KeyboardEvent<HTMLInputElement>) => {
 		if (e.key === "Backspace" && !digits[i] && i > 0) {
@@ -65,7 +87,6 @@ function GateForm() {
 		if (text.length !== 4) return;
 		e.preventDefault();
 		setDigits(text.split(""));
-		void submit(text);
 	};
 
 	return (
