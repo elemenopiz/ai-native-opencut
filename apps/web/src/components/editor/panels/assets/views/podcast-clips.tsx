@@ -19,6 +19,12 @@ import { useBackgroundTasksStore } from "@/stores/background-tasks-store";
 import { useEditor } from "@/hooks/use-editor";
 import { aiClient } from "@/lib/ai-client";
 import {
+	extractKeywords,
+	findBestClips,
+	generateQuestionCards,
+	podcastAiErrorMessage,
+} from "@/lib/podcast/podcast-ai";
+import {
 	isFeatureAvailable,
 	retiredFeatureMessage,
 } from "@/lib/local-ai/retired-features";
@@ -266,8 +272,7 @@ export function PodcastClipsView() {
 	const handleFindClips = useCallback(async () => {
 		if (!hasTranscript) return;
 
-		// Clip analysis only existed on the retired local Ollama backend; the
-		// button is hidden too — this is the defensive second gate.
+		// Defensive second gate (the button is hidden when gated too).
 		if (!isFeatureAvailable("findClips")) {
 			toast.error(retiredFeatureMessage("findClips"));
 			return;
@@ -284,7 +289,9 @@ export function PodcastClipsView() {
 		});
 
 		try {
-			const result = await aiClient.findClips(segments);
+			// Gemini structured-output analysis; boundaries come back snapped to
+			// transcript-segment bounds, so applied clips are sentence-aligned.
+			const result = await findBestClips(segments);
 			setClips(result.clips);
 
 			if (result.clips.length === 0) {
@@ -301,18 +308,9 @@ export function PodcastClipsView() {
 				});
 			}
 		} catch (err) {
-			const message =
-				err instanceof Error ? err.message : "Failed to find clips";
-			const detail =
-				message.includes("Cannot connect") ||
-				message.includes("connection_refused")
-					? "Cannot connect to AI backend. Make sure it is running with Ollama (docker compose up -d)."
-					: message.includes("503")
-						? "Ollama LLM is not available. Start it with: docker compose up -d ollama"
-						: message;
 			bgTasks.updateTask(taskId, {
 				status: "error",
-				error: detail,
+				error: podcastAiErrorMessage(err),
 				completedAt: Date.now(),
 			});
 		} finally {
@@ -362,20 +360,12 @@ export function PodcastClipsView() {
 							})),
 					}));
 
-				// Extract keywords if enabled
+				// Extract keywords if enabled (Gemini; soft-fail keeps the clip usable)
 				let clipKeywords: { word: string; color: string }[] = [];
 				if (enableKeywordHighlight) {
 					try {
 						bgTasks.updateTask(taskId, { progress: "Extracting keywords..." });
-						const kwResult = await aiClient.extractKeywords(
-							clipSegments.map((s, i) => ({
-								id: i,
-								text: s.text,
-								start: s.start,
-								end: s.end,
-								words: s.words,
-							})),
-						);
+						const kwResult = await extractKeywords(clipSegments);
 						clipKeywords = kwResult.keywords;
 						setKeywords(clipKeywords);
 					} catch {
@@ -383,23 +373,14 @@ export function PodcastClipsView() {
 					}
 				}
 
-				// Generate question cards if enabled
+				// Generate question cards if enabled (Gemini; soft-fail)
 				let cards: QuestionCard[] = [];
 				if (enableQuestionCards) {
 					try {
 						bgTasks.updateTask(taskId, {
 							progress: "Generating topic cards...",
 						});
-						const cardsResult = await aiClient.generateQuestionCards(
-							clipSegments.map((s, i) => ({
-								id: i,
-								text: s.text,
-								start: s.start,
-								end: s.end,
-								words: s.words,
-							})),
-							2,
-						);
+						const cardsResult = await generateQuestionCards(clipSegments, 2);
 						cards = cardsResult.cards;
 						setQuestionCards(cards);
 					} catch {
@@ -523,7 +504,7 @@ export function PodcastClipsView() {
 			if (enableKeywordHighlight) {
 				try {
 					bgTasks.updateTask(taskId, { progress: "Extracting keywords..." });
-					const kwResult = await aiClient.extractKeywords(segments);
+					const kwResult = await extractKeywords(segments);
 					kws = kwResult.keywords;
 					setKeywords(kws);
 				} catch {
@@ -604,7 +585,7 @@ export function PodcastClipsView() {
 		});
 
 		try {
-			const result = await aiClient.generateQuestionCards(segments, 5);
+			const result = await generateQuestionCards(segments, 5);
 			setQuestionCards(result.cards);
 
 			if (result.cards.length === 0) {
@@ -644,20 +625,9 @@ export function PodcastClipsView() {
 				completedAt: Date.now(),
 			});
 		} catch (err) {
-			const message =
-				err instanceof Error
-					? err.message
-					: "Failed to generate question cards";
-			const detail =
-				message.includes("Cannot connect") ||
-				message.includes("connection_refused")
-					? "Cannot connect to AI backend. Make sure Ollama is running."
-					: message.includes("503")
-						? "Ollama LLM is not available. Start it with: docker compose up -d ollama"
-						: message;
 			bgTasks.updateTask(taskId, {
 				status: "error",
-				error: detail,
+				error: podcastAiErrorMessage(err),
 				completedAt: Date.now(),
 			});
 		} finally {
@@ -687,10 +657,9 @@ export function PodcastClipsView() {
 				) : (
 					<>
 						{/* ── Smart Clip Finder ── */}
-						{/* Clip analysis lived on the retired local Ollama backend —
-						    hidden (with its docker-pointing error copy) until it gets
-						    a cloud home. Candidates below only populate from it, so
-						    they stay empty while gated. */}
+						{/* Cloud home: Gemini structured-output analysis over the
+						    transcript (lib/podcast/podcast-ai.ts). The gate stays as a
+						    kill switch. */}
 						{isFeatureAvailable("findClips") && (
 							<div className="flex flex-col gap-2">
 								<Label className="text-xs font-medium">Find best clips</Label>

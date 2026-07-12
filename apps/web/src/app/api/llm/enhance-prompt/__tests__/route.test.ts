@@ -87,6 +87,11 @@ function makeReq(body: unknown, ip = "203.0.113.9"): Request {
 
 const savedAnthropicKey = webEnv.ANTHROPIC_API_KEY;
 const savedMoonshotKey = webEnv.MOONSHOT_API_KEY;
+const savedGeminiKey = webEnv.GEMINI_API_KEY;
+const savedDirectorModel = webEnv.DIRECTOR_MODEL;
+// Save/RESTORE the global fetch by assignment — mock.restore() does NOT undo a
+// property assignment (the agent-streaming leak, fixed @44b4e1ca).
+const savedFetch = globalThis.fetch;
 
 beforeEach(() => {
 	// Fresh limiter per test: reset the process-wide singleton enforceRateLimit reads.
@@ -98,13 +103,49 @@ beforeEach(() => {
 	authState.user = { id: "u1" };
 	webEnv.ANTHROPIC_API_KEY = "test-key";
 	webEnv.MOONSHOT_API_KEY = "";
+	// Gemini off by default so the legacy-provider tests keep exercising the
+	// Anthropic path; the Gemini tests opt in explicitly.
+	webEnv.GEMINI_API_KEY = "";
+	webEnv.DIRECTOR_MODEL = "";
 	lastCreate.params = null;
 });
 
 afterEach(() => {
 	webEnv.ANTHROPIC_API_KEY = savedAnthropicKey;
 	webEnv.MOONSHOT_API_KEY = savedMoonshotKey;
+	webEnv.GEMINI_API_KEY = savedGeminiKey;
+	webEnv.DIRECTOR_MODEL = savedDirectorModel;
+	globalThis.fetch = savedFetch;
 });
+
+/** Install a fake global fetch for the Gemini upstream; records the last call. */
+function stubGeminiUpstream(
+	reply: { status?: number; text?: string; rawBody?: string } = {},
+) {
+	const seen: { url: string; init: RequestInit | undefined }[] = [];
+	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+		seen.push({ url: String(input), init });
+		if (reply.status && reply.status >= 400) {
+			return new Response(reply.rawBody ?? "upstream error", {
+				status: reply.status,
+			});
+		}
+		return new Response(
+			reply.rawBody ??
+				JSON.stringify({
+					candidates: [
+						{
+							content: {
+								parts: [{ text: reply.text ?? "a gemini-enhanced prompt" }],
+							},
+						},
+					],
+				}),
+			{ status: 200, headers: { "Content-Type": "application/json" } },
+		);
+	}) as typeof fetch;
+	return seen;
+}
 
 // ── tests ────────────────────────────────────────────────────────────────────
 
@@ -169,4 +210,65 @@ test("413 when the body exceeds the size cap", async () => {
 
 	// Rejected before the (also-failing) 2000-char prompt validation.
 	expect(res.status).toBe(413);
+});
+
+// ── Gemini-first provider selection ──────────────────────────────────────────
+
+test("GEMINI_API_KEY wins over the other providers and returns Gemini's text", async () => {
+	webEnv.GEMINI_API_KEY = "gem-key";
+	webEnv.MOONSHOT_API_KEY = "kimi-key"; // present but must lose to Gemini
+	const seen = stubGeminiUpstream({ text: "  a gemini-enhanced prompt  " });
+
+	const res = await POST(makeReq({ prompt: "a cat", mode: "image" }));
+
+	expect(res.status).toBe(200);
+	expect(((await res.json()) as { enhanced?: string }).enhanced).toBe(
+		"a gemini-enhanced prompt",
+	);
+	// One native generateContent call, key in the header (never the URL),
+	// default gemini model, and the Anthropic fake untouched.
+	expect(seen).toHaveLength(1);
+	expect(seen[0].url).toContain("/models/gemini-3.5-flash:generateContent");
+	expect(seen[0].url).not.toContain("gem-key");
+	expect(
+		new Headers(seen[0].init?.headers as HeadersInit).get("x-goog-api-key"),
+	).toBe("gem-key");
+	expect(lastCreate.params).toBeNull();
+});
+
+test("a non-gemini DIRECTOR_MODEL never reaches the Gemini URL", async () => {
+	webEnv.GEMINI_API_KEY = "gem-key";
+	webEnv.DIRECTOR_MODEL = "claude-opus-4-8";
+	const seen = stubGeminiUpstream();
+
+	const res = await POST(makeReq({ prompt: "a cat", mode: "video" }));
+
+	expect(res.status).toBe(200);
+	expect(seen[0].url).toContain("gemini-3.5-flash");
+	expect(seen[0].url).not.toContain("claude");
+});
+
+test("a Gemini upstream error surfaces as provider_api_error with its status", async () => {
+	webEnv.GEMINI_API_KEY = "gem-key";
+	stubGeminiUpstream({ status: 429, rawBody: "quota exceeded" });
+
+	const res = await POST(makeReq({ prompt: "a cat", mode: "image" }));
+
+	expect(res.status).toBe(429);
+	const json = (await res.json()) as { error?: string; message?: string };
+	expect(json.error).toBe("provider_api_error");
+	expect(json.message).toContain("quota exceeded");
+});
+
+test("no Gemini key falls back to the Anthropic-dialect path (fake SDK answers)", async () => {
+	webEnv.GEMINI_API_KEY = "";
+	const seen = stubGeminiUpstream(); // must stay unused
+
+	const res = await POST(makeReq({ prompt: "a cat", mode: "image" }));
+
+	expect(res.status).toBe(200);
+	expect(((await res.json()) as { enhanced?: string }).enhanced).toBe(
+		"a lush, cinematic enhanced prompt",
+	);
+	expect(seen).toHaveLength(0);
 });
