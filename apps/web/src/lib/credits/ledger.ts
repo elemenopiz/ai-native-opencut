@@ -1,10 +1,6 @@
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { creditAccounts, creditLedger } from "@/lib/db/schema-credits";
-import {
-	type BudgetModality,
-	modalityBudgetFor,
-} from "@/lib/credits/signup-grant";
 import { generateUUID } from "@/utils/id";
 
 /**
@@ -33,23 +29,6 @@ export class InsufficientCredits extends Error {
 		this.name = "InsufficientCredits";
 		this.needed = needed;
 		this.spendable = spendable;
-	}
-}
-
-/**
- * Thrown by {@link reserve} when the ask fits the overall balance but exceeds
- * the per-modality earmark (500/650 video, 150/650 image — see MODALITY_SPLIT).
- * Subclasses {@link InsufficientCredits} so every existing route catch block
- * and the 402 contract keep working; `spendable` is what REMAINS in the
- * modality's budget, which is what the out-of-credits UI should show.
- */
-export class ModalityBudgetExceeded extends InsufficientCredits {
-	readonly modality: BudgetModality;
-	constructor(modality: BudgetModality, needed: number, remaining: number) {
-		super(needed, remaining);
-		this.name = "ModalityBudgetExceeded";
-		this.message = `${modality} budget exceeded: need ${needed}, have ${remaining} left in the ${modality} earmark`;
-		this.modality = modality;
 	}
 }
 
@@ -125,83 +104,7 @@ export interface ReserveOptions {
 	refId: string;
 	/** Dedupe key, e.g. `${jobId}:reserve`. Same key ⇒ no double reserve. */
 	idempotencyKey: string;
-	/**
-	 * When set, the hold is charged against this modality's earmark of the
-	 * user's lifetime grants (video 500/650, image 150/650 — MODALITY_SPLIT)
-	 * and {@link ModalityBudgetExceeded} is thrown when it doesn't fit. The
-	 * modality is stamped into the reserve marker's metadata so all later
-	 * rows for the same refId (settle/release) are attributed to it.
-	 */
-	modality?: BudgetModality;
 	metadata?: Record<string, unknown>;
-}
-
-/**
- * Credits already committed to a modality: settled debits plus still-open
- * holds, attributed by refId — a refId belongs to a modality when its reserve
- * marker was stamped with it, so settles/releases (which may not carry the
- * stamp) still count against the right budget. Runs INSIDE the reserve
- * transaction, after the account lock, so concurrent reserves can't both
- * sneak under the cap.
- */
-async function committedTo(
-	tx: Tx,
-	userId: string,
-	modality: BudgetModality,
-): Promise<{ committed: number; totalGranted: number }> {
-	const rows = await tx
-		.select({
-			reason: creditLedger.reason,
-			delta: creditLedger.delta,
-			refId: creditLedger.refId,
-			metadata: creditLedger.metadata,
-		})
-		.from(creditLedger)
-		.where(eq(creditLedger.userId, userId));
-
-	let totalGranted = 0;
-	// refIds whose reserve marker carries this modality.
-	const refIds = new Set<string>();
-	for (const row of rows) {
-		if (row.delta > 0) totalGranted += row.delta;
-		const meta = row.metadata as { modality?: unknown } | null;
-		if (row.reason === "reserve" && meta?.modality === modality && row.refId) {
-			refIds.add(row.refId);
-		}
-	}
-
-	// Per-refId accounting mirrors release()'s open-hold math: spend = settled
-	// debits + max(0, hold − settled − released).
-	const byRef = new Map<
-		string,
-		{ hold: number; settled: number; released: number }
-	>();
-	for (const row of rows) {
-		if (!row.refId || !refIds.has(row.refId)) continue;
-		let entry = byRef.get(row.refId);
-		if (!entry) {
-			entry = { hold: 0, settled: 0, released: 0 };
-			byRef.set(row.refId, entry);
-		}
-		const meta = row.metadata as {
-			hold?: unknown;
-			released?: unknown;
-		} | null;
-		if (row.reason === "reserve" && typeof meta?.hold === "number") {
-			entry.hold += meta.hold;
-		} else if (row.reason === "settle") {
-			entry.settled += Math.max(0, -row.delta);
-		} else if (row.reason === "release" && typeof meta?.released === "number") {
-			entry.released += meta.released;
-		}
-	}
-
-	let committed = 0;
-	for (const entry of byRef.values()) {
-		committed +=
-			entry.settled + Math.max(0, entry.hold - entry.settled - entry.released);
-	}
-	return { committed, totalGranted };
 }
 
 /**
@@ -239,30 +142,9 @@ export async function reserve(
 			throw new InsufficientCredits(credits, Math.max(0, spendable));
 		}
 
-		// Per-modality earmark: the ask must also fit what remains of this
-		// modality's share of the user's lifetime grants. Checked under the
-		// account lock, so racing reserves serialize and can't both slip under.
-		if (opts.modality && credits > 0) {
-			const { committed, totalGranted } = await committedTo(
-				tx,
-				userId,
-				opts.modality,
-			);
-			const budget = modalityBudgetFor(totalGranted, opts.modality);
-			if (committed + credits > budget) {
-				throw new ModalityBudgetExceeded(
-					opts.modality,
-					credits,
-					Math.max(0, budget - committed),
-				);
-			}
-		}
-
 		const newReserved = reserved + credits;
 
-		// Marker row: delta 0 (nothing spent yet), balance unchanged. The
-		// modality stamp attributes this refId's whole charge lifecycle to its
-		// budget; it wins over any same-named metadata key.
+		// Marker row: delta 0 (nothing spent yet), balance unchanged.
 		await tx.insert(creditLedger).values({
 			id: generateUUID(),
 			userId,
@@ -272,11 +154,7 @@ export async function reserve(
 			refType: opts.refType,
 			refId: opts.refId,
 			idempotencyKey: opts.idempotencyKey,
-			metadata: {
-				hold: credits,
-				...(opts.metadata ?? {}),
-				...(opts.modality ? { modality: opts.modality } : {}),
-			},
+			metadata: { hold: credits, ...(opts.metadata ?? {}) },
 		});
 
 		await tx

@@ -16,12 +16,6 @@ interface OutOfCreditsInfo {
 	needed: number;
 	/** Credits the user had spendable. */
 	spendable: number;
-	/**
-	 * Set when the block was a per-modality earmark rather than the overall
-	 * balance: names the exhausted budget ("video" | "image"); `spendable` is
-	 * then what remains in THAT earmark.
-	 */
-	budget?: "video" | "image";
 }
 
 interface CreditsStore {
@@ -35,11 +29,7 @@ interface CreditsStore {
 	/** Fetch the latest balance from the server. Safe to call repeatedly. */
 	refresh: () => Promise<void>;
 	/** Open the "Out of credits" modal (called by the 402 gate). */
-	openOutOfCredits: (info: {
-		needed: number;
-		spendable: number;
-		budget?: "video" | "image";
-	}) => void;
+	openOutOfCredits: (info: { needed: number; spendable: number }) => void;
 	closeOutOfCredits: () => void;
 }
 
@@ -84,7 +74,6 @@ export const useCreditsStore = create<CreditsStore>((set, get) => ({
 				open: true,
 				needed: info.needed,
 				spendable: info.spendable,
-				budget: info.budget,
 			},
 		}),
 

@@ -90,7 +90,6 @@ export async function POST(req: Request) {
 				refType: STUDIO_REF_TYPE,
 				refId: chargeId,
 				idempotencyKey: `${chargeId}:reserve`,
-				modality: "image",
 				metadata: { backendId: imageBackendId, count },
 			});
 		} catch (err) {

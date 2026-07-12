@@ -169,7 +169,6 @@ export async function POST(req: Request) {
 						refType: STUDIO_REF_TYPE,
 						refId: stillChargeId,
 						idempotencyKey: `${stillChargeId}:reserve`,
-						modality: "image",
 						metadata: { kind: "persona-still", personaId },
 					});
 				} catch (err) {
@@ -337,7 +336,6 @@ export async function POST(req: Request) {
 				refType: STUDIO_REF_TYPE,
 				refId: takeId,
 				idempotencyKey: `${takeId}:reserve`,
-				modality: "video",
 				metadata: { backendId: route.backend.id, seconds: duration, setId },
 			});
 		} catch (err) {
