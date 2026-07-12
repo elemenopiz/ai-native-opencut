@@ -35,7 +35,7 @@ test.describe("editor happy path", () => {
 		// Skip the first-run onboarding dialog — its full-screen overlay would
 		// otherwise intercept clicks. Set before any page script runs.
 		await page.addInitScript(() => {
-			window.localStorage.setItem("hasSeenOnboarding-v2", "true");
+			window.localStorage.setItem("hasSeenOnboarding-v3", "true");
 		});
 
 		// Provider submit: resolve immediately as a completed job (no polling),
