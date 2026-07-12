@@ -14,21 +14,27 @@ export async function gateOn402(res: Response): Promise<boolean> {
 
 	let needed = 0;
 	let spendable = 0;
+	let budget: "video" | "image" | undefined;
 	try {
 		const body = (await res.clone().json()) as {
 			error?: string;
 			needed?: number;
 			spendable?: number;
+			budget?: string;
 		};
 		if (body.error !== "insufficient_credits") return false;
 		needed = typeof body.needed === "number" ? body.needed : 0;
 		spendable = typeof body.spendable === "number" ? body.spendable : 0;
+		// Per-modality earmark blocks name the exhausted budget.
+		if (body.budget === "video" || body.budget === "image") {
+			budget = body.budget;
+		}
 	} catch {
 		// Non-JSON 402 — still treat it as a credit gate with unknown numbers.
 	}
 
 	const store = useCreditsStore.getState();
-	store.openOutOfCredits({ needed, spendable });
+	store.openOutOfCredits({ needed, spendable, budget });
 	// Refresh the header pill so it reflects the (low) balance immediately.
 	void store.refresh();
 	return true;

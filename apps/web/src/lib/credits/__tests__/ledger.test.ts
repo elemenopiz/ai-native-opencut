@@ -5,6 +5,7 @@ import { users } from "@/lib/db/schema";
 import { creditAccounts, creditLedger } from "@/lib/db/schema-credits";
 import {
 	InsufficientCredits,
+	ModalityBudgetExceeded,
 	getAccount,
 	grant,
 	release,
@@ -345,7 +346,227 @@ describe("ledger — grant", () => {
 	});
 });
 
+describe("ledger — per-modality earmarks (MODALITY_SPLIT)", () => {
+	// A 650-credit grant redeems as EXACTLY 500 video + 150 image; the balance
+	// is deliberately not fungible across modalities.
+
+	it("blocks video spend past 500 even while 150 credits remain overall", async () => {
+		const userId = await makeUser();
+		await grant(userId, 650, { reason: "signup_grant" });
+
+		await reserve(userId, 500, {
+			refType: "studio_job",
+			refId: "vid-full",
+			idempotencyKey: "vid-full:reserve",
+			modality: "video",
+		});
+		await settle(userId, 500, {
+			refType: "studio_job",
+			refId: "vid-full",
+			idempotencyKey: "vid-full:settle",
+		});
+
+		// 150 spendable remains — but zero in the video earmark.
+		let thrown: unknown;
+		try {
+			await reserve(userId, 50, {
+				refType: "studio_job",
+				refId: "vid-over",
+				idempotencyKey: "vid-over:reserve",
+				modality: "video",
+			});
+		} catch (err) {
+			thrown = err;
+		}
+		expect(thrown).toBeInstanceOf(ModalityBudgetExceeded);
+		// Subclass contract: every route's `instanceof InsufficientCredits`
+		// catch block keeps working unchanged.
+		expect(thrown).toBeInstanceOf(InsufficientCredits);
+		expect((thrown as ModalityBudgetExceeded).modality).toBe("video");
+		expect((thrown as ModalityBudgetExceeded).spendable).toBe(0);
+
+		// The image earmark is untouched — the full 150 still reserves.
+		const state = await reserve(userId, 150, {
+			refType: "studio_job",
+			refId: "img-ok",
+			idempotencyKey: "img-ok:reserve",
+			modality: "image",
+		});
+		expect(state.reserved).toBe(150);
+	});
+
+	it("open holds count against the earmark; a release refunds it", async () => {
+		const userId = await makeUser();
+		await grant(userId, 650, { reason: "signup_grant" });
+
+		await reserve(userId, 450, {
+			refType: "studio_job",
+			refId: "hold-1",
+			idempotencyKey: "hold-1:reserve",
+			modality: "video",
+		});
+
+		// Only 50 of the video earmark is left while the hold is open.
+		let thrown: unknown;
+		try {
+			await reserve(userId, 100, {
+				refType: "studio_job",
+				refId: "hold-2",
+				idempotencyKey: "hold-2:reserve",
+				modality: "video",
+			});
+		} catch (err) {
+			thrown = err;
+		}
+		expect(thrown).toBeInstanceOf(ModalityBudgetExceeded);
+		expect((thrown as ModalityBudgetExceeded).spendable).toBe(50);
+
+		// Releasing the hold (failed generation) refunds the earmark in full.
+		await release(userId, 450, {
+			refType: "studio_job",
+			refId: "hold-1",
+			idempotencyKey: "hold-1:release",
+		});
+		const state = await reserve(userId, 500, {
+			refType: "studio_job",
+			refId: "hold-3",
+			idempotencyKey: "hold-3:reserve",
+			modality: "video",
+		});
+		expect(state.reserved).toBe(500);
+	});
+
+	it("partial settle + release-the-difference charges the earmark the settled amount only", async () => {
+		const userId = await makeUser();
+		await grant(userId, 650, { reason: "signup_grant" });
+
+		// The persona-still pattern: hold 100, actual cost 40, release the rest.
+		await reserve(userId, 100, {
+			refType: "studio_job",
+			refId: "partial",
+			idempotencyKey: "partial:reserve",
+			modality: "video",
+		});
+		await settle(userId, 40, {
+			refType: "studio_job",
+			refId: "partial",
+			idempotencyKey: "partial:settle",
+		});
+		await release(userId, 60, {
+			refType: "studio_job",
+			refId: "partial",
+			idempotencyKey: "partial:release",
+		});
+
+		// Earmark charged exactly 40 → 460 still fits, 461 doesn't.
+		let thrown: unknown;
+		try {
+			await reserve(userId, 461, {
+				refType: "studio_job",
+				refId: "partial-over",
+				idempotencyKey: "partial-over:reserve",
+				modality: "video",
+			});
+		} catch (err) {
+			thrown = err;
+		}
+		expect(thrown).toBeInstanceOf(ModalityBudgetExceeded);
+		expect((thrown as ModalityBudgetExceeded).spendable).toBe(460);
+
+		const state = await reserve(userId, 460, {
+			refType: "studio_job",
+			refId: "partial-ok",
+			idempotencyKey: "partial-ok:reserve",
+			modality: "video",
+		});
+		expect(state.reserved).toBe(460);
+	});
+
+	it("budgets scale with total grants (owner / top-ups), summing to the total", async () => {
+		const userId = await makeUser();
+		await grant(userId, 1_000_000, { reason: "signup_grant" });
+
+		const videoBudget = Math.floor((1_000_000 * 500) / 650); // 769230
+		await reserve(userId, videoBudget, {
+			refType: "studio_job",
+			refId: "owner-vid",
+			idempotencyKey: "owner-vid:reserve",
+			modality: "video",
+		});
+
+		let thrown: unknown;
+		try {
+			await reserve(userId, 1, {
+				refType: "studio_job",
+				refId: "owner-vid-over",
+				idempotencyKey: "owner-vid-over:reserve",
+				modality: "video",
+			});
+		} catch (err) {
+			thrown = err;
+		}
+		expect(thrown).toBeInstanceOf(ModalityBudgetExceeded);
+
+		// The image earmark is the exact remainder — no credit is stranded.
+		const state = await reserve(userId, 1_000_000 - videoBudget, {
+			refType: "studio_job",
+			refId: "owner-img",
+			idempotencyKey: "owner-img:reserve",
+			modality: "image",
+		});
+		expect(state.reserved).toBe(1_000_000);
+		expect(state.spendable).toBe(0);
+	});
+
+	it("unstamped reserves are exempt — enforcement is opt-in per charge", async () => {
+		const userId = await makeUser();
+		await grant(userId, 650, { reason: "signup_grant" });
+
+		// No `modality` ⇒ only the overall-balance check applies (documents
+		// that non-studio charges aren't accidentally budgeted).
+		const state = await reserve(userId, 650, {
+			refType: "test",
+			refId: "unstamped",
+			idempotencyKey: "unstamped:reserve",
+		});
+		expect(state.reserved).toBe(650);
+	});
+});
+
 describe("402 gate", () => {
+	it("modality-budget 402 names the exhausted budget", async () => {
+		const userId = await makeUser();
+		await grant(userId, 650, { reason: "signup_grant" });
+		await reserve(userId, 150, {
+			refType: "studio_job",
+			refId: "img-fill",
+			idempotencyKey: "img-fill:reserve",
+			modality: "image",
+		});
+
+		let res: Response | undefined;
+		try {
+			await reserve(userId, 14, {
+				refType: "studio_job",
+				refId: "img-over",
+				idempotencyKey: "img-over:reserve",
+				modality: "image",
+			});
+		} catch (err) {
+			expect(err).toBeInstanceOf(ModalityBudgetExceeded);
+			res = insufficientCreditsResponse(err as InsufficientCredits);
+		}
+
+		expect(res?.status).toBe(402);
+		const body = await res?.json();
+		expect(body).toEqual({
+			error: "insufficient_credits",
+			needed: 14,
+			spendable: 0,
+			budget: "image",
+		});
+	});
+
 	it("insufficient credits → HTTP 402 with { needed, spendable }", async () => {
 		const userId = await makeUser(); // zero balance
 

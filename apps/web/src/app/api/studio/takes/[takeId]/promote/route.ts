@@ -88,6 +88,7 @@ export async function POST(
 				refType: STUDIO_REF_TYPE,
 				refId: newTakeId,
 				idempotencyKey: `${newTakeId}:reserve`,
+				modality: "video",
 				metadata: {
 					backendId: DEFAULT_BACKEND_ID.video,
 					seconds: set.duration,

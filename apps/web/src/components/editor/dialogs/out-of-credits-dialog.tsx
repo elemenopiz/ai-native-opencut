@@ -26,14 +26,16 @@ export function OutOfCreditsDialog() {
 	const close = useCreditsStore((s) => s.closeOutOfCredits);
 	const [buyOpen, setBuyOpen] = useState(false);
 
-	const { open, needed, spendable } = outOfCredits;
+	const { open, needed, spendable, budget } = outOfCredits;
 
 	return (
 		<>
 			<Dialog open={open} onOpenChange={(o) => (o ? undefined : close())}>
 				<DialogContent className="max-w-sm">
 					<DialogHeader>
-						<DialogTitle>Out of credits</DialogTitle>
+						<DialogTitle>
+							{budget ? `Out of ${budget} credits` : "Out of credits"}
+						</DialogTitle>
 					</DialogHeader>
 					<DialogBody className="gap-3">
 						<p className="text-sm text-muted-foreground">
@@ -41,8 +43,21 @@ export function OutOfCreditsDialog() {
 							<span className="font-medium text-foreground">{needed}</span>{" "}
 							credits, but you have{" "}
 							<span className="font-medium text-foreground">{spendable}</span>{" "}
-							spendable. Local editing is always free — only cloud generation
-							uses credits.
+							{budget ? (
+								<>
+									left in your{" "}
+									<span className="font-medium text-foreground">
+										{budget === "video" ? "video" : "image"} budget
+									</span>
+									. Your credits are split between video and image generation,
+									so a balance can remain even when one side is used up.
+								</>
+							) : (
+								<>
+									spendable. Local editing is always free — only cloud
+									generation uses credits.
+								</>
+							)}
 						</p>
 					</DialogBody>
 					<DialogFooter>

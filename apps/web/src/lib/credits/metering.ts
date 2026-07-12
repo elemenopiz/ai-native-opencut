@@ -3,6 +3,7 @@ import { webEnv } from "@byorn/env/web";
 import {
 	type AccountState,
 	InsufficientCredits,
+	ModalityBudgetExceeded,
 	release,
 	type ReleaseOptions,
 	reserve,
@@ -61,7 +62,9 @@ export async function meteredRelease(
 /**
  * The HTTP 402 body returned when a paid studio action can't be afforded. The
  * frontend interceptor keys off `error === "insufficient_credits"` to open the
- * "Out of credits" modal.
+ * "Out of credits" modal. When the block is a per-modality earmark (not the
+ * overall balance), `budget` names the exhausted modality and `spendable` is
+ * what remains IN THAT EARMARK — the dialog uses it to explain the split.
  */
 export function insufficientCreditsResponse(
 	err: InsufficientCredits,
@@ -71,6 +74,9 @@ export function insufficientCreditsResponse(
 			error: "insufficient_credits",
 			needed: err.needed,
 			spendable: err.spendable,
+			...(err instanceof ModalityBudgetExceeded
+				? { budget: err.modality }
+				: {}),
 		},
 		{ status: 402 },
 	);

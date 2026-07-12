@@ -90,6 +90,7 @@ export async function POST(
 				refType: STUDIO_REF_TYPE,
 				refId: chargeId,
 				idempotencyKey: `${chargeId}:reserve`,
+				modality: "image",
 				metadata: { kind: "persona-still" },
 			});
 		} catch (err) {
