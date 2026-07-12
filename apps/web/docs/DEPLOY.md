@@ -44,6 +44,17 @@ Skipping this works (the app falls back to in-memory rate limiting) but on
 Vercel every serverless instance gets its own counters — set it up for any
 real beta.
 
+> **Auth is fail-closed on Redis in production.** Under `next start`, better-auth
+> rate limiting drives its `customStorage` through Upstash. If
+> `UPSTASH_REDIS_REST_URL` is set but unreachable or wrong, **every**
+> `/api/auth/*` POST throws `ECONNREFUSED` and returns **500** — nobody can sign
+> up or log in. A dead Upstash is therefore a full auth outage, not a
+> rate-limiting nicety. Verify reachability via `/api/health` **before** the auth
+> smoke (see the [first-deploy checklist](#first-deploy-checklist)). Note that the
+> two states are different: `UPSTASH_REDIS_REST_URL` **unset** (or left at the
+> placeholder) makes better-auth fall back to an in-memory limiter and auth still
+> works — it is only a *configured-but-unreachable* Upstash that takes auth down.
+
 ### 3. Media storage — Cloudflare R2
 
 1. Cloudflare dashboard → **R2 Object Storage** → **Create bucket** → name it
@@ -260,11 +271,34 @@ declared in `packages/env/src/web.ts`; examples in `apps/web/.env.example`.
        one AI provider key set if you want generation live.
 7. [ ] Deploy succeeds (a missing required var fails the build with a zod
        error naming it).
-8. [ ] Sign up a test account, confirm login works on the deployed domain.
-9. [ ] `curl https://your-domain.com/api/health` returns
-       `{"ok":true,"db":true,"version":"...","sha":"..."}` with HTTP 200.
-       `db:false`/503 means the app can't reach Postgres — recheck
-       `DATABASE_URL` and Neon IP allowlist.
+8. [ ] **Upstash reachable — check BEFORE any auth smoke.**
+       `curl https://your-domain.com/api/health` and confirm `"redis":true`.
+       Auth is fail-closed on Redis in production, so a bad Upstash env fails
+       login with a *mystery 500*, not an obvious error — catch it here first.
+       - `"redis":false` / HTTP 503 → Upstash is configured but unreachable.
+         **Do not run the auth smoke yet.** Recheck `UPSTASH_REDIS_REST_URL` and
+         `UPSTASH_REDIS_REST_TOKEN` (typo, rotated token, wrong region/URL). The
+         signature in logs is: **every `/api/auth/*` POST returns 500 with
+         `ECONNREFUSED` (or a fetch/timeout) from the Upstash host.**
+       - `"redis":"not-configured"` → env unset or still the placeholder; auth
+         uses in-memory rate limiting and will work, but on serverless every
+         instance gets its own counters. Fine for a first smoke, wire real
+         Upstash before real traffic.
+9. [ ] Sign up a test account, confirm login works on the deployed domain.
+       (Only meaningful once step 8 shows `"redis":true` or `"not-configured"`.)
+10. [ ] `curl https://your-domain.com/api/health` returns
+       `{"ok":true,"db":true,"redis":true,"version":"...","sha":"..."}` with
+       HTTP 200. A 503 means `ok:false` — inspect the body:
+       - `"db":false` → the app can't reach Postgres; recheck `DATABASE_URL` and
+         the Neon IP allowlist.
+       - `"redis":false` → configured Upstash is unreachable (see step 8); this
+         alone fails `ok` because it means auth is down for users.
+
+> **"e2e green" is not auth proof.** Local `.env.local` points Upstash at a dead
+> `http://localhost:8079`, and the auth e2e suite self-skips when no live Redis
+> is reachable — so a green e2e run says nothing about whether production auth
+> can talk to Upstash. The `/api/health` `redis` check in step 8 is the only
+> pre-smoke signal that actually exercises the deployed Upstash credentials.
 
 ## Rollback
 
