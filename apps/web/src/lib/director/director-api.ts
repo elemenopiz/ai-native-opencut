@@ -119,6 +119,14 @@ import {
 	extractTakeFrames,
 } from "@/lib/media/last-frame";
 import {
+	extractAndAddFrame,
+	firstFrameSourceTime,
+	lastFrameSourceTime,
+	type FrameDecoder,
+} from "@/lib/media/frame-extraction";
+import { dataUrlToFile } from "@/lib/media/data-url";
+import type { DerivedFrameLabel } from "@/services/storage/types";
+import {
 	estimateBatchCost,
 	estimateSpecCost,
 	formatCostRange,
@@ -317,6 +325,17 @@ export interface CreateDirectorApiOptions {
 			refImageUrls?: string[];
 			seed?: number;
 		}) => Promise<{ id: string } | null>;
+	};
+	/**
+	 * Frame-extraction seam (see `lib/media/frame-extraction.ts`). `decode` pulls a
+	 * full-resolution still from a video at a source time (default: the browser
+	 * mediabunny decode); `upload` rehosts the decoded still to a fetchable URL so
+	 * it can seed a generation (default: the shared `/api/studio/upload` path).
+	 * BROWSER-BOUND, so headless tests inject stubs — same pattern as `references`.
+	 */
+	frames?: {
+		decode?: FrameDecoder;
+		upload?: (file: File) => Promise<string>;
 	};
 	/**
 	 * "Understanding Pass" seam (see `asset-manifest.ts`). A per-asset lookup that
@@ -552,6 +571,14 @@ export function createDirectorApi(
 			refImageUrls?: string[];
 			seed?: number;
 		}) => usePersonaStore.getState().create(input));
+
+	// Frame-extraction seam: full-res decode + rehost. `decodeFrame` is passed
+	// straight to `extractAndAddFrame` (undefined ⇒ its browser default);
+	// `uploadFrame` rehosts the decoded still so it can seed a generation.
+	const decodeFrame: FrameDecoder | undefined = options.frames?.decode;
+	const uploadFrame: (file: File) => Promise<string> =
+		options.frames?.upload ??
+		(async (file) => (await uploadReferenceFile(file)).url);
 
 	// Resolved self-correction config (defaults + injected overrides).
 	const recovery = {
@@ -2622,6 +2649,174 @@ export function createDirectorApi(
 		);
 	}
 
+	// ---- FRAME EXTRACTION / CHAINING --------------------------------------
+	//
+	// The stills that let the Director stitch generated shots: pull a full-res
+	// frame from a slot's take (or a library asset) into the media library with
+	// provenance, and seed the NEXT slot on the PRIOR slot's last frame.
+
+	/**
+	 * Resolve the VIDEO asset a frame should be pulled from — either a slot's
+	 * active (else most-recent) rendered take, or a direct library media id.
+	 * Returns the asset plus a human name, or an error message.
+	 */
+	function resolveFrameSourceAsset(input: {
+		slotId?: string;
+		mediaId?: string;
+	}): { asset: MediaAsset; name: string } | { error: string } {
+		if (input.mediaId) {
+			const asset = editor.media.getAssetById(input.mediaId);
+			if (!asset)
+				return { error: `No media asset with id "${input.mediaId}".` };
+			if (asset.type !== "video")
+				return { error: `Asset "${input.mediaId}" is not a video.` };
+			return { asset, name: asset.name };
+		}
+		if (input.slotId) {
+			const located = findSlot(input.slotId);
+			if (!located) return { error: `No slot with id "${input.slotId}".` };
+			const takes = takesOf(located.element);
+			const source = located.element.activeTakeId
+				? takes.find((t) => t.id === located.element.activeTakeId)
+				: takes[takes.length - 1];
+			if (!source?.mediaId)
+				return {
+					error: `Slot "${input.slotId}" has no rendered take to extract a frame from — generate one first.`,
+				};
+			const asset = editor.media.getAssetById(source.mediaId);
+			if (!asset)
+				return { error: `Slot "${input.slotId}"'s take media is missing.` };
+			if (asset.type !== "video")
+				return { error: `Slot "${input.slotId}"'s take is not a video.` };
+			return { asset, name: located.element.name || asset.name };
+		}
+		return { error: "extractFrame requires a slotId or mediaId." };
+	}
+
+	/**
+	 * Extract a full-resolution still from a slot's take (or a library asset) and
+	 * add it to the media library WITH provenance, returning its media id and a
+	 * hosted, generation-usable URL. `position` picks the first/last visible
+	 * frame of the (untrimmed) source video, or an explicit `atTimeSec`.
+	 */
+	async function extractFrame(input: {
+		slotId?: string;
+		mediaId?: string;
+		position: "first" | "last" | { atTimeSec: number };
+	}): Promise<DirectorResult<{ mediaId: string; url: string }>> {
+		const before = captureReel();
+		const resolved = resolveFrameSourceAsset(input);
+		if ("error" in resolved) return fail(resolved.error);
+		const { asset, name } = resolved;
+
+		let projectId: string;
+		try {
+			projectId = editor.project.getActive().metadata.id;
+		} catch {
+			return fail("No active project to add the frame to.");
+		}
+
+		// Library assets / takes are the FULL source (no trim), so a full-span
+		// synthetic element gives the right first/last source time.
+		const span = { startTime: 0, duration: asset.duration ?? 0, trimStart: 0 };
+		let label: DerivedFrameLabel;
+		let timeSec: number;
+		if (input.position === "first") {
+			label = "first frame";
+			timeSec = firstFrameSourceTime(span);
+		} else if (input.position === "last") {
+			label = "last frame";
+			timeSec = lastFrameSourceTime(span);
+		} else {
+			label = "frame";
+			timeSec = Math.max(0, input.position.atTimeSec);
+		}
+
+		let extracted: Awaited<ReturnType<typeof extractAndAddFrame>>;
+		try {
+			extracted = await extractAndAddFrame({
+				editor,
+				projectId,
+				source: {
+					videoFile: asset.file,
+					videoUrl: asset.url,
+					name: asset.name,
+				},
+				sourceAssetId: asset.id,
+				sourceName: name,
+				timeSec,
+				label,
+				decode: decodeFrame,
+			});
+		} catch (err) {
+			return fail(
+				err instanceof Error ? err.message : "Frame extraction failed.",
+			);
+		}
+
+		let url: string;
+		try {
+			url = await uploadFrame(dataUrlToFile(extracted.dataUrl, extracted.name));
+		} catch (err) {
+			return fail(
+				`Extracted the frame but couldn't rehost it for generation: ${
+					err instanceof Error ? err.message : "upload failed"
+				}.`,
+			);
+		}
+
+		return withDelta(
+			before,
+			ok(`Extracted ${label} of "${name}" → "${extracted.name}".`, {
+				mediaId: extracted.mediaId,
+				url,
+			}),
+		);
+	}
+
+	/**
+	 * Chain slot `toSlotId` onto the LAST frame of slot `fromSlotId`: extract the
+	 * source slot's real last frame (added to the library with provenance) and
+	 * stamp it onto the target slot's generation spec as `referenceImageUrl` with
+	 * `mode: "image-to-video"` — the base first-frame conditioning every i2v-
+	 * capable backend supports (mirrors how `remix` re-conditions). Does NOT
+	 * generate; call `generate`/`reroll` on the target slot afterward.
+	 */
+	async function chainFrom(input: {
+		fromSlotId: string;
+		toSlotId: string;
+	}): Promise<
+		DirectorResult<{ toSlotId: string; url: string; mediaId: string }>
+	> {
+		const before = captureReel();
+		if (input.fromSlotId === input.toSlotId)
+			return fail("chainFrom needs two different slots.");
+		const to = findSlot(input.toSlotId);
+		if (!to) return fail(`No slot with id "${input.toSlotId}".`);
+
+		const extracted = await extractFrame({
+			slotId: input.fromSlotId,
+			position: "last",
+		});
+		if (!extracted.ok || !extracted.data) return fail(extracted.message);
+		const { url, mediaId } = extracted.data;
+
+		const nextSpec: GenerationSpec = {
+			...to.element.generation,
+			referenceImageUrl: url,
+			mode: "image-to-video",
+		};
+		editor.timeline.setSlotSpec({ elementId: input.toSlotId, spec: nextSpec });
+
+		return withDelta(
+			before,
+			ok(
+				`Chained slot "${input.toSlotId}" onto the last frame of "${input.fromSlotId}". Generate it to render the meshed shot.`,
+				{ toSlotId: input.toSlotId, url, mediaId },
+			),
+		);
+	}
+
 	/** Pick the active take for a slot, by take id or by index. */
 	/**
 	 * Pick the active take for a slot, and LEARN from the choice: a one-line note
@@ -3828,6 +4023,8 @@ export function createDirectorApi(
 		reroll,
 		compareTake,
 		remix,
+		extractFrame,
+		chainFrom,
 		chooseTake,
 		reviewTake,
 		// budget (whole-reel spend planning)

@@ -1066,6 +1066,69 @@ export function toolCatalog(): ToolDescriptor[] {
 				d.remix({ slotId: str(a.slotId), remixPrompt: str(a.remixPrompt) }),
 		},
 		{
+			name: "extractFrame",
+			description:
+				'extract a full-resolution still from a slot\'s current take (or a library video by mediaId) and add it to the media library WITH provenance. position: "first" | "last" | a number of SECONDS into the source. Returns { mediaId, url } — a hosted, generation-usable image URL you can feed as a first frame (see chainFrom / generate).',
+			mutating: true,
+			inputSchema: {
+				type: "object",
+				properties: {
+					slotId: slotIdProp,
+					mediaId: {
+						type: "string",
+						description:
+							"Library media id to extract from (alternative to slotId).",
+					},
+					position: {
+						oneOf: [
+							{ type: "string", enum: ["first", "last"] },
+							{ type: "number", "x-seconds": true },
+						],
+						description:
+							'"first", "last", or a SECONDS offset into the source video.',
+					},
+				},
+				required: ["position"],
+			},
+			handler: (d, a) => {
+				const atTime = numOrUndefined(
+					typeof a.position === "object" && a.position !== null
+						? (a.position as { atTimeSec?: unknown }).atTimeSec
+						: a.position,
+				);
+				const position =
+					atTime !== undefined
+						? { atTimeSec: atTime }
+						: a.position === "first"
+							? "first"
+							: "last";
+				return d.extractFrame({
+					slotId: strOrUndefined(a.slotId),
+					mediaId: strOrUndefined(a.mediaId),
+					position,
+				});
+			},
+		},
+		{
+			name: "chainFrom",
+			description:
+				"seed slot toSlotId's next generation on the LAST frame of slot fromSlotId, so the two shots mesh seamlessly. Extracts fromSlot's last frame, adds it to the library, and stamps it onto toSlot's spec as a first frame (image-to-video). Does NOT generate — call generate/reroll on toSlotId after.",
+			mutating: true,
+			inputSchema: {
+				type: "object",
+				properties: {
+					fromSlotId: slotIdProp,
+					toSlotId: slotIdProp,
+				},
+				required: ["fromSlotId", "toSlotId"],
+			},
+			handler: (d, a) =>
+				d.chainFrom({
+					fromSlotId: str(a.fromSlotId),
+					toSlotId: str(a.toSlotId),
+				}),
+		},
+		{
 			name: "chooseTake",
 			description:
 				"pick the active take (by index or takeId). Pass `rationale` to record WHY (e.g. 'user prefers the warmer, handheld take') — it's appended to the durable brief so future shots inherit the preference.",
