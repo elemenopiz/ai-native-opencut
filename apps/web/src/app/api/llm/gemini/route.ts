@@ -31,6 +31,7 @@ import { auth } from "@/lib/auth/server";
 import { enforceRateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
+export const maxDuration = 120;
 
 /** Default model for the native Gemini Director brain; override with DIRECTOR_MODEL. */
 const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
