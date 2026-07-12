@@ -36,6 +36,7 @@ import { enforceRateLimit } from "@/lib/rate-limit";
 import { reportError } from "@/lib/observability/logger";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 /** Default models — mirror the agent/gemini relays' provider defaults. */
 const DEFAULT_MODEL = "claude-opus-4-8";

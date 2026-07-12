@@ -26,6 +26,7 @@ import { auth } from "@/lib/auth/server";
 import { enforceRateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
+export const maxDuration = 120;
 
 /** Default model for the Director brain; override with DIRECTOR_MODEL. */
 const DEFAULT_MODEL = "claude-opus-4-8";

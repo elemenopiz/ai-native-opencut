@@ -140,8 +140,10 @@ Notes:
   run, assert the chain actually landed:
 
   ```sh
+  jq '.entries | length' migrations/meta/_journal.json   # expected `applied` count (9 as of 2026-07-12)
+
   psql "$DATABASE_URL" -c "
-    SELECT (SELECT count(*) FROM drizzle.drizzle_migrations)            AS applied,  -- must equal the entry count in meta/_journal.json (8 as of 2026-07-11)
+    SELECT (SELECT count(*) FROM drizzle.drizzle_migrations)            AS applied,  -- must equal the entry count in meta/_journal.json (9 as of 2026-07-12)
            (SELECT to_regclass('public.credit_ledger') IS NOT NULL)     AS credits_ok,
            (SELECT count(*) = 2 FROM information_schema.columns
              WHERE table_schema='public' AND column_name='owner_id'
