@@ -64,6 +64,11 @@ import {
 } from "./agent";
 import { toGeminiDeclarations } from "./tool-catalog";
 import {
+	activeToolNamesForPhase,
+	deriveDirectorPhase,
+	type DirectorPhase,
+} from "./phase-scope";
+import {
 	buildCriticSystemPrompt,
 	buildCriticUserBlocks,
 	parseVerdict,
@@ -406,10 +411,44 @@ export async function runDirectorAgentGemini(opts: {
 	const { director, userMessage, onStep, onEvent, signal } = opts;
 	const steps: AgentToolStep[] = [];
 	const system = buildGeminiSystemPrompt(director);
-	const tools = [{ functionDeclarations: toGeminiDeclarations() }];
+	const allDeclarations = toGeminiDeclarations();
 	const contents: GeminiContent[] = [
 		{ role: "user", parts: [{ text: userMessage }] },
 	];
+
+	// ── phase-scoped ACTIVE tools (Gemini brain ONLY) ──────────────────────────
+	// The catalog is ~50 verbs; Google's guidance is 10–20 ACTIVE tools per
+	// request, so each turn exposes only the current phase's bucket (see
+	// `phase-scope.ts`). MECHANISM: we filter the `functionDeclarations` array
+	// per turn rather than using `toolConfig.functionCallingConfig.
+	// allowedFunctionNames`, because per the current REST reference
+	// (ai.google.dev/api — FunctionCallingConfig, checked 2026-07):
+	// "allowedFunctionNames ... should only be set when the Mode is ANY or
+	// VALIDATED". Mode ANY FORCES a function call every turn — wrong for a chat
+	// loop that must be able to close in plain text — and VALIDATED is still
+	// Preview. Filtering declarations costs implicit-cache stability across a
+	// phase transition, but phases change at turn boundaries and a session
+	// mostly lives in one phase, so correct AUTO semantics win. Revisit
+	// allowedFunctionNames if VALIDATED graduates from Preview.
+	// The phase is recomputed EVERY model call: tools executed mid-run mutate
+	// reel state (acceptProposal creates slots → production), and the next
+	// request should widen/narrow accordingly.
+	let lastPhase: DirectorPhase | undefined;
+	const toolsForThisTurn = (): Array<{ functionDeclarations: unknown[] }> => {
+		const phase = deriveDirectorPhase(director);
+		const active = new Set(activeToolNamesForPhase(phase));
+		const declarations = allDeclarations.filter((d) => active.has(d.name));
+		if (phase !== lastPhase) {
+			// Observability hook for bucket tuning — structured, greppable, cheap.
+			console.debug("[director:gemini] phase-scope", {
+				phase,
+				activeTools: declarations.length,
+				catalogTools: allDeclarations.length,
+			});
+			lastPhase = phase;
+		}
+		return [{ functionDeclarations: declarations }];
+	};
 
 	let toolCalls = 0;
 	let wrapUp = false; // set when the tool budget is spent → force a text-only close
@@ -480,7 +519,7 @@ export async function runDirectorAgentGemini(opts: {
 			turn = await callGeminiRelay({
 				contents,
 				system,
-				tools,
+				tools: toolsForThisTurn(),
 				signal,
 				onDelta: (kind, text) =>
 					onEvent?.(

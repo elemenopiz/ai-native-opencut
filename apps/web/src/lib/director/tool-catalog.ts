@@ -2007,6 +2007,18 @@ const GEMINI_PROPERTY_OVERRIDES: Record<
  * function-calling trigger behavior: lead with an explicit "Call this when...",
  * then the catalog's own contract text. Verbs not listed keep their catalog
  * description verbatim — the contract content is identical either way.
+ *
+ * CONTRAST TUNING: the members of the two clusters Gemini most often confuses
+ * additionally carry explicit "Do NOT use this for X — use <sibling>" lines:
+ *  - generation: generate (first render) / reroll (same prompt, fresh
+ *    sampling) / remix (directed change to an existing take) / chainFrom
+ *    (continuity — anchor the NEXT shot on a previous shot's frame);
+ *  - timeline: trim (in/out points) / move (position in time) / split (one
+ *    clip into two);
+ * plus one contrast line each across compareTake (rank, no commit) /
+ * chooseTake (commit) / reviewTake (paid vision critique, looks only).
+ * These lines live HERE — the shared Anthropic-facing catalog descriptions
+ * are deliberately untouched.
  */
 const GEMINI_DESCRIPTION_OVERRIDES: Record<string, string> = {
 	storyboard:
@@ -2014,15 +2026,23 @@ const GEMINI_DESCRIPTION_OVERRIDES: Record<string, string> = {
 	reserveSlot:
 		"Call this for a single quick clip (no storyboard needed): it adds one empty generative slot with a prompt, ready to generate.",
 	generate:
-		"Call this to actually render takes for planned slots — nothing is generated until you do. Renders one or more takes per listed slot (or every slot when slotIds is omitted).",
+		"Call this to actually render takes for planned slots — nothing is generated until you do. Renders one or more takes per listed slot (or every slot when slotIds is omitted). Use for the FIRST render of a slot. Do NOT use this to retry a bad take — use reroll — or to adjust an existing take — use remix; to continue from a previous shot's frame, set up chainFrom first, then generate.",
 	reroll:
-		"Call this when a slot's current take is fundamentally wrong (wrong subject/scene): it renders fresh alternate take(s) for that one slot from its current prompt.",
+		"Call this when a slot's current take is fundamentally wrong (wrong subject/scene): it renders fresh alternate take(s) for that one slot from its current prompt — same prompt, fresh sampling. Do NOT use this for a small directed fix to a mostly-good take — use remix instead — and do NOT use it for a slot that was never rendered — use generate.",
 	remix:
-		"Call this when a take is MOSTLY right but has one flaw: it edits the slot's current take in place from a short delta prompt, keeping seed/identity anchored.",
+		"Call this when a take is MOSTLY right but has one flaw: it edits the slot's current take in place from a short delta prompt, keeping seed/identity anchored. Do NOT use this when the take is fundamentally wrong — use reroll for a clean resample — and do NOT use it to make consecutive shots flow together — use chainFrom.",
+	chainFrom:
+		"Call this for shot-to-shot CONTINUITY: it seeds slot toSlotId's next generation on the LAST frame of slot fromSlotId (extracts that frame, adds it to the library, and stamps it onto toSlot's spec as an image-to-video first frame), so the two shots mesh seamlessly. Does NOT render — call generate/reroll on toSlotId after. Do NOT use this to retry or tweak a single take — use reroll (fresh sampling) or remix (directed change) instead.",
 	reviewTake:
-		"Call this to SEE a generated take before judging it — you cannot evaluate a clip from its prompt alone. Returns the take's actual frames (first→mid→last) as images.",
+		"Call this to SEE a generated take before judging it — you cannot evaluate a clip from its prompt alone. Returns the take's actual frames (first→mid→last) as images. This is a paid vision critique that only LOOKS — it does NOT commit anything; to make a reviewed take active, use chooseTake.",
 	chooseTake:
-		"Call this to make a specific take the slot's active take (e.g. after reviewing alternates).",
+		"Call this to make a specific take the slot's active take (e.g. after reviewing alternates). This COMMITS the choice. Do NOT use it to evaluate or rank takes you have not seen — use reviewTake (paid vision critique) or compareTake (A/B rank) first.",
+	compareTake:
+		"A/B one slot across TWO backends: render the same shot on each and auto-pick the better take if a vision critic is available, else add both as takes for you to choose. Costs 2x a single generate — subject to the cost gate. Use for hero/final shots worth the extra spend. This RANKS candidates — it does NOT commit your final choice; use chooseTake to commit.",
+	trim: "Use for changing how much of a clip's SOURCE plays — its in/out points and duration (all time fields in SECONDS). Do NOT use this to reposition the clip on the timeline — use move — and do NOT use it to cut a clip into two pieces — use split.",
+	move: "Use for repositioning a clip in TIME on the timeline (and optionally onto another track — targetTrackId is a full TRACK id, not a short slot id; omit to stay on the current track). Do NOT use this to change which part of the source plays — use trim — and do NOT use it to cut the clip — use split.",
+	split:
+		"Use for cutting ONE clip into TWO separate clips at a point in time (SECONDS). Do NOT use this to shorten a clip — use trim — and do NOT use it to change when a clip plays — use move.",
 	setPrompt:
 		"Call this to rewrite a slot's generation prompt (and optionally its per-shot spec) BEFORE rerolling it.",
 	getReel:

@@ -138,8 +138,65 @@ test("tuned verbs lead with explicit trigger guidance; untouched verbs keep the 
 		expect(byName.get(name)?.description ?? "").toMatch(/^Call this/);
 	}
 	// A verb without an override keeps its catalog description verbatim.
-	const catalogChainFrom = toolCatalog().find((t) => t.name === "chainFrom");
-	expect(byName.get("chainFrom")?.description).toBe(
-		catalogChainFrom?.description,
+	const catalogReorder = toolCatalog().find((t) => t.name === "reorder");
+	expect(byName.get("reorder")?.description).toBe(catalogReorder?.description);
+});
+
+// ── description CONTRAST for the confusable clusters (Gemini declarations
+// only — the shared catalog text is asserted untouched below) ────────────────
+
+/** name → sibling verbs its Gemini description must explicitly redirect to. */
+const CONTRAST_EXPECTATIONS: Record<string, string[]> = {
+	// generation cluster: first render / quality retry / directed change / continuity
+	generate: ["reroll", "remix", "chainFrom"],
+	reroll: ["remix", "generate"],
+	remix: ["reroll", "chainFrom"],
+	chainFrom: ["reroll", "remix"],
+	// timeline cluster: in-out points / position in time / one clip into two
+	trim: ["move", "split"],
+	move: ["trim", "split"],
+	split: ["trim", "move"],
+	// take judgment: rank (no commit) / commit / paid vision critique
+	compareTake: ["chooseTake"],
+	chooseTake: ["reviewTake", "compareTake"],
+	reviewTake: ["chooseTake"],
+};
+
+test("confusable-cluster members carry explicit contrast lines naming their siblings", () => {
+	const byName = new Map(toGeminiDeclarations().map((d) => [d.name, d]));
+	for (const [name, siblings] of Object.entries(CONTRAST_EXPECTATIONS)) {
+		const description = byName.get(name)?.description ?? "";
+		expect(
+			description.length,
+			`${name}: missing Gemini declaration`,
+		).toBeGreaterThan(0);
+		// Every member states what NOT to use it for (compareTake/reviewTake use
+		// "does NOT commit"/"commits nothing" phrasing; the rest "Do NOT use").
+		expect(
+			/\bNOT\b/.test(description),
+			`${name}: no contrast ("NOT") line in: ${description}`,
+		).toBe(true);
+		for (const sibling of siblings) {
+			expect(
+				description.includes(sibling),
+				`${name}: contrast line must redirect to "${sibling}" in: ${description}`,
+			).toBe(true);
+		}
+	}
+});
+
+test("contrast tuning lives in the Gemini overrides ONLY — catalog descriptions stay untouched", () => {
+	// The shared (Anthropic/MCP-facing) catalog text must not grow the Gemini
+	// contrast phrasing: spot-check the timeline cluster, which had terse
+	// catalog descriptions before this tuning.
+	const catalog = new Map(toolCatalog().map((t) => [t.name, t.description]));
+	expect(catalog.get("trim")).toBe(
+		"adjust a slot's in/out points. All time fields SECONDS.",
 	);
+	expect(catalog.get("split")).toBe(
+		"cut a slot into two at a point in time (SECONDS).",
+	);
+	for (const name of ["trim", "move", "split"]) {
+		expect(catalog.get(name) ?? "").not.toContain("Do NOT");
+	}
 });
