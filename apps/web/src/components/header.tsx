@@ -19,10 +19,6 @@ export function Header() {
 			label: "Models",
 			href: "/models",
 		},
-		{
-			label: "Roadmap",
-			href: "/roadmap",
-		},
 	];
 
 	return (

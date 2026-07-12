@@ -319,7 +319,7 @@ const STEPS: Step[] = [
 		id: "project",
 		rail: "Start a project",
 		icon: FolderAddIcon,
-		kicker: "Byorn · CapCut × Higgsfield",
+		kicker: "Byorn · The AI-native editor",
 		title: "You don't cut clips. You direct them.",
 		body: (
 			<>
