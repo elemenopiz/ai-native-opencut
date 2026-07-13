@@ -543,6 +543,25 @@ export function toolCatalog(): ToolDescriptor[] {
 				d.searchMedia({ query: str(a.query), limit: numOrUndefined(a.limit) }),
 		},
 		{
+			name: "findDuplicateAssets",
+			description:
+				"detect near-duplicate media-library assets via CLIP visual-similarity — e.g. multiple takes of the same shot, or a burst of near-identical uploads. 'Duplicate' means visually near-identical CONTENT (embedding similarity above a fixed threshold), NOT exact file/byte duplicates. Returns FULL mediaIds (not reel slot ids) + a similarity score per pair. Pass mediaId to check only that asset against the rest of the library; omit to scan the whole library for every near-duplicate pair. Call before finalizing a sequence of shots (avoid placing two visually-identical clips back-to-back) or when the library has many similar-looking uploads (offer the user a choice between near-identical takes instead of guessing).",
+			mutating: false,
+			inputSchema: {
+				type: "object",
+				properties: {
+					mediaId: {
+						type: "string",
+						description:
+							"Optional FULL media id (not a reel slot id) to check for near-duplicates against the rest of the library. Omit to scan the whole library for all near-duplicate pairs.",
+					},
+				},
+				additionalProperties: false,
+			},
+			handler: (d, a) =>
+				d.findDuplicateAssets({ mediaId: strOrUndefined(a.mediaId) }),
+		},
+		{
 			name: "getProjectInfo",
 			description:
 				"inspect project settings (fps, canvas size/orientation), the persona roster, and a media-library summary. The same context is already in your system prompt — call this only to re-check it mid-task after it may have changed.",

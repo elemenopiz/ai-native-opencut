@@ -152,6 +152,7 @@ import {
 	filterToCurrentModel,
 } from "@/lib/local-ai/embeddings";
 import { getAllEmbeddings } from "@/services/search/embedding-store";
+import { findDuplicates } from "@/services/search/embedding-service";
 import { DEFAULT_TEXT_ELEMENT } from "@/constants/text-constants";
 import {
 	buildElementFromMedia,
@@ -183,6 +184,7 @@ import type {
 	BackendCatalogProvider,
 	BudgetStatus,
 	DirectorResult,
+	DuplicateAssetPair,
 	GenerationFailure,
 	IntakeReferencesData,
 	MediaSearchHit,
@@ -202,6 +204,7 @@ export type {
 	BackendCatalogEntry,
 	BackendCatalogProvider,
 	DirectorResult,
+	DuplicateAssetPair,
 	GenerateExecutor,
 	GenerationFailure,
 	GenerationSpec,
@@ -1176,6 +1179,58 @@ export function createDirectorApi(
 		const top = hits.slice(0, limit);
 		if (top.length === 0) return ok(`No footage matched "${query}".`, []);
 		return ok(`Found ${top.length} match(es) for "${query}".`, top);
+	}
+
+	/**
+	 * Find near-duplicate media-library assets via CLIP embedding similarity —
+	 * multiple takes of the same shot, or a burst of near-identical uploads.
+	 * "Duplicate" means visually near-identical CONTENT (cosine similarity of
+	 * mean frame vectors above `DUPLICATE_THRESHOLD`), NOT byte-identical files.
+	 * Wraps the SAME `findDuplicates` the Visual Search panel's "Find duplicate
+	 * / retake clips" button calls (`embedding-service.ts`) — read-only, no
+	 * `withDelta`, nothing mutates.
+	 *
+	 * `findDuplicates` itself has only ONE mode: a whole-library O(n²) scan (no
+	 * single-asset comparison entry point). When `mediaId` is passed here, the
+	 * full scan still runs and results are filtered to pairs that include it
+	 * afterward — cheap relative to the scan itself (a plain array filter), so
+	 * both call shapes are supported without forcing a shape the underlying
+	 * function doesn't have.
+	 */
+	async function findDuplicateAssets(
+		input: { mediaId?: string } = {},
+	): Promise<DirectorResult<DuplicateAssetPair[]>> {
+		const pairs = await findDuplicates();
+		const scoped = input.mediaId
+			? pairs.filter(
+					(p) => p.mediaIdA === input.mediaId || p.mediaIdB === input.mediaId,
+				)
+			: pairs;
+
+		if (scoped.length === 0) {
+			return ok(
+				input.mediaId
+					? `No near-duplicates found for "${input.mediaId}".`
+					: "No near-duplicates detected in the library.",
+				[],
+			);
+		}
+
+		const assets = editor.media.getAssets();
+		const byId = new Map(assets.map((a) => [a.id, a]));
+		const result: DuplicateAssetPair[] = scoped.map((p) => ({
+			mediaIdA: p.mediaIdA,
+			mediaIdB: p.mediaIdB,
+			score: p.score,
+			mediaNameA: byId.get(p.mediaIdA)?.name,
+			mediaNameB: byId.get(p.mediaIdB)?.name,
+		}));
+
+		return ok(
+			`Found ${result.length} near-duplicate pair${result.length === 1 ? "" : "s"}` +
+				(input.mediaId ? ` for "${input.mediaId}".` : "."),
+			result,
+		);
 	}
 
 	/**
@@ -4141,6 +4196,7 @@ export function createDirectorApi(
 		getBackends,
 		// media search / placement
 		searchMedia,
+		findDuplicateAssets,
 		addClip,
 		// storyboard
 		storyboard,
