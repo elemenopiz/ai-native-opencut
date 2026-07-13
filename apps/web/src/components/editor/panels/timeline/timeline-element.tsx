@@ -102,6 +102,7 @@ import {
 } from "@/lib/media/clip-reference";
 import { useOmniReferenceChainStore } from "@/stores/omni-reference-chain-store";
 import type { TProjectSettings } from "@/types/project";
+import { RemoveSilenceDialog } from "./remove-silence-dialog";
 
 const KEYFRAME_INDICATOR_MIN_WIDTH_PX = 40;
 const ELEMENT_RING_WIDTH_PX = 1.5;
@@ -305,6 +306,16 @@ export function TimelineElement({
 	}
 
 	const hasAudio = mediaSupportsAudio({ media: mediaAsset });
+
+	// Auto-cut (silence removal): offered on a single-selected clip whose media
+	// carries an audio track and has a decodable File. Opens a small analyze →
+	// apply dialog (see remove-silence-dialog.tsx).
+	const [showRemoveSilence, setShowRemoveSilence] = useState(false);
+	const canRemoveSilence =
+		selectedElements.length === 1 &&
+		canElementHaveAudio(element) &&
+		hasAudio &&
+		!!mediaAsset?.file;
 
 	const { handleResizeStart, isResizing, currentStartTime, currentDuration } =
 		useTimelineElementResize({
@@ -571,205 +582,230 @@ export function TimelineElement({
 	};
 
 	return (
-		<ContextMenu>
-			<ContextMenuTrigger asChild>
-				<div
-					data-testid="timeline-element"
-					data-element-id={element.id}
-					data-element-type={element.type}
-					className="absolute top-0 h-full select-none"
-					style={{
-						left: `${elementLeft}px`,
-						width: `${elementWidth}px`,
-						transform:
-							isBeingDragged && dragState.isDragging
-								? `translate3d(0, ${dragOffsetY}px, 0)`
-								: undefined,
-					}}
-				>
-					<ElementInner
-						element={element}
-						track={track}
-						isSelected={isSelected}
-						onElementClick={onElementClick}
-						onElementMouseDown={onElementMouseDown}
-						handleResizeStart={handleResizeStart}
-						isDropTarget={isDropTarget}
-					/>
-					{transitionInfo && (
-						<button
-							type="button"
-							data-testid="transition-badge"
-							className={cn(
-								"absolute right-0 top-1/2 z-10 -translate-y-1/2 translate-x-1/2",
-								"flex size-[18px] cursor-pointer items-center justify-center rounded-full",
-								"border bg-background shadow-sm",
-								transitionInfo.isActive
-									? "border-foreground/40 text-foreground"
-									: "border-amber-500/60 text-amber-500",
-							)}
-							title={
-								transitionInfo.isActive
-									? `${transitionInfo.definition?.name} transition · ${transitionInfo.transitionOut.duration.toFixed(1)}s — right-click clip to remove`
-									: "Transition won't play: needs an adjacent video or image clip right after this one — right-click clip to remove"
-							}
-							onMouseDown={(event) => onElementMouseDown(event, element)}
-							onClick={(event) => onElementClick(event, element)}
-						>
-							<TransitionGlyph className="size-[10px]" />
-						</button>
-					)}
-					{isSelected && (
-						<div className="pointer-events-none absolute inset-0 overflow-hidden">
-							<KeyframeIndicators
-								indicators={keyframeIndicators}
-								dragState={keyframeDragState}
-								displayedStartTime={displayedStartTime}
-								elementLeft={elementLeft}
-								onKeyframeMouseDown={handleKeyframeMouseDown}
-								onKeyframeClick={handleKeyframeClick}
-								getVisualOffsetPx={getVisualOffsetPx}
-							/>
-						</div>
-					)}
-				</div>
-			</ContextMenuTrigger>
-			<ContextMenuContent className="w-64">
-				<ActionMenuItem
-					action="split"
-					icon={<HugeiconsIcon icon={ScissorIcon} />}
-				>
-					Split
-				</ActionMenuItem>
-				<CopyMenuItem />
-				{hasCopiedKeyframes &&
-					(selectedElements.length === 1 || selectedKeyframes.length > 0) && (
-						<ActionMenuItem
-							action="paste-copied"
-							icon={<HugeiconsIcon icon={KeyframeIcon} />}
-						>
-							Paste keyframes
-						</ActionMenuItem>
-					)}
-				{canElementHaveAudio(element) && hasAudio && (
-					<MuteMenuItem
-						isMultipleSelected={selectedElements.length > 1}
-						isCurrentElementSelected={isCurrentElementSelected}
-						isMuted={isMuted}
-					/>
-				)}
-				{selectedElements.length === 1 &&
-					element.type === "video" &&
-					canToggleSourceAudio(element, mediaAsset) && (
-						<ActionMenuItem
-							action="separate-audio"
-							icon={<HugeiconsIcon icon={Unlink04Icon} />}
-						>
-							{getSourceAudioActionLabel({ element })}
-						</ActionMenuItem>
-					)}
-				{canElementBeHidden(element) && (
-					<VisibilityMenuItem
-						element={element}
-						isMultipleSelected={selectedElements.length > 1}
-						isCurrentElementSelected={isCurrentElementSelected}
-					/>
-				)}
-				{selectedElements.length === 1 && (
-					<ActionMenuItem
-						action="duplicate-selected"
-						icon={<HugeiconsIcon icon={Copy01Icon} />}
+		<>
+			<ContextMenu>
+				<ContextMenuTrigger asChild>
+					<div
+						data-testid="timeline-element"
+						data-element-id={element.id}
+						data-element-type={element.type}
+						className="absolute top-0 h-full select-none"
+						style={{
+							left: `${elementLeft}px`,
+							width: `${elementWidth}px`,
+							transform:
+								isBeingDragged && dragState.isDragging
+									? `translate3d(0, ${dragOffsetY}px, 0)`
+									: undefined,
+						}}
 					>
-						Duplicate
+						<ElementInner
+							element={element}
+							track={track}
+							isSelected={isSelected}
+							onElementClick={onElementClick}
+							onElementMouseDown={onElementMouseDown}
+							handleResizeStart={handleResizeStart}
+							isDropTarget={isDropTarget}
+						/>
+						{transitionInfo && (
+							<button
+								type="button"
+								data-testid="transition-badge"
+								className={cn(
+									"absolute right-0 top-1/2 z-10 -translate-y-1/2 translate-x-1/2",
+									"flex size-[18px] cursor-pointer items-center justify-center rounded-full",
+									"border bg-background shadow-sm",
+									transitionInfo.isActive
+										? "border-foreground/40 text-foreground"
+										: "border-amber-500/60 text-amber-500",
+								)}
+								title={
+									transitionInfo.isActive
+										? `${transitionInfo.definition?.name} transition · ${transitionInfo.transitionOut.duration.toFixed(1)}s — right-click clip to remove`
+										: "Transition won't play: needs an adjacent video or image clip right after this one — right-click clip to remove"
+								}
+								onMouseDown={(event) => onElementMouseDown(event, element)}
+								onClick={(event) => onElementClick(event, element)}
+							>
+								<TransitionGlyph className="size-[10px]" />
+							</button>
+						)}
+						{isSelected && (
+							<div className="pointer-events-none absolute inset-0 overflow-hidden">
+								<KeyframeIndicators
+									indicators={keyframeIndicators}
+									dragState={keyframeDragState}
+									displayedStartTime={displayedStartTime}
+									elementLeft={elementLeft}
+									onKeyframeMouseDown={handleKeyframeMouseDown}
+									onKeyframeClick={handleKeyframeClick}
+									getVisualOffsetPx={getVisualOffsetPx}
+								/>
+							</div>
+						)}
+					</div>
+				</ContextMenuTrigger>
+				<ContextMenuContent className="w-64">
+					<ActionMenuItem
+						action="split"
+						icon={<HugeiconsIcon icon={ScissorIcon} />}
+					>
+						Split
 					</ActionMenuItem>
-				)}
-				{canExtractFrame && (
-					<ContextMenuSub>
-						<ContextMenuSubTrigger
-							icon={<HugeiconsIcon icon={ImageCropIcon} />}
+					<CopyMenuItem />
+					{hasCopiedKeyframes &&
+						(selectedElements.length === 1 || selectedKeyframes.length > 0) && (
+							<ActionMenuItem
+								action="paste-copied"
+								icon={<HugeiconsIcon icon={KeyframeIcon} />}
+							>
+								Paste keyframes
+							</ActionMenuItem>
+						)}
+					{canElementHaveAudio(element) && hasAudio && (
+						<MuteMenuItem
+							isMultipleSelected={selectedElements.length > 1}
+							isCurrentElementSelected={isCurrentElementSelected}
+							isMuted={isMuted}
+						/>
+					)}
+					{selectedElements.length === 1 &&
+						element.type === "video" &&
+						canToggleSourceAudio(element, mediaAsset) && (
+							<ActionMenuItem
+								action="separate-audio"
+								icon={<HugeiconsIcon icon={Unlink04Icon} />}
+							>
+								{getSourceAudioActionLabel({ element })}
+							</ActionMenuItem>
+						)}
+					{canRemoveSilence && (
+						<ContextMenuItem
+							icon={<HugeiconsIcon icon={VolumeMute02Icon} />}
+							onClick={() => setShowRemoveSilence(true)}
 						>
-							Extract frame
-						</ContextMenuSubTrigger>
-						<ContextMenuSubContent className="w-48">
-							<ContextMenuItem onClick={() => void handleExtractFrame("first")}>
-								First frame
-							</ContextMenuItem>
-							<ContextMenuItem onClick={() => void handleExtractFrame("last")}>
-								Last frame
-							</ContextMenuItem>
-							{playheadOverElement && (
+							Remove silence
+						</ContextMenuItem>
+					)}
+					{canElementBeHidden(element) && (
+						<VisibilityMenuItem
+							element={element}
+							isMultipleSelected={selectedElements.length > 1}
+							isCurrentElementSelected={isCurrentElementSelected}
+						/>
+					)}
+					{selectedElements.length === 1 && (
+						<ActionMenuItem
+							action="duplicate-selected"
+							icon={<HugeiconsIcon icon={Copy01Icon} />}
+						>
+							Duplicate
+						</ActionMenuItem>
+					)}
+					{canExtractFrame && (
+						<ContextMenuSub>
+							<ContextMenuSubTrigger
+								icon={<HugeiconsIcon icon={ImageCropIcon} />}
+							>
+								Extract frame
+							</ContextMenuSubTrigger>
+							<ContextMenuSubContent className="w-48">
 								<ContextMenuItem
-									onClick={() => void handleExtractFrame("playhead")}
+									onClick={() => void handleExtractFrame("first")}
 								>
-									Frame at playhead
+									First frame
 								</ContextMenuItem>
-							)}
-						</ContextMenuSubContent>
-					</ContextMenuSub>
-				)}
-				{canExtractFrame && (
-					<ContextMenuSub>
-						<ContextMenuSubTrigger icon={<HugeiconsIcon icon={SentIcon} />}>
+								<ContextMenuItem
+									onClick={() => void handleExtractFrame("last")}
+								>
+									Last frame
+								</ContextMenuItem>
+								{playheadOverElement && (
+									<ContextMenuItem
+										onClick={() => void handleExtractFrame("playhead")}
+									>
+										Frame at playhead
+									</ContextMenuItem>
+								)}
+							</ContextMenuSubContent>
+						</ContextMenuSub>
+					)}
+					{canExtractFrame && (
+						<ContextMenuSub>
+							<ContextMenuSubTrigger icon={<HugeiconsIcon icon={SentIcon} />}>
+								Send to Omni Reference
+							</ContextMenuSubTrigger>
+							<ContextMenuSubContent className="w-56">
+								<ContextMenuItem
+									onClick={() => void handleSendClipToOmni("raw")}
+								>
+									Raw clip
+								</ContextMenuItem>
+								<ContextMenuItem
+									onClick={() => void handleSendClipToOmni("composited")}
+								>
+									With edits
+								</ContextMenuItem>
+							</ContextMenuSubContent>
+						</ContextMenuSub>
+					)}
+					{canSendImageReference && (
+						<ContextMenuItem
+							icon={<HugeiconsIcon icon={SentIcon} />}
+							onClick={() => void handleSendImageToOmni()}
+						>
 							Send to Omni Reference
-						</ContextMenuSubTrigger>
-						<ContextMenuSubContent className="w-56">
-							<ContextMenuItem onClick={() => void handleSendClipToOmni("raw")}>
-								Raw clip
+						</ContextMenuItem>
+					)}
+					{selectedElements.length === 1 && hasMediaId(element) && (
+						<>
+							<ContextMenuItem
+								icon={<HugeiconsIcon icon={Search01Icon} />}
+								onClick={(event: React.MouseEvent) =>
+									handleRevealInMedia({ event })
+								}
+							>
+								Reveal media
 							</ContextMenuItem>
 							<ContextMenuItem
-								onClick={() => void handleSendClipToOmni("composited")}
+								icon={<HugeiconsIcon icon={Exchange01Icon} />}
+								disabled
 							>
-								With edits
+								Replace media
 							</ContextMenuItem>
-						</ContextMenuSubContent>
-					</ContextMenuSub>
-				)}
-				{canSendImageReference && (
-					<ContextMenuItem
-						icon={<HugeiconsIcon icon={SentIcon} />}
-						onClick={() => void handleSendImageToOmni()}
-					>
-						Send to Omni Reference
-					</ContextMenuItem>
-				)}
-				{selectedElements.length === 1 && hasMediaId(element) && (
-					<>
+						</>
+					)}
+					{transitionInfo && (
 						<ContextMenuItem
-							icon={<HugeiconsIcon icon={Search01Icon} />}
-							onClick={(event: React.MouseEvent) =>
-								handleRevealInMedia({ event })
-							}
+							icon={<TransitionGlyph className="size-3.5" />}
+							onClick={handleRemoveTransition}
 						>
-							Reveal media
+							Remove transition
+							{transitionInfo.definition
+								? ` (${transitionInfo.definition.name})`
+								: ""}
 						</ContextMenuItem>
-						<ContextMenuItem
-							icon={<HugeiconsIcon icon={Exchange01Icon} />}
-							disabled
-						>
-							Replace media
-						</ContextMenuItem>
-					</>
-				)}
-				{transitionInfo && (
-					<ContextMenuItem
-						icon={<TransitionGlyph className="size-3.5" />}
-						onClick={handleRemoveTransition}
-					>
-						Remove transition
-						{transitionInfo.definition
-							? ` (${transitionInfo.definition.name})`
-							: ""}
-					</ContextMenuItem>
-				)}
-				<ContextMenuSeparator />
-				<DeleteMenuItem
-					isMultipleSelected={selectedElements.length > 1}
-					isCurrentElementSelected={isCurrentElementSelected}
-					elementType={element.type}
-					selectedCount={selectedElements.length}
+					)}
+					<ContextMenuSeparator />
+					<DeleteMenuItem
+						isMultipleSelected={selectedElements.length > 1}
+						isCurrentElementSelected={isCurrentElementSelected}
+						elementType={element.type}
+						selectedCount={selectedElements.length}
+					/>
+				</ContextMenuContent>
+			</ContextMenu>
+			{canRemoveSilence && mediaAsset?.file && (
+				<RemoveSilenceDialog
+					isOpen={showRemoveSilence}
+					onOpenChange={setShowRemoveSilence}
+					editor={editor}
+					element={element}
+					mediaFile={mediaAsset.file}
 				/>
-			</ContextMenuContent>
-		</ContextMenu>
+			)}
+		</>
 	);
 }
 

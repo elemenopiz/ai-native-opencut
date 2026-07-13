@@ -133,6 +133,8 @@ import {
 	type FrameDecoder,
 } from "@/lib/media/frame-extraction";
 import { dataUrlToFile } from "@/lib/media/data-url";
+import { analyzeMediaSilence } from "@/lib/auto-cut";
+import { applyAutoCut, type AutoCutApplySummary } from "@/lib/auto-cut/apply";
 import type { DerivedFrameLabel } from "@/services/storage/types";
 import {
 	estimateBatchCost,
@@ -3914,6 +3916,92 @@ export function createDirectorApi(
 		return withDelta(before, ok(`Removed slot "${input.slotId}".`));
 	}
 
+	/**
+	 * Auto-cut silence out of a slot's clip. Resolves the slot's underlying media
+	 * (a placed clip's `mediaId`, or a generative slot's active/most-recent
+	 * take), analyzes its audio for dead air, and hard-cuts the silent stretches
+	 * via the apply layer — ONE undoable step, downstream slots ripple left. All
+	 * time knobs are SECONDS; `threshold` is a 0–1 loudness level. Omitted knobs
+	 * fall through to the engine's contract defaults.
+	 */
+	async function removeSilence(input: {
+		slotId: string;
+		threshold?: number;
+		marginBefore?: number;
+		marginAfter?: number;
+		minKeep?: number;
+		minCut?: number;
+	}): Promise<DirectorResult<AutoCutApplySummary>> {
+		const before = captureReel();
+		const located = findSlot(input.slotId);
+		if (!located) return fail(`No slot with id "${input.slotId}".`);
+		const el = located.element;
+
+		// A placed clip carries `mediaId` directly; a generative slot mirrors its
+		// active (else most-recent) take's media.
+		let mediaId =
+			"mediaId" in el && el.mediaId ? (el.mediaId as string) : undefined;
+		if (!mediaId) {
+			const takes = takesOf(el);
+			const take = el.activeTakeId
+				? takes.find((t) => t.id === el.activeTakeId)
+				: takes[takes.length - 1];
+			mediaId = take?.mediaId;
+		}
+		if (!mediaId) {
+			return fail(
+				`Slot "${input.slotId}" has no rendered media to analyze — generate or place a clip first.`,
+			);
+		}
+		const asset = editor.media.getAssetById(mediaId);
+		if (!asset?.file) {
+			return fail(
+				`Slot "${input.slotId}"'s media file isn't available for silence analysis.`,
+			);
+		}
+
+		let analysis: Awaited<ReturnType<typeof analyzeMediaSilence>>;
+		try {
+			analysis = await analyzeMediaSilence(asset.file, {
+				threshold: input.threshold,
+				marginBefore: input.marginBefore,
+				marginAfter: input.marginAfter,
+				minKeep: input.minKeep,
+				minCut: input.minCut,
+			});
+		} catch (err) {
+			return fail(
+				`Couldn't analyze "${asset.name}" for silence: ${
+					err instanceof Error ? err.message : String(err)
+				}`,
+			);
+		}
+
+		const summary = applyAutoCut({
+			editor,
+			elementId: el.id,
+			segments: analysis.segments,
+		});
+		if (!summary) {
+			return fail(`Slot "${input.slotId}" is no longer on the timeline.`);
+		}
+		if (summary.removedCount === 0) {
+			return withDelta(
+				before,
+				ok(`No silence to remove in slot "${input.slotId}".`, summary),
+			);
+		}
+		return withDelta(
+			before,
+			ok(
+				`Removed ${summary.removedCount} silent section${
+					summary.removedCount === 1 ? "" : "s"
+				} (${summary.removedSeconds.toFixed(2)}s) from slot "${input.slotId}".`,
+				summary,
+			),
+		);
+	}
+
 	// ---- TRANSITIONS & EFFECTS ---------------------------------------------
 	//
 	// The uncopyable wedge: competitor AI reel tools can generate clips but
@@ -4287,6 +4375,7 @@ export function createDirectorApi(
 		split,
 		reorder,
 		remove,
+		removeSilence,
 		// transitions & effects
 		applyTransition,
 		applyEffect,
