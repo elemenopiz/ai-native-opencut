@@ -56,6 +56,18 @@ export interface DerivedFrom {
 	label: DerivedFrameLabel;
 }
 
+/**
+ * Provenance for a video asset that was transcoded to H.264/AAC on ingest (see
+ * `lib/media/normalize-media.ts`). Records the original file's name and codec so
+ * the asset's origin stays auditable even though the original bytes aren't kept.
+ */
+export interface NormalizedFrom {
+	/** Original upload's filename (before the `-normalized.mp4` rename). */
+	originalName: string;
+	/** Original video codec that triggered the transcode (e.g. "hevc"). */
+	originalCodec: string;
+}
+
 export interface MediaAssetData {
 	id: string;
 	name: string;
@@ -75,6 +87,14 @@ export interface MediaAssetData {
 	source?: "ai";
 	/** Present ⇒ this asset is a still frame extracted from a source video clip. */
 	derivedFrom?: DerivedFrom;
+	/**
+	 * Present ⇒ this asset's `file` is a transcoded H.264/AAC copy produced at
+	 * ingest because the ORIGINAL upload was a non-portable/undecodable codec
+	 * (e.g. GoPro/iPhone HEVC). We do NOT keep the original file (storage cost);
+	 * this records what it was so the UI can show provenance. Additive/optional —
+	 * pre-existing and passthrough assets simply lack it.
+	 */
+	normalized?: NormalizedFrom;
 	proxy?: ProxyInfo;
 	needsProxy?: boolean;
 }
