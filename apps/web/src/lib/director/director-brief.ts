@@ -3,8 +3,9 @@
  * {@link DirectorBrief} (defined on `TProject` in `@/types/project`).
  *
  * The brief is the Director's DURABLE memory of the user's creative intent:
- * goal, audience, tone, a one-line style note, do/don't constraints, and a running list
- * of learned one-line notes (stated preferences + chosen-take rationale). Each
+ * goal, audience, tone, a one-line style note, an optional target duration,
+ * do/don't constraints, and a running list of learned one-line notes (stated
+ * preferences + chosen-take rationale). Each
  * turn the agent folds a summary of it into its system prompt (see
  * `agent.ts`'s `buildBriefBlock`) and writes back to it via the
  * `updateBrief`/`chooseTake` verbs (see `director-api.ts`).
@@ -43,7 +44,8 @@ export function isBriefEmpty(brief: DirectorBrief | undefined): boolean {
 		!brief.styleNote?.trim() &&
 		(brief.dos?.length ?? 0) === 0 &&
 		(brief.donts?.length ?? 0) === 0 &&
-		(brief.notes?.length ?? 0) === 0
+		(brief.notes?.length ?? 0) === 0 &&
+		brief.durationSec == null
 	);
 }
 
@@ -104,6 +106,12 @@ export interface BriefPatch {
 	donts?: string[];
 	/** Learned one-line notes to append (stated preferences, chosen-take rationale). */
 	notes?: string[];
+	/**
+	 * Target reel length in seconds — REPLACES the current target, same as a
+	 * scalar. A non-positive value (0 or less) CLEARS it (lets the user retract
+	 * a stated target).
+	 */
+	durationSec?: number;
 }
 
 /** Replace a scalar field: a non-null string wins (empty string clears it). */
@@ -147,11 +155,15 @@ export function applyBriefPatch(
 				? merged.slice(merged.length - MAX_BRIEF_NOTES)
 				: merged;
 	}
+	if (patch.durationSec != null) {
+		next.durationSec = patch.durationSec > 0 ? patch.durationSec : undefined;
+	}
 
 	// Drop cleared-to-empty scalar keys so the object stays compact.
 	for (const key of ["goal", "audience", "tone", "styleNote"] as const) {
 		if (next[key] == null) delete next[key];
 	}
+	if (next.durationSec == null) delete next.durationSec;
 
 	next.updatedAt = now;
 	return next;
@@ -187,6 +199,9 @@ export function summarizeBrief(brief: DirectorBrief | undefined): string {
 	if (b.audience?.trim()) lines.push(`  AUDIENCE: ${b.audience.trim()}`);
 	if (b.tone?.trim()) lines.push(`  TONE: ${b.tone.trim()}`);
 	if (b.styleNote?.trim()) lines.push(`  STYLE: ${b.styleNote.trim()}`);
+	if (b.durationSec != null) {
+		lines.push(`  TARGET DURATION: ${b.durationSec}s`);
+	}
 	if (b.dos?.length) lines.push(`  DO: ${b.dos.join("; ")}`);
 	if (b.donts?.length) lines.push(`  DON'T: ${b.donts.join("; ")}`);
 	if (b.notes?.length) {

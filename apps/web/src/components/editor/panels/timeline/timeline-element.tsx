@@ -71,6 +71,7 @@ import {
 	MagicWand05Icon,
 	Unlink04Icon,
 	ImageCropIcon,
+	SentIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { uppercase } from "@/utils/string";
@@ -94,6 +95,13 @@ import {
 import type { DerivedFrameLabel } from "@/services/storage/types";
 import { dataUrlToFile } from "@/lib/media/data-url";
 import { uploadReferenceFile } from "@/lib/studio/reference-upload";
+import {
+	extractTrimmedVideoRaw,
+	extractTrimmedVideoComposited,
+	type ExtractedClip,
+} from "@/lib/media/clip-reference";
+import { useOmniReferenceChainStore } from "@/stores/omni-reference-chain-store";
+import type { TProjectSettings } from "@/types/project";
 
 const KEYFRAME_INDICATOR_MIN_WIDTH_PX = 40;
 const ELEMENT_RING_WIDTH_PX = 1.5;
@@ -364,6 +372,9 @@ export function TimelineElement({
 	const setPendingFirstFrame = useFrameChainStore(
 		(s) => s.setPendingFirstFrame,
 	);
+	const setPendingReference = useOmniReferenceChainStore(
+		(s) => s.setPendingReference,
+	);
 	const canExtractFrame =
 		element.type === "video" &&
 		selectedElements.length === 1 &&
@@ -372,6 +383,13 @@ export function TimelineElement({
 	const playheadOverElement =
 		canExtractFrame &&
 		isPlayheadWithinElement(element, editor.playback.getCurrentTime());
+	// A single-selected IMAGE clip with resolved media can go straight to the
+	// Omni reference list — no trim re-encode, just upload the asset as-is.
+	const canSendImageReference =
+		element.type === "image" &&
+		selectedElements.length === 1 &&
+		!!mediaAsset &&
+		(!!mediaAsset.file || !!mediaAsset.url);
 
 	async function handleExtractFrame(kind: "first" | "last" | "playhead") {
 		if (element.type !== "video" || !mediaAsset) return;
@@ -461,6 +479,81 @@ export function TimelineElement({
 			toast.error(
 				err instanceof Error ? err.message : "Couldn't prepare the frame.",
 				{ id: uploadingId },
+			);
+		}
+	}
+
+	// ── Send to Omni Reference ─────────────────────────────────────────────────
+	// Turn this timeline clip into a hosted reference for the next generation.
+	// A VIDEO clip becomes a short motion clip — either a fast RAW cut of the
+	// trimmed span, or a full COMPOSITED render that bakes in the timeline edits
+	// (filters/speed/crop/transform/background). An IMAGE clip is uploaded as-is.
+	// The hosted (R2) URL is parked in the omni-reference chain store; the right
+	// panel jumps to Generate and appends it as a reference chip.
+	async function handleSendClipToOmni(mode: "raw" | "composited") {
+		if (element.type !== "video" || !mediaAsset) return;
+
+		const base = element.name || mediaAsset.name;
+		const label =
+			mode === "composited" ? `${base} — clip (edited)` : `${base} — clip`;
+		const toastId = toast.loading("Sending to Omni Reference…");
+		try {
+			let clip: ExtractedClip;
+			if (mode === "composited") {
+				// Bake the timeline edits in via a full compositor render, using the
+				// active project's render settings. Mirrors handleExtractFrame's
+				// "no active project" guard.
+				let settings: TProjectSettings;
+				try {
+					settings = editor.project.getActive().settings;
+				} catch {
+					toast.error("No active project to render the clip from.", {
+						id: toastId,
+					});
+					return;
+				}
+				clip = await extractTrimmedVideoComposited({
+					element,
+					mediaAssets: editor.media.getAssets(),
+					canvasSize: settings.canvasSize,
+					background: settings.background,
+					fps: settings.fps,
+					sourceName: base,
+				});
+			} else {
+				clip = await extractTrimmedVideoRaw({
+					element,
+					source: {
+						videoFile: mediaAsset.file,
+						videoUrl: mediaAsset.url,
+						name: mediaAsset.name,
+					},
+					sourceName: base,
+				});
+			}
+			const { url } = await uploadReferenceFile(clip.file);
+			setPendingReference({ url, kind: "video", label });
+			toast.success("Sent to Omni Reference.", { id: toastId });
+		} catch (err) {
+			toast.error(
+				err instanceof Error ? err.message : "Couldn't send the clip.",
+				{ id: toastId },
+			);
+		}
+	}
+
+	async function handleSendImageToOmni() {
+		if (element.type !== "image" || !mediaAsset) return;
+		const label = element.name || mediaAsset.name;
+		const toastId = toast.loading("Sending to Omni Reference…");
+		try {
+			const { url } = await uploadReferenceFile(mediaAsset.file);
+			setPendingReference({ url, kind: "image", label });
+			toast.success("Sent to Omni Reference.", { id: toastId });
+		} catch (err) {
+			toast.error(
+				err instanceof Error ? err.message : "Couldn't send the image.",
+				{ id: toastId },
 			);
 		}
 	}
@@ -613,6 +706,31 @@ export function TimelineElement({
 							)}
 						</ContextMenuSubContent>
 					</ContextMenuSub>
+				)}
+				{canExtractFrame && (
+					<ContextMenuSub>
+						<ContextMenuSubTrigger icon={<HugeiconsIcon icon={SentIcon} />}>
+							Send to Omni Reference
+						</ContextMenuSubTrigger>
+						<ContextMenuSubContent className="w-56">
+							<ContextMenuItem onClick={() => void handleSendClipToOmni("raw")}>
+								Raw clip
+							</ContextMenuItem>
+							<ContextMenuItem
+								onClick={() => void handleSendClipToOmni("composited")}
+							>
+								With edits
+							</ContextMenuItem>
+						</ContextMenuSubContent>
+					</ContextMenuSub>
+				)}
+				{canSendImageReference && (
+					<ContextMenuItem
+						icon={<HugeiconsIcon icon={SentIcon} />}
+						onClick={() => void handleSendImageToOmni()}
+					>
+						Send to Omni Reference
+					</ContextMenuItem>
 				)}
 				{selectedElements.length === 1 && hasMediaId(element) && (
 					<>

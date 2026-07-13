@@ -20,11 +20,27 @@ function mediaAsset(
 	id: string,
 	name: string,
 	type: "image" | "video" | "audio",
+	extra?: {
+		width?: number;
+		height?: number;
+		duration?: number;
+		source?: "ai";
+	},
 ) {
-	return { id, name, type, file: new File([new Uint8Array([1])], name) };
+	return {
+		id,
+		name,
+		type,
+		file: new File([new Uint8Array([1])], name),
+		...extra,
+	};
 }
 
-function makeEditor(assets: ReturnType<typeof mediaAsset>[]): EditorCore {
+/** Optional active-project settings (canvas size) to exercise the ORIENTATION-MISMATCH facet. */
+function makeEditor(
+	assets: ReturnType<typeof mediaAsset>[],
+	canvasSize?: { width: number; height: number },
+): EditorCore {
 	return {
 		timeline: {
 			getTotalDuration: () => 0,
@@ -35,7 +51,10 @@ function makeEditor(assets: ReturnType<typeof mediaAsset>[]): EditorCore {
 			getAssetById: (id: string) => assets.find((a) => a.id === id),
 			getAssets: () => assets,
 		},
-		project: { getActiveOrNull: () => null },
+		project: {
+			getActiveOrNull: () =>
+				canvasSize ? { settings: { fps: 30, canvasSize } } : null,
+		},
 	} as unknown as EditorCore;
 }
 
@@ -126,7 +145,9 @@ describe("getLibraryManifest verb", () => {
 		// The message IS the one-line digest (already in the prompt); data carries facets.
 		expect(res.message).toBe(manifest.digest);
 		expect(manifest.heroes).toEqual([
-			{ ref: "#1", mediaId: "m1", caption: "the packshot" },
+			// The stub asset resolves but carries no width/height; no explicit
+			// `source` ⇒ "upload" (see director-api.ts's `buildManifest` mapping).
+			{ ref: "#1", mediaId: "m1", caption: "the packshot", source: "upload" },
 		]);
 		expect(manifest.tail).toEqual({ count: 1, role: "b-roll" });
 	});
@@ -137,5 +158,74 @@ describe("getLibraryManifest verb", () => {
 		expect(entry).toBeDefined();
 		expect(entry?.mutating).toBe(false);
 		expect(scopeForTool("getLibraryManifest")).toBe("reel:read");
+	});
+});
+
+describe("manifest — dims/provenance/orientation wiring (real MediaAsset → ManifestAsset)", () => {
+	it("carries a hero's width/height/durationSec/source through from the real editor asset", () => {
+		const editor = makeEditor([
+			mediaAsset("m1", "hero.mp4", "video", {
+				width: 1920,
+				height: 1080,
+				duration: 12.5,
+				source: "ai",
+			}),
+			mediaAsset("m2", "broll.mp4", "video"),
+		]);
+		const understanding: AssetUnderstandingLookup = (id) =>
+			id === "m1"
+				? { mediaId: "m1", role: "hero", caption: "the packshot" }
+				: undefined;
+
+		const director = createDirectorApi(editor, { understanding });
+		const manifest = director.getProjectInfo().data?.manifest;
+
+		expect(manifest?.heroes).toEqual([
+			{
+				ref: "#1",
+				mediaId: "m1",
+				caption: "the packshot",
+				width: 1920,
+				height: 1080,
+				durationSec: 12.5,
+				source: "ai",
+				orientation: "16:9",
+			},
+		]);
+	});
+
+	it("appends the orientation-mismatch warning when library assets conflict with the canvas", () => {
+		const editor = makeEditor(
+			[
+				mediaAsset("m1", "a.mp4", "video", { width: 1920, height: 1080 }),
+				mediaAsset("m2", "b.mp4", "video", { width: 1920, height: 1080 }),
+				mediaAsset("m3", "c.mp4", "video", { width: 1080, height: 1920 }),
+			],
+			{ width: 1080, height: 1920 }, // portrait canvas
+		);
+		const director = createDirectorApi(editor);
+		const info = director.getProjectInfo().data;
+
+		expect(info?.orientation).toBe("portrait");
+		expect(info?.manifest.orientationMismatch).toEqual({
+			canvasOrientation: "portrait",
+			counts: { landscape: 2 },
+			total: 2,
+		});
+		expect(info?.manifest.digest).toContain(
+			"⚠ 2 landscape assets, canvas is portrait.",
+		);
+	});
+
+	it("adds nothing to the digest when every dimensioned asset matches the canvas orientation", () => {
+		const editor = makeEditor(
+			[mediaAsset("m1", "a.mp4", "video", { width: 1080, height: 1920 })],
+			{ width: 1080, height: 1920 },
+		);
+		const director = createDirectorApi(editor);
+		const info = director.getProjectInfo().data;
+
+		expect(info?.manifest.orientationMismatch).toBeUndefined();
+		expect(info?.manifest.digest).not.toContain("⚠");
 	});
 });

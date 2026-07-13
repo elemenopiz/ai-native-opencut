@@ -144,6 +144,7 @@ import {
 import { createShortIdMap } from "./short-id";
 import {
 	buildLibraryManifest,
+	type AssetOrientation,
 	type AssetUnderstandingLookup,
 	type LibraryManifest,
 } from "./asset-manifest";
@@ -152,6 +153,7 @@ import {
 	filterToCurrentModel,
 } from "@/lib/local-ai/embeddings";
 import { getAllEmbeddings } from "@/services/search/embedding-store";
+import { findDuplicates } from "@/services/search/embedding-service";
 import { DEFAULT_TEXT_ELEMENT } from "@/constants/text-constants";
 import {
 	buildElementFromMedia,
@@ -183,6 +185,7 @@ import type {
 	BackendCatalogProvider,
 	BudgetStatus,
 	DirectorResult,
+	DuplicateAssetPair,
 	GenerationFailure,
 	IntakeReferencesData,
 	MediaSearchHit,
@@ -202,6 +205,7 @@ export type {
 	BackendCatalogEntry,
 	BackendCatalogProvider,
 	DirectorResult,
+	DuplicateAssetPair,
 	GenerateExecutor,
 	GenerationFailure,
 	GenerationSpec,
@@ -837,6 +841,7 @@ export function createDirectorApi(
 		return {
 			slots: locateSlots().map((s) => toSnapshot(s.element)),
 			totalDuration: editor.timeline.getTotalDuration(),
+			targetDurationSec: readBrief().durationSec,
 			canUndo: editor.command.canUndo(),
 			canRedo: editor.command.canRedo(),
 			consistency: getStoredConsistencyContext(editor),
@@ -849,17 +854,52 @@ export function createDirectorApi(
 	const CONTEXT_LIST_CAP = 5;
 
 	/**
+	 * The active project's canvas orientation, or `undefined` when no project
+	 * (or no settings) is active. Shared by `getProjectInfo` (the
+	 * `ProjectInfo.orientation` field) and `buildManifest` (the manifest's
+	 * ORIENTATION-MISMATCH facet) so the two are always computed identically —
+	 * `getProjectInfo`'s `orientation` and the manifest's warning clause can
+	 * never disagree about what the canvas is.
+	 */
+	function getCanvasOrientation(): AssetOrientation | undefined {
+		const settings = editor.project.getActiveOrNull()?.settings;
+		if (!settings) return undefined;
+		if (settings.canvasSize.width === settings.canvasSize.height)
+			return "square";
+		return settings.canvasSize.width > settings.canvasSize.height
+			? "landscape"
+			: "portrait";
+	}
+
+	/**
 	 * Build the faceted, role-aware {@link LibraryManifest} from CURRENT editor
 	 * state (assets + persona roster) through the injected Understanding Pass
 	 * lookup. Shared by `getProjectInfo` (rides the system prompt) and the
 	 * `getLibraryManifest` verb (re-queryable on demand) so both render one digest.
 	 * Cheap, O(assets) — safe to rebuild every turn like `getProjectInfo` itself.
+	 *
+	 * Maps each editor `MediaAsset` (`@/services/storage/types`'s
+	 * `MediaAssetData`) onto the manifest's `ManifestAsset`: `duration` → the
+	 * unit-disambiguated `durationSec`, and `source` (`"ai"` or absent) →
+	 * `"ai"` | `"upload"` (that field has no third state — see
+	 * `MediaAssetData.source`'s own doc comment). Also resolves the canvas
+	 * orientation so `buildLibraryManifest` can compute the
+	 * ORIENTATION-MISMATCH facet.
 	 */
 	function buildManifest(): LibraryManifest {
 		const assets = editor.media.getAssets();
 		const personas = usePersonaStore.getState().personas;
 		return buildLibraryManifest({
-			assets: assets.map((a) => ({ id: a.id, name: a.name, type: a.type })),
+			assets: assets.map((a) => ({
+				id: a.id,
+				name: a.name,
+				type: a.type,
+				width: a.width,
+				height: a.height,
+				durationSec: a.duration,
+				fps: a.fps,
+				source: a.source === "ai" ? "ai" : "upload",
+			})),
 			understanding: options.understanding,
 			personas: personas.map((p) => ({ id: p.id, name: p.name })),
 			speech: options.transcripts
@@ -868,6 +908,7 @@ export function createDirectorApi(
 						return t ? t.segments.some((s) => s.text.trim() !== "") : undefined;
 					}
 				: undefined,
+			canvasOrientation: getCanvasOrientation(),
 		});
 	}
 
@@ -883,13 +924,7 @@ export function createDirectorApi(
 	function getProjectInfo(): DirectorResult<ProjectInfo> {
 		const project = editor.project.getActiveOrNull();
 		const settings = project?.settings;
-		const orientation: ProjectInfo["orientation"] = settings
-			? settings.canvasSize.width === settings.canvasSize.height
-				? "square"
-				: settings.canvasSize.width > settings.canvasSize.height
-					? "landscape"
-					: "portrait"
-			: undefined;
+		const orientation = getCanvasOrientation();
 
 		const personas = usePersonaStore.getState().personas;
 		const assets = editor.media.getAssets();
@@ -1163,11 +1198,18 @@ export function createDirectorApi(
 				}
 			}
 			if (!Number.isFinite(bestScore)) continue; // media had zero sampled frames
+			// Resolved once so mediaName + the dims/duration/provenance facets
+			// (see MediaSearchHit's doc comment) all come from the same asset read.
+			const asset = byId.get(media.mediaId);
 			hits.push({
 				mediaId: media.mediaId,
 				score: bestScore,
 				timestampSec: bestTs,
-				mediaName: byId.get(media.mediaId)?.name,
+				mediaName: asset?.name,
+				width: asset?.width,
+				height: asset?.height,
+				durationSec: asset?.duration,
+				source: asset ? (asset.source === "ai" ? "ai" : "upload") : undefined,
 			});
 		}
 
@@ -1175,6 +1217,58 @@ export function createDirectorApi(
 		const top = hits.slice(0, limit);
 		if (top.length === 0) return ok(`No footage matched "${query}".`, []);
 		return ok(`Found ${top.length} match(es) for "${query}".`, top);
+	}
+
+	/**
+	 * Find near-duplicate media-library assets via CLIP embedding similarity —
+	 * multiple takes of the same shot, or a burst of near-identical uploads.
+	 * "Duplicate" means visually near-identical CONTENT (cosine similarity of
+	 * mean frame vectors above `DUPLICATE_THRESHOLD`), NOT byte-identical files.
+	 * Wraps the SAME `findDuplicates` the Visual Search panel's "Find duplicate
+	 * / retake clips" button calls (`embedding-service.ts`) — read-only, no
+	 * `withDelta`, nothing mutates.
+	 *
+	 * `findDuplicates` itself has only ONE mode: a whole-library O(n²) scan (no
+	 * single-asset comparison entry point). When `mediaId` is passed here, the
+	 * full scan still runs and results are filtered to pairs that include it
+	 * afterward — cheap relative to the scan itself (a plain array filter), so
+	 * both call shapes are supported without forcing a shape the underlying
+	 * function doesn't have.
+	 */
+	async function findDuplicateAssets(
+		input: { mediaId?: string } = {},
+	): Promise<DirectorResult<DuplicateAssetPair[]>> {
+		const pairs = await findDuplicates();
+		const scoped = input.mediaId
+			? pairs.filter(
+					(p) => p.mediaIdA === input.mediaId || p.mediaIdB === input.mediaId,
+				)
+			: pairs;
+
+		if (scoped.length === 0) {
+			return ok(
+				input.mediaId
+					? `No near-duplicates found for "${input.mediaId}".`
+					: "No near-duplicates detected in the library.",
+				[],
+			);
+		}
+
+		const assets = editor.media.getAssets();
+		const byId = new Map(assets.map((a) => [a.id, a]));
+		const result: DuplicateAssetPair[] = scoped.map((p) => ({
+			mediaIdA: p.mediaIdA,
+			mediaIdB: p.mediaIdB,
+			score: p.score,
+			mediaNameA: byId.get(p.mediaIdA)?.name,
+			mediaNameB: byId.get(p.mediaIdB)?.name,
+		}));
+
+		return ok(
+			`Found ${result.length} near-duplicate pair${result.length === 1 ? "" : "s"}` +
+				(input.mediaId ? ` for "${input.mediaId}".` : "."),
+			result,
+		);
 	}
 
 	/**
@@ -3007,8 +3101,9 @@ export function createDirectorApi(
 	// ---- BRIEF (durable creative intent) ----------------------------------
 	//
 	// The DIRECTOR BRIEF is the agent's persistent memory of the user's goal,
-	// audience, tone, one-line style note, do/don't constraints, and learned notes. Unlike
-	// the session-only consistency context above, it lives on the active `TProject`
+	// audience, tone, one-line style note, target duration, do/don't constraints,
+	// and learned notes. Unlike the session-only consistency context above, it
+	// lives on the active `TProject`
 	// (via `editor.project.getDirectorBrief`/`setDirectorBrief`) and is serialized
 	// with the project, so a stated preference survives reloads and sessions. The
 	// agent folds a summary into its system prompt each turn (see `agent.ts`) and
@@ -3063,8 +3158,9 @@ export function createDirectorApi(
 
 	/**
 	 * Update the durable brief. Scalar fields (goal/audience/tone/styleNote)
-	 * REPLACE; `dos`/`donts` APPEND (deduped); `notes` append learned one-liners
-	 * (capped). An empty string clears a scalar. Returns the merged brief.
+	 * REPLACE; `durationSec` REPLACES the target duration (0 or below clears it);
+	 * `dos`/`donts` APPEND (deduped); `notes` append learned one-liners (capped).
+	 * An empty string clears a scalar. Returns the merged brief.
 	 */
 	function updateBrief(patch: BriefPatch): DirectorResult<DirectorBrief> {
 		const next = persistBrief(applyBriefPatch(readBrief(), patch));
@@ -4138,6 +4234,7 @@ export function createDirectorApi(
 		getBackends,
 		// media search / placement
 		searchMedia,
+		findDuplicateAssets,
 		addClip,
 		// storyboard
 		storyboard,

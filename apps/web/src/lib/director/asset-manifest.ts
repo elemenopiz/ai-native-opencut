@@ -53,6 +53,22 @@ export interface UnderstoodFace {
 }
 
 /**
+ * MINIMAL LOCAL MIRROR of the sibling "Understanding Pass" agent's look probe
+ * (`StyleProbe` in `@/lib/search/asset-understanding`) — same "own copy, not
+ * import" discipline as {@link AssetUnderstanding} itself: only the subset of
+ * fields the digest/heroes actually surface (palette / lens+mood / setting),
+ * so this module keeps compiling independently of the sibling's real shape.
+ */
+export interface ManifestStyleProbe {
+	/** Color grade / dominant palette. */
+	palette?: string;
+	/** Lens, depth of field, film stock, overall mood. */
+	lensMood?: string;
+	/** Environment, time of day, lighting, atmosphere. */
+	setting?: string;
+}
+
+/**
  * MINIMAL LOCAL MIRROR of the sibling "Understanding Pass" agent's per-asset
  * export. We consume ONLY these fields; the real interface is being built in
  * parallel and may carry more. Keeping our own copy (rather than importing) is
@@ -69,6 +85,14 @@ export interface AssetUnderstanding {
 	roleConfirmed?: boolean;
 	tags?: string[];
 	faces?: UnderstoodFace[];
+	/**
+	 * Look probe (palette / lens+mood / setting), when the Understanding Pass
+	 * produced one. Restored here (see {@link adaptUnderstandingForManifest} in
+	 * `understanding-lookup.ts`) so the Director's grounding carries the same
+	 * look facet the human-facing Insights panel already shows — it used to be
+	 * stripped at the manifest boundary.
+	 */
+	styleProbe?: ManifestStyleProbe;
 }
 
 /**
@@ -90,11 +114,90 @@ export type AssetUnderstandingLookup = (
  */
 export type AssetSpeechLookup = (mediaId: string) => boolean | undefined;
 
-/** A library asset as the manifest sees it — id/name/type only. */
+/**
+ * A library asset as the manifest sees it. `id`/`name`/`type` are always
+ * present; the rest MIRROR fields that already exist on the real editor asset
+ * (`MediaAssetData` in `@/services/storage/types`) but never used to reach the
+ * Director — width/height/duration/fps come from that asset's probed
+ * metadata, and `source` mirrors its `source` field ("ai" ⇒ Studio-generated;
+ * absent/anything else ⇒ user-uploaded/imported, per that field's own
+ * contract). All optional and additive: a caller that only has id/name/type
+ * (tests, or an asset whose metadata hasn't been probed yet) still parses, and
+ * every consumer of these fields must degrade gracefully when absent.
+ */
 export interface ManifestAsset {
 	id: string;
 	name: string;
 	type: MediaType;
+	/** Pixel width, when the asset's metadata has been probed. */
+	width?: number;
+	/** Pixel height, when the asset's metadata has been probed. */
+	height?: number;
+	/**
+	 * Duration in SECONDS, when known. Named `durationSec` (not `duration`,
+	 * `MediaAssetData`'s field name) to keep the unit unambiguous at every call
+	 * site that reads a `ManifestAsset`.
+	 */
+	durationSec?: number;
+	/** Frames per second, when known (video assets only). */
+	fps?: number;
+	/**
+	 * Provenance: `"ai"` ⇒ Studio-generated (mirrors `MediaAssetData.source ===
+	 * "ai"`); `"upload"` ⇒ user-uploaded/imported (mirrors `MediaAssetData.source`
+	 * being absent — that field has no third state). Absent here only when the
+	 * caller didn't resolve a real asset at all (e.g. a hand-built test fixture).
+	 */
+	source?: "upload" | "ai";
+}
+
+/**
+ * Coarse orientation bucket derived from pixel dimensions — the vocabulary
+ * {@link ProjectInfo}'s `orientation` field already uses for the canvas, reused
+ * here so a library asset and the canvas can be compared directly (see the
+ * ORIENTATION-MISMATCH facet on {@link buildLibraryManifest}).
+ */
+export type AssetOrientation = "portrait" | "landscape" | "square";
+
+/**
+ * Classify `width`×`height` into a coarse {@link AssetOrientation}. Returns
+ * `undefined` when either dimension is missing or non-positive (unprobed
+ * metadata) — callers must treat that as "unknown", never guess a bucket.
+ */
+export function orientationOf(
+	width?: number,
+	height?: number,
+): AssetOrientation | undefined {
+	if (!width || !height || width <= 0 || height <= 0) return undefined;
+	if (width === height) return "square";
+	return width > height ? "landscape" : "portrait";
+}
+
+/** Greatest common divisor (Euclidean), used to reduce a pixel ratio to its simplest form. */
+function gcd(a: number, b: number): number {
+	let x = Math.abs(a);
+	let y = Math.abs(b);
+	while (y) {
+		[x, y] = [y, x % y];
+	}
+	return x;
+}
+
+/**
+ * Compact aspect-ratio label from pixel dimensions, e.g. `"16:9"`, `"9:16"`,
+ * `"1:1"`, `"4:5"` — a GCD-reduced `width:height` fraction, which lands on
+ * exactly these familiar labels for standard camera/export resolutions
+ * (1920×1080, 1080×1920, 1080×1080, 1080×1350, …). Returns `undefined` when
+ * either dimension is missing or non-positive.
+ */
+export function aspectRatioTag(
+	width?: number,
+	height?: number,
+): string | undefined {
+	if (!width || !height || width <= 0 || height <= 0) return undefined;
+	const w = Math.round(width);
+	const h = Math.round(height);
+	const divisor = gcd(w, h) || 1;
+	return `${w / divisor}:${h / divisor}`;
 }
 
 /** A persona (id + name) so a face's `personaMatch` id resolves to a name. */
@@ -103,7 +206,14 @@ export interface ManifestPersona {
 	name: string;
 }
 
-/** One named hero surfaced in the digest. */
+/**
+ * One named hero surfaced in the digest. Heroes are capped at
+ * {@link HERO_NAME_CAP} (cheap regardless of library size), so unlike the
+ * always-on `digest` string, it's cheap to carry each hero's dimensions,
+ * duration, and provenance here — the fields that let a consumer catch an
+ * orientation or duration mismatch BEFORE placing the clip, instead of
+ * discovering it reactively deep inside `addClip`.
+ */
 export interface ManifestHero {
 	/** Compact `#N` position label (1-based library index) for the digest string. */
 	ref: string;
@@ -111,12 +221,40 @@ export interface ManifestHero {
 	mediaId: string;
 	/** The understanding caption shown next to the ref. */
 	caption: string;
+	/** Pixel width, when the source asset's metadata was probed. */
+	width?: number;
+	/** Pixel height, when the source asset's metadata was probed. */
+	height?: number;
+	/** Duration in seconds, when known. */
+	durationSec?: number;
+	/** Provenance ("ai" ⇒ Studio-generated; "upload" ⇒ user-uploaded/imported), when known. */
+	source?: "upload" | "ai";
+	/** Compact aspect-ratio label (see {@link aspectRatioTag}), when width/height are both known. */
+	orientation?: string;
+	/** Look probe (palette / lens+mood / setting), when the Understanding Pass produced one. */
+	styleProbe?: ManifestStyleProbe;
 }
 
 /** A named face-anchor (a persona) and how many assets matched it. */
 export interface ManifestFaceAnchor {
 	name: string;
 	count: number;
+}
+
+/**
+ * How many library assets conflict with the canvas's orientation — the
+ * structured backing for the digest's ORIENTATION-MISMATCH warning clause
+ * (see {@link buildLibraryManifest}'s `canvasOrientation` param). Only present
+ * on the manifest when `canvasOrientation` was supplied AND at least one
+ * dimensioned asset actually conflicts with it.
+ */
+export interface OrientationMismatch {
+	/** The canvas orientation assets were compared against. */
+	canvasOrientation: AssetOrientation;
+	/** Conflicting-asset counts by their OWN orientation (never includes `canvasOrientation` itself). */
+	counts: Partial<Record<AssetOrientation, number>>;
+	/** Total conflicting assets across all categories. */
+	total: number;
 }
 
 /**
@@ -141,6 +279,12 @@ export interface LibraryManifest {
 	tail?: { count: number; role?: AssetRole };
 	/** Assets transcribed with real speech (0 when nothing is transcribed). */
 	speechCount: number;
+	/**
+	 * Set ⇒ `canvasOrientation` was supplied AND at least one library asset
+	 * conflicts with it (a landscape asset against a portrait canvas, etc.).
+	 * Absent when no `canvasOrientation` was given, or nothing conflicts.
+	 */
+	orientationMismatch?: OrientationMismatch;
 	/** The compact one-line digest string for the system prompt. */
 	digest: string;
 }
@@ -166,12 +310,20 @@ const TYPE_ORDER: readonly MediaType[] = ["video", "image", "audio"];
  * GROUNDED path (understanding data present): counts assets by role (an
  * understood-but-unroled asset, or one with no understanding row, defaults to
  * `b-roll` so role counts always sum to `total`), names up to {@link HERO_NAME_CAP}
- * heroes with captions, tallies face-anchor persona matches, and points the tail
- * at the b-roll residual.
+ * heroes with captions (plus each hero's dims/duration/provenance/style probe,
+ * when present — heroes are capped, so this is cheap), tallies face-anchor
+ * persona matches, and points the tail at the b-roll residual.
  *
  * FALLBACK path (no lookup, or a lookup that yields nothing useful): counts by
  * media type and lists the most-recent asset names — never worse than the prior
  * "recent 5" grounding.
+ *
+ * ORIENTATION-MISMATCH facet (independent of grounded/fallback, like the speech
+ * facet): when `canvasOrientation` is supplied, every asset with known
+ * width/height is compared against it. A conflict adds a short `⚠ ...` clause
+ * to `digest` (see {@link withOrientationFacet}); no conflict (or no
+ * `canvasOrientation`) adds ZERO bytes — this module stays ~40 tokens for the
+ * always-injected line, per the caps below.
  */
 export function buildLibraryManifest(input: {
 	assets: ManifestAsset[];
@@ -179,8 +331,15 @@ export function buildLibraryManifest(input: {
 	personas?: ManifestPersona[];
 	/** Optional speech facet from the transcript pass (see {@link AssetSpeechLookup}). */
 	speech?: AssetSpeechLookup;
+	/**
+	 * Optional canvas orientation to check the library against (mirrors
+	 * `ProjectInfo.orientation` in `types.ts`). A plain string, not an editor
+	 * import — this module stays PURE LOGIC (no React, no editor, no network);
+	 * `director-api.ts` resolves the real canvas size and passes the bucket in.
+	 */
+	canvasOrientation?: AssetOrientation;
 }): LibraryManifest {
-	const { assets, understanding, personas, speech } = input;
+	const { assets, understanding, personas, speech, canvasOrientation } = input;
 	const total = assets.length;
 
 	// Media-type counts: always cheap, and the fallback digest's basis.
@@ -193,6 +352,13 @@ export function buildLibraryManifest(input: {
 	if (speech) {
 		for (const a of assets) if (speech(a.id) === true) speechCount += 1;
 	}
+
+	// Orientation-mismatch facet: same independence as speech — it only needs
+	// each asset's own width/height, not the (visual) understanding pass.
+	const orientationMismatch = computeOrientationMismatch(
+		assets,
+		canvasOrientation,
+	);
 
 	// Resolve understanding rows in library order (index → `#N` ref).
 	const rows = understanding
@@ -222,9 +388,13 @@ export function buildLibraryManifest(input: {
 			heroes: [],
 			faceAnchors: [],
 			speechCount,
-			digest: withSpeechFacet(
-				formatFallbackDigest(assets, total, typeCounts),
-				speechCount,
+			orientationMismatch,
+			digest: withOrientationFacet(
+				withSpeechFacet(
+					formatFallbackDigest(assets, total, typeCounts),
+					speechCount,
+				),
+				orientationMismatch,
 			),
 		};
 	}
@@ -243,10 +413,19 @@ export function buildLibraryManifest(input: {
 		roleCounts[role] = (roleCounts[role] ?? 0) + 1;
 
 		if (role === "hero" && u?.caption && heroes.length < HERO_NAME_CAP) {
+			const orientation = aspectRatioTag(asset.width, asset.height);
 			heroes.push({
 				ref: `#${index + 1}`,
 				mediaId: asset.id,
 				caption: u.caption,
+				...(asset.width != null ? { width: asset.width } : {}),
+				...(asset.height != null ? { height: asset.height } : {}),
+				...(asset.durationSec != null
+					? { durationSec: asset.durationSec }
+					: {}),
+				...(asset.source != null ? { source: asset.source } : {}),
+				...(orientation != null ? { orientation } : {}),
+				...(u.styleProbe != null ? { styleProbe: u.styleProbe } : {}),
 			});
 		}
 
@@ -283,17 +462,65 @@ export function buildLibraryManifest(input: {
 		faceAnchors,
 		tail,
 		speechCount,
-		digest: withSpeechFacet(
-			formatGroundedDigest({
-				total,
-				roleCounts,
-				heroes,
-				faceAnchors,
-				tail,
-			}),
-			speechCount,
+		orientationMismatch,
+		digest: withOrientationFacet(
+			withSpeechFacet(
+				formatGroundedDigest({
+					total,
+					roleCounts,
+					heroes,
+					faceAnchors,
+					tail,
+				}),
+				speechCount,
+			),
+			orientationMismatch,
 		),
 	};
+}
+
+// ── orientation-mismatch facet ──────────────────────────────────────────────
+
+/** Stable digest ordering for the mismatch clause's per-orientation segments. */
+const ORIENTATION_ORDER: readonly AssetOrientation[] = [
+	"landscape",
+	"portrait",
+	"square",
+];
+
+/**
+ * Tally every DIMENSIONED asset whose own {@link orientationOf} differs from
+ * `canvasOrientation`. Assets with unknown width/height are silently skipped
+ * (unknown, not a conflict). Returns `undefined` when no `canvasOrientation`
+ * was given, or nothing conflicts — the caller treats that as "add zero bytes".
+ */
+function computeOrientationMismatch(
+	assets: ManifestAsset[],
+	canvasOrientation?: AssetOrientation,
+): OrientationMismatch | undefined {
+	if (!canvasOrientation) return undefined;
+
+	const counts: Partial<Record<AssetOrientation, number>> = {};
+	let total = 0;
+	for (const a of assets) {
+		const o = orientationOf(a.width, a.height);
+		if (!o || o === canvasOrientation) continue;
+		counts[o] = (counts[o] ?? 0) + 1;
+		total += 1;
+	}
+	return total > 0 ? { canvasOrientation, counts, total } : undefined;
+}
+
+/**
+ * Render the mismatch clause, e.g. `"⚠ 3 landscape assets, canvas is
+ * portrait."` — or `"⚠ 2 landscape, 1 square assets, canvas is portrait."`
+ * when more than one conflicting orientation is present.
+ */
+function formatOrientationWarning(mismatch: OrientationMismatch): string {
+	const segments = ORIENTATION_ORDER.filter((o) => mismatch.counts[o]).map(
+		(o) => `${mismatch.counts[o]} ${o}`,
+	);
+	return `⚠ ${segments.join(", ")} asset${mismatch.total === 1 ? "" : "s"}, canvas is ${mismatch.canvasOrientation}.`;
 }
 
 // ── formatting ────────────────────────────────────────────────────────────────
@@ -306,6 +533,21 @@ export function buildLibraryManifest(input: {
 function withSpeechFacet(digest: string, speechCount: number): string {
 	if (speechCount === 0) return digest;
 	return `${digest} ${speechCount} with speech — getTranscript(mediaId) for sentence-aligned cut points.`;
+}
+
+/**
+ * Append the ORIENTATION-MISMATCH facet to a digest (grounded OR fallback): a
+ * short `⚠ ...` warning naming which/how-many library assets conflict with
+ * the canvas orientation. No `mismatch` (no `canvasOrientation` was supplied,
+ * or nothing conflicts) ⇒ digest unchanged, zero bytes added — the caps
+ * comment block's ~40-token target holds regardless of library size.
+ */
+function withOrientationFacet(
+	digest: string,
+	mismatch: OrientationMismatch | undefined,
+): string {
+	if (!mismatch) return digest;
+	return `${digest} ${formatOrientationWarning(mismatch)}`;
 }
 
 /** "1 asset" / "N assets". */

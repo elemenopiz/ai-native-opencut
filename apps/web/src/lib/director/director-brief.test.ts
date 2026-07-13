@@ -48,6 +48,37 @@ describe("director brief helpers", () => {
 		expect(b.tone).toBe("warm");
 	});
 
+	it("sets a target duration and lets a later patch replace it", () => {
+		const b1 = applyBriefPatch(emptyBrief(), { durationSec: 60 });
+		expect(b1.durationSec).toBe(60);
+
+		const b2 = applyBriefPatch(b1, { durationSec: 90 });
+		expect(b2.durationSec).toBe(90); // REPLACED, not appended
+
+		// A patch that doesn't mention durationSec leaves it untouched.
+		const b3 = applyBriefPatch(b2, { tone: "warm" });
+		expect(b3.durationSec).toBe(90);
+	});
+
+	it("clears the target duration when patched with 0 or a negative value", () => {
+		const withTarget = applyBriefPatch(emptyBrief(), { durationSec: 60 });
+
+		const clearedByZero = applyBriefPatch(withTarget, { durationSec: 0 });
+		expect(clearedByZero.durationSec).toBeUndefined();
+		expect("durationSec" in clearedByZero).toBe(false); // key dropped, stays compact
+
+		const clearedByNegative = applyBriefPatch(withTarget, {
+			durationSec: -5,
+		});
+		expect(clearedByNegative.durationSec).toBeUndefined();
+	});
+
+	it("a brief with no target duration is unaffected by the durationSec logic", () => {
+		const b = applyBriefPatch(emptyBrief(), { goal: "sell shoes" });
+		expect(b.durationSec).toBeUndefined();
+		expect("durationSec" in b).toBe(false);
+	});
+
 	it("caps learned notes at MAX_BRIEF_NOTES, dropping the oldest", () => {
 		let b: DirectorBrief = {};
 		for (let i = 0; i < MAX_BRIEF_NOTES + 5; i++) {
@@ -75,6 +106,15 @@ describe("director brief helpers", () => {
 		expect(s).toContain("DO: natural light");
 		expect(s).toContain("user prefers warm tones, handheld feel");
 		expect(s).not.toContain("AUDIENCE"); // unset field omitted
+		expect(s).not.toContain("TARGET DURATION"); // no target set ⇒ omitted
+	});
+
+	it("a target duration alone makes the brief non-empty and shows up in the summary", () => {
+		expect(isBriefEmpty({ durationSec: 60 })).toBe(false);
+
+		const s = summarizeBrief({ durationSec: 60 });
+		expect(s).toContain("TARGET DURATION: 60s");
+		expect(s).not.toContain("(empty");
 	});
 });
 
@@ -122,6 +162,7 @@ describe("director brief persistence (serialize → reload round-trip)", () => {
 				audience: "Gen-Z creators",
 				tone: "warm, handheld",
 				styleNote: "golden-hour grade, quick cuts",
+				durationSec: 60,
 				dos: ["natural light"],
 				donts: ["no stock-footage look"],
 				notes: ["user prefers warm tones, handheld feel"],

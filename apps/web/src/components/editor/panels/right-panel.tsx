@@ -8,6 +8,7 @@ import { GenerateView } from "@/components/editor/panels/assets/views/generate";
 import { ScopesPanel } from "@/components/editor/panels/scopes";
 import { useTranscriptStore } from "@/stores/transcript-store";
 import { useFrameChainStore } from "@/stores/frame-chain-store";
+import { useOmniReferenceChainStore } from "@/stores/omni-reference-chain-store";
 import { useElementSelection } from "@/hooks/timeline/element/use-element-selection";
 
 type RightTab = "generate" | "properties" | "transcript" | "scopes";
@@ -52,6 +53,20 @@ export function RightPanel({ className }: { className?: string }) {
 		if (frameChainNonce > lastSeenChainNonce.current) setActiveTab("generate");
 		lastSeenChainNonce.current = frameChainNonce;
 	}, [frameChainNonce]);
+
+	// Omni-reference chaining: when a user sends a trimmed clip to Generate
+	// ("Send to Omni Reference"), jump to the Generate tab so the GenerationForm —
+	// which consumes the same store — is visible as it appends the reference chip.
+	// Tracked independently from the frame-chain nonce above (two separate "did
+	// something get chained" signals, both landing on the Generate tab). Same
+	// nonce-ADVANCE guard so a remounted panel isn't snapped back to Generate.
+	const omniRefChainNonce = useOmniReferenceChainStore((s) => s.nonce);
+	const lastSeenOmniRefNonce = useRef(omniRefChainNonce);
+	useEffect(() => {
+		if (omniRefChainNonce > lastSeenOmniRefNonce.current)
+			setActiveTab("generate");
+		lastSeenOmniRefNonce.current = omniRefChainNonce;
+	}, [omniRefChainNonce]);
 
 	return (
 		<div

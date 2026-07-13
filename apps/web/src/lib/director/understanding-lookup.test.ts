@@ -46,6 +46,29 @@ describe("adaptUnderstandingForManifest", () => {
 		expect(m.role).toBe("screen-rec");
 	});
 
+	it("carries the styleProbe through instead of dropping it", () => {
+		const u = canonical({
+			styleProbe: {
+				palette: "warm amber",
+				lensMood: "shallow DoF, wistful",
+				setting: "sunlit kitchen",
+			},
+		});
+		const m = adaptUnderstandingForManifest(u);
+		expect(m.styleProbe).toEqual({
+			palette: "warm amber",
+			lensMood: "shallow DoF, wistful",
+			setting: "sunlit kitchen",
+		});
+	});
+
+	it("omits styleProbe when the canonical record has none", () => {
+		const m = adaptUnderstandingForManifest(
+			canonical({ styleProbe: undefined }),
+		);
+		expect(m.styleProbe).toBeUndefined();
+	});
+
 	it("carries caption, confidence, tags, and the named face fields", () => {
 		const u = canonical({
 			caption: "founder to-camera",

@@ -154,6 +154,14 @@ export const PHASE_TOOL_ASSIGNMENTS: Readonly<
 	// polish (speech-aligned trim/split live there). Production is generative —
 	// generated takes have no source transcript to consult.
 	getTranscript: ["briefing", "polish"],
+	// findDuplicateAssets: briefing only — checking the library for near-
+	// identical takes is a planning/proposing-time move (same bucket as
+	// searchMedia's sibling getLibraryManifest). Production is generative
+	// (freshly rendered takes aren't library assets this scans) and polish is
+	// already at its enforced ceiling (see phase-scope.test.ts); a "duplicate
+	// clips back-to-back" check before export is a rarer ask than the
+	// pre-generation library review this verb primarily serves.
+	findDuplicateAssets: ["briefing"],
 	getBackends: ["production"],
 	getBrief: ["briefing"],
 	getProposal: ["briefing"],

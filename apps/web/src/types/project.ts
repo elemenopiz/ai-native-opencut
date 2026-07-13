@@ -87,6 +87,14 @@ export interface DirectorBrief {
 	 * last; capped so it never grows unbounded (see `MAX_BRIEF_NOTES`).
 	 */
 	notes?: string[];
+	/**
+	 * Target running length of the reel in seconds, if the user stated one (e.g.
+	 * "make this a 60-second reel"). Purely a PACING target the agent reads
+	 * alongside the reel's live built duration (`ReelSnapshot.totalDuration`, via
+	 * `getReel`) to self-check progress — nothing auto-trims or auto-extends the
+	 * reel to hit it.
+	 */
+	durationSec?: number;
 	/** Epoch ms of the last write, for provenance. */
 	updatedAt?: number;
 }

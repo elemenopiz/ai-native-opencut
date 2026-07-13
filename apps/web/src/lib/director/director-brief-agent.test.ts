@@ -80,6 +80,38 @@ describe("director brief verbs", () => {
 		);
 	});
 
+	it("updateBrief sets a target duration and getBrief reads it back", () => {
+		const { editor } = makeEditor();
+		const director = createDirectorApi(editor);
+
+		const result = director.updateBrief({ durationSec: 60 });
+
+		expect(result.ok).toBe(true);
+		expect(director.getBrief().data?.durationSec).toBe(60);
+	});
+
+	it("getReel reports targetDurationSec alongside the live totalDuration in ONE call", () => {
+		const { editor } = makeEditor();
+		const director = createDirectorApi(editor);
+
+		director.updateBrief({ durationSec: 60 });
+		const reel = director.getReel();
+
+		// The fake editor's timeline stubs a fixed 6s total duration — the "built"
+		// side of the built-vs-target comparison.
+		expect(reel.totalDuration).toBe(6);
+		expect(reel.targetDurationSec).toBe(60);
+	});
+
+	it("getReel omits targetDurationSec when the brief has no target duration set", () => {
+		const { editor } = makeEditor();
+		const director = createDirectorApi(editor);
+
+		// No updateBrief({ durationSec }) call at all — the no-target case.
+		const reel = director.getReel();
+		expect(reel.targetDurationSec).toBeUndefined();
+	});
+
 	it("chooseTake appends the given rationale to the durable brief", () => {
 		const { editor, readBrief } = makeEditor();
 		const director = createDirectorApi(editor);
@@ -138,6 +170,25 @@ describe("director brief — injected into the system prompt across turns", () =
 		expect(buildFrontierSystemPrompt(director)).toMatch(
 			/DIRECTOR BRIEF[\s\S]*empty/i,
 		);
+	});
+
+	it("folds a built-vs-target pacing clause into the REEL digest when a target duration is set", () => {
+		const { editor } = makeEditor();
+		const director = createDirectorApi(editor);
+		director.updateBrief({ durationSec: 60 });
+
+		const prompt = buildFrontierSystemPrompt(director);
+		// Fake editor's timeline stubs totalDuration=6 and one slot.
+		expect(prompt).toContain("REEL (1 slots, 6.0s / 60s target):");
+	});
+
+	it("leaves the REEL digest's duration exactly as before when no target duration is set", () => {
+		const { editor } = makeEditor();
+		const director = createDirectorApi(editor);
+
+		const prompt = buildFrontierSystemPrompt(director);
+		expect(prompt).toContain("REEL (1 slots, 6.0s):");
+		expect(prompt).not.toContain("s target)"); // no pacing clause appended
 	});
 
 	it("the brief survives a reload and still shapes the prompt", () => {
