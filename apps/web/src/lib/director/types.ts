@@ -190,6 +190,24 @@ export interface MediaSearchHit {
 }
 
 /**
+ * One near-duplicate pair returned by {@link DirectorApi.findDuplicateAssets} —
+ * two media-library assets (identified by FULL mediaIds; these are not reel
+ * slot ids) whose mean CLIP frame vectors are cosine-similar above
+ * `DUPLICATE_THRESHOLD` (see `embedding-types.ts`). "Duplicate" here means
+ * visually near-identical CONTENT — multiple takes of the same shot, or a
+ * burst of near-identical uploads — never exact file/byte duplicates, which
+ * this never inspects.
+ */
+export interface DuplicateAssetPair {
+	mediaIdA: string;
+	mediaIdB: string;
+	/** Cosine similarity of the pair's mean frame vectors, in [-1, 1]; higher = more similar. */
+	score: number;
+	mediaNameA?: string;
+	mediaNameB?: string;
+}
+
+/**
  * Compact project-level grounding for the agent (see {@link DirectorApi.getProjectInfo}):
  * canvas/fps settings, the persona roster (reusable characters), and a
  * media-library summary. Cheap to compute and small enough to ride in the

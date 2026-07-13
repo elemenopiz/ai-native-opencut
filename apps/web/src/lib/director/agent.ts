@@ -501,6 +501,7 @@ export async function executeTool(
 		result.data !== undefined &&
 		(action === "getSlot" ||
 			action === "searchMedia" ||
+			action === "findDuplicateAssets" ||
 			action === "getConsistencyContext" ||
 			action === "getProjectInfo" ||
 			action === "getLibraryManifest" ||
