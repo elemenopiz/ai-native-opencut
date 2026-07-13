@@ -1,5 +1,24 @@
 import { describe, expect, it } from "bun:test";
-import { asSpecOverride, asShots } from "./tool-catalog";
+import { asBriefPatch, asSpecOverride, asShots } from "./tool-catalog";
+
+describe("asBriefPatch", () => {
+	it("passes durationSec through as a number", () => {
+		expect(asBriefPatch({ durationSec: 60 })).toEqual({ durationSec: 60 });
+	});
+
+	it("omits durationSec when unset (no arg passed)", () => {
+		expect(asBriefPatch({ goal: "x" })).toEqual({ goal: "x" });
+	});
+
+	it("passes 0 through untouched (applyBriefPatch decides it clears the target)", () => {
+		expect(asBriefPatch({ durationSec: 0 })).toEqual({ durationSec: 0 });
+	});
+
+	it("coerces a numeric string and drops non-numeric junk", () => {
+		expect(asBriefPatch({ durationSec: "45" })).toEqual({ durationSec: 45 });
+		expect(asBriefPatch({ durationSec: "not-a-number" })).toEqual({});
+	});
+});
 
 describe("asSpecOverride", () => {
 	it("returns undefined for non-object / empty input", () => {

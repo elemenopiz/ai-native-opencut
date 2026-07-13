@@ -64,6 +64,14 @@ export interface ReelSnapshot {
 	slots: SlotSnapshot[];
 	/** Total timeline duration in seconds. */
 	totalDuration: number;
+	/**
+	 * The brief's target reel length in seconds (`DirectorBrief.durationSec`),
+	 * carried alongside `totalDuration` so a single `getReel` call gives a
+	 * built-vs-target pacing check ("34s built / 60s target") without the agent
+	 * having to separately call `getBrief` and do the arithmetic itself. Absent
+	 * when the user hasn't stated a target duration.
+	 */
+	targetDurationSec?: number;
 	canUndo: boolean;
 	canRedo: boolean;
 	/** Reel-level STYLE/CHARACTERS/SETTING block, if set (see `consistency-prompt.ts`). */

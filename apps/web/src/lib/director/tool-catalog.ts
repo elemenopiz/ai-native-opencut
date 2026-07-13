@@ -298,7 +298,8 @@ function asStringList(v: unknown): string[] | undefined {
  * Coerce a loose `updateBrief` arg bag into a {@link BriefPatch}. Scalars pass
  * through as strings (present-but-empty clears the field); `dos`/`donts`/`notes`
  * are trimmed string lists. Accepts a singular `note` as a convenience alias for
- * a one-element `notes`.
+ * a one-element `notes`. `durationSec` passes through as a number (0 or below
+ * clears the target — see {@link applyBriefPatch}).
  */
 export function asBriefPatch(args: Record<string, unknown>): BriefPatch {
 	const patch: BriefPatch = {};
@@ -320,6 +321,8 @@ export function asBriefPatch(args: Record<string, unknown>): BriefPatch {
 		asStringList(args.notes) ??
 		(args.note != null ? asStringList([args.note]) : undefined);
 	if (notes) patch.notes = notes;
+	const durationSec = numOrUndefined(args.durationSec);
+	if (durationSec != null) patch.durationSec = durationSec;
 	return patch;
 }
 
@@ -502,7 +505,8 @@ export function toolCatalog(): ToolDescriptor[] {
 		// ── read ────────────────────────────────────────────────────────────
 		{
 			name: "getReel",
-			description: "inspect current slots/takes.",
+			description:
+				"inspect current slots/takes. totalDuration is the reel's live built length; targetDurationSec (when the brief has one) is the user's stated target — compare them to pace toward it.",
 			mutating: false,
 			inputSchema: EMPTY,
 			handler: (d) => ({
@@ -1224,7 +1228,7 @@ export function toolCatalog(): ToolDescriptor[] {
 		{
 			name: "getBrief",
 			description:
-				"read the persistent DIRECTOR BRIEF (goal, audience, tone, style note, do/don't, learned notes). It's already summarized in your system prompt — call this only to re-check the full brief mid-task.",
+				"read the persistent DIRECTOR BRIEF (goal, audience, tone, style note, target duration, do/don't, learned notes). It's already summarized in your system prompt — call this only to re-check the full brief mid-task.",
 			mutating: false,
 			inputSchema: EMPTY,
 			handler: (d) => d.getBrief(),
@@ -1232,7 +1236,7 @@ export function toolCatalog(): ToolDescriptor[] {
 		{
 			name: "updateBrief",
 			description:
-				"record the user's creative intent in the durable brief whenever they state a preference or you learn one (e.g. after chooseTake). Scalars (goal/audience/tone/styleNote) REPLACE; dos/donts APPEND; note/notes APPEND learned one-liners. Persisted per project so future turns and sessions inherit it.",
+				"record the user's creative intent in the durable brief whenever they state a preference or you learn one (e.g. after chooseTake). Scalars (goal/audience/tone/styleNote/durationSec) REPLACE; dos/donts APPEND; note/notes APPEND learned one-liners. Persisted per project so future turns and sessions inherit it.",
 			mutating: true,
 			inputSchema: {
 				type: "object",
@@ -1247,6 +1251,11 @@ export function toolCatalog(): ToolDescriptor[] {
 						type: "string",
 						description:
 							"One-line reusable visual/edit rules (color grade, pacing, framing). (Formerly `styleBible`, still accepted as a legacy alias.)",
+					},
+					durationSec: {
+						type: "number",
+						description:
+							"Target running length of the whole reel, in seconds (e.g. the user says 'make this a 60-second reel' → 60). REPLACES any existing target; 0 or below clears it. Compare against getReel's totalDuration/targetDurationSec to check pacing.",
 					},
 					dos: {
 						type: "array",

@@ -15,6 +15,7 @@ function makeEditor(): EditorCore {
 	const elements: Array<Record<string, unknown>> = [];
 	const tracks = [{ id: "track_1", elements }];
 	let counter = 0;
+	let brief: Record<string, unknown> = {};
 	return {
 		timeline: {
 			getTotalDuration: () =>
@@ -53,7 +54,17 @@ function makeEditor(): EditorCore {
 			canRedo: () => false,
 		},
 		media: { getAssetById: () => undefined, getAssets: () => [] },
-		project: { getActiveOrNull: () => null },
+		project: {
+			getActiveOrNull: () => null,
+			getDirectorBrief: () => brief,
+			setDirectorBrief: ({
+				brief: next,
+			}: {
+				brief: Record<string, unknown>;
+			}) => {
+				brief = next;
+			},
+		},
 	} as unknown as EditorCore;
 }
 

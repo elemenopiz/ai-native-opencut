@@ -837,6 +837,7 @@ export function createDirectorApi(
 		return {
 			slots: locateSlots().map((s) => toSnapshot(s.element)),
 			totalDuration: editor.timeline.getTotalDuration(),
+			targetDurationSec: readBrief().durationSec,
 			canUndo: editor.command.canUndo(),
 			canRedo: editor.command.canRedo(),
 			consistency: getStoredConsistencyContext(editor),
@@ -3007,8 +3008,9 @@ export function createDirectorApi(
 	// ---- BRIEF (durable creative intent) ----------------------------------
 	//
 	// The DIRECTOR BRIEF is the agent's persistent memory of the user's goal,
-	// audience, tone, one-line style note, do/don't constraints, and learned notes. Unlike
-	// the session-only consistency context above, it lives on the active `TProject`
+	// audience, tone, one-line style note, target duration, do/don't constraints,
+	// and learned notes. Unlike the session-only consistency context above, it
+	// lives on the active `TProject`
 	// (via `editor.project.getDirectorBrief`/`setDirectorBrief`) and is serialized
 	// with the project, so a stated preference survives reloads and sessions. The
 	// agent folds a summary into its system prompt each turn (see `agent.ts`) and
@@ -3063,8 +3065,9 @@ export function createDirectorApi(
 
 	/**
 	 * Update the durable brief. Scalar fields (goal/audience/tone/styleNote)
-	 * REPLACE; `dos`/`donts` APPEND (deduped); `notes` append learned one-liners
-	 * (capped). An empty string clears a scalar. Returns the merged brief.
+	 * REPLACE; `durationSec` REPLACES the target duration (0 or below clears it);
+	 * `dos`/`donts` APPEND (deduped); `notes` append learned one-liners (capped).
+	 * An empty string clears a scalar. Returns the merged brief.
 	 */
 	function updateBrief(patch: BriefPatch): DirectorResult<DirectorBrief> {
 		const next = persistBrief(applyBriefPatch(readBrief(), patch));
