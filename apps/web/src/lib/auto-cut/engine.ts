@@ -28,11 +28,23 @@ const DEFAULTS: ResolvedAutoCutOptions = {
 	silentSpeed: 4,
 };
 
-/** Merge caller options over the upstream defaults. */
+/**
+ * Merge caller options over the upstream defaults. Keys explicitly present but
+ * `undefined` (e.g. the Director verb passing through optional knobs) must NOT
+ * clobber defaults, so undefined values are stripped before merging.
+ */
 export function resolveOptions(
 	options: AutoCutOptions | undefined,
 ): ResolvedAutoCutOptions {
-	return { ...DEFAULTS, ...(options ?? {}) };
+	const resolved: ResolvedAutoCutOptions = { ...DEFAULTS };
+	if (options) {
+		for (const [key, value] of Object.entries(options)) {
+			if (value !== undefined) {
+				(resolved as Record<string, unknown>)[key] = value;
+			}
+		}
+	}
+	return resolved;
 }
 
 /**

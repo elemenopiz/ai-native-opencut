@@ -518,3 +518,34 @@ directory into `apps/web/src/lib/subtitles/`:
 | `build-subtitle-text-element.ts` | `build-subtitle-text-element.ts` | Reimplemented — maps a cue to Byorn's flat `TextElement` (the source did full canvas text measurement via its own layout utilities we do not have) |
 | `insert.ts` | `insert.ts` | Adapted — uses `EditorCore` timeline commands instead of the source's `BatchCommand` composition |
 | `vtt.ts` | — | Original (the source ships SRT + ASS parsers only) |
+
+---
+
+## WyattBlue/auto-editor — Unlicense (public domain)
+
+Source: https://github.com/WyattBlue/auto-editor
+
+```
+This is free and unencumbered software released into the public domain.
+
+Anyone is free to copy, modify, publish, use, compile, sell, or distribute
+this software, either in source code form or as a compiled binary, for any
+purpose, commercial or non-commercial, and by any means.
+```
+
+**Auto-cut (silence / dead-air removal).** Algorithm design reimplemented in
+TypeScript (upstream is Nim; no code was mechanically ported — the Web Audio
+decode, `Float32Array` pipeline, and segment types are ours):
+
+- `apps/web/src/lib/auto-cut/engine.ts` — faithful reimplementation of the
+  edit-decision pipeline from upstream `src/conductor.nim`: per-timebase-chunk
+  max-abs loudness (`src/analyze/audio.nim`), threshold → boolean keep signal
+  with or/and/xor/not combinators (`src/edit.nim`), asymmetric margin padding
+  (`mutMargin`, `src/util/fun.nim`), min-run smoothing with 2-cycle guard
+  (`smoothing`, `src/util/fun.nim`), and multi-label chunkify
+  (`src/timeline.nim` — cut/keep/speed labels).
+- `apps/web/src/lib/auto-cut/types.ts` — our contract types; defaults
+  (threshold 0.04, margins, minclip/mincut) mirror upstream CLI defaults.
+
+The apply layer (`apps/web/src/lib/auto-cut/apply.ts`), dialog, and Director
+verb are original Byorn code.

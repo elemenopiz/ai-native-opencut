@@ -19,6 +19,21 @@ function opts(
 	return resolveOptions(over);
 }
 
+describe("resolveOptions", () => {
+	it("explicit undefined values do not clobber defaults", () => {
+		// The Director verb passes optional knobs through as possibly-undefined
+		// keys; a naive object spread would overwrite the defaults with undefined.
+		const resolved = resolveOptions({
+			threshold: undefined,
+			marginBefore: undefined,
+			minKeep: 0.5,
+		});
+		expect(resolved.threshold).toBe(0.04);
+		expect(resolved.marginBefore).toBe(0.2);
+		expect(resolved.minKeep).toBe(0.5);
+	});
+});
+
 describe("thresholdLevels", () => {
 	it("keeps chunks at or above the threshold, drops below", () => {
 		// Use float32-exact values so the >= boundary is unambiguous.
