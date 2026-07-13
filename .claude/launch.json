@@ -7,6 +7,13 @@
       "runtimeArgs": ["run", "dev:web"],
       "port": 3000,
       "autoPort": true
+    },
+    {
+      "name": "web-e2e",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["NEXT_PUBLIC_E2E=1", "bun", "run", "dev:web"],
+      "port": 3000,
+      "autoPort": true
     }
   ]
 }
