@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // Configurable mediabunny stubs. Tests set these before exercising the SUT.
 // A SINGLE mediabunny mock serves both the unit tests (probe/decide/normalize)
@@ -8,17 +8,11 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // file would trigger against this file's real import.
 type TrackStub = {
 	getCodec: () => Promise<string | null>;
-	getCodecParameterString?: () => Promise<string | null>;
-	getDisplayWidth?: () => Promise<number>;
-	getDisplayHeight?: () => Promise<number>;
-	getRotation?: () => Promise<number>;
 	canDecode?: () => Promise<boolean>;
-	computeDuration?: () => Promise<number>;
 	isVideoTrack?: () => boolean;
 };
 
 let videoTrack: TrackStub | null = null;
-let audioTrack: TrackStub | null = null;
 let inputThrows = false;
 let disposed = 0;
 
@@ -42,9 +36,6 @@ mock.module("mediabunny", () => ({
 		async getPrimaryVideoTrack() {
 			if (inputThrows) throw new Error("cannot parse");
 			return videoTrack;
-		}
-		async getPrimaryAudioTrack() {
-			return audioTrack;
 		}
 		dispose() {
 			disposed += 1;
@@ -116,12 +107,7 @@ const { processMediaAssets } = await import("@/lib/media/processing");
 function makeVideoTrack(overrides: Partial<TrackStub> = {}): TrackStub {
 	return {
 		getCodec: async () => "avc",
-		getCodecParameterString: async () => "avc1.640028",
-		getDisplayWidth: async () => 1920,
-		getDisplayHeight: async () => 1080,
-		getRotation: async () => 0,
 		canDecode: async () => true,
-		computeDuration: async () => 12.5,
 		isVideoTrack: () => true,
 		...overrides,
 	};
@@ -139,9 +125,15 @@ function passthroughConversion() {
 const file = () =>
 	new File([new Uint8Array([1, 2, 3])], "GX010042.mp4", { type: "video/mp4" });
 
+// mock.module registrations persist for the whole bun test process — restore
+// them when this file is done so the mediabunny/sonner stubs can't leak into
+// later test files (this repo has a documented history of that failure class).
+afterAll(() => {
+	mock.restore();
+});
+
 beforeEach(() => {
 	videoTrack = null;
-	audioTrack = null;
 	inputThrows = false;
 	disposed = 0;
 	conversion = null;
@@ -158,13 +150,7 @@ describe("decideNormalization — decision table", () => {
 		return {
 			parseable: true,
 			videoCodec: "avc",
-			codecParameterString: "avc1",
-			width: 1920,
-			height: 1080,
-			rotation: 0,
-			duration: 10,
 			decodable: true,
-			audioCodec: "aac",
 			...overrides,
 		} as Parameters<typeof decideNormalization>[0];
 	}
@@ -205,31 +191,19 @@ describe("decideNormalization — decision table", () => {
 });
 
 describe("probeVideoFile", () => {
-	test("reports codec/dims/rotation/duration/decodable + audio codec", async () => {
+	test("reports codec + decodable (nothing else — hot-path probe stays slim)", async () => {
 		videoTrack = makeVideoTrack({
 			getCodec: async () => "hevc",
-			getRotation: async () => 90,
 			canDecode: async () => true,
 		});
-		audioTrack = { getCodec: async () => "aac" };
 
 		const result = await probeVideoFile(file());
-		expect(result.parseable).toBe(true);
-		expect(result.videoCodec).toBe("hevc");
-		expect(result.width).toBe(1920);
-		expect(result.height).toBe(1080);
-		expect(result.rotation).toBe(90);
-		expect(result.duration).toBe(12.5);
-		expect(result.decodable).toBe(true);
-		expect(result.audioCodec).toBe("aac");
+		expect(result).toEqual({
+			parseable: true,
+			videoCodec: "hevc",
+			decodable: true,
+		});
 		expect(disposed).toBe(1); // input always disposed
-	});
-
-	test("no audio track → audioCodec null", async () => {
-		videoTrack = makeVideoTrack();
-		audioTrack = null;
-		const result = await probeVideoFile(file());
-		expect(result.audioCodec).toBeNull();
 	});
 
 	test("undecodable track surfaces decodable:false", async () => {
@@ -254,12 +228,6 @@ describe("probeVideoFile", () => {
 		const result = await probeVideoFile(file());
 		expect(result.parseable).toBe(false);
 		expect(disposed).toBe(1);
-	});
-
-	test("invalid/zero duration collapses to null", async () => {
-		videoTrack = makeVideoTrack({ computeDuration: async () => 0 });
-		const result = await probeVideoFile(file());
-		expect(result.duration).toBeNull();
 	});
 });
 
@@ -364,6 +332,19 @@ describe("processMediaAssets — normalize-on-ingest wiring", () => {
 		expect(asset.normalized).toBeUndefined();
 		expect(toastCalls.error).toHaveLength(1);
 		expect(toastCalls.error[0]).toContain("HEVC");
+	});
+
+	test("unsupported (no video track): warns 'couldn't read a video track', not a codec blame", async () => {
+		videoTrack = null; // audio-only-in-video-container / unparseable
+
+		const [asset] = await processMediaAssets({ files: [file()] });
+
+		expect(asset).toBeDefined();
+		expect(asset.file.name).toBe("GX010042.mp4");
+		expect(asset.normalized).toBeUndefined();
+		expect(toastCalls.error).toHaveLength(1);
+		expect(toastCalls.error[0]).toContain("Couldn't read a video track");
+		expect(toastCalls.error[0]).not.toContain("decode");
 	});
 
 	test("normalize throws → falls back to the original file (ingest never worse)", async () => {

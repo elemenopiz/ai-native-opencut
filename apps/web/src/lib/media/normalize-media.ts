@@ -8,7 +8,6 @@ import {
 	Conversion,
 	QUALITY_HIGH,
 	type VideoCodec,
-	type AudioCodec,
 } from "mediabunny";
 
 /**
@@ -22,19 +21,19 @@ import {
  * point and this module is unit-testable by mocking `mediabunny`.
  */
 
+/**
+ * Deliberately minimal — only what `decideNormalization` reads. Dimensions,
+ * rotation, duration, audio codec etc. are all re-derived by the existing
+ * `getVideoInfo`/thumbnail pass that runs right after, and reading them here
+ * (especially `computeDuration()`, worst case a full packet scan on a
+ * fragmented MP4) would double that work on every ordinary H.264 ingest.
+ */
 export interface ProbeResult {
 	/** False when mediabunny couldn't parse the file or it has no video track. */
 	parseable: boolean;
 	videoCodec: VideoCodec | null;
-	codecParameterString: string | null;
-	width: number | null;
-	height: number | null;
-	/** Clockwise display rotation in degrees (0/90/180/270), 0 when unknown. */
-	rotation: number;
-	duration: number | null;
 	/** `track.canDecode()` — whether WebCodecs in THIS browser can decode it. */
 	decodable: boolean;
-	audioCodec: AudioCodec | null;
 }
 
 export type NormalizationDecision = "passthrough" | "transcode" | "unsupported";
@@ -53,76 +52,42 @@ function unparseableResult(): ProbeResult {
 	return {
 		parseable: false,
 		videoCodec: null,
-		codecParameterString: null,
-		width: null,
-		height: null,
-		rotation: 0,
-		duration: null,
 		decodable: false,
-		audioCodec: null,
 	};
 }
 
 /**
- * Probe the primary video track's codec, dimensions, rotation, duration and —
- * crucially — whether it can be decoded here (`track.canDecode()`), plus the
- * primary audio codec if present. Never throws: a file mediabunny can't parse
- * (or that has no video track) resolves to a `parseable: false` result so the
- * caller can surface a user-facing warning instead of crashing ingest.
+ * Probe the primary video track's codec and — crucially — whether it can be
+ * decoded here (`track.canDecode()`). Never throws: a file mediabunny can't
+ * parse (or that has no video track) resolves to a `parseable: false` result
+ * so the caller can surface a user-facing warning instead of crashing ingest.
  */
 export async function probeVideoFile(file: File): Promise<ProbeResult> {
-	const input = new Input({
-		source: new BlobSource(file),
-		formats: ALL_FORMATS,
-	});
+	let input: Input | undefined;
 
 	try {
+		input = new Input({
+			source: new BlobSource(file),
+			formats: ALL_FORMATS,
+		});
+
 		const videoTrack = await input.getPrimaryVideoTrack();
 		if (!videoTrack) return unparseableResult();
 
-		const [
-			videoCodec,
-			codecParameterString,
-			width,
-			height,
-			rotation,
-			decodable,
-			audioTrack,
-		] = await Promise.all([
+		const [videoCodec, decodable] = await Promise.all([
 			videoTrack.getCodec(),
-			videoTrack.getCodecParameterString(),
-			videoTrack.getDisplayWidth(),
-			videoTrack.getDisplayHeight(),
-			videoTrack.getRotation(),
 			videoTrack.canDecode(),
-			input.getPrimaryAudioTrack(),
 		]);
-
-		let duration: number | null = null;
-		try {
-			const d = await videoTrack.computeDuration();
-			duration = Number.isFinite(d) && d > 0 ? d : null;
-		} catch {
-			duration = null;
-		}
-
-		const audioCodec = audioTrack ? await audioTrack.getCodec() : null;
 
 		return {
 			parseable: true,
 			videoCodec,
-			codecParameterString,
-			width,
-			height,
-			rotation,
-			duration,
 			decodable,
-			audioCodec,
 		};
 	} catch {
 		return unparseableResult();
 	} finally {
-		input.dispose();
+		input?.dispose();
 	}
 }
 

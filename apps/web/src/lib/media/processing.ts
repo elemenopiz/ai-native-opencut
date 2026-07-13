@@ -285,11 +285,13 @@ export async function processMediaAssets({
 							toast.dismiss(toastId);
 						}
 					} else if (decision === "unsupported") {
-						const codec = probe.videoCodec
-							? probe.videoCodec.toUpperCase()
-							: "an unsupported codec";
+						// Distinguish "codec we know but this browser can't decode" from
+						// "no readable video track at all" (audio-only-in-video-container,
+						// unparseable) — the latter shouldn't be blamed on the decoder.
 						toast.error(
-							`This clip is ${codec} and your browser can't decode it. Try Safari, or convert it to H.264 first.`,
+							probe.parseable && probe.videoCodec
+								? `This clip is ${probe.videoCodec.toUpperCase()} and your browser can't decode it. Try Safari, or convert it to H.264 first.`
+								: `Couldn't read a video track from ${file.name}. The file may be audio-only or in an unsupported format.`,
 						);
 					}
 				} catch (probeError) {

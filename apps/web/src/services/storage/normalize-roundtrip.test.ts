@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+	afterAll,
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	mock,
+	test,
+} from "bun:test";
 import type { MediaAsset } from "@/types/assets";
 
 // In-memory, shared-by-name adapter backends. saveMediaAsset and loadMediaAsset
@@ -83,6 +91,13 @@ beforeEach(() => {
 afterEach(() => {
 	URL.createObjectURL = realCreate;
 	URL.revokeObjectURL = realRevoke;
+});
+
+// mock.module registrations persist for the whole bun test process — restore
+// them when this file is done so the in-memory adapter stubs can't leak into
+// later test files that use the real IndexedDB/OPFS adapters.
+afterAll(() => {
+	mock.restore();
 });
 
 describe("saveMediaAsset → loadMediaAsset — normalized provenance round-trip", () => {
