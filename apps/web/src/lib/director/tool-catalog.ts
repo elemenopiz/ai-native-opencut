@@ -1699,6 +1699,45 @@ export function toolCatalog(): ToolDescriptor[] {
 			},
 			handler: (d, a) => d.remove({ slotId: str(a.slotId) }),
 		},
+		{
+			name: "removeSilence",
+			description:
+				"auto-cut dead air out of a slot's clip: analyze its audio for silence and hard-cut the silent stretches, closing the gaps (downstream slots ripple left). All time fields SECONDS; threshold is a 0–1 loudness level. Omit the knobs for sensible defaults.",
+			mutating: true,
+			inputSchema: {
+				type: "object",
+				properties: {
+					slotId: slotIdProp,
+					threshold: {
+						type: "number",
+						description:
+							"loudness threshold in 0–1; audio below this counts as silence (default 0.04).",
+					},
+					marginBefore: secs(
+						"kept padding before each loud region — protects speech onsets (default 0.2).",
+					),
+					marginAfter: secs(
+						"kept padding after each loud region — protects trailing speech (default 0.3).",
+					),
+					minKeep: secs(
+						"drop kept runs shorter than this many seconds (default 0.26).",
+					),
+					minCut: secs(
+						"leave silent runs shorter than this many seconds uncut (default 0.4).",
+					),
+				},
+				required: ["slotId"],
+			},
+			handler: (d, a) =>
+				d.removeSilence({
+					slotId: str(a.slotId),
+					threshold: numOrUndefined(a.threshold),
+					marginBefore: numOrUndefined(a.marginBefore),
+					marginAfter: numOrUndefined(a.marginAfter),
+					minKeep: numOrUndefined(a.minKeep),
+					minCut: numOrUndefined(a.minCut),
+				}),
+		},
 		// ── text (elementId is a FULL id, never a reel short id) ─────────────
 		{
 			name: "addText",

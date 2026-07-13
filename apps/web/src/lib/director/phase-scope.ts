@@ -201,6 +201,9 @@ export const PHASE_TOOL_ASSIGNMENTS: Readonly<
 	split: ["polish"],
 	reorder: ["polish"],
 	remove: ["polish"],
+	// removeSilence: polish — auto-cutting dead air is timeline surgery on an
+	// already-generated reel, the same bucket as trim/split.
+	removeSilence: ["polish"],
 	addText: ["polish"],
 	updateText: ["polish"],
 	applyTransition: ["polish"],

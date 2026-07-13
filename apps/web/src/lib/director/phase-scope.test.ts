@@ -204,20 +204,21 @@ test("every phase includes the always-on core", () => {
 	}
 });
 
-test("per-phase active counts stay generous but bounded (15–26)", () => {
+test("per-phase active counts stay generous but bounded (15–27)", () => {
 	// Target is 15–22 (Google's 10–20 guidance, buckets deliberately generous).
 	// Polish is REQUIRED to carry the full timeline/text/audio surface plus
 	// export/approveFinalCut/voice verbs plus generate+reroll on top of the
 	// 7-verb core — that mandated content alone is 25 — plus getTranscript
-	// (speech-aligned trim/split is a polish move), so the enforced ceiling is
-	// 26, still about half the catalog and close to guidance.
+	// (speech-aligned trim/split is a polish move) and removeSilence (auto-cut
+	// dead air is timeline surgery), so the enforced ceiling is 27, still about
+	// half the catalog and close to guidance.
 	for (const phase of PHASES) {
 		const count = activeToolNamesForPhase(phase).length;
 		expect(
 			count,
 			`${phase} bucket too small (${count})`,
 		).toBeGreaterThanOrEqual(15);
-		expect(count, `${phase} bucket too fat (${count})`).toBeLessThanOrEqual(26);
+		expect(count, `${phase} bucket too fat (${count})`).toBeLessThanOrEqual(27);
 	}
 });
 
@@ -267,6 +268,7 @@ test("adjacent-phase jumps stay possible (pinned memberships)", () => {
 		"split",
 		"reorder",
 		"remove",
+		"removeSilence",
 		"addClip",
 		"addText",
 		"updateText",
