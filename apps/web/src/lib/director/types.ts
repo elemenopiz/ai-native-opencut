@@ -179,6 +179,12 @@ export interface DirectorResult<T = undefined> {
  * One compact hit returned by {@link DirectorApi.searchMedia} — a media asset
  * (identified by its FULL mediaId; these are not reel slot ids and are never
  * routed through the short-id map) plus the best-matching moment within it.
+ *
+ * `width`/`height`/`durationSec`/`source` mirror the same optional facets the
+ * library manifest's `ManifestAsset`/`ManifestHero` carry (`asset-manifest.ts`)
+ * — populated from the matched media-library asset when it resolves, so a
+ * semantic-search result carries the same orientation/duration/provenance
+ * grounding a named hero does, not just its score and timestamp.
  */
 export interface MediaSearchHit {
 	mediaId: string;
@@ -187,6 +193,14 @@ export interface MediaSearchHit {
 	/** Best-matching frame's offset into the media, in SECONDS. */
 	timestampSec: number;
 	mediaName?: string;
+	/** Pixel width, when the asset's metadata has been probed. */
+	width?: number;
+	/** Pixel height, when the asset's metadata has been probed. */
+	height?: number;
+	/** Duration in seconds, when known. */
+	durationSec?: number;
+	/** Provenance ("ai" ⇒ Studio-generated; "upload" ⇒ user-uploaded/imported), when known. */
+	source?: "upload" | "ai";
 }
 
 /**
