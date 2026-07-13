@@ -1,0 +1,405 @@
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+// Configurable mediabunny stubs. Tests set these before exercising the SUT.
+// A SINGLE mediabunny mock serves both the unit tests (probe/decide/normalize)
+// AND the processMediaAssets wiring tests below, so the real normalize-media
+// module is exercised end-to-end and never itself mocked — that avoids the bun
+// `mock.module` cross-file leak that a separate "mock normalize-media" wiring
+// file would trigger against this file's real import.
+type TrackStub = {
+	getCodec: () => Promise<string | null>;
+	getCodecParameterString?: () => Promise<string | null>;
+	getDisplayWidth?: () => Promise<number>;
+	getDisplayHeight?: () => Promise<number>;
+	getRotation?: () => Promise<number>;
+	canDecode?: () => Promise<boolean>;
+	computeDuration?: () => Promise<number>;
+	isVideoTrack?: () => boolean;
+};
+
+let videoTrack: TrackStub | null = null;
+let audioTrack: TrackStub | null = null;
+let inputThrows = false;
+let disposed = 0;
+
+// Conversion behaviour.
+let conversion: {
+	isValid: boolean;
+	utilizedTracks: TrackStub[];
+	discardedTracks: { reason: string }[];
+	onProgress?: (p: number, t: number) => unknown;
+	execute: () => Promise<void>;
+} | null = null;
+let outputBuffer: ArrayBuffer | null = new Uint8Array([9, 9, 9]).buffer;
+
+mock.module("mediabunny", () => ({
+	ALL_FORMATS: {},
+	QUALITY_HIGH: 4_000_000,
+	BlobSource: class {
+		constructor(_file: unknown) {}
+	},
+	Input: class {
+		async getPrimaryVideoTrack() {
+			if (inputThrows) throw new Error("cannot parse");
+			return videoTrack;
+		}
+		async getPrimaryAudioTrack() {
+			return audioTrack;
+		}
+		dispose() {
+			disposed += 1;
+		}
+	},
+	// generateThumbnail (in processing.ts) constructs a VideoSampleSink; the
+	// wiring tests don't care about the thumbnail, so a no-op sink whose iterator
+	// yields nothing is enough — the decode simply produces no frames.
+	VideoSampleSink: class {
+		constructor(_track: unknown) {}
+		async *samplesAtTimestamps() {}
+	},
+	Output: class {
+		target: { buffer: ArrayBuffer | null };
+		constructor(opts: { target: { buffer: ArrayBuffer | null } }) {
+			this.target = opts.target;
+		}
+	},
+	Mp4OutputFormat: class {},
+	BufferTarget: class {
+		buffer: ArrayBuffer | null = outputBuffer;
+	},
+	Conversion: {
+		init: async () => {
+			if (!conversion) throw new Error("no conversion configured");
+			return conversion;
+		},
+	},
+}));
+
+// getVideoInfo is stubbed so wiring tests don't need a real decoder; capture
+// WHICH file it ran against to prove the transcode substitution happened.
+let getVideoInfoFile: File | null = null;
+mock.module("@/lib/media/mediabunny", () => ({
+	getVideoInfo: async ({ videoFile }: { videoFile: File }) => {
+		getVideoInfoFile = videoFile;
+		return { duration: 5, width: 1920, height: 1080, fps: 30 };
+	},
+}));
+
+const toastCalls = {
+	error: [] as string[],
+	loading: [] as string[],
+	success: [] as string[],
+	dismiss: 0,
+};
+mock.module("sonner", () => ({
+	toast: {
+		error: (msg: string) => {
+			toastCalls.error.push(msg);
+		},
+		loading: (msg: string) => {
+			toastCalls.loading.push(msg);
+			return "toast-id";
+		},
+		success: (msg: string) => {
+			toastCalls.success.push(msg);
+		},
+		dismiss: () => {
+			toastCalls.dismiss += 1;
+		},
+	},
+}));
+
+const { probeVideoFile, decideNormalization, normalizeVideoFile } =
+	await import("@/lib/media/normalize-media");
+const { processMediaAssets } = await import("@/lib/media/processing");
+
+function makeVideoTrack(overrides: Partial<TrackStub> = {}): TrackStub {
+	return {
+		getCodec: async () => "avc",
+		getCodecParameterString: async () => "avc1.640028",
+		getDisplayWidth: async () => 1920,
+		getDisplayHeight: async () => 1080,
+		getRotation: async () => 0,
+		canDecode: async () => true,
+		computeDuration: async () => 12.5,
+		isVideoTrack: () => true,
+		...overrides,
+	};
+}
+
+function passthroughConversion() {
+	return {
+		isValid: true,
+		utilizedTracks: [{ getCodec: async () => "avc", isVideoTrack: () => true }],
+		discardedTracks: [],
+		execute: async () => {},
+	};
+}
+
+const file = () =>
+	new File([new Uint8Array([1, 2, 3])], "GX010042.mp4", { type: "video/mp4" });
+
+beforeEach(() => {
+	videoTrack = null;
+	audioTrack = null;
+	inputThrows = false;
+	disposed = 0;
+	conversion = null;
+	outputBuffer = new Uint8Array([9, 9, 9]).buffer;
+	getVideoInfoFile = null;
+	toastCalls.error = [];
+	toastCalls.loading = [];
+	toastCalls.success = [];
+	toastCalls.dismiss = 0;
+});
+
+describe("decideNormalization — decision table", () => {
+	function probe(overrides: Record<string, unknown>) {
+		return {
+			parseable: true,
+			videoCodec: "avc",
+			codecParameterString: "avc1",
+			width: 1920,
+			height: 1080,
+			rotation: 0,
+			duration: 10,
+			decodable: true,
+			audioCodec: "aac",
+			...overrides,
+		} as Parameters<typeof decideNormalization>[0];
+	}
+
+	test("avc + decodable → passthrough", () => {
+		expect(decideNormalization(probe({ videoCodec: "avc" }))).toBe(
+			"passthrough",
+		);
+	});
+
+	test("hevc + decodable → transcode (the GoPro/iPhone case)", () => {
+		expect(decideNormalization(probe({ videoCodec: "hevc" }))).toBe(
+			"transcode",
+		);
+	});
+
+	test("hevc + undecodable → unsupported", () => {
+		expect(
+			decideNormalization(probe({ videoCodec: "hevc", decodable: false })),
+		).toBe("unsupported");
+	});
+
+	test("unparseable → unsupported", () => {
+		expect(
+			decideNormalization(
+				probe({ parseable: false, videoCodec: null, decodable: false }),
+			),
+		).toBe("unsupported");
+	});
+
+	test("other non-portable decodable codecs → transcode", () => {
+		for (const codec of ["vp9", "av1", "vp8", "prores"]) {
+			expect(decideNormalization(probe({ videoCodec: codec }))).toBe(
+				"transcode",
+			);
+		}
+	});
+});
+
+describe("probeVideoFile", () => {
+	test("reports codec/dims/rotation/duration/decodable + audio codec", async () => {
+		videoTrack = makeVideoTrack({
+			getCodec: async () => "hevc",
+			getRotation: async () => 90,
+			canDecode: async () => true,
+		});
+		audioTrack = { getCodec: async () => "aac" };
+
+		const result = await probeVideoFile(file());
+		expect(result.parseable).toBe(true);
+		expect(result.videoCodec).toBe("hevc");
+		expect(result.width).toBe(1920);
+		expect(result.height).toBe(1080);
+		expect(result.rotation).toBe(90);
+		expect(result.duration).toBe(12.5);
+		expect(result.decodable).toBe(true);
+		expect(result.audioCodec).toBe("aac");
+		expect(disposed).toBe(1); // input always disposed
+	});
+
+	test("no audio track → audioCodec null", async () => {
+		videoTrack = makeVideoTrack();
+		audioTrack = null;
+		const result = await probeVideoFile(file());
+		expect(result.audioCodec).toBeNull();
+	});
+
+	test("undecodable track surfaces decodable:false", async () => {
+		videoTrack = makeVideoTrack({
+			getCodec: async () => "hevc",
+			canDecode: async () => false,
+		});
+		const result = await probeVideoFile(file());
+		expect(result.decodable).toBe(false);
+	});
+
+	test("no video track → unparseable result (does not throw)", async () => {
+		videoTrack = null;
+		const result = await probeVideoFile(file());
+		expect(result.parseable).toBe(false);
+		expect(result.videoCodec).toBeNull();
+		expect(result.decodable).toBe(false);
+	});
+
+	test("mediabunny parse failure → unparseable result (does not throw)", async () => {
+		inputThrows = true;
+		const result = await probeVideoFile(file());
+		expect(result.parseable).toBe(false);
+		expect(disposed).toBe(1);
+	});
+
+	test("invalid/zero duration collapses to null", async () => {
+		videoTrack = makeVideoTrack({ computeDuration: async () => 0 });
+		const result = await probeVideoFile(file());
+		expect(result.duration).toBeNull();
+	});
+});
+
+describe("normalizeVideoFile", () => {
+	test("transcodes to an H.264 mp4 named basename-normalized.mp4", async () => {
+		let executed = false;
+		conversion = {
+			...passthroughConversion(),
+			execute: async () => {
+				executed = true;
+			},
+		};
+
+		const out = await normalizeVideoFile(file());
+		expect(executed).toBe(true);
+		expect(out).toBeInstanceOf(File);
+		expect(out.name).toBe("GX010042-normalized.mp4");
+		expect(out.type).toBe("video/mp4");
+		expect(disposed).toBe(1);
+	});
+
+	test("forwards progress (0..1) to the callback", async () => {
+		const seen: number[] = [];
+		conversion = {
+			...passthroughConversion(),
+			execute: async function (this: { onProgress?: (p: number) => void }) {
+				this.onProgress?.(0.5);
+				this.onProgress?.(1);
+			},
+		} as never;
+
+		await normalizeVideoFile(file(), (p) => seen.push(p));
+		expect(seen).toEqual([0.5, 1]);
+	});
+
+	test("throws when the video track was dropped (no audio-only fallback)", async () => {
+		conversion = {
+			isValid: true,
+			// only an audio track survived — emitting this would be a silent black clip
+			utilizedTracks: [
+				{ getCodec: async () => "aac", isVideoTrack: () => false },
+			],
+			discardedTracks: [{ reason: "no_encodable_target_codec" }],
+			execute: async () => {},
+		};
+		await expect(normalizeVideoFile(file())).rejects.toThrow(
+			/Cannot normalize video/,
+		);
+		expect(disposed).toBe(1);
+	});
+
+	test("throws when the conversion is invalid", async () => {
+		conversion = {
+			isValid: false,
+			utilizedTracks: [],
+			discardedTracks: [{ reason: "undecodable_source_codec" }],
+			execute: async () => {},
+		};
+		await expect(normalizeVideoFile(file())).rejects.toThrow(
+			/Cannot normalize video/,
+		);
+	});
+
+	test("throws when output produced no buffer", async () => {
+		outputBuffer = null;
+		conversion = passthroughConversion();
+		await expect(normalizeVideoFile(file())).rejects.toThrow(/no output/);
+	});
+});
+
+describe("processMediaAssets — normalize-on-ingest wiring", () => {
+	test("transcode (hevc/decodable): substitutes the normalized file + records provenance", async () => {
+		videoTrack = makeVideoTrack({
+			getCodec: async () => "hevc",
+			canDecode: async () => true,
+		});
+		conversion = passthroughConversion();
+
+		const [asset] = await processMediaAssets({ files: [file()] });
+
+		// The asset's backing file is the transcoded one (named *-normalized.mp4),
+		// and that's what the downstream decode (getVideoInfo) ran against.
+		expect(asset.file.name).toBe("GX010042-normalized.mp4");
+		expect(getVideoInfoFile?.name).toBe("GX010042-normalized.mp4");
+		expect(asset.normalized).toEqual({
+			originalName: "GX010042.mp4",
+			originalCodec: "hevc",
+		});
+		expect(toastCalls.success).toHaveLength(1);
+	});
+
+	test("unsupported (undecodable): still ingests the asset but warns with the codec", async () => {
+		videoTrack = makeVideoTrack({
+			getCodec: async () => "hevc",
+			canDecode: async () => false,
+		});
+
+		const [asset] = await processMediaAssets({ files: [file()] });
+
+		expect(asset).toBeDefined();
+		expect(asset.file.name).toBe("GX010042.mp4"); // original, un-substituted
+		expect(asset.normalized).toBeUndefined();
+		expect(toastCalls.error).toHaveLength(1);
+		expect(toastCalls.error[0]).toContain("HEVC");
+	});
+
+	test("normalize throws → falls back to the original file (ingest never worse)", async () => {
+		videoTrack = makeVideoTrack({
+			getCodec: async () => "hevc",
+			canDecode: async () => true,
+		});
+		// Invalid conversion ⇒ normalizeVideoFile throws ⇒ processMediaAssets keeps original.
+		conversion = {
+			isValid: false,
+			utilizedTracks: [],
+			discardedTracks: [{ reason: "no_encodable_target_codec" }],
+			execute: async () => {},
+		};
+
+		const [asset] = await processMediaAssets({ files: [file()] });
+
+		expect(asset).toBeDefined();
+		expect(asset.file.name).toBe("GX010042.mp4"); // original, not normalized
+		expect(asset.normalized).toBeUndefined();
+		expect(getVideoInfoFile?.name).toBe("GX010042.mp4");
+		expect(toastCalls.dismiss).toBe(1);
+	});
+
+	test("passthrough (avc): no transcode, no provenance, no toast", async () => {
+		videoTrack = makeVideoTrack({
+			getCodec: async () => "avc",
+			canDecode: async () => true,
+		});
+
+		const [asset] = await processMediaAssets({ files: [file()] });
+
+		expect(asset.file.name).toBe("GX010042.mp4");
+		expect(asset.normalized).toBeUndefined();
+		expect(toastCalls.error).toHaveLength(0);
+		expect(toastCalls.success).toHaveLength(0);
+		expect(getVideoInfoFile?.name).toBe("GX010042.mp4");
+	});
+});

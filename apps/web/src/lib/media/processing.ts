@@ -1,7 +1,13 @@
 import { toast } from "sonner";
 import type { MediaAsset } from "@/types/assets";
+import type { NormalizedFrom } from "@/services/storage/types";
 import { getMediaTypeFromFile } from "@/lib/media/media-utils";
 import { getVideoInfo } from "./mediabunny";
+import {
+	probeVideoFile,
+	decideNormalization,
+	normalizeVideoFile,
+} from "./normalize-media";
 import { Input, ALL_FORMATS, BlobSource, VideoSampleSink } from "mediabunny";
 
 export interface ProcessedMediaAsset extends Omit<MediaAsset, "id"> {}
@@ -223,7 +229,12 @@ export async function processMediaAssets({
 			continue;
 		}
 
-		const url = URL.createObjectURL(file);
+		// The asset's backing file/url can be SUBSTITUTED below (HEVC → H.264
+		// transcode on ingest). Everything downstream — getVideoInfo, thumbnail,
+		// the pushed asset — must run against these, not the raw `file`.
+		let assetFile = file;
+		let assetUrl = URL.createObjectURL(file);
+		let normalized: NormalizedFrom | undefined;
 		let thumbnailUrl: string | undefined;
 		let duration: number | undefined;
 		let width: number | undefined;
@@ -237,8 +248,57 @@ export async function processMediaAssets({
 				height = dimensions.height;
 				thumbnailUrl = await generateImageThumbnail({ imageFile: file });
 			} else if (fileType === "video") {
+				// Probe BEFORE decoding: a non-portable/undecodable codec (GoPro/
+				// iPhone HEVC, etc.) would otherwise slip through as a silent black
+				// clip. Transcode when we can; warn when we can't; passthrough is a
+				// couple of lazy byte reads and adds no meaningful latency.
 				try {
-					const videoInfo = await getVideoInfo({ videoFile: file });
+					const probe = await probeVideoFile(file);
+					const decision = decideNormalization(probe);
+
+					if (decision === "transcode") {
+						const toastId = toast.loading(
+							`Converting ${file.name} to a compatible format…`,
+						);
+						try {
+							const normalizedFile = await normalizeVideoFile(file, (p) => {
+								toast.loading(
+									`Converting ${file.name}… ${Math.round(p * 100)}%`,
+									{ id: toastId },
+								);
+							});
+							URL.revokeObjectURL(assetUrl);
+							assetFile = normalizedFile;
+							assetUrl = URL.createObjectURL(normalizedFile);
+							normalized = {
+								originalName: file.name,
+								originalCodec: probe.videoCodec ?? "unknown",
+							};
+							toast.success(`Converted ${file.name} to H.264`, { id: toastId });
+						} catch (normalizeError) {
+							// Never make ingest worse than before: keep the original file
+							// and fall through to the existing best-effort decode path.
+							console.warn(
+								"Video normalization failed; using original file",
+								normalizeError,
+							);
+							toast.dismiss(toastId);
+						}
+					} else if (decision === "unsupported") {
+						const codec = probe.videoCodec
+							? probe.videoCodec.toUpperCase()
+							: "an unsupported codec";
+						toast.error(
+							`This clip is ${codec} and your browser can't decode it. Try Safari, or convert it to H.264 first.`,
+						);
+					}
+				} catch (probeError) {
+					// Probe is best-effort; on failure fall through to the legacy path.
+					console.warn("Video probe failed", probeError);
+				}
+
+				try {
+					const videoInfo = await getVideoInfo({ videoFile: assetFile });
 					// Decoders can report NaN/Infinity/0 for some containers; leave
 					// duration undefined so consumers fall back to a sane default
 					// instead of building an element with an invalid duration.
@@ -257,7 +317,7 @@ export async function processMediaAssets({
 					const thumbTime =
 						duration && duration > 0 ? Math.min(1, duration / 2) : 0;
 					thumbnailUrl = await generateThumbnail({
-						videoFile: file,
+						videoFile: assetFile,
 						timeInSeconds: thumbTime,
 					});
 				} catch (error) {
@@ -276,13 +336,14 @@ export async function processMediaAssets({
 			processedAssets.push({
 				name: file.name,
 				type: fileType,
-				file,
-				url,
+				file: assetFile,
+				url: assetUrl,
 				thumbnailUrl,
 				duration,
 				width,
 				height,
 				fps,
+				normalized,
 			});
 
 			await new Promise((resolve) => setTimeout(resolve, 0));
@@ -295,7 +356,7 @@ export async function processMediaAssets({
 		} catch (error) {
 			console.error("Error processing file:", file.name, error);
 			toast.error(`Failed to process ${file.name}`);
-			URL.revokeObjectURL(url); // Clean up on error
+			URL.revokeObjectURL(assetUrl); // Clean up on error
 		}
 	}
 

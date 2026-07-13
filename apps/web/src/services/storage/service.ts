@@ -342,6 +342,7 @@ class StorageService {
 			label: mediaAsset.label,
 			source: mediaAsset.source,
 			derivedFrom: mediaAsset.derivedFrom,
+			normalized: mediaAsset.normalized,
 			proxy: mediaAsset.proxy,
 			needsProxy: mediaAsset.needsProxy,
 		};
@@ -409,6 +410,7 @@ class StorageService {
 			label: metadata.label,
 			source: metadata.source,
 			derivedFrom: metadata.derivedFrom,
+			normalized: metadata.normalized,
 			proxy: metadata.proxy,
 			needsProxy: metadata.needsProxy,
 		};
