@@ -1,7 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import type { MediaType } from "@/types/assets";
 import {
+	aspectRatioTag,
 	buildLibraryManifest,
+	orientationOf,
 	type AssetUnderstanding,
 	type AssetUnderstandingLookup,
 	type ManifestAsset,
@@ -282,5 +284,209 @@ describe("buildLibraryManifest — token size stays small", () => {
 		expect(m.digest.length).toBeLessThan(340);
 		// Rough token proxy: whitespace-delimited words.
 		expect(m.digest.split(/\s+/).length).toBeLessThan(70);
+	});
+});
+
+describe("orientationOf / aspectRatioTag", () => {
+	it("classifies width×height into a coarse orientation bucket", () => {
+		expect(orientationOf(1920, 1080)).toBe("landscape");
+		expect(orientationOf(1080, 1920)).toBe("portrait");
+		expect(orientationOf(1080, 1080)).toBe("square");
+	});
+
+	it("returns undefined when either dimension is missing or non-positive", () => {
+		expect(orientationOf(undefined, 1080)).toBeUndefined();
+		expect(orientationOf(1920, undefined)).toBeUndefined();
+		expect(orientationOf(0, 1080)).toBeUndefined();
+		expect(orientationOf(-100, 1080)).toBeUndefined();
+	});
+
+	it("reduces pixel dimensions to a familiar compact aspect-ratio label", () => {
+		expect(aspectRatioTag(1920, 1080)).toBe("16:9");
+		expect(aspectRatioTag(1080, 1920)).toBe("9:16");
+		expect(aspectRatioTag(1080, 1080)).toBe("1:1");
+		expect(aspectRatioTag(1080, 1350)).toBe("4:5");
+	});
+
+	it("returns undefined when either dimension is missing", () => {
+		expect(aspectRatioTag(undefined, 1080)).toBeUndefined();
+		expect(aspectRatioTag(1920, undefined)).toBeUndefined();
+	});
+});
+
+/** Build one dimensioned asset, video by default; overrides merge in. */
+function dimensionedAsset(over: Partial<ManifestAsset> = {}): ManifestAsset {
+	return { id: "m1", name: "clip1.mp4", type: "video" as MediaType, ...over };
+}
+
+describe("buildLibraryManifest — dims, provenance, and style facets", () => {
+	it("includes a hero's width/height/durationSec/source/orientation when the asset carries them", () => {
+		const list: ManifestAsset[] = [
+			dimensionedAsset({
+				width: 1920,
+				height: 1080,
+				durationSec: 12.5,
+				source: "ai",
+			}),
+			{ id: "m2", name: "broll.mp4", type: "video" },
+		];
+		const understanding: AssetUnderstandingLookup = (id) =>
+			id === "m1"
+				? { mediaId: "m1", role: "hero", caption: "the hero shot" }
+				: undefined;
+
+		const m = buildLibraryManifest({ assets: list, understanding });
+
+		expect(m.heroes).toEqual([
+			{
+				ref: "#1",
+				mediaId: "m1",
+				caption: "the hero shot",
+				width: 1920,
+				height: 1080,
+				durationSec: 12.5,
+				source: "ai",
+				orientation: "16:9",
+			},
+		]);
+	});
+
+	it("leaves dims/provenance/orientation off a hero when the asset lacks them (backward compatible)", () => {
+		const list: ManifestAsset[] = [dimensionedAsset()];
+		const understanding: AssetUnderstandingLookup = () => ({
+			mediaId: "m1",
+			role: "hero",
+			caption: "undimensioned hero",
+		});
+		const m = buildLibraryManifest({ assets: list, understanding });
+		expect(m.heroes).toEqual([
+			{ ref: "#1", mediaId: "m1", caption: "undimensioned hero" },
+		]);
+	});
+
+	it("surfaces a hero's styleProbe (palette/lensMood/setting) restored from the Understanding Pass", () => {
+		const list: ManifestAsset[] = [dimensionedAsset()];
+		const understanding: AssetUnderstandingLookup = () => ({
+			mediaId: "m1",
+			role: "hero",
+			caption: "founder to-camera",
+			styleProbe: {
+				palette: "warm amber",
+				lensMood: "shallow DoF, wistful",
+				setting: "sunlit kitchen",
+			},
+		});
+		const m = buildLibraryManifest({ assets: list, understanding });
+
+		expect(m.heroes[0]?.styleProbe).toEqual({
+			palette: "warm amber",
+			lensMood: "shallow DoF, wistful",
+			setting: "sunlit kitchen",
+		});
+		// The look probe is a STRUCTURED (on-demand) field, never the always-on line.
+		expect(m.digest).not.toContain("warm amber");
+	});
+
+	it("appends the orientation-mismatch clause to the digest when the canvas conflicts (grounded path)", () => {
+		const list: ManifestAsset[] = [
+			dimensionedAsset({
+				id: "m1",
+				name: "a.mp4",
+				width: 1920,
+				height: 1080,
+			}),
+			dimensionedAsset({ id: "m2", name: "b.mp4", width: 1920, height: 1080 }),
+			dimensionedAsset({ id: "m3", name: "c.mp4", width: 1080, height: 1920 }),
+		];
+		const understanding: AssetUnderstandingLookup = (id) =>
+			id === "m1"
+				? { mediaId: "m1", role: "hero", caption: "hero" }
+				: undefined;
+
+		const m = buildLibraryManifest({
+			assets: list,
+			understanding,
+			canvasOrientation: "portrait",
+		});
+
+		expect(m.grounded).toBe(true);
+		expect(m.orientationMismatch).toEqual({
+			canvasOrientation: "portrait",
+			counts: { landscape: 2 },
+			total: 2,
+		});
+		expect(m.digest).toContain("⚠ 2 landscape assets, canvas is portrait.");
+	});
+
+	it("appends the orientation-mismatch clause to the digest when the canvas conflicts (fallback path)", () => {
+		const list: ManifestAsset[] = [
+			dimensionedAsset({ id: "m1", name: "a.mp4", width: 1920, height: 1080 }),
+			dimensionedAsset({ id: "m2", name: "b.mp4", width: 1080, height: 1920 }),
+		];
+		const m = buildLibraryManifest({
+			assets: list,
+			canvasOrientation: "portrait",
+		});
+
+		expect(m.grounded).toBe(false);
+		expect(m.orientationMismatch).toEqual({
+			canvasOrientation: "portrait",
+			counts: { landscape: 1 },
+			total: 1,
+		});
+		expect(m.digest).toContain("⚠ 1 landscape asset, canvas is portrait.");
+	});
+
+	it("names every conflicting orientation, in landscape/portrait/square order", () => {
+		const list: ManifestAsset[] = [
+			dimensionedAsset({ id: "m1", name: "a.mp4", width: 1920, height: 1080 }), // landscape
+			dimensionedAsset({ id: "m2", name: "b.mp4", width: 1080, height: 1080 }), // square
+			dimensionedAsset({ id: "m3", name: "c.mp4", width: 1080, height: 1920 }), // portrait, matches canvas
+		];
+		const m = buildLibraryManifest({
+			assets: list,
+			canvasOrientation: "portrait",
+		});
+		expect(m.digest).toContain(
+			"⚠ 1 landscape, 1 square assets, canvas is portrait.",
+		);
+	});
+
+	it("adds ZERO bytes to the digest when no canvasOrientation is given", () => {
+		const list: ManifestAsset[] = [
+			dimensionedAsset({ width: 1920, height: 1080 }),
+		];
+		const withoutOrientation = buildLibraryManifest({ assets: list });
+		expect(withoutOrientation.orientationMismatch).toBeUndefined();
+		expect(withoutOrientation.digest).not.toContain("⚠");
+	});
+
+	it("adds ZERO bytes to the digest when every dimensioned asset matches the canvas", () => {
+		const list: ManifestAsset[] = [
+			dimensionedAsset({ width: 1080, height: 1920 }),
+		];
+		const withMatchingCanvas = buildLibraryManifest({
+			assets: list,
+			canvasOrientation: "portrait",
+		});
+		const withoutOrientation = buildLibraryManifest({ assets: list });
+		expect(withMatchingCanvas.orientationMismatch).toBeUndefined();
+		expect(withMatchingCanvas.digest).toBe(withoutOrientation.digest);
+	});
+
+	it("skips assets with unknown dimensions when checking for a mismatch", () => {
+		const list: ManifestAsset[] = [
+			dimensionedAsset({ id: "m1", name: "a.mp4" }), // no width/height
+			dimensionedAsset({ id: "m2", name: "b.mp4", width: 1920, height: 1080 }),
+		];
+		const m = buildLibraryManifest({
+			assets: list,
+			canvasOrientation: "portrait",
+		});
+		expect(m.orientationMismatch).toEqual({
+			canvasOrientation: "portrait",
+			counts: { landscape: 1 },
+			total: 1,
+		});
 	});
 });

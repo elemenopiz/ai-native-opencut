@@ -117,6 +117,10 @@ describe("director searchMedia", () => {
 				score: 1,
 				timestampSec: 3,
 				mediaName: "fresh.mp4",
+				// The stub asset resolves (id "fresh-1" is in getAssets()) but carries
+				// no width/height/duration, and no explicit `source` ⇒ "upload" (that
+				// field's contract has no third "unknown" state — see MediaAssetData).
+				source: "upload",
 			},
 		]);
 

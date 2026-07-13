@@ -44,6 +44,11 @@ export type StyleProbeLookup = (mediaId: string) => StyleProbe | undefined;
  * override wins, collapses `roleConfirmed` to the boolean the Manifest wants,
  * and carries only the face fields the digest names. `screen-rec` passes through
  * unchanged now that the Manifest's role vocabulary includes it.
+ *
+ * Also carries `styleProbe` (palette/lensMood/setting) through — this used to
+ * be dropped here, which meant the Director never saw a look the Insights
+ * panel already showed a human. Restored so `buildLibraryManifest` can surface
+ * it on named heroes (see `asset-manifest.ts`'s `ManifestHero.styleProbe`).
  */
 export function adaptUnderstandingForManifest(
 	u: CanonicalUnderstanding,
@@ -60,6 +65,15 @@ export function adaptUnderstandingForManifest(
 			score: f.score,
 			isNew: f.isNew,
 		})),
+		...(u.styleProbe
+			? {
+					styleProbe: {
+						palette: u.styleProbe.palette,
+						lensMood: u.styleProbe.lensMood,
+						setting: u.styleProbe.setting,
+					},
+				}
+			: {}),
 	};
 }
 
