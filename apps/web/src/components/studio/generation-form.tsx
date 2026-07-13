@@ -32,6 +32,7 @@ import { useBackends } from "@/hooks/use-backends";
 import { DEFAULT_BACKEND_ID } from "@/lib/studio/backends/registry";
 import { useStudioSettingsStore } from "@/stores/studio-settings-store";
 import { useFrameChainStore } from "@/stores/frame-chain-store";
+import { useOmniReferenceChainStore } from "@/stores/omni-reference-chain-store";
 import { usePersonaStore } from "@/stores/persona-store";
 import { EnhancePromptButton } from "@/components/editor/ai/enhance-prompt-button";
 import { toast } from "sonner";
@@ -315,6 +316,43 @@ export function GenerationForm({
 		clearPendingFirstFrame();
 		requestAnimationFrame(() => promptRef.current?.focus());
 	}, [frameChainNonce]);
+
+	// ── Omni-reference chaining ───────────────────────────────────────────────
+	// A trimmed clip sent from the timeline ("Send to Omni Reference") lands in
+	// the omni-reference-chain store as a hosted URL + kind. Consume it: APPEND it
+	// as a new ready chip to the Omni reference list and, when the selected
+	// backend supports Omni, flip to Omni mode so the reference uploader is
+	// visible. If the backend can't do Omni, we still append (the capability
+	// coercion effect keeps genMode valid) so nothing is lost. Kept separate from
+	// the first-frame effect above — different destination (chip list vs. slot).
+	const pendingReference = useOmniReferenceChainStore(
+		(s) => s.pendingReference,
+	);
+	const omniRefChainNonce = useOmniReferenceChainStore((s) => s.nonce);
+	const clearPendingReference = useOmniReferenceChainStore(
+		(s) => s.clearPendingReference,
+	);
+	// Consume-once on the nonce edge only — re-running on pendingReference /
+	// availableModes changes would re-append a reference the user already removed.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: intentional nonce-keyed one-shot
+	useEffect(() => {
+		if (!pendingReference) return;
+		setRefMedia((prev) => [
+			...prev,
+			{
+				id: crypto.randomUUID(),
+				url: pendingReference.url,
+				kind: pendingReference.kind,
+				name: pendingReference.label,
+				status: "ready",
+			},
+		]);
+		if (genMode !== "omni" && availableModes.some((m) => m.value === "omni")) {
+			setSettings({ genMode: "omni" });
+		}
+		clearPendingReference();
+		requestAnimationFrame(() => promptRef.current?.focus());
+	}, [omniRefChainNonce]);
 	// Open autocomplete state: the partial query after "@" and where "@" starts.
 	const [mention, setMention] = useState<{
 		query: string;
