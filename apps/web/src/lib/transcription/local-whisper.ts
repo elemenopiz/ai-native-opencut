@@ -16,13 +16,12 @@ import {
 } from "@/constants/transcription-constants";
 import { type LocalAIDevice, pickDevice } from "@/lib/local-ai/device";
 import { WorkerSlot } from "@/lib/local-ai/worker-slot";
+import { DECODE_SAMPLE_RATE, decodeToMono16k } from "@/lib/media/decode-audio";
 import type {
 	TranscriptionResult,
 	TranscriptionSegment,
 	TranscriptionWord,
 } from "@/types/ai";
-
-const SAMPLE_RATE = 16000;
 
 export interface LocalTranscriptionResult extends TranscriptionResult {
 	/** Marks results produced in-browser (vs. the server engines). */
@@ -80,39 +79,6 @@ function resolveModelId(
 	return device === "webgpu"
 		? "onnx-community/whisper-small"
 		: "onnx-community/whisper-tiny";
-}
-
-/** Decode any supported media File to a mono 16 kHz Float32Array. */
-async function decodeToMono16k(file: File): Promise<Float32Array> {
-	const arrayBuffer = await file.arrayBuffer();
-	const AudioCtor =
-		window.AudioContext ||
-		// biome-ignore lint/suspicious/noExplicitAny: Safari prefix.
-		(window as any).webkitAudioContext;
-	const decodeCtx = new AudioCtor();
-	let audioBuffer: AudioBuffer;
-	try {
-		audioBuffer = await decodeCtx.decodeAudioData(arrayBuffer);
-	} finally {
-		decodeCtx.close?.();
-	}
-
-	if (
-		audioBuffer.sampleRate === SAMPLE_RATE &&
-		audioBuffer.numberOfChannels === 1
-	) {
-		return audioBuffer.getChannelData(0).slice();
-	}
-
-	// Downmix to mono + resample to 16 kHz by rendering through an offline graph.
-	const frames = Math.max(1, Math.ceil(audioBuffer.duration * SAMPLE_RATE));
-	const offline = new OfflineAudioContext(1, frames, SAMPLE_RATE);
-	const source = offline.createBufferSource();
-	source.buffer = audioBuffer;
-	source.connect(offline.destination);
-	source.start();
-	const rendered = await offline.startRendering();
-	return rendered.getChannelData(0).slice();
 }
 
 interface WhisperChunk {
@@ -198,7 +164,7 @@ export async function transcribeLocally(
 
 	options.onProgress?.({ stage: "decoding", progress: 0 });
 	const audio = await decodeToMono16k(file);
-	const durationSec = audio.length / SAMPLE_RATE;
+	const durationSec = audio.length / DECODE_SAMPLE_RATE;
 	options.onProgress?.({ stage: "loading-model", progress: 0 });
 
 	// Hold the warm worker for the duration of the transcribe; releasing when
