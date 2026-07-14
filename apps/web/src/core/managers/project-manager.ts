@@ -150,8 +150,6 @@ export class ProjectManager {
 
 		this.editor.save.pause();
 		await this.ensureStorageMigrations();
-		this.editor.media.clearAllAssets();
-		this.editor.scenes.clearScenes();
 
 		try {
 			const result = await storageService.loadProject({ id });
@@ -160,6 +158,18 @@ export class ProjectManager {
 			}
 
 			const project = result.project;
+
+			// Clear the previous project only AFTER the next one has loaded from
+			// storage. loadProject can be called with the editor UI still mounted
+			// (programmatic switches: MCP/Director verbs, tests) — clearing before
+			// the await above leaves mounted components rendering against an empty
+			// scenes list for the whole load, and any render-path
+			// `scenes.getActiveScene()` throws into the route's error boundary.
+			// The clear → initializeScenes window below has no awaits, so React
+			// never renders the cleared state. A load failure now also leaves the
+			// old project intact instead of half-cleared.
+			this.editor.media.clearAllAssets();
+			this.editor.scenes.clearScenes();
 
 			this.active = project;
 			this.notify();

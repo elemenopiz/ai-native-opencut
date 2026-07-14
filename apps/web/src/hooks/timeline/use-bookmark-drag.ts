@@ -46,7 +46,7 @@ export function useBookmarkDrag({
 	const editor = useEditor();
 	const isShiftHeldRef = useShiftKey();
 	const tracks = editor.timeline.getTracks();
-	const activeScene = editor.scenes.getActiveScene();
+	const activeScene = editor.scenes.getActiveSceneOrNull();
 	const bookmarks = activeScene?.bookmarks ?? [];
 	const playheadTime = editor.playback.getCurrentTime();
 	const duration = editor.timeline.getTotalDuration();

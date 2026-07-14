@@ -28,7 +28,7 @@ import { useEditor } from "@/hooks/use-editor";
 export function ScenesView({ children }: { children: React.ReactNode }) {
 	const editor = useEditor();
 	const scenes = editor.scenes.getScenes();
-	const currentScene = editor.scenes.getActiveScene();
+	const currentScene = editor.scenes.getActiveSceneOrNull();
 	const [isSelectMode, setIsSelectMode] = useState(false);
 	const [selectedScenes, setSelectedScenes] = useState<Set<string>>(new Set());
 

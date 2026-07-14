@@ -30,6 +30,11 @@ import { useSlotGeneration } from "@/hooks/use-slot-generation";
 import type { EditorCore } from "@/core";
 import { stretchAudioBufferSegment } from "@/lib/media/pitch-preserving-stretch";
 import { perfStats } from "@/services/renderer/perf-stats";
+import { useBackgroundTasksStore } from "@/stores/background-tasks-store";
+import { useBeatGridStore } from "@/stores/beat-grid-store";
+import { useFrameChainStore } from "@/stores/frame-chain-store";
+import { useGenerationStatusStore } from "@/stores/generation-status-store";
+import { useTranscriptStore } from "@/stores/transcript-store";
 import type { ExportOptions, ExportResult } from "@/types/export";
 import type { GenerationSpec } from "@/types/timeline";
 
@@ -62,6 +67,17 @@ export interface E2EBridge {
 	 *  reads, so a headless run can enable collection and assert on fps /
 	 *  frame-time breakdowns without any UI interaction. */
 	perf: typeof perfStats;
+	/** Module-global zustand stores holding PER-PROJECT state, exposed so a
+	 *  project-switch test can seed one project's state and assert it does not
+	 *  bleed into the next (see `stores/reset-project-scoped-stores.ts`). These
+	 *  are the untouched production store singletons, not copies. */
+	projectScopedStores: {
+		transcript: typeof useTranscriptStore;
+		beatGrid: typeof useBeatGridStore;
+		generationStatus: typeof useGenerationStatusStore;
+		frameChain: typeof useFrameChainStore;
+		backgroundTasks: typeof useBackgroundTasksStore;
+	};
 }
 
 declare global {
@@ -122,6 +138,13 @@ export function E2EBridge() {
 			releaseExport: () => releaseExport(),
 			stretchAudioBufferSegment,
 			perf: perfStats,
+			projectScopedStores: {
+				transcript: useTranscriptStore,
+				beatGrid: useBeatGridStore,
+				generationStatus: useGenerationStatusStore,
+				frameChain: useFrameChainStore,
+				backgroundTasks: useBackgroundTasksStore,
+			},
 		};
 		window.__byornPerf = perfStats;
 
