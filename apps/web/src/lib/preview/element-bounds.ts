@@ -152,32 +152,31 @@ export function getElementBounds({
 				fallbackFontSize: scaledFontSize,
 			});
 			const fontSizeRatio = element.fontSize / DEFAULT_TEXT_ELEMENT.fontSize;
+			// This runs inside React render (preview overlay hooks) — a text
+			// element persisted without `background` must not throw here.
+			const background = element.background ?? DEFAULT_TEXT_BACKGROUND;
 			const resolvedBackground = {
-				...element.background,
+				...background,
 				paddingX: resolveNumberAtTime({
-					baseValue:
-						element.background.paddingX ?? DEFAULT_TEXT_BACKGROUND.paddingX,
+					baseValue: background.paddingX ?? DEFAULT_TEXT_BACKGROUND.paddingX,
 					animations: element.animations,
 					propertyPath: "background.paddingX",
 					localTime,
 				}),
 				paddingY: resolveNumberAtTime({
-					baseValue:
-						element.background.paddingY ?? DEFAULT_TEXT_BACKGROUND.paddingY,
+					baseValue: background.paddingY ?? DEFAULT_TEXT_BACKGROUND.paddingY,
 					animations: element.animations,
 					propertyPath: "background.paddingY",
 					localTime,
 				}),
 				offsetX: resolveNumberAtTime({
-					baseValue:
-						element.background.offsetX ?? DEFAULT_TEXT_BACKGROUND.offsetX,
+					baseValue: background.offsetX ?? DEFAULT_TEXT_BACKGROUND.offsetX,
 					animations: element.animations,
 					propertyPath: "background.offsetX",
 					localTime,
 				}),
 				offsetY: resolveNumberAtTime({
-					baseValue:
-						element.background.offsetY ?? DEFAULT_TEXT_BACKGROUND.offsetY,
+					baseValue: background.offsetY ?? DEFAULT_TEXT_BACKGROUND.offsetY,
 					animations: element.animations,
 					propertyPath: "background.offsetY",
 					localTime,

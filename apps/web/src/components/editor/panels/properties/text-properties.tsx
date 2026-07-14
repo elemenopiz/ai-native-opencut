@@ -45,12 +45,18 @@ import { OcTextHeightIcon, OcTextWidthIcon } from "@byorn/ui/icons";
 import { cn } from "@/utils/ui";
 
 export function TextProperties({
-	element,
+	element: rawElement,
 	trackId,
 }: {
 	element: TextElement;
 	trackId: string;
 }) {
+	// A text element persisted without `background` (public insert API / old
+	// writers) reaches this panel through selection — default it so the
+	// sections below can read `background.*` unconditionally.
+	const element = rawElement.background
+		? rawElement
+		: { ...rawElement, background: DEFAULT_TEXT_BACKGROUND };
 	return (
 		<div className="flex h-full flex-col">
 			<ContentSection element={element} trackId={trackId} />
@@ -479,7 +485,11 @@ function BackgroundSection({
 		parse: (input) => {
 			const parsed = parseFloat(input);
 			if (Number.isNaN(parsed)) return null;
-			return clamp({ value: Math.round(parsed), min: CORNER_RADIUS_MIN, max: CORNER_RADIUS_MAX });
+			return clamp({
+				value: Math.round(parsed),
+				min: CORNER_RADIUS_MIN,
+				max: CORNER_RADIUS_MAX,
+			});
 		},
 		valueAtPlayhead: resolvedCornerRadius,
 		buildBaseUpdates: ({ value }) => ({
@@ -590,7 +600,11 @@ function BackgroundSection({
 								onBlur={paddingX.onBlur}
 								onScrub={paddingX.scrubTo}
 								onScrubEnd={paddingX.commitScrub}
-								onReset={() => paddingX.commitValue({ value: DEFAULT_TEXT_BACKGROUND.paddingX })}
+								onReset={() =>
+									paddingX.commitValue({
+										value: DEFAULT_TEXT_BACKGROUND.paddingX,
+									})
+								}
 								isDefault={isPropertyAtDefault({
 									hasAnimatedKeyframes: paddingX.hasAnimatedKeyframes,
 									isPlayheadWithinElementRange,
@@ -621,7 +635,11 @@ function BackgroundSection({
 								onBlur={paddingY.onBlur}
 								onScrub={paddingY.scrubTo}
 								onScrubEnd={paddingY.commitScrub}
-								onReset={() => paddingY.commitValue({ value: DEFAULT_TEXT_BACKGROUND.paddingY })}
+								onReset={() =>
+									paddingY.commitValue({
+										value: DEFAULT_TEXT_BACKGROUND.paddingY,
+									})
+								}
 								isDefault={isPropertyAtDefault({
 									hasAnimatedKeyframes: paddingY.hasAnimatedKeyframes,
 									isPlayheadWithinElementRange,
@@ -653,7 +671,11 @@ function BackgroundSection({
 								onBlur={offsetX.onBlur}
 								onScrub={offsetX.scrubTo}
 								onScrubEnd={offsetX.commitScrub}
-								onReset={() => offsetX.commitValue({ value: DEFAULT_TEXT_BACKGROUND.offsetX })}
+								onReset={() =>
+									offsetX.commitValue({
+										value: DEFAULT_TEXT_BACKGROUND.offsetX,
+									})
+								}
 								isDefault={isPropertyAtDefault({
 									hasAnimatedKeyframes: offsetX.hasAnimatedKeyframes,
 									isPlayheadWithinElementRange,
@@ -683,7 +705,11 @@ function BackgroundSection({
 								onBlur={offsetY.onBlur}
 								onScrub={offsetY.scrubTo}
 								onScrubEnd={offsetY.commitScrub}
-								onReset={() => offsetY.commitValue({ value: DEFAULT_TEXT_BACKGROUND.offsetY })}
+								onReset={() =>
+									offsetY.commitValue({
+										value: DEFAULT_TEXT_BACKGROUND.offsetY,
+									})
+								}
 								isDefault={isPropertyAtDefault({
 									hasAnimatedKeyframes: offsetY.hasAnimatedKeyframes,
 									isPlayheadWithinElementRange,
@@ -715,7 +741,9 @@ function BackgroundSection({
 							onBlur={cornerRadius.onBlur}
 							onScrub={cornerRadius.scrubTo}
 							onScrubEnd={cornerRadius.commitScrub}
-							onReset={() => cornerRadius.commitValue({ value: CORNER_RADIUS_MIN })}
+							onReset={() =>
+								cornerRadius.commitValue({ value: CORNER_RADIUS_MIN })
+							}
 							isDefault={isPropertyAtDefault({
 								hasAnimatedKeyframes: cornerRadius.hasAnimatedKeyframes,
 								isPlayheadWithinElementRange,
