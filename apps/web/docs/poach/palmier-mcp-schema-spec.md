@@ -23,6 +23,19 @@ executor extension files, and the MCP HTTP transport layer. Their surface is
 including `undo`, not 11. Corrected 2026-07-09 against `ToolDefinitions.swift`
 HEAD `cd74ce3`, which declares 45 tools.)
 
+> **DELTA 2026-07-14 (v0.6.6, HEAD `092bc9e`) — count is now 46; this catalog
+> describes the 45-tool v0.6.3 surface.** Changes since: the 4 MCP-only project
+> tools (list/open/create/close) were consolidated into one
+> `manageProject{action}` router (#299, which also introduced per-session
+> project *binding* — mutations refused when a different project is frontmost,
+> reads allowed via an allowlist); new `manageExports{list|cancel}` over a
+> FIFO export queue (#298, `exportProject` now returns a `jobId`); and 3 new
+> multicam tools `manageMulticam`/`changeCam`/`getMulticam` (#283). Also
+> `manageTracks` gained stable `trackId` addressing (#307) and `generateAudio`
+> gained `sourceMediaRef`/`targetLanguage` for voice-cleanup/dubbing (#294).
+> Full delta: `palmier-delta-refresh-2026-07-14.md` §4–5. The per-tool prose
+> below remains accurate for all unchanged tools.
+
 **Our surface today** (19 verbs): `getReel`, `getSlot`, `storyboard`,
 `reserveSlot`, `setPrompt`, `generate`, `reroll`, `remix`, `chooseTake`,
 `trim`, `move`, `split`, `reorder`, `remove`, `undo`, `redo`, `export`,
