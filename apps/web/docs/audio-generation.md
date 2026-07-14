@@ -93,3 +93,8 @@ without the proxy renderer being built.
   (current adapter folds `lyrics` into the plain `prompt` field — real
   ElevenLabs feature, looser fidelity than the structured path).
 - Standalone prompt-to-SFX (explicitly skipped per the research verdict).
+- Google Lyria (text-to-music, Gemini API family) — a candidate third audio
+  backend if ElevenLabs Music ever needs a cheaper/alternate text-to-music
+  option, and would share `GEMINI_API_KEY` with Veo/Imagen/Nano Banana. Not
+  integrated in this pass — noted here for a future audio-backend wave, not
+  scoped/priced yet.

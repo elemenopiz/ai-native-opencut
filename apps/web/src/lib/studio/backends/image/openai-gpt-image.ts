@@ -9,6 +9,7 @@
 
 import { webEnv } from "@byorn/env/web";
 import { nanoid } from "nanoid";
+import { costFor } from "@/lib/credits/cost-table";
 import { generateReferenceImage } from "@/lib/studio/image-generator";
 import { renderGptImageEdit } from "@/lib/studio/gpt-image-edit";
 import type {
@@ -18,13 +19,6 @@ import type {
 	PollResult,
 	SubmitResult,
 } from "@/lib/studio/backends/types";
-
-/** Normalized credit cost per image quality tier. */
-const CREDITS_BY_QUALITY: Record<string, number> = {
-	low: 4,
-	medium: 10,
-	high: 20,
-};
 
 export const openaiGptImageBackend: GenerationBackend = {
 	id: "openai-gpt-image",
@@ -48,7 +42,13 @@ export const openaiGptImageBackend: GenerationBackend = {
 	},
 
 	estimateCost(req: BackendRequest): CostEstimate {
-		const credits = CREDITS_BY_QUALITY[req.quality ?? "high"] ?? 20;
+		// Sourced directly from cost-table.ts's costFor() — the same
+		// server-authoritative billing table `/api/studio/image` actually charges
+		// (a flat per-image rate today; the previous hardcoded quality tiers here
+		// displayed a NUMBER THAT DIDN'T MATCH BILLING for medium/high requests) —
+		// so this is exactly what the job will cost, not a separate estimate that
+		// can drift from real billing.
+		const credits = costFor("openai-gpt-image", "image", { count: 1 });
 		return { credits, basis: `GPT Image 2 (${req.quality ?? "high"})` };
 	},
 

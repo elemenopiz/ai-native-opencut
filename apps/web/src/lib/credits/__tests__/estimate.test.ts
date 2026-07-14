@@ -16,6 +16,8 @@ describe("estimateVideoCredits — backend-aware (exact)", () => {
 			["luma-ray", 5],
 			["runway", 4],
 			["pika", 9],
+			["google-veo", 6],
+			["google-veo-fast", 6],
 		] as const) {
 			const exact = costFor(id, "video", { seconds });
 			expect(estimateVideoCredits(seconds, id)).toEqual({
@@ -26,10 +28,11 @@ describe("estimateVideoCredits — backend-aware (exact)", () => {
 	});
 
 	it("falls back to the cross-backend range for an unknown/unpinned backend", () => {
-		expect(estimateVideoCredits(5)).toEqual({ low: 25, high: 175 });
+		// pika (5/sec) is cheapest, google-veo (40/sec, Standard) is priciest.
+		expect(estimateVideoCredits(5)).toEqual({ low: 25, high: 200 });
 		expect(estimateVideoCredits(5, "some-future-backend")).toEqual({
 			low: 25,
-			high: 175,
+			high: 200,
 		});
 	});
 });

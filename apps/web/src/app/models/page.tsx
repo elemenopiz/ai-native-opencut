@@ -30,6 +30,18 @@ const videoModels: RoutedModel[] = [
 		tags: ["seed-lock", "references", "480p-1080p"],
 	},
 	{
+		name: "Veo 3.1",
+		vendor: "Google (Gemini API)",
+		note: "The only backend here that generates native synced audio — dialogue, ambience, and foley baked into the render, not scored separately. Reference-image and last-frame conditioning included.",
+		tags: ["native audio", "references", "720p-1080p"],
+	},
+	{
+		name: "Veo 3.1 Fast",
+		vendor: "Google (Gemini API)",
+		note: "The same native-audio Veo pipeline at a fraction of the cost — quicker drafts and cheaper takes when you don't need Standard's ceiling.",
+		tags: ["native audio", "references", "720p-1080p"],
+	},
+	{
 		name: "Kling AI",
 		vendor: "Kuaishou",
 		note: "Strong stylized and action shots, standard and pro quality modes.",
@@ -63,6 +75,12 @@ const imageModels: RoutedModel[] = [
 		tags: ["default", "references", "edits"],
 	},
 	{
+		name: "GPT Image 2",
+		vendor: "OpenAI",
+		note: "Reference-conditioned edits and inpainting via the /images/edits endpoint — a strong second identity-carry option alongside Nano Banana Pro.",
+		tags: ["edits", "references"],
+	},
+	{
 		name: "Imagen 4",
 		vendor: "Google",
 		note: "Photoreal stills with strong text rendering.",
@@ -82,6 +100,21 @@ const imageModels: RoutedModel[] = [
 	},
 ];
 
+const audioModels: RoutedModel[] = [
+	{
+		name: "ElevenLabs Music",
+		vendor: "ElevenLabs",
+		note: "Text-to-music with an instrumental toggle and lyric-guided vocals — the default when a slot just needs a score from a prompt.",
+		tags: ["text-to-music", "lyrics"],
+	},
+	{
+		name: "MMAudio V2",
+		vendor: "fal.ai",
+		note: "Video-to-audio: synced ambience and foley generated straight from a video's motion, up to 30s.",
+		tags: ["video-to-audio", "score"],
+	},
+];
+
 export default function ModelsPage() {
 	return (
 		<BasePage
@@ -98,6 +131,11 @@ export default function ModelsPage() {
 					title="Image generation"
 					blurb="Stills, style frames, and persona portraits. Reference intake distills dropped frames into a StyleBible that seeds the look across models."
 					models={imageModels}
+				/>
+				<ModelSection
+					title="Audio generation"
+					blurb="Score a clip or write a track from a prompt — two non-interchangeable backends behind the same adapter pattern as video and image."
+					models={audioModels}
 				/>
 
 				<section className="flex flex-col gap-4">
