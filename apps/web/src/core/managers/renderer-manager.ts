@@ -4,6 +4,7 @@ import type { ExportOptions, ExportResult } from "@/types/export";
 import { CanvasRenderer } from "@/services/renderer/canvas-renderer";
 import { SceneExporter } from "@/services/renderer/scene-exporter";
 import { buildScene } from "@/services/renderer/scene-builder";
+import { resolveExportProxyFallback } from "@/services/renderer/export-decodability";
 import { createTimelineAudioBuffer } from "@/lib/media/audio";
 import { formatTimeCode, getLastFrameTime } from "@/lib/time";
 import { downloadBlob } from "@/utils/browser";
@@ -122,6 +123,26 @@ export class RendererManager {
 				return { success: false, error: "Project is empty" };
 			}
 
+			// Cross-browser decode fallback (HEVC/VP9/AV1 "passthrough" assets):
+			// re-check decodability against THIS browser via the persisted codec
+			// string, independent of whatever the ingesting browser decided. An
+			// asset that can't decode here but has a portable H.264 proxy exports
+			// from the proxy instead (flagged via `warnings` below); an asset with
+			// neither blocks the export outright rather than silently producing a
+			// broken file. See `services/renderer/export-decodability.ts`.
+			const { fallbackAssetIds, blockingAssets, warnings } =
+				await resolveExportProxyFallback({ mediaAssets });
+
+			if (blockingAssets.length > 0) {
+				const names = blockingAssets
+					.map((asset) => `"${asset.name}"`)
+					.join(", ");
+				return {
+					success: false,
+					error: `${names} can't be exported yet — your browser can't decode the original video and its portable proxy is still being prepared. Try exporting again in a moment.`,
+				};
+			}
+
 			const exportFps = fps || activeProject.settings.fps;
 			const canvasSize = activeProject.settings.canvasSize;
 
@@ -141,6 +162,7 @@ export class RendererManager {
 				duration,
 				canvasSize,
 				background: activeProject.settings.background,
+				forceProxyAssetIds: fallbackAssetIds,
 			});
 
 			const exporter = new SceneExporter({
@@ -186,6 +208,7 @@ export class RendererManager {
 				return {
 					success: true,
 					buffer,
+					warnings: warnings.length > 0 ? warnings : undefined,
 				};
 			} finally {
 				clearInterval(cancelInterval);
