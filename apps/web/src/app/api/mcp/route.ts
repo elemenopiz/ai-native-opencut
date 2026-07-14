@@ -164,6 +164,7 @@ async function handleMcpRequest(req: Request): Promise<Response> {
 				userId: grant.userId,
 				projectId: grant.projectId,
 				event: "session_initialized",
+				source: "mcp",
 			});
 		},
 		// Client sent DELETE → transport closed the session itself; just forget it.

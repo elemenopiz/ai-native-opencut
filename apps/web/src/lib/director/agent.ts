@@ -67,6 +67,7 @@ import {
 	type JSONSchema,
 	type ToolHandler,
 } from "./tool-catalog";
+import { reportVerbTelemetry } from "@/lib/mcp/verb-telemetry-client";
 import {
 	buildCriticSystemPrompt,
 	buildCriticUserBlocks,
@@ -214,6 +215,16 @@ const AGENT_RELAY_URL = "/api/llm/agent";
 /** The verb registry the agent may call — every catalog handler, keyed by name. */
 const TOOLS: Record<string, ToolHandler> = Object.fromEntries(
 	toolCatalog().map((t) => [t.name, t.handler]),
+);
+
+/**
+ * Same catalog, keyed to the `mutating` flag — used by `executeTool`'s
+ * telemetry to derive `timelineChanged` without threading the descriptor
+ * itself through the call. Mirrors `build-mcp-server.ts`'s use of the
+ * identical catalog flag for the same purpose on the MCP path.
+ */
+const MUTATING_BY_NAME: Record<string, boolean> = Object.fromEntries(
+	toolCatalog().map((t) => [t.name, t.mutating]),
 );
 
 /** Render one arg's type for the docs string (SECONDS fields show as `seconds`). */
@@ -470,9 +481,28 @@ export async function executeTool(
 	 */
 	content: string | Array<Anthropic.TextBlockParam | Anthropic.ImageBlockParam>;
 }> {
+	// Telemetry: `executeTool` is the SINGLE choke point every in-app Director
+	// verb call passes through — both agent loops (frontier + Gemini) call it
+	// directly, and `executeDirectorAction` (the UI's cost-approval resume
+	// path) is a thin wrapper around it — so instrumenting here, not
+	// `executeDirectorAction`, gets full agent-path coverage. Mirrors
+	// `build-mcp-server.ts`'s `tools/call` handler: same `status`/`durationMs`/
+	// `timelineChanged` shape, `source: "agent"` on the wire (stamped by the
+	// `/api/telemetry/verb` route, not the client — see
+	// `verb-telemetry-client.ts`).
+	const startedAt = performance.now();
+	const elapsedMs = () => Math.round(performance.now() - startedAt);
+
 	const tool = TOOLS[action];
 	if (!tool) {
 		const message = `Unknown action "${action}". Valid tools: ${Object.keys(TOOLS).join(", ")}.`;
+		reportVerbTelemetry({
+			verb: action,
+			status: "unknown_action",
+			durationMs: elapsedMs(),
+			timelineChanged: false,
+			mutating: false,
+		});
 		return {
 			step: { action, args: rawArgs, ok: false, message },
 			observation: message,
@@ -492,6 +522,17 @@ export async function executeTool(
 			message: err instanceof Error ? err.message : String(err),
 		};
 	}
+
+	// timelineChanged: the cheap proxy for "did the agent actually do
+	// something" — a MUTATING verb (the catalog's own flag) that came back ok.
+	const mutating = MUTATING_BY_NAME[action] ?? false;
+	reportVerbTelemetry({
+		verb: action,
+		status: result.ok ? "ok" : "tool_error",
+		durationMs: elapsedMs(),
+		timelineChanged: mutating && result.ok,
+		mutating,
+	});
 
 	const step: AgentToolStep = {
 		action,

@@ -337,6 +337,12 @@ const SWEEP: SweepCase[] = [
 		},
 	},
 	{
+		file: "telemetry/verb/route.ts",
+		calls: {
+			POST: [makeRequest("POST", `${BASE}/telemetry/verb`, {})],
+		},
+	},
+	{
 		file: "tts/route.ts",
 		calls: {
 			POST: [makeRequest("POST", `${BASE}/tts`, { text: "hello" })],

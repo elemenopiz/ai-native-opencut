@@ -159,6 +159,20 @@ export function createByornMcpServer(pin: {
 		),
 	}));
 
+	// Activation: "MCP session activated" is a distinct metric from
+	// `session_initialized` (handshake/connect) — it counts the FIRST
+	// SUCCESSFUL `tools/call` on this session. One `Server` instance is
+	// created per session (see `route.ts`'s `onsessioninitialized`), so a
+	// closure-scoped once-flag here is naturally per-session with no separate
+	// bookkeeping in `mcp-session-store.ts`. TRADEOFF: this is in-memory, so a
+	// process restart (deploy) forgets which sessions already activated — a
+	// session that survives a restart (it won't; sessions are in-memory too,
+	// see `mcp-session-store.ts`'s header) could in principle double-count.
+	// In practice a restart evicts all sessions, so the only realistic
+	// duplicate source is none; documented here because the instruction that
+	// asked for this flag flagged the tradeoff explicitly.
+	let activated = false;
+
 	server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
 		const name = request.params.name;
 		const args = (request.params.arguments ?? {}) as Record<string, unknown>;
@@ -167,6 +181,12 @@ export function createByornMcpServer(pin: {
 		if (!descriptor) {
 			throw new McpError(ErrorCode.MethodNotFound, `Unknown tool "${name}".`);
 		}
+
+		// Wall-clock timer for `durationMs` — covers scope/rate-limit checks and
+		// (on the happy path) the full bridge round-trip, so it reflects what a
+		// caller actually waited, not just the relay leg.
+		const startedAt = performance.now();
+		const elapsed = () => Math.round(performance.now() - startedAt);
 
 		// Scope gate: checked per call against THIS request's token scopes.
 		const requiredScope = scopeForTool(name);
@@ -177,7 +197,14 @@ export function createByornMcpServer(pin: {
 				projectId: pin.projectId,
 				event: "tool_call",
 				verb: name,
-				meta: { mutating: descriptor.mutating, blocked: "scope" },
+				source: "mcp",
+				meta: {
+					mutating: descriptor.mutating,
+					blocked: "scope",
+					status: "scope_blocked",
+					durationMs: elapsed(),
+					timelineChanged: false,
+				},
 			});
 			return jsonResult(
 				{
@@ -207,7 +234,14 @@ export function createByornMcpServer(pin: {
 				projectId: pin.projectId,
 				event: "tool_call",
 				verb: name,
-				meta: { mutating: descriptor.mutating, blocked: "rate_limit" },
+				source: "mcp",
+				meta: {
+					mutating: descriptor.mutating,
+					blocked: "rate_limit",
+					status: "rate_limited",
+					durationMs: elapsed(),
+					timelineChanged: false,
+				},
 			});
 			return jsonResult(
 				{
@@ -233,13 +267,44 @@ export function createByornMcpServer(pin: {
 				args,
 				timeoutMs,
 			});
+			// timelineChanged: the cheap proxy for "did the agent actually do
+			// something" — a MUTATING verb (the catalog's own flag, the same one
+			// that gates the `reel:write` scope and the delta contract) that came
+			// back `ok`. Reads and failed mutations never flip it.
+			const timelineChanged = descriptor.mutating && result.ok;
 			recordMcpEvent({
 				userId: pin.userId,
 				projectId: pin.projectId,
 				event: "tool_call",
 				verb: name,
-				meta: { mutating: descriptor.mutating, ok: result.ok },
+				source: "mcp",
+				meta: {
+					mutating: descriptor.mutating,
+					ok: result.ok,
+					status: result.ok ? "ok" : "tool_error",
+					durationMs: elapsed(),
+					timelineChanged,
+				},
 			});
+			// "MCP activated" = first successful tools/call this session, not TCP
+			// connect (that's `session_initialized`, fired at handshake). Fires at
+			// most once per session — see the `activated` closure doc above.
+			if (result.ok && !activated) {
+				activated = true;
+				recordMcpEvent({
+					userId: pin.userId,
+					projectId: pin.projectId,
+					event: "mcp_activated",
+					verb: name,
+					source: "mcp",
+					meta: {
+						mutating: descriptor.mutating,
+						status: "ok",
+						durationMs: elapsed(),
+						timelineChanged,
+					},
+				});
+			}
 			return jsonResult(result, !result.ok);
 		} catch (error) {
 			if (error instanceof BridgeError) {
@@ -249,7 +314,10 @@ export function createByornMcpServer(pin: {
 				// worded as a mutation refusal or a read-availability gap depending
 				// on the verb (see `bridgeRefusalFor`). Other bridge codes
 				// (user-mismatch/timeout/tab-disconnected) are different failure
-				// classes and keep their existing generic shape.
+				// classes and keep their existing generic shape. Both branches are
+				// distinct telemetry STATUSES (Wave-A's structured "no-tab" refusal
+				// vs. every other bridge failure) so the two reliability stories
+				// don't get averaged together in aggregate counts.
 				const payload:
 					| McpBridgeRefusal
 					| { ok: false; message: string; bridge: string } =
@@ -265,10 +333,14 @@ export function createByornMcpServer(pin: {
 					projectId: pin.projectId,
 					event: "tool_call",
 					verb: name,
+					source: "mcp",
 					meta: {
 						mutating: descriptor.mutating,
 						ok: false,
 						bridge: error.code,
+						status: error.code === "no-tab" ? "bridge_refused" : "bridge_error",
+						durationMs: elapsed(),
+						timelineChanged: false,
 						...("refusal" in payload ? { refusal: payload.refusal } : {}),
 					},
 				});
