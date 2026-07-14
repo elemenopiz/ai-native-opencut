@@ -1,3 +1,4 @@
+import { toast } from "sonner";
 import type { EditorCore } from "@/core";
 import type { MediaAsset } from "@/types/assets";
 import { storageService } from "@/services/storage/service";
@@ -27,6 +28,26 @@ import { useBackgroundTasksStore } from "@/stores/background-tasks-store";
  * rounds to even dimensions for every fixture/aspect-ratio tested so far.
  */
 const AUTO_PROXY_RESOLUTION: ProxyResolution = "720p";
+
+/**
+ * Cheap WebCodecs capability re-check for a passthrough asset's persisted
+ * codec (see `PassthroughCodec`) — `VideoDecoder.isConfigSupported()` is a
+ * config check, NOT a decode and NOT a file re-open/re-probe. Guarded for
+ * environments without `VideoDecoder` (tests/SSR/older browsers): treated as
+ * "unknown, assume decodable" rather than crashing or false-flagging every
+ * asset, mirroring the "never make this worse than before" posture the rest
+ * of the ingest pipeline uses (see normalize-media.ts / processing.ts).
+ */
+async function isPassthroughCodecSupported(codec: string): Promise<boolean> {
+	if (typeof VideoDecoder === "undefined") return true;
+	try {
+		const { supported } = await VideoDecoder.isConfigSupported({ codec });
+		return supported !== false;
+	} catch (error) {
+		console.warn("VideoDecoder.isConfigSupported check failed:", error);
+		return true;
+	}
+}
 
 export class MediaManager {
 	private assets: MediaAsset[] = [];
@@ -180,6 +201,16 @@ export class MediaManager {
 				.map((a) => this.loadProxyForAsset({ assetId: a.id, projectId }));
 			await Promise.all(proxyPromises);
 
+			// Proactive cross-browser decodability re-probe (HEVC cross-browser
+			// decode design, Option A part 2): a passthrough asset's codec was
+			// only ever confirmed decodable by whichever browser ingested it.
+			// Re-check it here — after the proxy load above, so the toast can
+			// say whether a fallback proxy is actually ready — instead of
+			// trusting that decision forever and letting an unsupported codec
+			// surface as a mid-scrub VideoCache crash. Never blocks/fails the
+			// load: this is additive reporting only.
+			await this.reprobePassthroughDecodability();
+
 			this.notify();
 		} catch (error) {
 			console.error("Failed to load media assets:", error);
@@ -187,6 +218,41 @@ export class MediaManager {
 			this.isLoading = false;
 			this.notify();
 		}
+	}
+
+	/**
+	 * Re-checks every passthrough (non-H.264, persisted-as-original) video
+	 * asset's decodability in THIS browser via a cheap WebCodecs capability
+	 * check, and flags the ones that fail. Never re-opens the file, never
+	 * decodes, never blocks the caller's load on a slow asset — all checks run
+	 * in parallel and failures are reported, not thrown.
+	 */
+	private async reprobePassthroughDecodability(): Promise<void> {
+		const candidates = this.assets.filter(
+			(a) => a.type === "video" && a.passthrough,
+		);
+		if (candidates.length === 0) return;
+
+		await Promise.all(
+			candidates.map(async (asset) => {
+				if (!asset.passthrough) return;
+				const supported = await isPassthroughCodecSupported(
+					asset.passthrough.codec,
+				);
+				if (supported) return;
+
+				this.assets = this.assets.map((a) =>
+					a.id === asset.id ? { ...a, decodeUnsupported: true } : a,
+				);
+
+				const hasProxyFallback = Boolean(asset.proxy);
+				toast.warning(
+					hasProxyFallback
+						? `"${asset.name}" can't be decoded in this browser — playing from a lower-quality proxy instead.`
+						: `"${asset.name}" can't be decoded in this browser and no lower-quality proxy is available yet. Try Chrome or Safari, or wait for the proxy to finish generating.`,
+				);
+			}),
+		);
 	}
 
 	async clearProjectMedia({ projectId }: { projectId: string }): Promise<void> {
