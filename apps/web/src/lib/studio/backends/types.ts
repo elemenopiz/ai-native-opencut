@@ -63,6 +63,11 @@ export interface BackendCapabilities {
 	supportsLastFrame: boolean;
 	/** Reference-conditioned edits (image→image identity carry when no seed). */
 	supportsReferenceEdits: boolean;
+	/** True when this backend accepts `generateAudio: false` to render a
+	 *  silent clip (e.g. Seedance's `generate_audio` flag). Backends with
+	 *  native, inseparable audio (e.g. Veo) omit this — there's no way to turn
+	 *  it off, so the UI shouldn't offer a toggle it can't honor. */
+	supportsAudioToggle?: boolean;
 	// Audio-oriented
 	/** True when this backend needs a source video (video-to-audio "score"
 	 *  generation, e.g. MMAudio) rather than working from text alone. */

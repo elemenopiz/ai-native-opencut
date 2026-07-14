@@ -11,6 +11,7 @@ import {
 	availableBackends,
 	defaultBackend,
 	ensureBackendsRegistered,
+	getBackend,
 	type GenerationBackend,
 } from "@/lib/studio/backends";
 import { costFor } from "@/lib/credits/cost-table";
@@ -47,12 +48,26 @@ export async function POST(req: Request) {
 			size?: ImageSize;
 			quality?: ImageQuality;
 			n?: number;
+			referenceImageUrl?: string;
+			referenceImages?: string[];
+			/** Manual model pin (a backend id) → the model picker's chosen image
+			 *  backend. Absent ⇒ the platform default. Mirrors `/api/studio/generate`'s
+			 *  `model` field. */
+			model?: string;
 		};
 
 		// Default quality is "medium" (1K) for the beta — 2K "high" renders cost
 		// ~3× more real provider spend on the shared Gemini pool for little gain
 		// in a reference/reel context. Callers can still ask for "high".
-		const { prompt, size = "1024x1024", quality = "medium", n = 1 } = body;
+		const {
+			prompt,
+			size = "1024x1024",
+			quality = "medium",
+			n = 1,
+			referenceImageUrl,
+			referenceImages,
+			model,
+		} = body;
 		// Clamp the batch size: `n` now drives a loop of provider calls (one
 		// submit per image), so an unclamped client value must not fan out.
 		const count = Math.min(4, Math.max(1, Math.floor(n)));
@@ -64,14 +79,20 @@ export async function POST(req: Request) {
 			);
 		}
 
-		// Routed, not hardcoded: the default image backend (Gemini Flash Image),
-		// falling back to whichever image backend has a key configured — so a
-		// self-hosted instance with only an OpenAI key still works.
+		// Routed: a manually pinned model (from the panel's model picker) when
+		// it's actually configured, else the platform default image backend
+		// (Gemini Flash Image), else whichever image backend has a key
+		// configured — so a self-hosted instance with only an OpenAI key still
+		// works.
 		ensureBackendsRegistered();
+		const pinned = model ? getBackend(model) : undefined;
 		const preferred = defaultBackend("image");
-		const backend: GenerationBackend | undefined = preferred?.isAvailable()
-			? preferred
-			: availableBackends("image")[0];
+		const backend: GenerationBackend | undefined =
+			pinned?.isAvailable() && pinned.modality === "image"
+				? pinned
+				: preferred?.isAvailable()
+					? preferred
+					: availableBackends("image")[0];
 		if (!backend) {
 			return NextResponse.json(
 				{ error: "No image provider is configured on this server." },
@@ -111,6 +132,8 @@ export async function POST(req: Request) {
 						prompt,
 						size,
 						quality,
+						referenceImageUrl,
+						referenceImages,
 					});
 					if (submitted.status !== "completed" || !submitted.mediaUrl) {
 						throw new Error(submitted.error ?? "Image generation failed");

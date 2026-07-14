@@ -1,13 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Slider } from "@/components/ui/slider";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Coins01Icon } from "@hugeicons/core-free-icons";
 import { cn } from "@/utils/ui";
 import type {
 	VideoResolution,
@@ -37,6 +33,10 @@ import { useFrameChainStore } from "@/stores/frame-chain-store";
 import { useOmniReferenceChainStore } from "@/stores/omni-reference-chain-store";
 import { usePersonaStore } from "@/stores/persona-store";
 import { EnhancePromptButton } from "@/components/editor/ai/enhance-prompt-button";
+import {
+	ChipGrid,
+	GenerationBottomBar,
+} from "@/components/studio/generation-bottom-bar";
 import { toast } from "sonner";
 
 interface GenerationFormProps {
@@ -53,6 +53,14 @@ interface GenerationFormProps {
 		mode: VideoMode;
 		personaId?: string;
 		consistencyMode?: "high" | "fast";
+		generateAudio?: boolean;
+		/** Manual model pin — the routed backend id from the bottom bar's model
+		 *  picker. The generate route accepts this as `model` and forwards it to
+		 *  the router's `preferredBackendId`; omitted ⇒ auto-route (unchanged
+		 *  behavior). Additive-only: `useStudioGeneration`'s `generate()` just
+		 *  `JSON.stringify`s whatever params it's given, so this rides along
+		 *  without any hook-signature change. */
+		model?: string;
 	}) => void;
 	onGenerateMultiframe?: (
 		keyframes: string[],
@@ -97,20 +105,18 @@ const CONSISTENCY_OPTIONS: {
 	},
 ];
 
-/** Small frame glyph so orientation reads at a glance. */
-function OrientationGlyph({ value }: { value: VideoOrientation }) {
-	const dims =
-		value === "portrait"
-			? { w: 10, h: 16 }
-			: value === "square"
-				? { w: 14, h: 14 }
-				: { w: 16, h: 10 };
-	return (
-		<span
-			className="rounded-[2px] border-2 border-current"
-			style={{ width: dims.w, height: dims.h }}
-		/>
-	);
+/** Candidate seconds to offer as Duration chips — filtered down to whatever
+ *  falls inside the selected backend's real [min, max] range, with the range's
+ *  own endpoints always included so every backend gets at least one chip. */
+const DURATION_STEP_CANDIDATES = [3, 4, 5, 6, 7, 8, 10, 12, 15, 20, 25, 30];
+
+function durationChipOptions(min: number, max: number) {
+	const values = new Set<number>([min, max]);
+	for (const c of DURATION_STEP_CANDIDATES)
+		if (c > min && c < max) values.add(c);
+	return [...values]
+		.sort((a, b) => a - b)
+		.map((v) => ({ value: v, label: `${v}s` }));
 }
 
 export function GenerationForm({
@@ -132,11 +138,11 @@ export function GenerationForm({
 	} = useStudioSettingsStore();
 
 	// ── Backend-aware controls ────────────────────────────────────────────────
-	// The catalog of configured video backends (BytePlus / Kling / …),
+	// The catalog of configured video backends (BytePlus / Kling / Veo / …),
 	// fetched client-safe from GET /api/studio/backends. Each carries its real
 	// capability surface (resolutions / orientations / duration range / modes /
-	// seed-lock / omni-reference / last-frame) so the form offers only what the
-	// SELECTED backend actually supports instead of a flat option set.
+	// seed-lock / omni-reference / last-frame / audio-toggle) so the bottom bar's
+	// settings popover offers only what the SELECTED backend actually supports.
 	const { backends } = useBackends("video");
 	const [backendId, setBackendId] = useState<string>("");
 	// Resolve the active backend: the user's pick, else the platform default,
@@ -188,12 +194,17 @@ export function GenerationForm({
 		min: 4,
 		max: 15,
 	};
+	const durationOptions = useMemo(
+		() => durationChipOptions(durationRange.min, durationRange.max),
+		[durationRange.min, durationRange.max],
+	);
 	const supportsSeedLock = selectedBackend
 		? selectedBackend.supportsSeedLock
 		: true;
 	const supportsOmniRef = selectedBackend
 		? selectedBackend.supportsOmniReference
 		: true;
+	const supportsAudioToggle = selectedBackend?.supportsAudioToggle ?? false;
 
 	// Active persona drives reference-conditioned character consistency. When set,
 	// generation is forced to image-to-video and the reference frame is supplied
@@ -205,7 +216,15 @@ export function GenerationForm({
 
 	// Transient per-generation inputs.
 	const [prompt, setPrompt] = useState("");
+	// Cosmetic, local-only label — not sent to the provider. Palmier-style
+	// "Name" field so a shot is easy to tell apart in a busy panel before it has
+	// a take; surfaces in this form's own toasts only.
+	const [name, setName] = useState("");
 	const [seed, setSeed] = useState<string>("");
+	// Silent-render toggle — only meaningful for backends that can actually turn
+	// generated audio off (see `supportsAudioToggle`). Defaults to on (provider
+	// default) so backends without the capability are never silently muted.
+	const [audioOn, setAudioOn] = useState(true);
 	// Omni references (images + videos) — drag from Assets, drop, or browse.
 	const [refMedia, setRefMedia] = useState<ReferenceMediaItem[]>([]);
 	const refUploading = refMedia.some((r) => r.status === "uploading");
@@ -225,6 +244,8 @@ export function GenerationForm({
 	// backend actually conditions on omni references; otherwise Omni degrades to
 	// plain text-to-video and we hide the attach UI. Persona always uses refs.
 	const showOmniRefs = (isOmni && supportsOmniRef) || !!activePersona;
+	const showReferencesRow =
+		showOmniRefs || genMode === "first-last" || isMultiframe;
 
 	// Coerce sticky settings that the newly selected backend can't honor: an
 	// unsupported resolution/orientation, an out-of-range duration, a seed lock
@@ -259,6 +280,14 @@ export function GenerationForm({
 		}
 		if (Object.keys(patch).length > 0) setSettings(patch);
 	}, [selectedBackend]);
+
+	// A backend without the audio-toggle capability can't honor `audioOn` at
+	// all — reset to "on" (provider default) so switching TO an untoggleable
+	// backend never carries a stale "off" choice that would silently be ignored.
+	// eslint-disable-next-line react-hooks/exhaustive-deps
+	useEffect(() => {
+		if (!supportsAudioToggle) setAudioOn(true);
+	}, [supportsAudioToggle]);
 
 	// ── @mention referencing (Seedance omni-reference) ───────────────────────
 	// Each ready attachment gets an ordered handle — @Image1.., @Video1.. — that
@@ -453,6 +482,35 @@ export function GenerationForm({
 		resolution,
 	);
 
+	// Bottom-bar trigger summary — "Seedance 2 · 1080p · 5s · 16:9" — the whole
+	// generation recipe at a glance without opening the popover.
+	const summary = useMemo(() => {
+		const modelLabel = selectedBackend?.label ?? "Auto";
+		const ratio =
+			ORIENTATIONS.find((o) => o.value === orientation)?.ratio ?? orientation;
+		const parts = [modelLabel, resolution, `${duration}s`, ratio];
+		if (!isMultiframe && count > 1) parts.push(`×${count}`);
+		return parts.join(" · ");
+	}, [selectedBackend, resolution, duration, orientation, count, isMultiframe]);
+
+	const helperText = needsReference
+		? isMultiframe
+			? "Add at least 2 keyframes to generate"
+			: "Add a first frame to generate"
+		: refUploading
+			? "Uploading references…"
+			: null;
+
+	const submitLabel = mfBusy
+		? "Generating segments…"
+		: busy
+			? "Generating…"
+			: isMultiframe
+				? `Generate ${Math.max(0, readyKeyframes.length - 1)} segments`
+				: count > 1
+					? `Generate ${count} takes`
+					: "Generate";
+
 	async function handleGenerate() {
 		if (!prompt.trim() || needsReference || refUploading || generating) return;
 		if (inFlightRef.current) return;
@@ -465,6 +523,10 @@ export function GenerationForm({
 	}
 
 	async function runGenerate() {
+		if (name.trim()) {
+			toast.info(`Generating "${name.trim()}"…`);
+		}
+
 		// Multiframe runs its own orchestration: N-1 flf2v segments placed onto
 		// the timeline in order (Seedance can't take >2 frames in one call).
 		if (isMultiframe) {
@@ -552,6 +614,11 @@ export function GenerationForm({
 				: "text-to-video") as VideoMode,
 			personaId: activePersona?.id,
 			consistencyMode: activePersona ? consistencyMode : undefined,
+			generateAudio: supportsAudioToggle ? audioOn : undefined,
+			// Manual model pin, only once the catalog has actually resolved a
+			// choice — omitted while loading so the server's auto-route (today:
+			// Seedance) is unaffected, matching the pre-bottom-bar behavior.
+			model: selectedBackend?.id,
 		};
 
 		// Fire `count` variations at once. With no locked seed each picks its own
@@ -559,125 +626,268 @@ export function GenerationForm({
 		for (let i = 0; i < count; i++) onGenerate(params);
 	}
 
-	return (
-		<div className={cn("flex flex-col gap-4", className)}>
-			{/* Model — pick which configured video backend to generate with. The
-			    controls below (resolution / orientation / duration / mode / seed)
-			    reshape to that backend's real capabilities. Hidden when only one
-			    backend is configured (nothing to switch between). */}
+	// ── Settings popover content — everything but the prompt lives here ──────
+	const settingsContent = (
+		<>
 			{backends.length > 1 && (
 				<div className="space-y-1.5">
-					<Label className="text-xs">Model</Label>
-					<div className="flex flex-wrap gap-2">
+					<span className="text-[11px] font-medium text-muted-foreground">
+						Model
+					</span>
+					<div className="flex flex-wrap gap-1.5">
 						{backends.map((b) => (
 							<button
 								key={b.id}
+								type="button"
 								onClick={() => setBackendId(b.id)}
 								title={`${b.vendor} · ${b.safetyTier}`}
 								className={cn(
-									"py-1.5 px-2.5 rounded-md text-xs font-medium border transition-colors",
+									"rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors",
 									selectedBackend?.id === b.id
-										? "bg-primary text-primary-foreground border-primary"
-										: "border-border text-muted-foreground hover:border-foreground",
+										? "border-primary bg-primary text-primary-foreground"
+										: "border-border text-muted-foreground hover:border-foreground hover:text-foreground",
 								)}
 							>
 								{b.label}
 							</button>
 						))}
 					</div>
-					{selectedBackend && (
-						<p className="text-[10px] text-muted-foreground">
-							{selectedBackend.vendor}
-						</p>
-					)}
 				</div>
 			)}
 
-			{/* Persona — when active, replaces mode selection and drives
-			    reference-conditioned character consistency. */}
+			{!activePersona && availableModes.length > 1 && (
+				<ChipGrid
+					label="Reference mode"
+					options={availableModes.map((m) => ({
+						value: m.value,
+						label: m.label,
+						title: m.hint,
+					}))}
+					value={genMode}
+					onChange={(v) => setSettings({ genMode: v })}
+				/>
+			)}
+
 			{activePersona && (
-				<div className="rounded-lg border border-primary/40 bg-primary/5 p-3 space-y-2.5">
-					<div className="flex items-center gap-2">
-						<img
-							src={activePersona.anchorImageUrl}
-							alt={activePersona.name}
-							className="h-9 w-9 rounded object-cover shrink-0"
-						/>
-						<div className="min-w-0 flex-1">
-							<p className="text-xs font-medium truncate">
-								Persona: {activePersona.name}
-							</p>
-							<p className="text-[10px] text-muted-foreground">
-								Same character every shot · image-to-video
-							</p>
-						</div>
+				<ChipGrid
+					label="Consistency"
+					options={CONSISTENCY_OPTIONS.map((o) => ({
+						value: o.value,
+						label: o.label,
+						title: o.hint,
+					}))}
+					value={consistencyMode}
+					onChange={(v) => setSettings({ consistencyMode: v })}
+				/>
+			)}
+
+			<div className="space-y-1.5">
+				<span className="text-[11px] font-medium text-muted-foreground">
+					Camera motion
+				</span>
+				<CameraPresetPicker
+					value={cameraPreset}
+					onChange={(v) => setSettings({ cameraPreset: v })}
+				/>
+			</div>
+
+			<ChipGrid
+				label="Duration"
+				options={durationOptions}
+				value={duration}
+				onChange={(v) => setSettings({ duration: v })}
+				hint={isMultiframe ? "per clip" : undefined}
+			/>
+
+			<ChipGrid
+				label="Aspect ratio"
+				options={availableOrientations.map((o) => ({
+					value: o.value,
+					label: o.ratio,
+					title: o.label,
+				}))}
+				value={orientation}
+				onChange={(v) => setSettings({ orientation: v })}
+			/>
+
+			<ChipGrid
+				label="Resolution"
+				options={availableResolutions.map((r) => ({
+					value: r.value,
+					label: r.label,
+					title: r.hint,
+				}))}
+				value={resolution}
+				onChange={(v) => setSettings({ resolution: v })}
+			/>
+
+			{supportsAudioToggle && (
+				<ChipGrid
+					label="Audio"
+					options={[
+						{ value: "on", label: "On" },
+						{ value: "off", label: "Off" },
+					]}
+					value={audioOn ? "on" : "off"}
+					onChange={(v) => setAudioOn(v === "on")}
+					hint="model-generated sound"
+				/>
+			)}
+
+			{supportsSeedLock && (
+				<div className="space-y-1.5">
+					<div className="flex items-center justify-between">
+						<span className="text-[11px] font-medium text-muted-foreground">
+							Seed
+						</span>
 						<button
-							onClick={() => clearPersona(null)}
-							className="text-[10px] text-muted-foreground underline shrink-0"
+							type="button"
+							onClick={() => setSettings({ seedLocked: !seedLocked })}
+							className={cn(
+								"text-[11px] px-2 py-0.5 rounded border transition-colors",
+								seedLocked
+									? "border-primary text-primary bg-primary/10"
+									: "border-border text-muted-foreground hover:border-foreground",
+							)}
 						>
-							Clear
+							{seedLocked ? "Locked" : "Random"}
 						</button>
 					</div>
-
-					{/* Consistency toggle */}
-					<div className="space-y-1">
-						<span className="text-[10px] text-muted-foreground">
-							Consistency
-						</span>
-						<div className="flex gap-1.5">
-							{CONSISTENCY_OPTIONS.map((opt) => (
-								<button
-									key={opt.value}
-									onClick={() => setSettings({ consistencyMode: opt.value })}
-									title={opt.hint}
-									className={cn(
-										"flex-1 py-1 rounded text-[11px] font-medium border transition-colors whitespace-nowrap",
-										consistencyMode === opt.value
-											? "bg-primary text-primary-foreground border-primary"
-											: "border-border text-muted-foreground hover:border-foreground",
-									)}
-								>
-									{opt.label}
-								</button>
-							))}
-						</div>
-						<p className="text-[10px] text-muted-foreground">
-							{
-								CONSISTENCY_OPTIONS.find((o) => o.value === consistencyMode)
-									?.hint
-							}
-						</p>
-					</div>
+					<Input
+						type="number"
+						placeholder="Leave blank for random"
+						value={seed}
+						disabled={!seedLocked}
+						onChange={(e) => setSeed(e.target.value)}
+						className="h-7 text-xs"
+					/>
 				</div>
 			)}
 
-			{/* Reference mode — Omni reference or First & last frame. Hidden
-			    while a persona is active (persona drives its own consistency). */}
-			{!activePersona && (
-				<div className="space-y-1.5">
-					<Label className="text-xs">Mode</Label>
-					<div className="flex gap-2">
-						{availableModes.map((m) => (
-							<button
-								key={m.value}
-								onClick={() => setSettings({ genMode: m.value })}
-								className={cn(
-									"flex-1 py-1.5 rounded-md text-xs font-medium border transition-colors",
-									genMode === m.value
-										? "bg-primary text-primary-foreground border-primary"
-										: "border-border text-muted-foreground hover:border-foreground",
-								)}
-							>
-								{m.label}
-							</button>
-						))}
+			{!isMultiframe && (
+				<ChipGrid
+					label="Variations"
+					options={[1, 2, 3, 4].map((n) => ({ value: n, label: String(n) }))}
+					value={count}
+					onChange={setCount}
+					hint={count === 1 ? "one take" : `${count} at once`}
+				/>
+			)}
+		</>
+	);
+
+	return (
+		<div className={cn("flex flex-col gap-3", className)}>
+			{/* Persona — when active, replaces mode selection and drives
+			    reference-conditioned character consistency. Consistency tier lives
+			    in the settings popover below. */}
+			{activePersona && (
+				<div className="flex items-center gap-2 rounded-lg border border-primary/40 bg-primary/5 p-2">
+					<img
+						src={activePersona.anchorImageUrl}
+						alt={activePersona.name}
+						className="h-8 w-8 rounded object-cover shrink-0"
+					/>
+					<div className="min-w-0 flex-1">
+						<p className="text-xs font-medium truncate">{activePersona.name}</p>
+						<p className="text-[10px] text-muted-foreground">
+							Same character every shot
+						</p>
 					</div>
-					<p className="text-[10px] text-muted-foreground">
-						{GEN_MODES.find((m) => m.value === genMode)?.hint}
-					</p>
-					{/* A chained/extracted first frame is parked but the selected model
-					    has no first-frame-capable mode — say so instead of silently
-					    dropping it from the payload. */}
+					<button
+						type="button"
+						onClick={() => clearPersona(null)}
+						className="text-[10px] text-muted-foreground underline shrink-0"
+					>
+						Clear
+					</button>
+				</div>
+			)}
+
+			{/* References — Omni reference chips, First/Last frame slots, or the
+			    multiframe keyframe grid, whichever the active mode calls for. Reused
+			    verbatim from the prior layout, just relocated above the prompt. */}
+			{showReferencesRow && (
+				<div className="space-y-1.5">
+					<div className="flex items-center justify-between">
+						<Label className="text-xs">References</Label>
+						<span className="text-[10px] text-muted-foreground">
+							{isMultiframe
+								? readyKeyframes.length >= 2
+									? `${readyKeyframes.length - 1} clip${readyKeyframes.length - 1 === 1 ? "" : "s"}`
+									: "add ≥ 2"
+								: "optional · drag, drop, or @mention"}
+						</span>
+					</div>
+
+					{showOmniRefs && (
+						<ReferenceMediaUploader
+							items={refMedia}
+							onChange={setRefMedia}
+							handles={handleMap}
+							disabled={busy}
+						/>
+					)}
+
+					{!activePersona && genMode === "first-last" && (
+						<div className="flex gap-2">
+							<FrameSlot
+								label="First frame"
+								value={firstFrameUrl}
+								onChange={setFirstFrameUrl}
+								disabled={busy}
+							/>
+							<FrameSlot
+								label="Last frame · optional"
+								value={lastFrameUrl}
+								onChange={setLastFrameUrl}
+								disabled={busy}
+							/>
+						</div>
+					)}
+
+					{isMultiframe && (
+						<div className="grid grid-cols-2 gap-2">
+							{keyframes.map((url, i) => (
+								<div key={i} className="relative">
+									<FrameSlot
+										label={`Frame ${i + 1}`}
+										value={url}
+										onChange={(v) =>
+											setKeyframes((prev) =>
+												prev.map((k, idx) => (idx === i ? v : k)),
+											)
+										}
+										disabled={busy || mfBusy}
+									/>
+									{keyframes.length > 2 && (
+										<button
+											type="button"
+											onClick={() =>
+												setKeyframes((prev) =>
+													prev.filter((_, idx) => idx !== i),
+												)
+											}
+											className="absolute -right-1 -top-1 z-10 flex size-4 items-center justify-center rounded-full border border-border bg-background text-[10px] leading-none text-muted-foreground hover:text-foreground"
+											aria-label={`Remove frame ${i + 1}`}
+										>
+											×
+										</button>
+									)}
+								</div>
+							))}
+							{keyframes.length < 10 && (
+								<button
+									type="button"
+									onClick={() => setKeyframes((prev) => [...prev, null])}
+									className="col-span-2 w-full rounded-md border border-dashed border-border py-1.5 text-[11px] text-muted-foreground hover:border-foreground hover:text-foreground"
+								>
+									+ Add keyframe
+								</button>
+							)}
+						</div>
+					)}
+
 					{firstFrameUrl &&
 						!availableModes.some((m) => m.value === "first-last") && (
 							<p className="text-[10px] text-amber-600 dark:text-amber-500">
@@ -689,137 +899,19 @@ export function GenerationForm({
 				</div>
 			)}
 
-			{/* Omni references — drag from Assets, drop, or browse; @mention them.
-			    Hidden when the selected backend can't condition on omni refs. */}
-			{showOmniRefs && (
-				<div className="space-y-1.5">
-					<div className="flex items-center justify-between">
-						<Label className="text-xs">References</Label>
-						<span className="text-[10px] text-muted-foreground">
-							optional · drag, drop, or @mention
-						</span>
-					</div>
-					<ReferenceMediaUploader
-						items={refMedia}
-						onChange={setRefMedia}
-						handles={handleMap}
-						disabled={busy}
-					/>
-				</div>
-			)}
+			{/* Name — optional, local mnemonic only (not sent to the provider). */}
+			<div className="space-y-1">
+				<Input
+					value={name}
+					onChange={(e) => setName(e.target.value)}
+					placeholder="Name (optional)"
+					className="h-8 text-sm border-border"
+				/>
+			</div>
 
-			{/* First & last frame */}
-			{!activePersona && genMode === "first-last" && (
-				<div className="space-y-1.5">
-					<Label className="text-xs">Frames</Label>
-					<div className="flex gap-2">
-						<FrameSlot
-							label="First frame"
-							value={firstFrameUrl}
-							onChange={setFirstFrameUrl}
-							disabled={busy}
-						/>
-						<FrameSlot
-							label="Last frame · optional"
-							value={lastFrameUrl}
-							onChange={setLastFrameUrl}
-							disabled={busy}
-						/>
-					</div>
-				</div>
-			)}
-
-			{/* Multiframe — 2–10 ordered keyframes; each consecutive pair becomes a
-			    flf2v clip stitched onto the timeline. */}
-			{isMultiframe && (
-				<div className="space-y-1.5">
-					<div className="flex items-center justify-between">
-						<Label className="text-xs">Keyframes</Label>
-						<span className="text-[10px] text-muted-foreground">
-							{readyKeyframes.length >= 2
-								? `${readyKeyframes.length - 1} clip${readyKeyframes.length - 1 === 1 ? "" : "s"}`
-								: "add ≥ 2"}
-						</span>
-					</div>
-					<div className="grid grid-cols-2 gap-2">
-						{keyframes.map((url, i) => (
-							<div key={i} className="relative">
-								<FrameSlot
-									label={`Frame ${i + 1}`}
-									value={url}
-									onChange={(v) =>
-										setKeyframes((prev) =>
-											prev.map((k, idx) => (idx === i ? v : k)),
-										)
-									}
-									disabled={busy || mfBusy}
-								/>
-								{keyframes.length > 2 && (
-									<button
-										type="button"
-										onClick={() =>
-											setKeyframes((prev) => prev.filter((_, idx) => idx !== i))
-										}
-										className="absolute -right-1 -top-1 z-10 flex size-4 items-center justify-center rounded-full border border-border bg-background text-[10px] leading-none text-muted-foreground hover:text-foreground"
-										aria-label={`Remove frame ${i + 1}`}
-									>
-										×
-									</button>
-								)}
-							</div>
-						))}
-					</div>
-					{keyframes.length < 10 && (
-						<button
-							type="button"
-							onClick={() => setKeyframes((prev) => [...prev, null])}
-							className="w-full rounded-md border border-dashed border-border py-1.5 text-[11px] text-muted-foreground hover:border-foreground hover:text-foreground"
-						>
-							+ Add keyframe
-						</button>
-					)}
-					<p className="text-[10px] text-muted-foreground">
-						Generates {Math.max(0, readyKeyframes.length - 1)} segment
-						{readyKeyframes.length - 1 === 1 ? "" : "s"} in order and drops them
-						on the timeline.
-					</p>
-				</div>
-			)}
-
-			{/* Prompt — supports @mention referencing of attached media */}
+			{/* Prompt — the hero field. Supports @mention referencing of attached
+			    media. */}
 			<div className="space-y-1.5">
-				<div className="flex items-center justify-between">
-					<Label className="text-xs">Prompt</Label>
-					<EnhancePromptButton
-						mode="video"
-						getPrompt={() => prompt}
-						setPrompt={setPrompt}
-						getContext={() => {
-							// Ground the rewrite in what each @handle actually points at, so
-							// the model has a reason to keep — not just permission to keep —
-							// the literal token (see enhance-prompt/route.ts's HARD RULE).
-							// The route's schema caps assetNotes at 10 entries × 500 chars and
-							// 400s the whole request past that — and attachments are uncapped
-							// here — so stay inside the contract instead of silently breaking
-							// Enhance for prolific attachers (handles 11+ lose grounding only;
-							// the client-side restore backstop still covers them).
-							const assetNotes = referenceHandles.length
-								? referenceHandles
-										.slice(0, 10)
-										.map(
-											(h) =>
-												`${h.handle} = attached reference ${h.kind} ("${h.name.slice(0, 200)}")`,
-										)
-								: undefined;
-							const persona = activePersona
-								? `${activePersona.name}: ${activePersona.descriptor}`
-								: undefined;
-							return assetNotes || persona
-								? { assetNotes, persona }
-								: undefined;
-						}}
-					/>
-				</div>
 				<div className="relative">
 					<Textarea
 						ref={promptRef}
@@ -837,9 +929,40 @@ export function GenerationForm({
 						onKeyUp={(e) => refreshMention(e.currentTarget)}
 						onKeyDown={handlePromptKeyDown}
 						onBlur={() => setMention(null)}
-						rows={3}
-						className="resize-none text-sm border-border"
+						rows={4}
+						className="resize-none text-sm border-border pr-9"
 					/>
+					<div className="absolute right-1.5 top-1.5">
+						<EnhancePromptButton
+							mode="video"
+							getPrompt={() => prompt}
+							setPrompt={setPrompt}
+							getContext={() => {
+								// Ground the rewrite in what each @handle actually points at, so
+								// the model has a reason to keep — not just permission to keep —
+								// the literal token (see enhance-prompt/route.ts's HARD RULE).
+								// The route's schema caps assetNotes at 10 entries × 500 chars and
+								// 400s the whole request past that — and attachments are uncapped
+								// here — so stay inside the contract instead of silently breaking
+								// Enhance for prolific attachers (handles 11+ lose grounding only;
+								// the client-side restore backstop still covers them).
+								const assetNotes = referenceHandles.length
+									? referenceHandles
+											.slice(0, 10)
+											.map(
+												(h) =>
+													`${h.handle} = attached reference ${h.kind} ("${h.name.slice(0, 200)}")`,
+											)
+									: undefined;
+								const persona = activePersona
+									? `${activePersona.name}: ${activePersona.descriptor}`
+									: undefined;
+								return assetNotes || persona
+									? { assetNotes, persona }
+									: undefined;
+							}}
+						/>
+					</div>
 
 					{mention && mentionMatches.length > 0 && (
 						<div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-md border border-border bg-popover shadow-md">
@@ -905,197 +1028,24 @@ export function GenerationForm({
 				)}
 			</div>
 
-			{/* Camera & motion */}
-			<div className="space-y-1.5">
-				<Label className="text-xs">Camera motion</Label>
-				<CameraPresetPicker
-					value={cameraPreset}
-					onChange={(v) => setSettings({ cameraPreset: v })}
-				/>
-			</div>
-
-			{/* Orientation */}
-			<div className="space-y-1.5">
-				<Label className="text-xs">Orientation</Label>
-				<div className="flex gap-2">
-					{availableOrientations.map((o) => (
-						<button
-							key={o.value}
-							onClick={() => setSettings({ orientation: o.value })}
-							className={cn(
-								"flex-1 flex flex-col items-center gap-1 py-2 rounded-md text-xs font-medium border transition-colors",
-								orientation === o.value
-									? "bg-primary text-primary-foreground border-primary"
-									: "border-border text-muted-foreground hover:border-foreground",
-							)}
-						>
-							<span className="h-4 flex items-center">
-								<OrientationGlyph value={o.value} />
-							</span>
-							<span>{o.label}</span>
-							<span className="opacity-70">{o.ratio}</span>
-						</button>
-					))}
-				</div>
-			</div>
-
-			{/* Seed — only shown for backends that accept a reproducible seed.
-			    Seedless models (e.g. Kling, Luma) hide this entirely. */}
-			{supportsSeedLock && (
-				<div className="space-y-1.5">
-					<div className="flex items-center justify-between">
-						<Label className="text-xs">Seed</Label>
-						<button
-							onClick={() => setSettings({ seedLocked: !seedLocked })}
-							className={cn(
-								"text-xs px-2 py-0.5 rounded border transition-colors",
-								seedLocked
-									? "border-primary text-primary bg-primary/10"
-									: "border-border text-muted-foreground hover:border-foreground",
-							)}
-						>
-							{seedLocked ? "Locked" : "Random"}
-						</button>
-					</div>
-					<Input
-						type="number"
-						placeholder="Leave blank for random"
-						value={seed}
-						disabled={!seedLocked}
-						onChange={(e) => setSeed(e.target.value)}
-						className="h-8 text-xs"
-					/>
-					<p className="text-xs text-muted-foreground">
-						Every take stores its seed, so you can promote any winner to 1080p —
-						no upscaling.
-					</p>
-				</div>
-			)}
-
-			{/* Resolution */}
-			<div className="space-y-1.5">
-				<Label className="text-xs">Resolution</Label>
-				<div className="flex gap-2">
-					{availableResolutions.map((r) => (
-						<button
-							key={r.value}
-							onClick={() => setSettings({ resolution: r.value })}
-							title={r.hint}
-							className={cn(
-								"flex-1 py-1.5 rounded-md text-xs font-medium border transition-colors",
-								resolution === r.value
-									? "bg-primary text-primary-foreground border-primary"
-									: "border-border text-muted-foreground hover:border-foreground",
-							)}
-						>
-							{r.label}
-						</button>
-					))}
-				</div>
-				<p className="text-xs text-muted-foreground">
-					{RESOLUTIONS.find((r) => r.value === resolution)?.hint}
+			{helperText && (
+				<p className="text-[10px] text-amber-600 dark:text-amber-500">
+					{helperText}
 				</p>
-			</div>
-
-			{/* Duration — in multiframe this is per-clip (the 15s cap is per flf2v
-			    segment); the stitched total is per-clip × number of segments. */}
-			<div className="space-y-1.5">
-				<div className="flex items-center justify-between">
-					<Label className="text-xs">
-						{isMultiframe ? "Duration / clip" : "Duration"}
-					</Label>
-					<span className="text-xs text-muted-foreground">
-						{isMultiframe && readyKeyframes.length >= 2
-							? `${duration}s × ${readyKeyframes.length - 1} = ${duration * (readyKeyframes.length - 1)}s total`
-							: `${duration}s`}
-					</span>
-				</div>
-				<Slider
-					min={durationRange.min}
-					max={durationRange.max}
-					step={1}
-					value={[duration]}
-					onValueChange={([v]) => setSettings({ duration: v })}
-				/>
-				{isMultiframe && (
-					<p className="text-[10px] text-muted-foreground">
-						A single clip caps at {durationRange.max}s — multiframe stitches
-						segments, so the full timeline runs much longer.
-					</p>
-				)}
-			</div>
-
-			{/* Variations — fire several generations at once (not for multiframe,
-			    which is itself a sequence). */}
-			{!isMultiframe && (
-				<div className="space-y-1.5">
-					<div className="flex items-center justify-between">
-						<Label className="text-xs">Variations</Label>
-						<span className="text-[10px] text-muted-foreground">
-							{count === 1 ? "one take" : `${count} takes at once`}
-						</span>
-					</div>
-					<div className="flex gap-2">
-						{[1, 2, 3, 4].map((n) => (
-							<button
-								key={n}
-								type="button"
-								onClick={() => setCount(n)}
-								className={cn(
-									"flex-1 py-1.5 rounded-md text-xs font-medium border transition-colors",
-									count === n
-										? "bg-primary text-primary-foreground border-primary"
-										: "border-border text-muted-foreground hover:border-foreground",
-								)}
-							>
-								{n}
-							</button>
-						))}
-					</div>
-				</div>
 			)}
 
-			{/* Live cost estimate — adjusts with duration, resolution & consistency */}
-			<div className="flex items-center justify-between rounded-md border border-border bg-muted/40 px-3 py-2">
-				<div className="flex flex-col">
-					<span className="text-xs font-medium">Estimated cost</span>
-					<span className="text-[10px] text-muted-foreground">
-						{isMultiframe
-							? `${Math.max(0, readyKeyframes.length - 1)} × ${duration}s · ${resolution}`
-							: `${count > 1 ? `${count} × ` : ""}${duration}s · ${resolution}`}
-						{rendersStill && " · +1 still"}
-					</span>
-				</div>
-				<span className="flex items-center gap-1 text-sm font-semibold tabular-nums">
-					<HugeiconsIcon icon={Coins01Icon} className="size-3.5" />
-					{cost.low === cost.high ? cost.high : `${cost.low}–${cost.high}`}
-				</span>
-			</div>
-
-			<Button
-				onClick={handleGenerate}
-				disabled={
+			<GenerationBottomBar
+				summary={summary}
+				settingsContent={settingsContent}
+				cost={cost}
+				onSubmit={handleGenerate}
+				submitDisabled={
 					!prompt.trim() || needsReference || refUploading || generating
 				}
-				className="w-full"
-				size="sm"
-			>
-				{mfBusy
-					? "Generating segments…"
-					: busy
-						? "Generating…"
-						: needsReference
-							? isMultiframe
-								? "Add at least 2 keyframes"
-								: "Add a first frame"
-							: refUploading
-								? "Uploading…"
-								: isMultiframe
-									? `Generate ${Math.max(0, readyKeyframes.length - 1)} segments`
-									: count > 1
-										? `Generate ${count}`
-										: "Generate"}
-			</Button>
+				busy={generating}
+				submitLabel={submitLabel}
+				testIdPrefix="video-gen"
+			/>
 		</div>
 	);
 }

@@ -169,7 +169,7 @@ export function GenerateView() {
 			<Tabs value={section} onValueChange={setSection} className="space-y-3">
 				<TabsList className="w-full grid grid-cols-3 h-8">
 					<TabsTrigger value="generate" className="text-xs">
-						Shot
+						Video
 					</TabsTrigger>
 					<TabsTrigger value="image" className="text-xs">
 						Image

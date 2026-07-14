@@ -35,6 +35,7 @@ export const byteplusSeedanceBackend: GenerationBackend = {
 		supportsOmniReference: true,
 		supportsLastFrame: true,
 		supportsReferenceEdits: false,
+		supportsAudioToggle: true,
 		intents: ["character-video", "broll-video"],
 	},
 
