@@ -109,6 +109,19 @@ function ScoreMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
 		url: string;
 	} | null>(null);
 
+	// Cancels the in-flight generation (poll loop + eventual Assets insert)
+	// started by `handleGenerate`. Set while a generation is running, cleared
+	// once it settles. Invoked from the unmount effect below and from
+	// `editor.project.subscribe` the moment the active project stops matching
+	// the one that started the generation — the poll can run for up to ~2
+	// minutes, and EditorCore is a reused singleton across client-side project
+	// switches, so this component does NOT reliably unmount just because the
+	// user navigated to a different project.
+	const cancelGenerationRef = useRef<(() => void) | null>(null);
+	useEffect(() => {
+		return () => cancelGenerationRef.current?.();
+	}, []);
+
 	// Only the most recently attached video counts as the source — MMAudio
 	// takes exactly one. Keeps the familiar reference-uploader idiom (drag
 	// from Assets, drop, or browse) while behaving like a single-video slot.
@@ -198,6 +211,39 @@ function ScoreMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
 		if (!source || source.status !== "ready") return;
 		setBusy(true);
 		setLastResult(null);
+
+		// Capture the originating project ONCE, up front — never re-read
+		// `editor.project.getActive()` after the poll resolves. The poll can run
+		// for up to ~2 minutes; re-reading "active" at that point silently
+		// attaches the result to whichever project the user happens to be in
+		// when it resolves, not the project that paid for and started the job.
+		let originProjectId: string | null = null;
+		try {
+			originProjectId = editor.project.getActive().metadata.id;
+		} catch {
+			originProjectId = null;
+		}
+
+		// Cancellation: flips once the active project stops matching
+		// `originProjectId` (the user switched projects) or the panel unmounts.
+		// The AbortController stops the poll loop's network requests outright
+		// instead of letting it spin for up to 2 minutes against a project the
+		// user already left; `cancelled` additionally gates the post-poll
+		// Assets insert in case a switch lands in the gap between the poll's
+		// last tick and the insert.
+		const controller = new AbortController();
+		let cancelled = false;
+		const cancel = () => {
+			if (cancelled) return;
+			cancelled = true;
+			controller.abort();
+		};
+		cancelGenerationRef.current = cancel;
+		const unsubscribeProject = editor.project.subscribe(() => {
+			const activeId = editor.project.getActiveOrNull()?.metadata.id ?? null;
+			if (activeId !== originProjectId) cancel();
+		});
+
 		try {
 			const res = await apiFetch("/api/studio/audio", {
 				method: "POST",
@@ -208,6 +254,7 @@ function ScoreMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
 					videoUrl: source.url,
 					duration,
 				}),
+				signal: controller.signal,
 			});
 			if (!res.ok) {
 				if (await gateOn402(res)) return;
@@ -224,7 +271,10 @@ function ScoreMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
 
 			let resultUrl = data.resultUrl;
 			if (data.status !== "completed") {
-				const outcome = await pollAudioJob(data.jobId);
+				const outcome = await pollAudioJob(data.jobId, {
+					signal: controller.signal,
+				});
+				if (outcome.status === "cancelled") return;
 				if (outcome.status !== "completed" || !outcome.resultUrl) {
 					throw new Error(outcome.error ?? "Score generation failed");
 				}
@@ -234,18 +284,25 @@ function ScoreMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
 
 			void useCreditsStore.getState().refresh();
 
+			// The project changed while this job was in flight — the credits were
+			// already spent (settled server-side), but landing the clip in
+			// whichever project is now open would silently attach it to the wrong
+			// project (MediaManager's asset list is a reused-singleton in-memory
+			// list, not keyed live off `projectId`). Skip the insert; the user can
+			// regenerate from the project they actually meant.
+			if (cancelled) {
+				toast.info(
+					"Score finished, but you've switched projects — it wasn't added. Regenerate it from that project if you still want it.",
+				);
+				return;
+			}
+
 			// MMAudio returns the source video re-muxed with the new track — land
 			// it in Assets as a video (see docs/audio-generation.md).
-			let projectId: string | null = null;
-			try {
-				projectId = editor.project.getActive().metadata.id;
-			} catch {
-				projectId = null;
-			}
-			if (projectId) {
+			if (originProjectId) {
 				const { added, mediaIds } = await addItemsToProjectMedia({
 					editor,
-					projectId,
+					projectId: originProjectId,
 					source: "ai",
 					items: [
 						{
@@ -261,16 +318,48 @@ function ScoreMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
 				}
 			}
 		} catch (err) {
+			if (controller.signal.aborted) return;
 			toast.error(
 				err instanceof Error ? err.message : "Score generation failed",
 			);
 		} finally {
+			unsubscribeProject();
+			if (cancelGenerationRef.current === cancel) {
+				cancelGenerationRef.current = null;
+			}
 			setBusy(false);
 		}
 	}
 
 	function placeOnTimeline() {
 		if (!lastResult?.mediaIds[0] || !capturedSource) return;
+
+		// Re-validate the captured span against the CURRENT timeline — nothing
+		// blocks editing while generation is in flight, so the track/element the
+		// user had selected minutes ago may have been trimmed, moved, or deleted
+		// by now. Inserting at a stale position could land on a track that holds
+		// different content, or one that no longer exists.
+		const [hit] = editor.timeline.getElementsWithTracks({
+			elements: [
+				{
+					trackId: capturedSource.trackId,
+					elementId: capturedSource.elementId,
+				},
+			],
+		});
+		const stillValid =
+			hit &&
+			hit.element.startTime === capturedSource.startTime &&
+			hit.element.duration === capturedSource.duration;
+
+		if (!stillValid) {
+			toast.error(
+				"That clip's spot on the timeline changed since generation started — the scored video is still in Assets, so drag it in manually.",
+			);
+			setCapturedSource(null);
+			return;
+		}
+
 		const element = buildElementFromMedia({
 			mediaId: lastResult.mediaIds[0],
 			mediaType: "video",
@@ -354,20 +443,52 @@ function ScoreMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
 	);
 }
 
+/** Aborts early via rejection when `signal` fires, instead of always waiting
+ *  out the full `ms` — lets {@link pollAudioJob} stop between ticks the
+ *  moment its caller cancels, rather than up to one `intervalMs` late. */
+function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
+	return new Promise((resolve, reject) => {
+		if (signal?.aborted) {
+			reject(new DOMException("Aborted", "AbortError"));
+			return;
+		}
+		const timer = setTimeout(resolve, ms);
+		signal?.addEventListener(
+			"abort",
+			() => {
+				clearTimeout(timer);
+				reject(new DOMException("Aborted", "AbortError"));
+			},
+			{ once: true },
+		);
+	});
+}
+
 /** Poll `/api/studio/audio/[jobId]` (MMAudio's async fal.ai queue) to a
- *  terminal state. Bounded — never spins forever on a stuck job. */
+ *  terminal state. Bounded — never spins forever on a stuck job. Also stops
+ *  immediately (no further network requests) once `signal` aborts — e.g. the
+ *  caller switched projects or unmounted, so the up-to-40×3s worth of polling
+ *  would otherwise keep hitting the network for a job nobody's waiting on. */
 async function pollAudioJob(
 	jobId: string,
-	{ maxAttempts = 40, intervalMs = 3000 } = {},
+	{
+		maxAttempts = 40,
+		intervalMs = 3000,
+		signal,
+	}: { maxAttempts?: number; intervalMs?: number; signal?: AbortSignal } = {},
 ): Promise<{
-	status: "completed" | "failed";
+	status: "completed" | "failed" | "cancelled";
 	resultUrl?: string;
 	error?: string;
 }> {
 	for (let attempt = 0; attempt < maxAttempts; attempt++) {
-		await new Promise((r) => setTimeout(r, intervalMs));
 		try {
-			const res = await apiFetch(`/api/studio/audio/${jobId}`);
+			await abortableSleep(intervalMs, signal);
+		} catch {
+			return { status: "cancelled" };
+		}
+		try {
+			const res = await apiFetch(`/api/studio/audio/${jobId}`, { signal });
 			const data = (await res.json()) as {
 				status: string;
 				resultUrl?: string | null;
@@ -380,6 +501,7 @@ async function pollAudioJob(
 				return { status: "failed", error: data.error ?? "Generation failed" };
 			}
 		} catch {
+			if (signal?.aborted) return { status: "cancelled" };
 			// Transient poll error — keep trying until maxAttempts.
 		}
 	}
