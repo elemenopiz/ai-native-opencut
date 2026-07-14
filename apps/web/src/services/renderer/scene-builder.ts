@@ -89,12 +89,22 @@ function buildTrackNodes({
 	canvasSize,
 	isPreview,
 	useProxy,
+	forceProxyAssetIds,
 }: {
 	tracks: TimelineTrack[];
 	mediaMap: Map<string, MediaAsset>;
 	canvasSize: TCanvasSize;
 	isPreview?: boolean;
 	useProxy?: boolean;
+	/**
+	 * Export-only cross-browser decode fallback: ids of media assets whose
+	 * original this browser can't decode but that have a portable H.264 proxy
+	 * ready (see `resolveExportProxyFallback` in `export-decodability.ts`).
+	 * Precomputed by the caller — never consulted for preview (`isPreview`)
+	 * scenes — so this stays a synchronous, additive branch: undefined/empty
+	 * means byte-identical behavior to before this fallback existed.
+	 */
+	forceProxyAssetIds?: Set<string>;
 }): BaseNode[] {
 	const nodes: BaseNode[] = [];
 
@@ -134,7 +144,14 @@ function buildTrackNodes({
 				}
 
 				const shouldUseProxy =
-					useProxy && isPreview && mediaAsset.proxyFile && mediaAsset.proxyUrl;
+					(useProxy &&
+						isPreview &&
+						mediaAsset.proxyFile &&
+						mediaAsset.proxyUrl) ||
+					(!isPreview &&
+						forceProxyAssetIds?.has(mediaAsset.id) &&
+						mediaAsset.proxyFile &&
+						mediaAsset.proxyUrl);
 
 				const effectiveFile = shouldUseProxy
 					? mediaAsset.proxyFile!
@@ -240,6 +257,14 @@ export type BuildSceneParams = {
 	background: TBackground;
 	isPreview?: boolean;
 	useProxy?: boolean;
+	/**
+	 * Export-only cross-browser decode fallback — see `buildTrackNodes`. Ignored
+	 * for preview scenes. Callers precompute this via `resolveExportProxyFallback`
+	 * (`export-decodability.ts`) before calling `buildScene`, since resolving it
+	 * requires an async `VideoDecoder.isConfigSupported` check that `buildScene`
+	 * itself stays free of.
+	 */
+	forceProxyAssetIds?: Set<string>;
 };
 
 export function buildScene({
@@ -250,6 +275,7 @@ export function buildScene({
 	background,
 	isPreview,
 	useProxy,
+	forceProxyAssetIds,
 }: BuildSceneParams) {
 	const rootNode = new RootNode({ duration });
 	const mediaMap = new Map(mediaAssets.map((m) => [m.id, m]));
@@ -278,6 +304,7 @@ export function buildScene({
 				canvasSize,
 				isPreview,
 				useProxy,
+				forceProxyAssetIds,
 			}),
 		);
 		allNodes.push(

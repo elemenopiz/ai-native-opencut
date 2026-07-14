@@ -175,6 +175,16 @@ function ExportPopover({
 				mimeType: getExportMimeType({ format }),
 			});
 
+			// Non-blocking quality-degradation notice: a clip's original video
+			// codec couldn't be decoded by this browser, so its H.264 proxy was
+			// used for export instead. Matches the CapCut-draft-export precedent
+			// below — a dismissible toast, not a blocking confirmation. Each
+			// warning already names its own clip, so joining them keeps every
+			// affected clip named without any re-parsing.
+			if (result.warnings && result.warnings.length > 0) {
+				toast.warning(result.warnings.join(" "));
+			}
+
 			editor.project.clearExportState();
 			onOpenChange(false);
 		}
