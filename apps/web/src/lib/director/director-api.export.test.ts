@@ -4,6 +4,10 @@ import { CommandManager } from "@/core/managers/commands";
 import type { ExportOptions, ExportResult } from "@/types/export";
 import { createDirectorApi } from "./director-api";
 
+/** RFC-4122-shaped UUID, matching `crypto.randomUUID()`'s output. */
+const UUID_RE =
+	/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Minimal `EditorCore` stub exposing only what `exportReel` touches:
  * `project.getActiveOrNull` / `project.export` and `timeline.getTotalDuration`.
@@ -57,6 +61,8 @@ describe("director exportReel", () => {
 		});
 		expect(result.ok).toBe(true);
 		expect(result.data).toEqual({
+			jobId: expect.stringMatching(UUID_RE),
+			status: "completed",
 			format: "mp4",
 			bytes: 3 * 1024 * 1024,
 			durationSeconds: 12,
@@ -96,6 +102,9 @@ describe("director exportReel", () => {
 		expect(result.ok).toBe(false);
 		expect(result.message).toMatch(/no active project/i);
 		expect(exportSpy).not.toHaveBeenCalled();
+		// Preflight rejection (bad input, not a job outcome) — no jobId was
+		// ever minted because no job was ever attempted.
+		expect(result.data).toBeUndefined();
 	});
 
 	it("refuses to render an empty timeline", async () => {
@@ -110,9 +119,10 @@ describe("director exportReel", () => {
 		expect(result.ok).toBe(false);
 		expect(result.message).toMatch(/empty/i);
 		expect(exportSpy).not.toHaveBeenCalled();
+		expect(result.data).toBeUndefined();
 	});
 
-	it("surfaces a failed render as a failed DirectorResult", async () => {
+	it("surfaces a failed render as a failed DirectorResult carrying a jobId", async () => {
 		const { editor } = makeEditor({
 			project: { settings: { fps: 30 }, metadata: { name: "Reel" } },
 			exportResult: { success: false, error: "codec unavailable" },
@@ -123,9 +133,15 @@ describe("director exportReel", () => {
 
 		expect(result.ok).toBe(false);
 		expect(result.message).toMatch(/codec unavailable/);
+		// A job WAS attempted (editor.project.export was called), so it gets
+		// a jobId — a future manage_exports {list} could still find it.
+		expect(result.data).toEqual({
+			jobId: expect.stringMatching(UUID_RE),
+			status: "failed",
+		});
 	});
 
-	it("reports a cancelled export", async () => {
+	it("reports a cancelled export as a failed job carrying a jobId", async () => {
 		const { editor } = makeEditor({
 			project: { settings: { fps: 30 }, metadata: { name: "Reel" } },
 			exportResult: { success: false, cancelled: true },
@@ -136,5 +152,23 @@ describe("director exportReel", () => {
 
 		expect(result.ok).toBe(false);
 		expect(result.message).toMatch(/cancel/i);
+		expect(result.data).toEqual({
+			jobId: expect.stringMatching(UUID_RE),
+			status: "failed",
+		});
+	});
+
+	it("mints a fresh jobId per invocation", async () => {
+		const { editor } = makeEditor({
+			project: { settings: { fps: 30 }, metadata: { name: "Reel" } },
+		});
+		const director = createDirectorApi(editor);
+
+		const first = await director.export({ download: false });
+		const second = await director.export({ download: false });
+
+		expect(first.data?.jobId).toEqual(expect.stringMatching(UUID_RE));
+		expect(second.data?.jobId).toEqual(expect.stringMatching(UUID_RE));
+		expect(first.data?.jobId).not.toEqual(second.data?.jobId);
 	});
 });

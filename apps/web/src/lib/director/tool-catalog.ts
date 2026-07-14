@@ -1913,7 +1913,7 @@ export function toolCatalog(): ToolDescriptor[] {
 		{
 			name: "export",
 			description:
-				"render the reel to a video file and download it. Delegates to the same export pipeline as the Export button (fps follows the project).",
+				"render the reel to a video file and download it. Delegates to the same export pipeline as the Export button (fps follows the project). Runs synchronously today, but the result always carries a stable jobId plus a status ('completed' or 'failed' for now) so a future queued export ('queued'/'preparing'/'rendering'/'canceling'/'canceled') and a manage_exports {list|cancel} verb can key off the same jobId without a contract break.",
 			// Renders output but does not change the reel/timeline → reel:read scope.
 			mutating: false,
 			inputSchema: {

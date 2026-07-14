@@ -173,12 +173,14 @@ import { getAllEffects } from "@/lib/effects";
 import type { EffectParamValues } from "@/types/effects";
 import { DEFAULT_EXPORT_OPTIONS } from "@/constants/export-constants";
 import {
-	downloadBuffer,
+	commitExport,
+	createExportJobId,
 	getExportFileExtension,
 	getExportMimeType,
 } from "@/lib/export";
 import type {
 	ExportFormat,
+	ExportJobStatus,
 	ExportOptions,
 	ExportQuality,
 } from "@/types/export";
@@ -4341,6 +4343,18 @@ export function createDirectorApi(
 	 * agent and the MCP editor-bridge live. In a headless/Node unit test pass
 	 * `download: false` and stub `editor.project.export`. This is NOT a fake: it
 	 * calls the real export path, which simply requires a browser to execute.
+	 *
+	 * JOBID CONTRACT (poach: palmier-delta-refresh-2026-07-14.md §4.4, idea
+	 * only — clean-room, no palmier-pro source consulted): a stable `jobId` is
+	 * minted per invocation and returned in `data` alongside `status`, which
+	 * is typed as the full future {@link ExportJobStatus} lifecycle even
+	 * though only `"completed"`/`"failed"` are ever emitted today (export is
+	 * still single-shot and synchronous — no queue, no `manage_exports`, no
+	 * "queued"/"preparing"/"rendering" state exists yet). The point is that a
+	 * FIFO `ExportQueue` can start emitting the rest of that enum later
+	 * without breaking this response shape. Handoff to the browser download
+	 * is gated through {@link commitExport} — see its doc for the write-path
+	 * audit (in-memory buffer, no durable intermediate to stage on disk).
 	 */
 	async function exportReel(input?: {
 		format?: ExportFormat;
@@ -4351,10 +4365,12 @@ export function createDirectorApi(
 		download?: boolean;
 	}): Promise<
 		DirectorResult<{
-			format: ExportFormat;
-			bytes: number;
-			durationSeconds: number;
-			downloaded: boolean;
+			jobId: string;
+			status: ExportJobStatus;
+			format?: ExportFormat;
+			bytes?: number;
+			durationSeconds?: number;
+			downloaded?: boolean;
 		}>
 	> {
 		const project = editor.project.getActiveOrNull();
@@ -4367,6 +4383,8 @@ export function createDirectorApi(
 			);
 		}
 
+		const jobId = createExportJobId();
+
 		const options: ExportOptions = {
 			format: input?.format ?? DEFAULT_EXPORT_OPTIONS.format,
 			quality: input?.quality ?? DEFAULT_EXPORT_OPTIONS.quality,
@@ -4377,23 +4395,27 @@ export function createDirectorApi(
 
 		const result = await editor.project.export({ options });
 
-		if (result.cancelled) return fail("Export was cancelled.");
-		if (!result.success || !result.buffer) {
-			return fail(`Export failed: ${result.error ?? "unknown error"}.`);
+		const outcome = commitExport({
+			result,
+			jobId,
+			filename: `${project.metadata.name}${getExportFileExtension({ format: options.format })}`,
+			mimeType: getExportMimeType({ format: options.format }),
+			download: input?.download ?? true,
+		});
+
+		if (outcome.status === "failed") {
+			const message =
+				outcome.reason === "cancelled"
+					? outcome.message
+					: `Export failed: ${outcome.message}.`;
+			return {
+				ok: false,
+				message,
+				data: { jobId, status: "failed" },
+			};
 		}
 
-		const shouldDownload = input?.download ?? true;
-		let downloaded = false;
-		if (shouldDownload) {
-			downloadBuffer({
-				buffer: result.buffer,
-				filename: `${project.metadata.name}${getExportFileExtension({ format: options.format })}`,
-				mimeType: getExportMimeType({ format: options.format }),
-			});
-			downloaded = true;
-		}
-
-		const megabytes = result.buffer.byteLength / (1024 * 1024);
+		const megabytes = outcome.bytes / (1024 * 1024);
 		// SOFT final-cut gate (Flow D #3): the Director should get the human's
 		// final-cut sign-off before finalizing. We never hard-block (a manual UI
 		// Export IS the human's approval); we just note a missing approval so the
@@ -4404,13 +4426,15 @@ export function createDirectorApi(
 		return ok(
 			`Exported "${project.metadata.name}" — ${options.format.toUpperCase()}, ` +
 				`${megabytes.toFixed(1)} MB, ${durationSeconds.toFixed(1)}s` +
-				(downloaded ? " (downloaded)." : ".") +
+				(outcome.downloaded ? " (downloaded)." : ".") +
 				finalCutNote,
 			{
+				jobId,
+				status: "completed",
 				format: options.format,
-				bytes: result.buffer.byteLength,
+				bytes: outcome.bytes,
 				durationSeconds,
-				downloaded,
+				downloaded: outcome.downloaded,
 			},
 		);
 	}
