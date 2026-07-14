@@ -10,6 +10,7 @@ import type {
 	VideoOrientation,
 	VideoResolution,
 } from "@/lib/studio/provider-adapter";
+import type { ImageQuality, ImageSize } from "@/lib/studio/image-generator";
 
 /**
  * Client-safe backend catalog. The registry + adapters are SERVER modules (they
@@ -34,10 +35,18 @@ export interface BackendInfo {
 	resolutions?: VideoResolution[];
 	orientations?: VideoOrientation[];
 	durationRangeSec?: { min: number; max: number };
+	// Image-oriented — lets the image panel offer only what THIS backend
+	// supports, mirroring the video resolution/orientation pattern above.
+	sizes?: ImageSize[];
+	qualities?: ImageQuality[];
 	supportsSeedLock: boolean;
 	supportsOmniReference: boolean;
 	supportsLastFrame: boolean;
 	supportsReferenceEdits: boolean;
+	/** True when this backend accepts a silent-render request (e.g. Seedance's
+	 *  `generate_audio: false`). Backends with inseparable native audio (Veo)
+	 *  omit this — no toggle to offer. */
+	supportsAudioToggle?: boolean;
 	// Audio-oriented — true when this backend needs a source video
 	// (video-to-audio "score" generation) rather than working from text alone.
 	requiresVideoRef?: boolean;
@@ -102,10 +111,13 @@ export function GET(req: Request) {
 		resolutions: b.capabilities.resolutions,
 		orientations: b.capabilities.orientations,
 		durationRangeSec: b.capabilities.durationRangeSec,
+		sizes: b.capabilities.sizes,
+		qualities: b.capabilities.qualities,
 		supportsSeedLock: b.capabilities.supportsSeedLock,
 		supportsOmniReference: b.capabilities.supportsOmniReference,
 		supportsLastFrame: b.capabilities.supportsLastFrame,
 		supportsReferenceEdits: b.capabilities.supportsReferenceEdits,
+		supportsAudioToggle: b.capabilities.supportsAudioToggle,
 		requiresVideoRef: b.capabilities.requiresVideoRef,
 		relativeCost: credits,
 		costTier: relativeCostTier(

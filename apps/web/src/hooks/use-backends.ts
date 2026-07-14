@@ -6,6 +6,7 @@ import type {
 	VideoOrientation,
 	VideoResolution,
 } from "@/lib/studio/provider-adapter";
+import type { ImageQuality, ImageSize } from "@/lib/studio/image-generator";
 
 /**
  * Client-side view of an available generation backend, fetched from
@@ -24,10 +25,17 @@ export interface BackendInfo {
 	resolutions?: VideoResolution[];
 	orientations?: VideoOrientation[];
 	durationRangeSec?: { min: number; max: number };
+	// Per-backend constraint surface (image backends) — mirrors the video
+	// fields above so the image panel can offer only real capabilities.
+	sizes?: ImageSize[];
+	qualities?: ImageQuality[];
 	supportsSeedLock: boolean;
 	supportsOmniReference: boolean;
 	supportsLastFrame: boolean;
 	supportsReferenceEdits: boolean;
+	/** Accepts a silent-render request (e.g. Seedance). Omitted when the
+	 *  backend's audio can't be toggled off (e.g. Veo's native audio). */
+	supportsAudioToggle?: boolean;
 	/** Normalized credits for a nominal generation (relative-cost ranking aid). */
 	relativeCost: number;
 	/** Cost bucket vs. the cheapest available backend of this modality. */

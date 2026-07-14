@@ -1,16 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { Button } from "@/components/ui/button";
+import { useMemo, useState } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/components/ui/select";
 import { cn } from "@/utils/ui";
 import type { ImageSize, ImageQuality } from "@/lib/studio/image-generator";
 import {
@@ -27,6 +19,17 @@ import { EnhancePromptButton } from "@/components/editor/ai/enhance-prompt-butto
 import { addItemsToProjectMedia } from "@/lib/studio/add-to-editor";
 import { gateOn402 } from "@/lib/credits/client-gate";
 import { useCreditsStore } from "@/stores/credits-store";
+import { useBackends } from "@/hooks/use-backends";
+import { DEFAULT_BACKEND_ID } from "@/lib/studio/backends/registry";
+import { estimateImageCredits } from "@/lib/credits/estimate";
+import {
+	ReferenceMediaUploader,
+	type ReferenceMediaItem,
+} from "@/components/studio/reference-media-uploader";
+import {
+	ChipGrid,
+	GenerationBottomBar,
+} from "@/components/studio/generation-bottom-bar";
 import { toast } from "sonner";
 
 /** The backend returns a handful of images per call; fan out for big batches. */
@@ -43,12 +46,13 @@ interface ImagePanelProps {
 	className?: string;
 }
 
-// Aspect ratios — the ImageSize wire values are unchanged, only relabeled to
-// read as aspect ratios (Nano Banana Pro's own framing) instead of pixel sizes.
-const SIZES: { value: ImageSize; label: string }[] = [
-	{ value: "1024x1024", label: "Square 1:1" },
-	{ value: "1536x1024", label: "Landscape 3:2" },
-	{ value: "1024x1536", label: "Portrait 2:3" },
+// Aspect ratios — the ImageSize wire values are unchanged. Full labels for the
+// popover chip's tooltip; short ratio-only labels for the chip face itself
+// (kept compact — the summary line on the bottom bar trigger repeats it).
+const SIZES: { value: ImageSize; label: string; ratio: string }[] = [
+	{ value: "1024x1024", label: "Square 1:1", ratio: "1:1" },
+	{ value: "1536x1024", label: "Landscape 3:2", ratio: "3:2" },
+	{ value: "1024x1536", label: "Portrait 2:3", ratio: "2:3" },
 ];
 
 // Resolution — Nano Banana Pro renders at 1K/2K (4K exists but isn't exposed
@@ -80,8 +84,61 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 	const [error, setError] = useState<string | null>(null);
 	const [stills, setStills] = useState<GeneratedStill[]>([]);
 	const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+	// Reference images — drag from Assets, drop, or browse. Only surfaced when
+	// the selected backend actually conditions on a reference (identity carry /
+	// omni blend); a text-only backend like Imagen never shows this row.
+	const [refMedia, setRefMedia] = useState<ReferenceMediaItem[]>([]);
 
 	const preset = IMAGE_PRESETS[presetId];
+
+	// ── Backend-aware controls ────────────────────────────────────────────────
+	// The catalog of configured image backends (Nano Banana Pro / GPT Image /
+	// FLUX / Imagen / Ideogram / …), fetched the same way the video form does.
+	const { backends } = useBackends("image");
+	const [backendId, setBackendId] = useState<string>("");
+	const selectedBackend = useMemo(() => {
+		if (backends.length === 0) return undefined;
+		return (
+			backends.find((b) => b.id === backendId) ??
+			backends.find((b) => b.id === DEFAULT_BACKEND_ID.image) ??
+			backends[0]
+		);
+	}, [backends, backendId]);
+
+	const availableSizes = useMemo(
+		() =>
+			selectedBackend?.sizes
+				? SIZES.filter((s) => selectedBackend.sizes?.includes(s.value))
+				: SIZES,
+		[selectedBackend],
+	);
+	const availableQualities = useMemo(
+		() =>
+			selectedBackend?.qualities
+				? QUALITIES.filter((q) => selectedBackend.qualities?.includes(q.value))
+				: QUALITIES,
+		[selectedBackend],
+	);
+	const showReferences =
+		selectedBackend?.supportsReferenceEdits ||
+		selectedBackend?.supportsOmniReference;
+	const readyRefs = refMedia.filter(
+		(r) => r.status === "ready" && r.kind === "image",
+	);
+	const refUploading = refMedia.some((r) => r.status === "uploading");
+
+	// Live, backend-aware credits estimate for the batch about to run.
+	const totalForCost = preset.allowsMultiple ? n : 1;
+	const cost = estimateImageCredits(totalForCost, selectedBackend?.id);
+	const summary = useMemo(() => {
+		const modelLabel = selectedBackend?.label ?? "Auto";
+		const ratio = SIZES.find((s) => s.value === size)?.ratio ?? size;
+		const qualityLabel =
+			QUALITIES.find((q) => q.value === quality)?.label ?? quality;
+		const parts = [modelLabel, ratio, qualityLabel];
+		if (preset.allowsMultiple && n > 1) parts.push(`×${n}`);
+		return parts.join(" · ");
+	}, [selectedBackend, size, quality, preset.allowsMultiple, n]);
 
 	// Push freshly generated stills into the project's Assets so they live
 	// alongside uploaded media — taggable as "AI", draggable back into Generate
@@ -118,13 +175,21 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 	}
 
 	async function handleGenerate() {
-		if (!prompt.trim()) return;
+		if (!prompt.trim() || refUploading) return;
 		setGenerating(true);
 		setError(null);
 
 		const finalPrompt = preset.buildPrompt(prompt, { panels });
 		const total = preset.allowsMultiple ? n : 1;
 		setProgress({ done: 0, total });
+
+		// Reference images (when the backend accepts them): first ready image as
+		// the primary `referenceImageUrl` (single-reference backends read only
+		// this), the rest as `referenceImages` (multi-reference backends blend
+		// every url supplied). Same refs apply to every image in the batch.
+		const refUrls = readyRefs.map((r) => r.url);
+		const referenceImageUrl = refUrls[0];
+		const referenceImages = refUrls.length > 1 ? refUrls.slice(1) : undefined;
 
 		// Fan out into parallel chunks so big batches arrive progressively.
 		const chunks: number[] = [];
@@ -145,6 +210,12 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 								size,
 								quality,
 								n: chunkN,
+								referenceImageUrl,
+								referenceImages,
+								// Manual model pin, only once the catalog has resolved a
+								// choice — omitted while loading so the server's default
+								// routing is unaffected.
+								model: selectedBackend?.id,
 							}),
 						});
 						if (!res.ok) {
@@ -175,19 +246,100 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 		}
 	}
 
-	return (
-		<div className={cn("flex flex-col gap-4", className)}>
-			<div className="space-y-1">
-				<h3 className="text-sm font-medium">Image generation</h3>
-				<p className="text-xs text-muted-foreground">{preset.description}</p>
-			</div>
+	const submitLabel = generating
+		? "Generating…"
+		: presetId === "storyboard"
+			? "Generate board"
+			: presetId === "character-sheet"
+				? "Generate sheet"
+				: "Generate";
 
-			{/* Preset selector */}
+	const settingsContent = (
+		<>
+			{backends.length > 1 && (
+				<div className="space-y-1.5">
+					<span className="text-[11px] font-medium text-muted-foreground">
+						Model
+					</span>
+					<div className="flex flex-wrap gap-1.5">
+						{backends.map((b) => (
+							<button
+								key={b.id}
+								type="button"
+								onClick={() => setBackendId(b.id)}
+								title={`${b.vendor} · ${b.safetyTier}`}
+								className={cn(
+									"rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors",
+									selectedBackend?.id === b.id
+										? "border-primary bg-primary text-primary-foreground"
+										: "border-border text-muted-foreground hover:border-foreground hover:text-foreground",
+								)}
+							>
+								{b.label}
+							</button>
+						))}
+					</div>
+				</div>
+			)}
+
+			<ChipGrid
+				label="Aspect ratio"
+				options={availableSizes.map((s) => ({
+					value: s.value,
+					label: s.ratio,
+					title: s.label,
+				}))}
+				value={size}
+				onChange={(v) => setSettings({ imageSize: v })}
+			/>
+
+			<ChipGrid
+				label="Resolution"
+				options={availableQualities.map((q) => ({
+					value: q.value,
+					label: q.label,
+				}))}
+				value={quality}
+				onChange={(v) => setSettings({ imageQuality: v })}
+			/>
+
+			{presetId === "storyboard" && (
+				<ChipGrid
+					label="Panels"
+					options={STORYBOARD_PANEL_OPTIONS.map((count) => ({
+						value: count,
+						label: String(count),
+					}))}
+					value={panels}
+					onChange={setPanels}
+				/>
+			)}
+
+			{preset.allowsMultiple && (
+				<ChipGrid
+					label="Variations"
+					options={BATCH_OPTIONS.map((count) => ({
+						value: count,
+						label: String(count),
+					}))}
+					value={n}
+					onChange={setN}
+					hint="generate a batch, drag your pick to the board"
+				/>
+			)}
+		</>
+	);
+
+	return (
+		<div className={cn("flex flex-col gap-3", className)}>
+			{/* Preset selector — compact secondary row */}
 			<div className="flex gap-2">
 				{IMAGE_PRESET_ORDER.map((id) => (
 					<button
 						key={id}
+						type="button"
 						onClick={() => selectPreset(id)}
+						title={IMAGE_PRESETS[id].description}
 						className={cn(
 							"flex-1 px-2 py-1.5 rounded-md text-xs font-medium border transition-colors",
 							presetId === id
@@ -200,143 +352,69 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 				))}
 			</div>
 
-			<div className="space-y-1.5">
-				<div className="flex items-center justify-between">
-					<Label className="text-xs">
-						{presetId === "storyboard"
-							? "Scene"
-							: presetId === "character-sheet"
-								? "Character"
-								: "Prompt"}
-					</Label>
-					<EnhancePromptButton
-						mode="image"
-						getPrompt={() => prompt}
-						setPrompt={setPrompt}
+			{/* References — reused verbatim from the video form's uploader, images
+			    only. Hidden when the selected backend can't condition on one. */}
+			{showReferences && (
+				<div className="space-y-1.5">
+					<div className="flex items-center justify-between">
+						<Label className="text-xs">References</Label>
+						<span className="text-[10px] text-muted-foreground">
+							optional · drag, drop, or browse
+						</span>
+					</div>
+					<ReferenceMediaUploader
+						items={refMedia}
+						onChange={setRefMedia}
+						accept="image"
+						disabled={generating}
 					/>
 				</div>
-				<Textarea
-					placeholder={preset.placeholder}
-					value={prompt}
-					onChange={(e) => setPrompt(e.target.value)}
-					rows={3}
-					className="resize-none text-sm"
-				/>
-			</div>
-
-			{/* Storyboard: panel count */}
-			{presetId === "storyboard" && (
-				<div className="space-y-1.5">
-					<Label className="text-xs">Panels</Label>
-					<div className="flex gap-2">
-						{STORYBOARD_PANEL_OPTIONS.map((count) => (
-							<button
-								key={count}
-								onClick={() => setPanels(count)}
-								className={cn(
-									"flex-1 py-1.5 rounded-md text-xs font-medium border transition-colors",
-									panels === count
-										? "bg-primary text-primary-foreground border-primary"
-										: "border-border text-muted-foreground hover:border-foreground",
-								)}
-							>
-								{count}
-							</button>
-						))}
-					</div>
-				</div>
 			)}
 
-			<div className="grid grid-cols-2 gap-3">
-				<div className="space-y-1.5">
-					<Label className="text-xs">Size</Label>
-					<Select
-						value={size}
-						onValueChange={(v) => setSettings({ imageSize: v as ImageSize })}
-					>
-						<SelectTrigger className="h-8 text-xs">
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent>
-							{SIZES.map((s) => (
-								<SelectItem key={s.value} value={s.value} className="text-xs">
-									{s.label}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
-				</div>
-				<div className="space-y-1.5">
-					<Label className="text-xs">Quality</Label>
-					<Select
-						value={quality}
-						onValueChange={(v) =>
-							setSettings({ imageQuality: v as ImageQuality })
-						}
-					>
-						<SelectTrigger className="h-8 text-xs">
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent>
-							{QUALITIES.map((q) => (
-								<SelectItem key={q.value} value={q.value} className="text-xs">
-									{q.label}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
-				</div>
-			</div>
-
-			{preset.allowsMultiple && (
-				<div className="space-y-1.5">
-					<Label className="text-xs">Variations</Label>
-					<div className="flex gap-1">
-						{BATCH_OPTIONS.map((count) => (
-							<button
-								key={count}
-								onClick={() => setN(count)}
-								className={cn(
-									"flex-1 h-8 rounded text-xs border transition-colors",
-									n === count
-										? "bg-primary text-primary-foreground border-primary"
-										: "border-border text-muted-foreground hover:border-foreground",
-								)}
-							>
-								{count}
-							</button>
-						))}
+			{/* Prompt — the hero field */}
+			<div className="space-y-1.5">
+				<Label className="text-xs">
+					{presetId === "storyboard"
+						? "Scene"
+						: presetId === "character-sheet"
+							? "Character"
+							: "Prompt"}
+				</Label>
+				<div className="relative">
+					<Textarea
+						placeholder={preset.placeholder}
+						value={prompt}
+						onChange={(e) => setPrompt(e.target.value)}
+						rows={4}
+						className="resize-none text-sm pr-9"
+					/>
+					<div className="absolute right-1.5 top-1.5">
+						<EnhancePromptButton
+							mode="image"
+							getPrompt={() => prompt}
+							setPrompt={setPrompt}
+						/>
 					</div>
-					<p className="text-xs text-muted-foreground">
-						Generate a batch, then scroll through and drag your pick to the
-						visionboard.
-					</p>
 				</div>
-			)}
-
-			<div className="flex items-center gap-3">
-				{generating && progress && (
-					<span className="text-xs text-muted-foreground">
-						{progress.done}/{progress.total}
-					</span>
-				)}
-				<Button
-					className="ml-auto"
-					size="sm"
-					disabled={!prompt.trim() || generating}
-					onClick={handleGenerate}
-				>
-					{generating
-						? "Generating…"
-						: presetId === "storyboard"
-							? "Generate board"
-							: presetId === "character-sheet"
-								? "Generate sheet"
-								: "Generate"}
-				</Button>
 			</div>
 
+			{generating && progress && (
+				<p className="text-[10px] text-muted-foreground">
+					Generating {progress.done}/{progress.total}…
+				</p>
+			)}
 			{error && <p className="text-xs text-destructive">{error}</p>}
+
+			<GenerationBottomBar
+				summary={summary}
+				settingsContent={settingsContent}
+				cost={cost}
+				onSubmit={handleGenerate}
+				submitDisabled={!prompt.trim() || generating || refUploading}
+				busy={generating}
+				submitLabel={submitLabel}
+				testIdPrefix="image-gen"
+			/>
 
 			{/* Gallery — drag a tile to the visionboard, or click to scroll through */}
 			{stills.length > 0 && (
@@ -377,16 +455,16 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 							/>
 							{onSelectImage && (
 								<div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1">
-									<Button
-										size="sm"
-										className="text-xs h-7"
+									<button
+										type="button"
 										onClick={(e) => {
 											e.stopPropagation();
 											onSelectImage(still.imageUrl);
 										}}
+										className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground"
 									>
 										Use as reference
-									</Button>
+									</button>
 									<span className="text-[10px] text-white/70">
 										click to expand · drag to board
 									</span>
