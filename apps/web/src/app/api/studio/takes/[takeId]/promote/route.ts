@@ -80,8 +80,14 @@ export async function POST(
 		// by the NEW take's id (a per-job charge id) — NOT the setId — so it can
 		// never collide with the draft's hold in the same set.
 		const newTakeId = nanoid();
+		// Promote always re-fires at 1080p (see the header comment + the
+		// `generateVideo` call below) — price it as a 1080p job, not whatever
+		// resolution the draft set was generated at. Before this fix the reserve
+		// silently used costFor's flat/draft-resolution default, undercharging a
+		// full 1080p re-fire on the resolution-degressive Seedance rate.
 		const creditCost = costFor(DEFAULT_BACKEND_ID.video, "video", {
 			seconds: set.duration,
+			resolution: "1080p",
 		});
 		try {
 			await meteredReserve(session.user.id, creditCost, {
@@ -91,6 +97,7 @@ export async function POST(
 				metadata: {
 					backendId: DEFAULT_BACKEND_ID.video,
 					seconds: set.duration,
+					resolution: "1080p",
 					kind: "promote",
 					setId: take.setId,
 				},

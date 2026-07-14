@@ -151,7 +151,10 @@ export const pikaBackend: GenerationBackend = {
 	},
 
 	estimateCost(req: BackendRequest): CostEstimate {
-		const credits = costFor("pika", "video", { seconds: req.duration });
+		const credits = costFor("pika", "video", {
+			seconds: req.duration,
+			resolution: req.resolution,
+		});
 		return {
 			credits,
 			basis: `Pika 2.2 ${req.resolution ?? "720p"} × ${req.duration ?? 5}s`,

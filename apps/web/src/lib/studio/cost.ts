@@ -1,6 +1,7 @@
 import {
 	estimateImageCredits,
 	estimateVideoCredits,
+	type VideoResolution,
 } from "@/lib/credits/estimate";
 
 /** A low/high credits range (1 credit = US$0.01 of real provider cost — see
@@ -40,17 +41,20 @@ export function addsPerShotStill(
  * share a single per-shot still (it's rendered once for the whole batch), so
  * the still cost is added ONCE while the per-second video cost scales with
  * count. Pass `backendId` when it's known (e.g. the form's selected model) for
- * an exact number; omitted, this returns a min–max range across every
- * registered video backend (real billing doesn't vary by resolution, only by
- * backend + duration — see `cost-table.ts`).
+ * an exact number. `resolution` matters even without a known backend —
+ * BytePlus Seedance's real sale rate is resolution-degressive (see
+ * `cost-table.ts`), so pass it whenever the UI knows it (e.g. the form's
+ * selected resolution) to narrow the pre-routing range to the right tier;
+ * omitted, this spans every registered video backend at every resolution.
  */
 export function estimateCost(
 	duration: number,
 	rendersStill: boolean,
 	count = 1,
 	backendId?: string,
+	resolution?: VideoResolution,
 ): CostRange {
-	const video = estimateVideoCredits(duration, backendId);
+	const video = estimateVideoCredits(duration, backendId, resolution);
 	const still = rendersStill ? estimateImageCredits(1).low : 0;
 	return {
 		low: video.low * count + still,
@@ -67,13 +71,21 @@ export interface CostSpec {
 	duration: number;
 	personaId?: string;
 	consistencyMode?: "high" | "fast";
+	resolution?: VideoResolution;
 }
 
 /** Credits to generate `count` takes of a single shot from its spec. The
- *  backend that will run isn't known pre-routing, so this is a range. */
+ *  backend that will run isn't known pre-routing, so this is a range (unless
+ *  `spec.resolution` narrows Seedance's contribution to one tier). */
 export function estimateSpecCost(spec: CostSpec, count = 1): CostRange {
 	const rendersStill = addsPerShotStill(!!spec.personaId, spec.consistencyMode);
-	return estimateCost(spec.duration, rendersStill, count);
+	return estimateCost(
+		spec.duration,
+		rendersStill,
+		count,
+		undefined,
+		spec.resolution,
+	);
 }
 
 /**

@@ -38,7 +38,9 @@ function catalog(): BackendCatalogEntry[] {
 	];
 }
 
-// Three shots at 480p × 4s each → base (cheapest-tier) estimate = 0.05×4 = $0.20.
+// Three shots at 480p × 4s each → base (cheapest-tier) estimate = the
+// cheapest registered video backend's post-markup sale rate (pika, 11 cr/sec)
+// × 4s = 44 credits = $0.44.
 const THREE_SHOTS = {
 	shots: [
 		{
@@ -89,13 +91,15 @@ describe("storyboard budget allocation", () => {
 
 	it("down-tiers the least-important shots first to fit a tight cap, protecting the hero longest", () => {
 		const director = createDirectorApi(makeFakeEditor().editor);
-		// Full want ≈ premium 0.64 + standard 0.38 + cheap 0.20 = 1.22. A $1 cap
-		// forces two downgrades: support first (least protected), then the hero.
-		const res = director.storyboard({ ...THREE_SHOTS, budgetUsd: 1 });
+		// Base (cheapest-tier) estimate is $0.44/shot (480p × 4s at the cheapest
+		// registered video backend's post-markup sale rate). Full want ≈
+		// premium 1.408 + standard 0.836 + cheap 0.44 = 2.684. A $2 cap forces
+		// two downgrades: support first (least protected), then the hero.
+		const res = director.storyboard({ ...THREE_SHOTS, budgetUsd: 2 });
 
 		const budget = res.data?.plan.budget;
 		expect(budget?.withinBudget).toBe(true);
-		expect(budget?.plannedTotalUsd).toBeLessThanOrEqual(1 + 1e-6);
+		expect(budget?.plannedTotalUsd).toBeLessThanOrEqual(2 + 1e-6);
 		const byImp = new Map(
 			budget?.allocations.map((a) => [a.importance, a]) ?? [],
 		);
@@ -150,8 +154,9 @@ describe("spend gate (evaluateSpend)", () => {
 		const res = director.storyboard({ ...THREE_SHOTS, budgetUsd: 5 });
 		const heroSlot = res.data!.slotIds[0];
 		// Burn the budget down so only the cheap tier of the hero shot fits.
-		// Hero base = 0.20; cheap 0.20, standard 0.38, premium 0.64. Leave $0.25.
-		director.recordSpend({ usd: 5 - 0.25 });
+		// Hero base = 0.44; cheap 0.44, standard 0.836, premium 1.408. Leave $0.50
+		// (below standard, at-or-above cheap) so premium skips straight to cheap.
+		director.recordSpend({ usd: 5 - 0.5 });
 
 		const ev = await director.evaluateSpend({
 			slotIds: [heroSlot],
@@ -207,12 +212,12 @@ describe("spend tracking + brief", () => {
 	it("re-allocates an existing plan when setBudget tightens the cap", () => {
 		const director = createDirectorApi(makeFakeEditor().editor);
 		director.storyboard({ ...THREE_SHOTS, budgetUsd: 5 }); // hero premium
-		const res = director.setBudget({ budgetUsd: 1 });
+		const res = director.setBudget({ budgetUsd: 2 });
 		expect(res.ok).toBe(true);
 		// The stored plan was re-tiered against the tighter cap.
 		const plan = director.getReel().plan;
 		const hero = plan?.shots.find((s) => s.importance === "hero");
-		expect(hero?.tier).toBe("standard"); // dropped from premium to fit $1
+		expect(hero?.tier).toBe("standard"); // dropped from premium to fit $2
 		expect(director.getBudgetStatus().data?.spentUsd).toBe(0); // reset
 	});
 });

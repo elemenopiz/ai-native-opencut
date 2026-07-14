@@ -13,6 +13,7 @@
 import { webEnv } from "@byorn/env/web";
 import { nanoid } from "nanoid";
 import { fetchWithTimeout, MEDIA_TIMEOUT_MS } from "@/lib/studio/fetch-timeout";
+import { costFor } from "@/lib/credits/cost-table";
 import type {
 	BackendRequest,
 	CostEstimate,
@@ -28,14 +29,10 @@ const IDEOGRAM_API_KEY_ENV = "IDEOGRAM_API_KEY";
 
 const IDEOGRAM_BASE = "https://api.ideogram.ai";
 
-/** Approximate per-render credit cost by our quality tier → Ideogram
- *  `rendering_speed`. UNVERIFIED: exact USD figures — Ideogram bills per
- *  speed tier but doesn't publish a single per-image rate card here. */
-const CREDITS_BY_QUALITY: Record<string, number> = {
-	low: 3, // TURBO
-	medium: 8, // DEFAULT
-	high: 16, // QUALITY
-};
+// Billing is flat per image regardless of `rendering_speed` tier (see
+// cost-table.ts) — `estimateCost` below reads `costFor` directly rather than
+// a second hand-set quality-tiered table, so display can't drift from what's
+// actually charged.
 
 interface IdeogramGenerateResponse {
 	data: Array<{ url?: string; seed?: number }>;
@@ -102,7 +99,7 @@ export const ideogramBackend: GenerationBackend = {
 	},
 
 	estimateCost(req: BackendRequest): CostEstimate {
-		const credits = CREDITS_BY_QUALITY[req.quality ?? "high"] ?? 16;
+		const credits = costFor("ideogram", "image", { count: 1 });
 		return { credits, basis: `Ideogram 3.0 (${req.quality ?? "high"})` };
 	},
 

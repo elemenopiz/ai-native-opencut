@@ -23,6 +23,7 @@
 import { webEnv } from "@byorn/env/web";
 import { nanoid } from "nanoid";
 import { fetchWithTimeout, MEDIA_TIMEOUT_MS } from "@/lib/studio/fetch-timeout";
+import { costFor } from "@/lib/credits/cost-table";
 import type {
 	BackendRequest,
 	CostEstimate,
@@ -45,15 +46,13 @@ const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const NANO_BANANA_MODEL =
 	webEnv.GEMINI_NANO_BANANA_MODEL || "gemini-3-pro-image";
 
-/** Nano Banana Pro bills ~$0.134 per 1K/2K image and ~$0.24 per 4K
- *  (source: Google's Gemini 3 Pro Image pricing announcement). 1 credit =
- *  $0.01 rounded up, so 1K/2K → 14 credits. 4K is intentionally not exposed
- *  in the beta UI (cost control), so there's no "high-high" tier here. */
-const CREDITS_BY_QUALITY: Record<string, number> = {
-	low: 14, // "1K" imageConfig.imageSize
-	medium: 14, // "1K" imageConfig.imageSize
-	high: 14, // "2K" imageConfig.imageSize
-};
+// Nano Banana Pro bills ~$0.134 per 1K/2K image and ~$0.24 per 4K (source:
+// Google's Gemini 3 Pro Image pricing announcement) — that's the COGS figure
+// documented in cost-table.ts (`google-nano-banana`), marked up for sale
+// there. 4K is intentionally not exposed in the beta UI (cost control), so
+// there's no "high-high" tier. `estimateCost` below reads `costFor` directly
+// (flat regardless of the low/medium/high quality knob) rather than a second
+// hand-set table, so display can't drift from what's actually charged.
 
 interface GenerateContentResponse {
 	candidates?: Array<{
@@ -127,7 +126,7 @@ export const googleNanoBananaBackend: GenerationBackend = {
 	},
 
 	estimateCost(req: BackendRequest): CostEstimate {
-		const credits = CREDITS_BY_QUALITY[req.quality ?? "high"] ?? 14;
+		const credits = costFor("google-nano-banana", "image", { count: 1 });
 		return {
 			credits,
 			basis: `Nano Banana Pro (${mapQualityToImageSize(req.quality)})`,

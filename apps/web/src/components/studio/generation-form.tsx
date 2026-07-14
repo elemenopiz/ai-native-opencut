@@ -450,6 +450,7 @@ export function GenerationForm({
 		rendersStill,
 		costMult,
 		selectedBackend?.id,
+		resolution,
 	);
 
 	async function handleGenerate() {

@@ -137,7 +137,10 @@ export const lumaBackend: GenerationBackend = {
 	},
 
 	estimateCost(req: BackendRequest): CostEstimate {
-		const credits = costFor("luma-ray", "video", { seconds: req.duration });
+		const credits = costFor("luma-ray", "video", {
+			seconds: req.duration,
+			resolution: req.resolution,
+		});
 		return {
 			credits,
 			basis: `Luma Ray 2 ${resolutionFor(req.resolution)} × ${durationFor(req.duration)}`,

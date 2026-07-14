@@ -18,8 +18,11 @@ import {
 	imageCreditsRange,
 	videoCreditsRange,
 	DEFAULT_CLIP_SECONDS,
+	type VideoResolution,
 } from "@/lib/credits/cost-table";
 import { DEFAULT_BACKEND_ID } from "@/lib/studio/backends/registry";
+
+export type { VideoResolution };
 
 export interface CreditRange {
 	low: number;
@@ -27,23 +30,27 @@ export interface CreditRange {
 }
 
 /**
- * Credits for one video clip of `seconds`. Exact (`low === high`) when
- * `backendId` is the routed/selected backend; otherwise a min–max range across
- * every registered video backend's rate.
+ * Credits for one video clip of `seconds`[/`resolution`]. Exact
+ * (`low === high`) when `backendId` is the routed/selected backend; otherwise
+ * a min–max range across every registered video backend's rate. `resolution`
+ * matters for Seedance (its sale rate is resolution-degressive) — pass it
+ * whenever the UI knows it, even without a pinned backend, so the range
+ * narrows to the right tier instead of spanning all three.
  */
 export function estimateVideoCredits(
 	seconds: number = DEFAULT_CLIP_SECONDS,
 	backendId?: string,
+	resolution?: VideoResolution,
 ): CreditRange {
 	if (backendId) {
 		try {
-			const credits = costFor(backendId, "video", { seconds });
+			const credits = costFor(backendId, "video", { seconds, resolution });
 			return { low: credits, high: credits };
 		} catch {
 			// Unregistered/unknown id (e.g. a stale pin) — fall through to the range.
 		}
 	}
-	return videoCreditsRange(seconds);
+	return videoCreditsRange(seconds, resolution);
 }
 
 /**

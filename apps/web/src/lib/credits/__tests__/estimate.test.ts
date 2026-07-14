@@ -27,12 +27,26 @@ describe("estimateVideoCredits — backend-aware (exact)", () => {
 		}
 	});
 
+	it("threads `resolution` through to costFor() for the resolution-degressive Seedance rate", () => {
+		for (const resolution of ["480p", "720p", "1080p"] as const) {
+			const exact = costFor("byteplus-seedance", "video", {
+				seconds: 5,
+				resolution,
+			});
+			expect(estimateVideoCredits(5, "byteplus-seedance", resolution)).toEqual({
+				low: exact,
+				high: exact,
+			});
+		}
+	});
+
 	it("falls back to the cross-backend range for an unknown/unpinned backend", () => {
-		// pika (5/sec) is cheapest, google-veo (40/sec, Standard) is priciest.
-		expect(estimateVideoCredits(5)).toEqual({ low: 25, high: 200 });
+		// pika (11/sec sale) is cheapest, runway (80/sec sale) is priciest —
+		// google-veo's 64/sec sale doesn't move either extreme.
+		expect(estimateVideoCredits(5)).toEqual({ low: 55, high: 400 });
 		expect(estimateVideoCredits(5, "some-future-backend")).toEqual({
-			low: 25,
-			high: 200,
+			low: 55,
+			high: 400,
 		});
 	});
 });
@@ -53,8 +67,8 @@ describe("estimateImageCredits — defaults to the registry's default image back
 
 	it("falls back to the cross-backend range for an unknown backend", () => {
 		expect(estimateImageCredits(1, "some-future-backend")).toEqual({
-			low: 3,
-			high: 14,
+			low: 8,
+			high: 35,
 		});
 	});
 });

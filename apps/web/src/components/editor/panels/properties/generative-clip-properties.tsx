@@ -103,7 +103,13 @@ function AIEditTab({
 	}
 
 	const rendersStill = addsPerShotStill(!!spec.personaId, spec.consistencyMode);
-	const cost = estimateCost(spec.duration, rendersStill);
+	const cost = estimateCost(
+		spec.duration,
+		rendersStill,
+		1,
+		undefined,
+		spec.resolution,
+	);
 
 	// The take to remix from: the active take (the "prior generation" the user
 	// is looking at) or, before any take exists, the current working spec.

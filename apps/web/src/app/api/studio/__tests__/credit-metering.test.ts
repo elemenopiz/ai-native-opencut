@@ -22,8 +22,10 @@ import { afterAll, beforeEach, describe, expect, it, mock } from "bun:test";
  * time, so mocks are registered BEFORE the handlers are dynamically imported,
  * driven by a mutable `state` reset in beforeEach. The ledger/metering fakes
  * record an ordered event log so reserve-before-provider ordering is asserted,
- * not assumed. cost-table is REAL — the asserted amounts are the shipped rates
- * (byteplus-seedance video 10/s, openai-gpt-image still 4 flat).
+ * not assumed. cost-table is REAL — the asserted amounts are the shipped SALE
+ * rates (byteplus-seedance video 34 cr/s at 720p — the generate route's
+ * default resolution — or 60 cr/s at 1080p for promote's fixed re-fire;
+ * google-nano-banana still 35 cr flat; openai-gpt-image still 10 cr flat).
  */
 
 interface MeterEvent {
@@ -324,7 +326,7 @@ describe("generate POST — reserve before dispatch, per-job hold key (#1b)", ()
 
 		expect(ops()).toEqual(["reserve", "submit"]);
 		const [reserve] = eventsOf("reserve");
-		expect(reserve.credits).toBe(50); // byteplus-seedance: 10/s × 5s
+		expect(reserve.credits).toBe(170); // byteplus-seedance @720p: 34/s × 5s
 
 		// Hold is keyed by the PER-JOB take id, not the set id.
 		const take = insertedTake();
@@ -350,7 +352,7 @@ describe("generate POST — reserve before dispatch, per-job hold key (#1b)", ()
 	});
 
 	it("402s before ANY provider call when the video can't be afforded", async () => {
-		state.spendable = 10; // video needs 50
+		state.spendable = 10; // video needs 170
 		const res = await generatePOST(jsonRequest({ prompt: "a cat" }));
 		expect(res.status).toBe(402);
 		expect(eventsOf("submit")).toHaveLength(0);
@@ -370,7 +372,7 @@ describe("generate POST — reserve before dispatch, per-job hold key (#1b)", ()
 		const [reserve] = eventsOf("reserve");
 		const [settle] = eventsOf("settle");
 		expect(settle.refId).toBe(reserve.refId);
-		expect(settle.credits).toBe(50);
+		expect(settle.credits).toBe(170);
 	});
 });
 
@@ -391,9 +393,9 @@ describe("generate POST — persona still is metered (#2)", () => {
 		expect(res.status).toBe(200);
 
 		// still reserve → render → still settle → release the over-hold diff
-		// (reserve is sized to the DEFAULT image backend's rate, nano-banana-pro
-		// @ 14; this mock's still renders on openai-gpt-image @ 4, so the 10-credit
-		// difference is released) → video reserve → submit
+		// (reserve is sized to the DEFAULT image backend's sale rate,
+		// nano-banana-pro @ 35; this mock's still renders on openai-gpt-image
+		// @ 10, so the 25-credit difference is released) → video reserve → submit
 		expect(ops()).toEqual([
 			"reserve",
 			"renderStill",
@@ -405,12 +407,12 @@ describe("generate POST — persona still is metered (#2)", () => {
 		const [stillReserve, videoReserve] = eventsOf("reserve");
 		const [stillSettle] = eventsOf("settle");
 		const [stillReleaseDiff] = eventsOf("release");
-		expect(stillReserve.credits).toBe(14); // google-nano-banana (default image backend) flat
-		expect(stillSettle.credits).toBe(4); // openai-gpt-image (actual routed backend) flat
+		expect(stillReserve.credits).toBe(35); // google-nano-banana (default image backend) sale rate
+		expect(stillSettle.credits).toBe(10); // openai-gpt-image (actual routed backend) sale rate
 		expect(stillSettle.refId).toBe(stillReserve.refId);
-		expect(stillReleaseDiff.credits).toBe(10); // 14 reserved - 4 actually spent
+		expect(stillReleaseDiff.credits).toBe(25); // 35 reserved - 10 actually spent
 		expect(stillReleaseDiff.refId).toBe(stillReserve.refId);
-		expect(videoReserve.credits).toBe(50);
+		expect(videoReserve.credits).toBe(170); // byteplus-seedance @720p: 34/s × 5s
 		// Independent charge ids — the still can never consume the video hold.
 		expect(videoReserve.refId).not.toBe(stillReserve.refId);
 	});
@@ -480,7 +482,7 @@ describe("promote POST — 1080p re-fire is metered (#1) on its own hold key (#1
 
 		expect(ops()).toEqual(["reserve", "generateVideo"]);
 		const [reserve] = eventsOf("reserve");
-		expect(reserve.credits).toBe(50); // 10/s × set.duration(5)
+		expect(reserve.credits).toBe(300); // 1080p: 60/s × set.duration(5)
 
 		const promoted = insertedTake();
 		expect(promoted?.id as string).toBe(reserve.refId as string);

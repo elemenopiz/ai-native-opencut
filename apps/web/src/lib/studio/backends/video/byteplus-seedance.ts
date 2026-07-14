@@ -45,6 +45,7 @@ export const byteplusSeedanceBackend: GenerationBackend = {
 	estimateCost(req: BackendRequest): CostEstimate {
 		const credits = costFor("byteplus-seedance", "video", {
 			seconds: req.duration,
+			resolution: req.resolution,
 		});
 		return {
 			credits,

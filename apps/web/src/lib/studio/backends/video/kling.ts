@@ -186,7 +186,10 @@ export const klingBackend: GenerationBackend = {
 	},
 
 	estimateCost(req: BackendRequest): CostEstimate {
-		const credits = costFor("kling", "video", { seconds: req.duration });
+		const credits = costFor("kling", "video", {
+			seconds: req.duration,
+			resolution: req.resolution,
+		});
 		return {
 			credits,
 			basis: `Kling ${modeByResolution(req.resolution)} × ${req.duration ?? 5}s`,

@@ -19,6 +19,7 @@
 import { webEnv } from "@byorn/env/web";
 import { nanoid } from "nanoid";
 import { fetchWithTimeout, MEDIA_TIMEOUT_MS } from "@/lib/studio/fetch-timeout";
+import { costFor } from "@/lib/credits/cost-table";
 import type {
 	BackendRequest,
 	CostEstimate,
@@ -36,9 +37,10 @@ const BFL_API_KEY_ENV = "BFL_API_KEY";
 // pinning, not needed here. https://docs.bfl.ml/quick_start/generating_images
 const BFL_BASE = "https://api.bfl.ai/v1";
 
-/** BFL has no discrete low/medium/high quality knob — ultra is a fixed
- *  high-fidelity 4-megapixel output, so every quality tier maps to one cost. */
-const CREDITS = 18; // UNVERIFIED: derived from BFL's published ~$0.06/image ultra rate
+// BFL has no discrete low/medium/high quality knob — ultra is a fixed
+// high-fidelity 4-megapixel output. The actual credit cost lives in
+// `cost-table.ts` (`costFor("bfl-flux", "image", ...)`) — see `estimateCost`
+// below, which reads it directly rather than hand-rolling a second number.
 
 interface BflSubmitResponse {
 	id: string;
@@ -136,7 +138,7 @@ export const bflFluxBackend: GenerationBackend = {
 	capabilities: {
 		// BFL's aspect_ratio enum maps cleanly onto our three ImageSize values.
 		sizes: ["1024x1024", "1536x1024", "1024x1536"],
-		qualities: ["low", "medium", "high"], // ultra has one fixed quality tier — see CREDITS
+		qualities: ["low", "medium", "high"], // ultra has one fixed quality tier — see estimateCost
 		supportsSeedLock: true, // real reproducible `seed` param
 		supportsOmniReference: false,
 		supportsLastFrame: false,
@@ -149,10 +151,10 @@ export const bflFluxBackend: GenerationBackend = {
 	},
 
 	estimateCost(_req: BackendRequest): CostEstimate {
-		return {
-			credits: CREDITS,
-			basis: "FLUX1.1 [pro] Ultra (fixed quality tier)",
-		};
+		// Read the shared billing table directly (was a hand-set, drifted
+		// constant here — display now always equals what's actually charged).
+		const credits = costFor("bfl-flux", "image", { count: 1 });
+		return { credits, basis: "FLUX1.1 [pro] Ultra (fixed quality tier)" };
 	},
 
 	async submit(req: BackendRequest): Promise<SubmitResult> {
