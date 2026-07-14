@@ -10,7 +10,7 @@
 
 import { webEnv } from "@byorn/env/web";
 import { generateVideo, pollVideo } from "@/lib/studio/provider-adapter";
-import { estimateVideoCredits } from "@/lib/studio/backends/cost";
+import { costFor } from "@/lib/credits/cost-table";
 import type {
 	BackendRequest,
 	CostEstimate,
@@ -43,7 +43,9 @@ export const byteplusSeedanceBackend: GenerationBackend = {
 	},
 
 	estimateCost(req: BackendRequest): CostEstimate {
-		const credits = estimateVideoCredits(req.resolution, req.duration);
+		const credits = costFor("byteplus-seedance", "video", {
+			seconds: req.duration,
+		});
 		return {
 			credits,
 			basis: `Seedance ${req.resolution ?? "720p"} × ${req.duration ?? 5}s`,

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { costFor, isFreeAction } from "../cost-table";
+import {
+	costFor,
+	imageCreditsRange,
+	isFreeAction,
+	videoCreditsRange,
+} from "../cost-table";
 
 /**
  * The cost table is the server-authoritative price list. These assertions pin
@@ -25,6 +30,32 @@ describe("costFor — video", () => {
 
 	it("throws on an unknown video backend (fail loud, never $0)", () => {
 		expect(() => costFor("no-such-backend", "video")).toThrow();
+	});
+
+	it('prices the registered Luma backend id ("luma-ray", not "luma")', () => {
+		// Regression pin: `GenerationBackend.id` for Luma is "luma-ray"
+		// (`backends/video/luma.ts`) — this key must match exactly or every
+		// Luma generation throws when the server tries to bill it.
+		expect(costFor("luma-ray", "video", { seconds: 5 })).toBe(50); // 10 × 5
+		expect(() => costFor("luma", "video")).toThrow();
+	});
+});
+
+describe("videoCreditsRange / imageCreditsRange — pre-routing estimate", () => {
+	it("spans the cheapest to priciest registered video backend", () => {
+		// pika (5/sec) is cheapest, runway (35/sec) is priciest.
+		expect(videoCreditsRange(5)).toEqual({ low: 25, high: 175 });
+	});
+
+	it("spans the cheapest to priciest registered image backend", () => {
+		// ideogram (3) is cheapest, google-nano-banana (14) is priciest.
+		expect(imageCreditsRange(1)).toEqual({ low: 3, high: 14 });
+		expect(imageCreditsRange(2)).toEqual({ low: 6, high: 28 });
+	});
+
+	it("never returns below 1 credit", () => {
+		expect(videoCreditsRange(0.001).low).toBeGreaterThanOrEqual(1);
+		expect(imageCreditsRange(0).low).toBeGreaterThanOrEqual(1);
 	});
 });
 

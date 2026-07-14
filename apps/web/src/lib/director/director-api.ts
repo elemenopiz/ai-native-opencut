@@ -72,6 +72,7 @@ import {
 } from "./reel-proposal";
 import {
 	formatSpend,
+	formatUsd,
 	getReelSpend,
 	planActionWithinBudget,
 	recordReelSpend,
@@ -140,7 +141,6 @@ import {
 	estimateBatchCost,
 	estimateSpecCost,
 	formatCostRange,
-	formatUsd,
 	type CostRange,
 } from "@/lib/studio/cost";
 import { createShortIdMap } from "./short-id";
@@ -441,6 +441,25 @@ export function defaultSafetyRephrase(prompt: string): string {
 export function estimateSpeechSeconds(script: string): number {
 	const words = script.trim().split(/\s+/).filter(Boolean).length;
 	return Math.max(1, Math.round((words / 2.5) * 10) / 10);
+}
+
+/**
+ * Bridge `estimateSpecCost`/`estimateBatchCost`'s credits estimate (see
+ * `studio/cost.ts`) into the USD `baseCostUsd` the whole-reel BUDGET system
+ * (`./budget.ts`) expects — that module stays USD-denominated by design (a
+ * real dollar cap the user sets), independent of the credits-denominated
+ * per-action cost-preview gate. 1 credit = US$0.01 (`credits/cost-table.ts`),
+ * so this is an exact unit conversion, not a re-estimate.
+ *
+ * IMPORTANT: always feed this the LOW end of a `CostRange` when bridging into
+ * budget.ts — `ShotBudgetInput.baseCostUsd` is documented as the "cheapest-tier"
+ * estimate that `tierCostUsd` multiplies UP by the requested tier's factor. A
+ * `CostRange`'s LOW end (the cheapest registered backend's rate) IS that
+ * baseline; its HIGH end is a different concept — the cross-backend ask-early
+ * figure the display/approval gate shows the user.
+ */
+function creditsToUsd(credits: number): number {
+	return credits / 100;
 }
 
 /** One-line " Budget: $X across N shots (…)" tail appended to a storyboard message. */
@@ -1429,8 +1448,11 @@ export function createDirectorApi(
 		const before = captureReel();
 		const ids: string[] = [];
 		// Each shot's base (cheapest-tier) USD estimate, in shot order — the budget
-		// allocator's cost basis. Uses the HIGH end so a budget never silently
-		// underestimates (fail toward asking), matching the approval gate.
+		// allocator's cost basis that `tierCostUsd` multiplies UP by the requested
+		// tier's factor (cheap 1×, standard 1.9×, premium 3.2×). Uses the LOW end
+		// of `estimateSpecCost` (the cheapest registered backend's rate) — that IS
+		// the "cheapest-tier" baseline; the HIGH end is a cross-backend ask-early
+		// display figure (the approval gate), a different concept.
 		const baseCostUsd: number[] = [];
 		let cursor = editor.timeline.getTotalDuration();
 
@@ -1443,7 +1465,7 @@ export function createDirectorApi(
 					planned.duration,
 					applyReferenceMediaId(shot.spec),
 				);
-				baseCostUsd.push(estimateSpecCost(spec).high);
+				baseCostUsd.push(creditsToUsd(estimateSpecCost(spec).low));
 				const slotId = editor.timeline.addGenerativeSlot({
 					spec,
 					duration: planned.duration,
@@ -1535,7 +1557,7 @@ export function createDirectorApi(
 		return proposal.shots.map((s) =>
 			s.source === "library"
 				? 0
-				: estimateSpecCost(buildSpec(s.prompt, s.duration)).high,
+				: creditsToUsd(estimateSpecCost(buildSpec(s.prompt, s.duration)).low),
 		);
 	}
 
@@ -2333,9 +2355,11 @@ export function createDirectorApi(
 		if (plan && plan.shots.length > 0) {
 			const baseCostUsd = plan.shots.map((s) => {
 				const located = s.slotId ? findSlot(s.slotId) : null;
-				return located
-					? estimateSpecCost(located.element.generation).high
-					: estimateSpecCost(buildSpec(s.prompt, s.duration)).high;
+				return creditsToUsd(
+					located
+						? estimateSpecCost(located.element.generation).low
+						: estimateSpecCost(buildSpec(s.prompt, s.duration)).low,
+				);
 			});
 			applyBudgetToPlan(plan, baseCostUsd, input.budgetUsd);
 			storePlan(editor, plan);
@@ -2385,7 +2409,11 @@ export function createDirectorApi(
 			slotIds: input.slotIds,
 			alternatives: input.alternatives,
 		}).data;
-		const baseCostUsd = est?.high ?? 0;
+		// LOW end (cheapest registered backend) — the "cheapest-tier" baseline
+		// `planActionWithinBudget` multiplies UP by the requested tier's factor.
+		// `est`'s HIGH end is the display/approval-gate's ask-early figure, a
+		// different concept (see `creditsToUsd`'s doc comment).
+		const baseCostUsd = creditsToUsd(est?.low ?? 0);
 
 		// Which slots does this action hit? (drives modality + planned tier.)
 		const targets = resolveTargets(input.slotIds);

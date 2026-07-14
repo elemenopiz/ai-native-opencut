@@ -21,7 +21,10 @@ export type CreditAction = "video" | "image" | "enhance-prompt" | "infographic";
 const VIDEO_CREDITS_PER_SEC: Record<string, number> = {
 	"byteplus-seedance": 10,
 	kling: 10,
-	luma: 10,
+	// Registered backend id is "luma-ray" (see `backends/video/luma.ts`), not
+	// "luma" — this key must match `GenerationBackend.id` exactly or costFor()
+	// throws for every Luma generation.
+	"luma-ray": 10,
 	runway: 35,
 	pika: 5,
 };
@@ -100,4 +103,33 @@ export function costFor(
 /** Whether an action is free (never metered). */
 export function isFreeAction(action: CreditAction): boolean {
 	return FREE_ACTIONS.has(action);
+}
+
+/**
+ * Cheapest/priciest registered video backend's credit cost for `seconds` —
+ * used by the client-safe estimator (`lib/credits/estimate.ts`) when the UI
+ * doesn't yet know which backend will actually run (e.g. a not-yet-routed
+ * batch). An honest "could cost this much" pre-routing range, derived from
+ * this SAME table so it never drifts from the real per-backend rates above.
+ */
+export function videoCreditsRange(seconds: number = DEFAULT_CLIP_SECONDS): {
+	low: number;
+	high: number;
+} {
+	const rates = Object.values(VIDEO_CREDITS_PER_SEC);
+	return {
+		low: Math.max(1, Math.ceil(Math.min(...rates) * seconds)),
+		high: Math.max(1, Math.ceil(Math.max(...rates) * seconds)),
+	};
+}
+
+/** Cheapest/priciest registered image backend's flat credit cost for `count`
+ *  images — same pre-routing-estimate purpose as {@link videoCreditsRange}. */
+export function imageCreditsRange(count = 1): { low: number; high: number } {
+	const rates = Object.values(IMAGE_CREDITS_FLAT);
+	const n = Math.max(1, count);
+	return {
+		low: Math.max(1, Math.ceil(Math.min(...rates) * n)),
+		high: Math.max(1, Math.ceil(Math.max(...rates) * n)),
+	};
 }

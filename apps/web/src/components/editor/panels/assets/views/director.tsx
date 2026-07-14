@@ -32,7 +32,7 @@ import {
 	type AgentApproval,
 	type DirectorEvent,
 } from "@/lib/director/agent";
-import { formatCostRange, formatUsd } from "@/lib/studio/cost";
+import { formatCostRange } from "@/lib/studio/cost";
 import { useStudioSettingsStore } from "@/stores/studio-settings-store";
 import { CostApprovalDialog } from "@/components/studio/cost-approval-dialog";
 import { EnhancePromptButton } from "@/components/editor/ai/enhance-prompt-button";
@@ -344,8 +344,8 @@ export function DirectorView() {
 	// Cost-preview approval gate (concept: cost-preview gate). Pending confirmation
 	// for a gated verb the chat agent proposed but paused on — it runs only after
 	// the user approves the estimate.
-	const approvalThresholdUsd = useStudioSettingsStore(
-		(s) => s.approvalThresholdUsd,
+	const approvalThresholdCredits = useStudioSettingsStore(
+		(s) => s.approvalThresholdCredits,
 	);
 	const [chatApproval, setChatApproval] = useState<AgentApproval | null>(null);
 
@@ -548,15 +548,21 @@ export function DirectorView() {
 						break;
 					}
 					case "budget_update": {
-						// Running whole-reel spend — one bubble, updated in place.
+						// Running whole-reel spend — one bubble, updated in place. The
+						// underlying reel budget stays USD-denominated internally
+						// (`lib/director/budget.ts`, out of scope for the credits
+						// display conversion); this only converts the RENDERED string
+						// (1 credit = $0.01) so the bubble matches every other cost
+						// display in the Director UI.
+						const usdToCredits = (usd: number) => Math.round(usd * 100);
 						const content =
 							event.budgetUsd != null
-								? `💰 Spent ${formatUsd(event.spentUsd)} of ${formatUsd(
+								? `💰 Spent ${usdToCredits(event.spentUsd)} of ${usdToCredits(
 										event.budgetUsd,
-									)} (${formatUsd(
+									)} credits (${usdToCredits(
 										Math.max(0, event.budgetUsd - event.spentUsd),
 									)} left)`
-								: `💰 Spent ${formatUsd(event.spentUsd)}`;
+								: `💰 Spent ${usdToCredits(event.spentUsd)} credits`;
 						if (!budgetMsgId) {
 							budgetMsgId = crypto.randomUUID();
 							addMessage({ id: budgetMsgId, role: "assistant", content });

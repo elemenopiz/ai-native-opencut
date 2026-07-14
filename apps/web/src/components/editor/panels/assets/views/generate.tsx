@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Coins01Icon } from "@hugeicons/core-free-icons";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PanelView } from "./base-view";
 import { GenerationForm } from "@/components/studio/generation-form";
@@ -15,7 +17,7 @@ import {
 	generateMultiframe,
 	type MultiframeBase,
 } from "@/lib/studio/multiframe";
-import { estimateBatchCost, formatUsd, needsApproval } from "@/lib/studio/cost";
+import { estimateBatchCost, needsApproval } from "@/lib/studio/cost";
 import { CostApprovalDialog } from "@/components/studio/cost-approval-dialog";
 import { useStudioSettingsStore } from "@/stores/studio-settings-store";
 import { useTakesNotificationStore } from "@/stores/takes-notification-store";
@@ -87,8 +89,8 @@ export function GenerateView() {
 
 	// Cost-preview approval gate (concept: cost-preview gate). A batch above the
 	// user's threshold confirms before spending; anything cheaper runs straight.
-	const approvalThresholdUsd = useStudioSettingsStore(
-		(s) => s.approvalThresholdUsd,
+	const approvalThresholdCredits = useStudioSettingsStore(
+		(s) => s.approvalThresholdCredits,
 	);
 	const [approvalOpen, setApprovalOpen] = useState(false);
 
@@ -109,12 +111,12 @@ export function GenerateView() {
 	}, [alternatives, generateAllSlots]);
 
 	const runBatch = useCallback(() => {
-		if (needsApproval(batchCost, approvalThresholdUsd)) {
+		if (needsApproval(batchCost, approvalThresholdCredits)) {
 			setApprovalOpen(true);
 			return;
 		}
 		void runBatchNow();
-	}, [batchCost, approvalThresholdUsd, runBatchNow]);
+	}, [batchCost, approvalThresholdCredits, runBatchNow]);
 
 	// Drive the Takes tab icon (left rail): fill it blue while a generation is in
 	// flight, keep it blue once done so the user knows takes are waiting there.
@@ -192,8 +194,11 @@ export function GenerateView() {
 									)}
 								</span>
 								{promptedSlots.length > 0 && (
-									<span className="text-xs font-semibold tabular-nums">
-										{formatUsd(batchCost.low)}–{formatUsd(batchCost.high)}
+									<span className="flex items-center gap-1 text-xs font-semibold tabular-nums">
+										<HugeiconsIcon icon={Coins01Icon} className="size-3" />
+										{batchCost.low === batchCost.high
+											? batchCost.high
+											: `${batchCost.low}–${batchCost.high}`}
 									</span>
 								)}
 							</div>

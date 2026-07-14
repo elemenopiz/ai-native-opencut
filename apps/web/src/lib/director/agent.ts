@@ -50,12 +50,15 @@ import { createShortIdMap, type ShortIdMap } from "./short-id";
 import {
 	needsApproval,
 	formatCostRange,
-	formatUsd,
 	estimateVoiceoverCost,
 	estimateMusicBedCost,
-	DEFAULT_APPROVAL_THRESHOLD_USD,
+	DEFAULT_APPROVAL_THRESHOLD_CREDITS,
 	type CostRange,
 } from "@/lib/studio/cost";
+// Reel-budget copy stays USD-denominated by design (`./budget`'s own
+// formatter) — a separate unit from the credits-denominated cost-preview gate
+// above (`@/lib/studio/cost`).
+import { formatUsd } from "./budget";
 import { useStudioSettingsStore } from "@/stores/studio-settings-store";
 import {
 	toolCatalog,
@@ -570,11 +573,11 @@ const REQUIRES_APPROVAL = new Set([
 	"addMusicBed",
 ]);
 
-/** The user-configured USD threshold, read live from the studio settings store. */
+/** The user-configured credits threshold, read live from the studio settings store. */
 export function approvalThreshold(): number {
 	return (
-		useStudioSettingsStore.getState().approvalThresholdUsd ??
-		DEFAULT_APPROVAL_THRESHOLD_USD
+		useStudioSettingsStore.getState().approvalThresholdCredits ??
+		DEFAULT_APPROVAL_THRESHOLD_CREDITS
 	);
 }
 

@@ -22,7 +22,7 @@
  */
 
 import { webEnv } from "@byorn/env/web";
-import { estimateVideoCredits } from "@/lib/studio/backends/cost";
+import { costFor } from "@/lib/credits/cost-table";
 import { fetchWithTimeout } from "@/lib/studio/fetch-timeout";
 import type {
 	BackendRequest,
@@ -154,7 +154,7 @@ export const runwayBackend: GenerationBackend = {
 	},
 
 	estimateCost(req: BackendRequest): CostEstimate {
-		const credits = estimateVideoCredits(req.resolution, req.duration);
+		const credits = costFor("runway", "video", { seconds: req.duration });
 		return {
 			credits,
 			basis: `Runway ${taskKindFor(req)} ${req.resolution ?? "720p"} × ${req.duration ?? 5}s`,
