@@ -19,6 +19,17 @@ void main() {
 
     float mask = smoothstep(u_tolerance - u_softness, u_tolerance + u_softness, dist);
 
+    // Low-luma gate: near-black pixels (shadows, chroma-subsampled compression
+    // noise on real footage) carry noisy/undefined hue and can land inside the
+    // tolerance radius above purely by chance, keying out real dark footage
+    // instead of the backdrop. Force these back toward fully opaque, blending
+    // out to the ordinary hue-distance mask by the time luma clears a normal
+    // midtone floor. Synthetic/solid-color test frames rarely produce luma
+    // this low, so standard green-screen behavior is unaffected.
+    float luma = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
+    float lumaGate = smoothstep(0.04, 0.12, luma);
+    mask = mix(1.0, mask, lumaGate);
+
     vec3 spillDiff = rgb - u_keyColor;
     float spillAmount = max(0.0, 1.0 - dist / max(u_tolerance, 0.01));
     float spillFactor = spillAmount * u_spillSuppress;
