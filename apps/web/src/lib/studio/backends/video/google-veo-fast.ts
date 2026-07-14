@@ -68,6 +68,7 @@ export const googleVeoFastBackend: GenerationBackend = {
 	estimateCost(req: BackendRequest): CostEstimate {
 		const credits = costFor("google-veo-fast", "video", {
 			seconds: req.duration,
+			resolution: req.resolution,
 		});
 		return {
 			credits,
