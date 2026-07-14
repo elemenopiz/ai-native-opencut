@@ -25,6 +25,34 @@ export interface ProxyGenerateResult {
 	height: number;
 }
 
+/**
+ * Fit a source into a preset's box and snap each axis to an even number.
+ *
+ * The AVC (H.264) WebCodecs encoder rejects odd dimensions ("both width and
+ * height must be even numbers"), so plain rounding is unsafe: e.g. a 3840x2160
+ * source at the "480p" preset scales to 853.3x480 and `Math.round` yields an
+ * odd 853 width, which throws when the CanvasSource is constructed. We floor
+ * each axis to the nearest even number — this also guarantees we stay within
+ * the preset box (never exceeds the max) and never upscales — with a floor of 2
+ * so a tiny source can't collapse to a zero dimension.
+ */
+export function computeProxyDimensions(
+	origWidth: number,
+	origHeight: number,
+	preset: { maxWidth: number; maxHeight: number },
+): { width: number; height: number } {
+	const scale = Math.min(
+		preset.maxWidth / origWidth,
+		preset.maxHeight / origHeight,
+		1,
+	);
+	const toEven = (value: number) => Math.max(2, Math.floor(value / 2) * 2);
+	return {
+		width: toEven(origWidth * scale),
+		height: toEven(origHeight * scale),
+	};
+}
+
 export async function generateProxy(
 	options: ProxyGenerateOptions,
 ): Promise<ProxyGenerateResult> {
@@ -49,13 +77,11 @@ export async function generateProxy(
 
 		if (duration <= 0) throw new Error("Video has no duration");
 
-		const scale = Math.min(
-			preset.maxWidth / origWidth,
-			preset.maxHeight / origHeight,
-			1,
+		const { width: proxyWidth, height: proxyHeight } = computeProxyDimensions(
+			origWidth,
+			origHeight,
+			preset,
 		);
-		const proxyWidth = Math.round(origWidth * scale);
-		const proxyHeight = Math.round(origHeight * scale);
 
 		const stats = await videoTrack.computePacketStats();
 		const fps = Math.min(stats.averagePacketRate ?? 30, 30);
