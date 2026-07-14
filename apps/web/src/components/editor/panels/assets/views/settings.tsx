@@ -251,7 +251,11 @@ function ProxyEditingSection() {
 	const [generatingIds, setGeneratingIds] = useState<Set<string>>(new Set());
 	const [progressMap, setProgressMap] = useState<Record<string, number>>({});
 
-	const proxyEnabled = activeProject.settings.proxyEditing ?? false;
+	// Defaults to true: proxies are now generated automatically in the
+	// background on ingest, and this toggle only controls whether preview
+	// consumes them (matching preview/index.tsx's default) — off is now an
+	// explicit opt-out rather than the baseline.
+	const proxyEnabled = activeProject.settings.proxyEditing ?? true;
 	const proxyResolution = activeProject.settings.proxyResolution ?? "720p";
 
 	const highResAssets = mediaAssets.filter(
@@ -324,8 +328,9 @@ function ProxyEditingSection() {
 	return (
 		<div className="flex flex-col gap-3">
 			<p className="text-[11px] text-muted-foreground leading-relaxed">
-				Generate lower-resolution copies of high-res videos (&gt;1080p) for
-				smooth preview playback. Exports always use original files.
+				Lower-resolution copies of high-res videos (&gt;1080p) are generated
+				automatically in the background for smooth preview/scrub playback.
+				Exports always use original files.
 			</p>
 
 			<div className="flex items-center justify-between">

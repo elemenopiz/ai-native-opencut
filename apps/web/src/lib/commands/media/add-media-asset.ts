@@ -38,6 +38,15 @@ export class AddMediaAssetCommand extends Command {
 			.catch((error) => {
 				console.error("Failed to save media item:", error);
 			});
+
+		// This command bypasses MediaManager.addMediaAsset (it writes via
+		// setAssets directly), so it needs its own auto-proxy trigger.
+		// Fire-and-forget, guarded internally by needsProxy()/the persisted
+		// proxy field — never blocks this command's execute().
+		editor.media.scheduleAutoProxyGeneration({
+			assetId: this.assetId,
+			projectId: this.projectId,
+		});
 	}
 
 	undo(): void {
@@ -46,6 +55,10 @@ export class AddMediaAssetCommand extends Command {
 			editor.media.setAssets({ assets: this.savedAssets });
 
 			if (this.createdAsset) {
+				// Stop any in-flight/queued auto-proxy work for the
+				// now-undone asset (also drops its background-task entry).
+				editor.media.cancelProxyGeneration(this.assetId);
+
 				storageService
 					.deleteMediaAsset({ projectId: this.projectId, id: this.assetId })
 					.catch((error) => {
