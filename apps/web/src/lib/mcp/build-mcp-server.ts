@@ -54,8 +54,17 @@ import {
  * Generation tools do real provider work in the tab (sequential network
  * calls per take) — give them a long leash. Everything else is an in-memory
  * timeline mutation or read and should answer fast.
+ *
+ * `export` joins this set too: it's a real frame-by-frame canvas/WebCodecs
+ * render (services/renderer/scene-exporter.ts), not a timeline read/mutate,
+ * and can easily exceed the default 30s MCP relay timeout on a real project.
+ * The verb now returns a jobId-shaped result (poach: palmier-delta-refresh
+ * 2026-07-14 §4.4) — the long-term fix is to make export async and let a
+ * client poll/cancel by jobId, but until the FIFO queue that contract
+ * implies actually lands, giving it the same long leash as generation stops
+ * real exports from timing out mid-render.
  */
-const LONG_RUNNING_TOOLS = new Set(["generate", "reroll", "remix"]);
+const LONG_RUNNING_TOOLS = new Set(["generate", "reroll", "remix", "export"]);
 const DEFAULT_TIMEOUT_MS = 30_000;
 const LONG_RUNNING_TIMEOUT_MS = 10 * 60_000;
 
