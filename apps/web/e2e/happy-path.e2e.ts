@@ -33,9 +33,12 @@ const TAKE_WEBM = readFileSync(WEBM_FIXTURE);
 test.describe("editor happy path", () => {
 	test.beforeEach(async ({ page }) => {
 		// Skip the first-run onboarding dialog — its full-screen overlay would
-		// otherwise intercept clicks. Set before any page script runs.
+		// otherwise intercept clicks. Set before any page script runs. The key
+		// is versioned (bumped whenever the onboarding content changes, e.g.
+		// v3→v4 @fe7595a9); keep this in sync with onboarding.tsx or the
+		// welcome dialog blocks every click in the export stage.
 		await page.addInitScript(() => {
-			window.localStorage.setItem("hasSeenOnboarding-v3", "true");
+			window.localStorage.setItem("hasSeenOnboarding-v4", "true");
 		});
 
 		// Provider submit: resolve immediately as a completed job (no polling),

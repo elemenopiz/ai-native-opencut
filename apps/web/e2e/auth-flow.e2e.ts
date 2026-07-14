@@ -78,7 +78,7 @@ function accountMenuButton(page: Page) {
 async function openEditor(page: Page) {
 	await page.addInitScript(() => {
 		// Skip the first-run onboarding overlay — it would intercept clicks.
-		window.localStorage.setItem("hasSeenOnboarding-v3", "true");
+		window.localStorage.setItem("hasSeenOnboarding-v4", "true");
 	});
 	await page.goto("/editor/e2e-auth-flow");
 	await expect(page.getByTestId("export-open")).toBeVisible({

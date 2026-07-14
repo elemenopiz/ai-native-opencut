@@ -13,6 +13,15 @@
  * to prove that export *kicks off* a render (delegates to the renderer and flips
  * the project's export state). Everything else it exposes is the untouched
  * production code path.
+ *
+ * The export stub itself is opt-OUT via `NEXT_PUBLIC_E2E_STUB_EXPORT=0`: a perf
+ * bench that wants the E2E build's scripted setup surface (window-exposed
+ * `editor`) and beta-gate bypass, but needs the *real* canvas/mediabunny/
+ * WebCodecs export path for genuine timing, can build with
+ * `NEXT_PUBLIC_E2E=1 NEXT_PUBLIC_E2E_STUB_EXPORT=0` instead of maintaining a
+ * separate throwaway build (both flags are inlined at build time, like every
+ * NEXT_PUBLIC_* var). Defaults to stubbed (matching prior behavior) so every
+ * existing Playwright spec keeps passing unchanged.
  */
 
 import { useEffect } from "react";
@@ -25,6 +34,9 @@ import type { ExportOptions, ExportResult } from "@/types/export";
 import type { GenerationSpec } from "@/types/timeline";
 
 const E2E_ENABLED = process.env.NEXT_PUBLIC_E2E === "1";
+/** Opt-out flag: set NEXT_PUBLIC_E2E_STUB_EXPORT=0 to run the real exporter
+ *  under an E2E build. Unset/anything else ⇒ stub (prior behavior). */
+const E2E_STUB_EXPORT = process.env.NEXT_PUBLIC_E2E_STUB_EXPORT !== "0";
 
 export interface E2EBridge {
 	/** True once the bridge has wired everything up. */
@@ -77,6 +89,9 @@ export function E2EBridge() {
 		// "export kicks off a render" contract under test. The stub parks at
 		// progress 0 until the test calls releaseExport(), so the transient
 		// "Exporting" DOM/store state is deterministically observable.
+		//
+		// Gated by E2E_STUB_EXPORT so a perf bench can flip it off and exercise
+		// the genuine export path under the same E2E build (see file header).
 		const renderer = editor.renderer as unknown as {
 			exportProject: (args: {
 				options: ExportOptions;
@@ -85,17 +100,19 @@ export function E2EBridge() {
 			}) => Promise<ExportResult>;
 		};
 		const realExportProject = renderer.exportProject.bind(editor.renderer);
-		renderer.exportProject = async ({ options, onProgress }) => {
-			exportCalls.push({ options });
-			onProgress?.({ progress: 0 });
-			await new Promise<void>((resolve) => {
-				releaseExport = () => {
-					onProgress?.({ progress: 1 });
-					resolve();
-				};
-			});
-			return { success: true, buffer: new ArrayBuffer(1024) };
-		};
+		if (E2E_STUB_EXPORT) {
+			renderer.exportProject = async ({ options, onProgress }) => {
+				exportCalls.push({ options });
+				onProgress?.({ progress: 0 });
+				await new Promise<void>((resolve) => {
+					releaseExport = () => {
+						onProgress?.({ progress: 1 });
+						resolve();
+					};
+				});
+				return { success: true, buffer: new ArrayBuffer(1024) };
+			};
+		}
 
 		window.__BYORN_E2E__ = {
 			ready: true,
@@ -109,8 +126,10 @@ export function E2EBridge() {
 		window.__byornPerf = perfStats;
 
 		return () => {
-			renderer.exportProject =
-				realExportProject as typeof renderer.exportProject;
+			if (E2E_STUB_EXPORT) {
+				renderer.exportProject =
+					realExportProject as typeof renderer.exportProject;
+			}
 			delete window.__BYORN_E2E__;
 			delete window.__byornPerf;
 		};
