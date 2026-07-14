@@ -574,13 +574,35 @@ export class VideoCache {
 				}
 			}
 
-			const sink = new CanvasSink(videoTrack, {
+			const baseSinkOptions = {
 				// Must stay >= the maximum number of live WrappedCanvas frames —
 				// see the SINK_POOL_SIZE accounting above.
 				poolSize: SINK_POOL_SIZE,
-				fit: "contain",
+				fit: "contain" as const,
 				...outputSize,
-			});
+			};
+
+			// Explicit hardware-decode hint: measured 1080p ~580→~950fps (+64%)
+			// and 4K HEVC ~112→~309fps (+176%), AND far tighter run-to-run
+			// variance vs the WebCodecs default "no-preference" (perf audit #5).
+			// `canDecode()` above already confirms this codec/config decodes here
+			// at all, but that doesn't guarantee the hardware path specifically
+			// works on every device — if constructing the sink under
+			// prefer-hardware throws, fall back to the default once rather than
+			// failing this media's ingest/playback entirely.
+			let sink: CanvasSink;
+			try {
+				sink = new CanvasSink(videoTrack, {
+					...baseSinkOptions,
+					decoderOptions: { hardwareAcceleration: "prefer-hardware" },
+				});
+			} catch (error) {
+				console.warn(
+					`prefer-hardware CanvasSink init failed for ${mediaId}; falling back to no-preference`,
+					error,
+				);
+				sink = new CanvasSink(videoTrack, baseSinkOptions);
+			}
 
 			this.sinks.set(sinkKey({ mediaId, tier }), {
 				input,
