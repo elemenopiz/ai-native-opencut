@@ -211,12 +211,60 @@ export class MediaManager {
 			// load: this is additive reporting only.
 			await this.reprobePassthroughDecodability();
 
+			// Retry proxy generation that never completed (HEVC cross-browser
+			// decode design, Option A gap-close): addMediaAsset() only fires
+			// scheduleAutoProxyGeneration() once, at ingest. If that run was
+			// interrupted — tab/browser closed mid-generation — the asset is
+			// persisted with `needsProxy() === true` and no `proxy` field
+			// forever, since reopening a project goes through this method, not
+			// addMediaAsset(). For a passthrough (non-H.264) asset that never
+			// got its fallback proxy, that would make the export-time "proxy
+			// still being prepared" failure (see export-decodability.ts)
+			// permanent on any browser that can't decode the original, instead
+			// of resolving on the next open.
+			//
+			// Placed AFTER the reprobe above (and awaited before this fires) so
+			// the two never race on `this.assets`: generateProxyForAsset's
+			// completion handler rebuilds an asset from a snapshot it fetches
+			// only once its own generation actually starts (post-idle-wait),
+			// which must be after the reprobe's flag write has already landed,
+			// not concurrent with it — otherwise a last-writer-wins update on
+			// the shared assets array could silently drop the reprobe's
+			// `decodeUnsupported` flag. Still fire-and-forget: never blocks load.
+			this.retryIncompleteProxyGeneration({ projectId });
+
 			this.notify();
 		} catch (error) {
 			console.error("Failed to load media assets:", error);
 		} finally {
 			this.isLoading = false;
 			this.notify();
+		}
+	}
+
+	/**
+	 * Re-fires background proxy generation for any loaded video asset that
+	 * still needs one (`needsProxy()`) but doesn't have one yet — the retry
+	 * path for a generation run interrupted before it could persist
+	 * `asset.proxy` (closed tab/browser, crash, etc.). `addMediaAsset()` only
+	 * schedules generation once, at ingest, so without this an interrupted
+	 * asset would never get a second attempt.
+	 *
+	 * Safe to call unconditionally on every load: `scheduleAutoProxyGeneration`
+	 * already no-ops per-asset when `asset.proxy` is set or generation is
+	 * already in flight for that id (see its guard clause), so this never
+	 * re-generates an existing proxy or duplicates a running job — it only
+	 * ever starts work for assets that need a proxy and don't have one.
+	 */
+	private retryIncompleteProxyGeneration({
+		projectId,
+	}: {
+		projectId: string;
+	}): void {
+		for (const asset of this.assets) {
+			if (asset.proxy || this.isProxyGenerating(asset.id)) continue;
+			if (!this.needsProxy(asset)) continue;
+			this.scheduleAutoProxyGeneration({ assetId: asset.id, projectId });
 		}
 	}
 

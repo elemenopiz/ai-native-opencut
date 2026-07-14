@@ -38,12 +38,43 @@ mock.module("@/services/storage/service", () => ({
 		loadAllMediaAssets: async () => assetsToLoad,
 		loadProxyFile: async () => null,
 		saveMediaAsset: async () => {},
+		saveProxyFile: async () => {},
 		deleteMediaAsset: async () => {},
+	},
+}));
+
+// Proxy generation is fire-and-forget from loadProjectMedia's retry path (see
+// retryIncompleteProxyGeneration): stub the real WebCodecs/mediabunny-backed
+// generator with a fast, deterministic fake so tests can observe *whether*
+// generation was kicked off without doing real video decode work.
+const generateProxyCalls: string[] = [];
+let generateProxyImpl: () => Promise<{
+	file: File;
+	width: number;
+	height: number;
+}> = async () => ({
+	file: new File([new Uint8Array([1])], "proxy.mp4", { type: "video/mp4" }),
+	width: 1280,
+	height: 720,
+});
+mock.module("@/services/proxy", () => ({
+	generateProxy: async (options: { file: File }) => {
+		generateProxyCalls.push(options.file.name);
+		return generateProxyImpl();
 	},
 }));
 
 // Import AFTER the mocks so the manager binds the stubs (repo convention).
 const { MediaManager } = await import("@/core/managers/media-manager");
+
+/** Flush the microtask queue so fire-and-forget async work (retry proxy
+ * generation, which awaits localAIScheduler.waitForIdle() then generateProxy)
+ * settles before assertions run. */
+async function flushAsync(times = 4): Promise<void> {
+	for (let i = 0; i < times; i++) {
+		await Promise.resolve();
+	}
+}
 
 function makeEditor(): EditorCore {
 	return {} as unknown as EditorCore;
@@ -66,6 +97,12 @@ function videoAsset(overrides: Partial<MediaAsset> = {}): MediaAsset {
 beforeEach(() => {
 	toastCalls.warning.length = 0;
 	assetsToLoad = [];
+	generateProxyCalls.length = 0;
+	generateProxyImpl = async () => ({
+		file: new File([new Uint8Array([1])], "proxy.mp4", { type: "video/mp4" }),
+		width: 1280,
+		height: 720,
+	});
 	// biome-ignore lint/performance/noDelete: test cleanup of a global stub
 	delete (globalThis as { VideoDecoder?: unknown }).VideoDecoder;
 });
@@ -177,5 +214,90 @@ describe("loadProjectMedia — proactive passthrough decodability reprobe", () =
 
 		expect(toastCalls.warning).toEqual([]);
 		expect(manager.getAssetById("m1")?.decodeUnsupported).toBeUndefined();
+	});
+});
+
+/**
+ * Gap-close for the HEVC cross-browser decode design (Option A): proxy
+ * generation only used to fire from `addMediaAsset()`, at ingest. If that run
+ * was interrupted (tab/browser closed mid-generation), the asset is
+ * persisted with `needsProxy() === true` and no `proxy` field forever, since
+ * reopening a project goes through `loadProjectMedia`, never `addMediaAsset`.
+ * `retryIncompleteProxyGeneration` re-fires `scheduleAutoProxyGeneration` on
+ * every load for exactly the assets that still need one and don't have one,
+ * relying on `scheduleAutoProxyGeneration`'s own idempotency guards to avoid
+ * re-generating an existing proxy or duplicating in-flight work.
+ */
+describe("loadProjectMedia — retries proxy generation that never completed", () => {
+	it("passthrough asset with no proxy yet (interrupted generation) → retries on reopen", async () => {
+		assetsToLoad = [videoAsset({ passthrough: { codec: "hvc1.1.6.L120.90" } })];
+		const manager = new MediaManager(makeEditor());
+
+		await manager.loadProjectMedia({ projectId: "p1" });
+		await flushAsync();
+
+		expect(generateProxyCalls).toEqual(["GX010042.mp4"]);
+		expect(manager.getAssetById("m1")?.proxy).toBeTruthy();
+	});
+
+	it("asset that already has a proxy → does NOT re-generate on reopen", async () => {
+		assetsToLoad = [
+			videoAsset({
+				passthrough: { codec: "hvc1.1.6.L120.90" },
+				proxy: {
+					resolution: "720p",
+					width: 1280,
+					height: 720,
+					generatedAt: Date.now(),
+					fileSize: 1000,
+				},
+			}),
+		];
+		const manager = new MediaManager(makeEditor());
+
+		await manager.loadProjectMedia({ projectId: "p1" });
+		await flushAsync();
+
+		expect(generateProxyCalls).toEqual([]);
+	});
+
+	it("asset that doesn't need a proxy (H.264, ≤1080p) → never triggers generation", async () => {
+		assetsToLoad = [videoAsset({ passthrough: undefined })];
+		const manager = new MediaManager(makeEditor());
+
+		await manager.loadProjectMedia({ projectId: "p1" });
+		await flushAsync();
+
+		expect(generateProxyCalls).toEqual([]);
+	});
+
+	it("more than one incomplete asset → retries each independently", async () => {
+		assetsToLoad = [
+			videoAsset({
+				id: "m1",
+				name: "a.mp4",
+				file: new File([new Uint8Array([1])], "a.mp4", {
+					type: "video/mp4",
+				}),
+				passthrough: { codec: "hvc1.1.6.L120.90" },
+			}),
+			videoAsset({
+				id: "m2",
+				name: "b.mp4",
+				file: new File([new Uint8Array([1])], "b.mp4", {
+					type: "video/mp4",
+				}),
+				width: 3840,
+				height: 2160,
+			}),
+		];
+		const manager = new MediaManager(makeEditor());
+
+		await manager.loadProjectMedia({ projectId: "p1" });
+		await flushAsync();
+
+		expect(generateProxyCalls.sort()).toEqual(["a.mp4", "b.mp4"]);
+		expect(manager.getAssetById("m1")?.proxy).toBeTruthy();
+		expect(manager.getAssetById("m2")?.proxy).toBeTruthy();
 	});
 });
