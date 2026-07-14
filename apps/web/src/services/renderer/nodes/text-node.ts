@@ -360,11 +360,13 @@ export class TextNode extends BaseNode<TextNodeParams> {
 			propertyPath: "color",
 			localTime,
 		});
-		const bg = this.params.background;
+		// Tolerate a text element persisted without `background` (public insert
+		// API / old writers) — the compositor must render, not throw.
+		const bg = this.params.background ?? DEFAULT_TEXT_BACKGROUND;
 		const resolvedBackground = {
 			...bg,
 			color: resolveColorAtTime({
-				baseColor: bg.color,
+				baseColor: bg.color ?? DEFAULT_TEXT_BACKGROUND.color,
 				animations: this.params.animations,
 				propertyPath: "background.color",
 				localTime,
@@ -421,9 +423,9 @@ export class TextNode extends BaseNode<TextNodeParams> {
 			}
 
 			if (
-				this.params.background.enabled &&
-				this.params.background.color &&
-				this.params.background.color !== "transparent" &&
+				bg.enabled &&
+				bg.color &&
+				bg.color !== "transparent" &&
 				lineCount > 0
 			) {
 				const backgroundRect = getTextBackgroundRect({

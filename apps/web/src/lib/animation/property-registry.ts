@@ -159,7 +159,9 @@ const ANIMATION_PROPERTY_REGISTRY: Record<
 		defaultInterpolation: "linear",
 		supportsElement: ({ element }) => element.type === "text",
 		getValue: ({ element }) =>
-			element.type === "text" ? element.background.color : null,
+			element.type === "text"
+				? (element.background?.color ?? DEFAULT_TEXT_BACKGROUND.color)
+				: null,
 		setValue: ({ element, value }) =>
 			element.type === "text"
 				? {
@@ -175,7 +177,7 @@ const ANIMATION_PROPERTY_REGISTRY: Record<
 		supportsElement: ({ element }) => element.type === "text",
 		getValue: ({ element }) =>
 			element.type === "text"
-				? (element.background.paddingX ?? DEFAULT_TEXT_BACKGROUND.paddingX)
+				? (element.background?.paddingX ?? DEFAULT_TEXT_BACKGROUND.paddingX)
 				: null,
 		setValue: ({ element, value }) =>
 			element.type === "text"
@@ -192,7 +194,7 @@ const ANIMATION_PROPERTY_REGISTRY: Record<
 		supportsElement: ({ element }) => element.type === "text",
 		getValue: ({ element }) =>
 			element.type === "text"
-				? (element.background.paddingY ?? DEFAULT_TEXT_BACKGROUND.paddingY)
+				? (element.background?.paddingY ?? DEFAULT_TEXT_BACKGROUND.paddingY)
 				: null,
 		setValue: ({ element, value }) =>
 			element.type === "text"
@@ -208,7 +210,7 @@ const ANIMATION_PROPERTY_REGISTRY: Record<
 		supportsElement: ({ element }) => element.type === "text",
 		getValue: ({ element }) =>
 			element.type === "text"
-				? (element.background.offsetX ?? DEFAULT_TEXT_BACKGROUND.offsetX)
+				? (element.background?.offsetX ?? DEFAULT_TEXT_BACKGROUND.offsetX)
 				: null,
 		setValue: ({ element, value }) =>
 			element.type === "text"
@@ -224,7 +226,7 @@ const ANIMATION_PROPERTY_REGISTRY: Record<
 		supportsElement: ({ element }) => element.type === "text",
 		getValue: ({ element }) =>
 			element.type === "text"
-				? (element.background.offsetY ?? DEFAULT_TEXT_BACKGROUND.offsetY)
+				? (element.background?.offsetY ?? DEFAULT_TEXT_BACKGROUND.offsetY)
 				: null,
 		setValue: ({ element, value }) =>
 			element.type === "text"
@@ -241,7 +243,7 @@ const ANIMATION_PROPERTY_REGISTRY: Record<
 		supportsElement: ({ element }) => element.type === "text",
 		getValue: ({ element }) =>
 			element.type === "text"
-				? (element.background.cornerRadius ?? CORNER_RADIUS_MIN)
+				? (element.background?.cornerRadius ?? CORNER_RADIUS_MIN)
 				: null,
 		setValue: ({ element, value }) =>
 			element.type === "text"
