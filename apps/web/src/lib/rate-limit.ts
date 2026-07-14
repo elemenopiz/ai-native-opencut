@@ -115,6 +115,12 @@ export const RATE_LIMITS = {
 	// Client-error intake. Unauthenticated by design (errors happen logged-out),
 	// so the burst cap is tight; the client also self-caps per page load.
 	"telemetry:error": { perMinute: 10, perDay: 300 },
+	// In-app Director agent verb telemetry (`POST /api/telemetry/verb`,
+	// session-authed, keyed on userId). One beacon per verb call plus at most
+	// one `agent_session_activated` per page load — generous enough for a busy
+	// multi-turn Director session without being a useful abuse lever (it only
+	// writes a telemetry row, no provider spend).
+	"telemetry:verb": { perMinute: 60, perDay: 4000 },
 	// Closed-beta access-code check (POST /api/beta-gate). A 4-digit code has
 	// only 10k combinations — the tight per-IP caps are what make brute force
 	// impractical (~months of continuous guessing per IP).
