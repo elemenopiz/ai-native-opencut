@@ -20,6 +20,14 @@ export class AudioManager {
 	private audioContext: AudioContext | null = null;
 	private masterGain: GainNode | null = null;
 	private masterAnalyser: AnalyserNode | null = null;
+	/** Stereo tap for the timeline VU meter (§4.2, palmier-delta-refresh-2026-07-14.md):
+	 * a channel splitter off masterGain feeding two dedicated L/R analysers.
+	 * masterAnalyser above stays mono (Web Audio down-mixes multi-channel
+	 * input for analysis) — these are separate nodes specifically so the
+	 * meter reads true per-channel peaks instead of a summed signal. */
+	private stereoSplitter: ChannelSplitterNode | null = null;
+	private leftAnalyser: AnalyserNode | null = null;
+	private rightAnalyser: AnalyserNode | null = null;
 	private trackNodes = new Map<
 		string,
 		{
@@ -84,6 +92,9 @@ export class AudioManager {
 			void this.audioContext.close();
 			this.audioContext = null;
 			this.masterGain = null;
+			this.stereoSplitter = null;
+			this.leftAnalyser = null;
+			this.rightAnalyser = null;
 		}
 	}
 
@@ -145,6 +156,27 @@ export class AudioManager {
 		this.masterAnalyser.smoothingTimeConstant = 0.8;
 		this.masterGain.connect(this.masterAnalyser);
 		this.masterAnalyser.connect(this.audioContext.destination);
+
+		// L/R tap for the timeline VU meter: branches off masterGain (same
+		// signal masterAnalyser sees) through a splitter into two raw,
+		// unsmoothed analysers. smoothingTimeConstant 0 because the meter's
+		// own dB decay/peak-hold state machine (lib/audio/vu-meter-math.ts)
+		// does the perceptual smoothing — double-smoothing here would blunt it.
+		this.stereoSplitter = this.audioContext.createChannelSplitter(2);
+		this.masterGain.connect(this.stereoSplitter);
+		this.leftAnalyser = this.audioContext.createAnalyser();
+		this.leftAnalyser.fftSize = 256;
+		this.leftAnalyser.smoothingTimeConstant = 0;
+		this.rightAnalyser = this.audioContext.createAnalyser();
+		this.rightAnalyser.fftSize = 256;
+		this.rightAnalyser.smoothingTimeConstant = 0;
+		// Analyser nodes are auto-pulled by the Web Audio spec even without a
+		// downstream connection (they exist for exactly this tap-without-
+		// resounding use case), so leftAnalyser/rightAnalyser deliberately
+		// don't connect onward to destination.
+		this.stereoSplitter.connect(this.leftAnalyser, 0);
+		this.stereoSplitter.connect(this.rightAnalyser, 1);
+
 		return this.audioContext;
 	}
 
@@ -209,6 +241,20 @@ export class AudioManager {
 	getMasterLevels(): { peak: number; rms: number } {
 		if (!this.masterAnalyser) return { peak: 0, rms: 0 };
 		return this.readAnalyserLevels(this.masterAnalyser);
+	}
+
+	/**
+	 * True per-channel peak amplitude (0..1, linear) for the timeline VU
+	 * meter. Returns null before the audio graph has been created (nothing
+	 * has played yet this session) — callers should treat that as "hidden/
+	 * inert", not zero level.
+	 */
+	getStereoPeakLevels(): { left: number; right: number } | null {
+		if (!this.leftAnalyser || !this.rightAnalyser) return null;
+		return {
+			left: this.readAnalyserLevels(this.leftAnalyser).peak,
+			right: this.readAnalyserLevels(this.rightAnalyser).peak,
+		};
 	}
 
 	private readAnalyserLevels(analyser: AnalyserNode): {
