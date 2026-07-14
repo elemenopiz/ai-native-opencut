@@ -7,7 +7,9 @@
  */
 export const RETIRED_FEATURES = {
 	dubbing: false, // use-ai-dubbing (pyannote + TTS chain)
-	musicGen: false, // use-music-gen (would speak its prompt via cloud TTS!)
+	// musicGen retired 2026-07: use-music-gen (a broken TTS-abuse hack) was
+	// deleted outright — real text-to-music now lives in the Generate panel's
+	// Audio tab (Music mode, ElevenLabs Music via /api/studio/audio).
 	scriptToVideo: false, // use-script-to-video
 	denoise: false, // use-noise-reduction (audio-properties panel)
 	speakerLabels: false, // podcast-clips diarization labels
@@ -41,8 +43,6 @@ export function retiredFeatureMessage(feature: RetiredFeature): string {
 	switch (feature) {
 		case "dubbing":
 			return "AI dubbing is not available in this beta.";
-		case "musicGen":
-			return "Music generation is not available in this beta.";
 		case "scriptToVideo":
 			return "Script-to-video is not available in this beta.";
 		case "denoise":

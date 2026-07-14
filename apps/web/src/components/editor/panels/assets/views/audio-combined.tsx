@@ -1,15 +1,18 @@
 "use client";
 
-import { isFeatureAvailable } from "@/lib/local-ai/retired-features";
 import { SubTabView } from "./sub-tab-view";
 import { SoundsView } from "./sounds";
 import { VoiceoverView } from "./voiceover";
 import { PodcastClipsView } from "./podcast-clips";
 import { AudioEnhanceView } from "./audio-enhance";
 import { AudioRecordingPanel } from "./audio-recording";
-import { MusicGenPanel } from "./music-gen";
 import { BeatDetectionPanel } from "./beat-detection";
 
+// Music generation moved to the Generate panel's Audio tab (Music mode,
+// real ElevenLabs Music via /api/studio/audio) — the old `music-gen.tsx`
+// panel here was a broken TTS-abuse hack (its "music" prompt would be
+// SPOKEN by cloud TTS) that was already hidden behind a retired-feature
+// gate and has been deleted outright, not just unmounted.
 export function AudioCombinedView() {
 	return (
 		<SubTabView
@@ -19,11 +22,6 @@ export function AudioCombinedView() {
 				{ key: "podcast", label: "Podcast", content: <PodcastClipsView /> },
 				{ key: "enhance", label: "Enhance", content: <AudioEnhanceView /> },
 				{ key: "record", label: "Record", content: <AudioRecordingPanel /> },
-				// Music gen is retired with the Python stack (its prompt would be
-				// SPOKEN by cloud TTS) — hide the tab until it has a new home.
-				...(isFeatureAvailable("musicGen")
-					? [{ key: "music", label: "Music", content: <MusicGenPanel /> }]
-					: []),
 				{ key: "beats", label: "Beats", content: <BeatDetectionPanel /> },
 			]}
 		/>

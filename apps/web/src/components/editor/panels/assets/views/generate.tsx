@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PanelView } from "./base-view";
 import { GenerationForm } from "@/components/studio/generation-form";
 import { ImagePanel } from "@/components/studio/image-panel";
+import { AudioPanel } from "@/components/studio/audio-panel";
 import { PersonaManager } from "@/components/studio/persona-manager";
 import { Button } from "@/components/ui/button";
 import { useStudioGeneration } from "@/hooks/use-studio-generation";
@@ -167,12 +168,15 @@ export function GenerateView() {
 	return (
 		<PanelView title="Generate" hideHeader>
 			<Tabs value={section} onValueChange={setSection} className="space-y-3">
-				<TabsList className="w-full grid grid-cols-3 h-8">
+				<TabsList className="w-full grid grid-cols-4 h-8">
 					<TabsTrigger value="generate" className="text-xs">
 						Video
 					</TabsTrigger>
 					<TabsTrigger value="image" className="text-xs">
 						Image
+					</TabsTrigger>
+					<TabsTrigger value="audio" className="text-xs">
+						Audio
 					</TabsTrigger>
 					<TabsTrigger value="personas" className="text-xs">
 						Personas
@@ -258,6 +262,10 @@ export function GenerateView() {
 
 				<TabsContent value="image" className="mt-0">
 					<ImagePanel />
+				</TabsContent>
+
+				<TabsContent value="audio" className="mt-0">
+					<AudioPanel />
 				</TabsContent>
 
 				<TabsContent value="personas" className="mt-0">

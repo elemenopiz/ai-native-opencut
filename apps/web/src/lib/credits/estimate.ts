@@ -17,6 +17,7 @@ import {
 	costFor,
 	imageCreditsRange,
 	videoCreditsRange,
+	audioCreditsRange,
 	DEFAULT_CLIP_SECONDS,
 	type VideoResolution,
 } from "@/lib/credits/cost-table";
@@ -69,4 +70,26 @@ export function estimateImageCredits(
 	} catch {
 		return imageCreditsRange(count);
 	}
+}
+
+/**
+ * Credits for one audio job (score or music) of `seconds`. Exact when
+ * `backendId` is the routed/selected backend (the Audio tab always knows
+ * this — it picks the backend per action, not from an open catalog), else a
+ * min–max range across `fal-mmaudio` and `elevenlabs-music`'s very different
+ * per-second rates.
+ */
+export function estimateAudioCredits(
+	seconds: number,
+	backendId?: string,
+): CreditRange {
+	if (backendId) {
+		try {
+			const credits = costFor(backendId, "audio", { seconds });
+			return { low: credits, high: credits };
+		} catch {
+			// Unregistered/unknown id — fall through to the range.
+		}
+	}
+	return audioCreditsRange(seconds);
 }

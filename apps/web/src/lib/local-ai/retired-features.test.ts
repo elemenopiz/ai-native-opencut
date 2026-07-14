@@ -28,15 +28,15 @@ describe("RETIRED_FEATURES (ADR-004 beta freeze)", () => {
 		}
 	});
 
-	test("the cloud-TTS-misuse trio from Task 8 is covered by the gate", () => {
-		// These three hooks would otherwise send non-speech prompts to the
-		// cloud TTS route (a music prompt read aloud, etc.) — the Priority 1
-		// regression this module exists to stop.
-		const misuseProne: RetiredFeature[] = [
-			"musicGen",
-			"scriptToVideo",
-			"dubbing",
-		];
+	test("the cloud-TTS-misuse pair from Task 8 is covered by the gate", () => {
+		// These hooks would otherwise send non-speech prompts to the cloud TTS
+		// route (a script read aloud instead of rendered, etc.) — the Priority 1
+		// regression this module exists to stop. `musicGen` was the third
+		// (a music prompt read aloud as speech) — its only implementation
+		// (`use-music-gen`) was deleted outright rather than left gated, once
+		// real text-to-music (ElevenLabs Music, Generate panel's Audio tab)
+		// gave it a legitimate home.
+		const misuseProne: RetiredFeature[] = ["scriptToVideo", "dubbing"];
 		for (const feature of misuseProne) {
 			expect(isFeatureAvailable(feature)).toBe(false);
 		}

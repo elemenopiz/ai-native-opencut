@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
 	allPricedOps,
+	audioCreditsRange,
 	costFor,
 	imageCreditsRange,
 	isFreeAction,
@@ -100,6 +101,16 @@ describe("videoCreditsRange / imageCreditsRange — pre-routing estimate", () =>
 	it("never returns below 1 credit", () => {
 		expect(videoCreditsRange(0.001).low).toBeGreaterThanOrEqual(1);
 		expect(imageCreditsRange(0).low).toBeGreaterThanOrEqual(1);
+	});
+
+	it("audioCreditsRange spans fal-mmaudio (cheapest) to elevenlabs-music (priciest)", () => {
+		// fal-mmaudio 0.25 cr/sec, elevenlabs-music 0.625 cr/sec.
+		expect(audioCreditsRange(8)).toEqual({ low: 2, high: 5 }); // ceil(2.0), ceil(5.0)
+		expect(audioCreditsRange(30)).toEqual({ low: 8, high: 19 }); // ceil(7.5), ceil(18.75)
+	});
+
+	it("audioCreditsRange never returns below 1 credit", () => {
+		expect(audioCreditsRange(0.001).low).toBeGreaterThanOrEqual(1);
 	});
 });
 
