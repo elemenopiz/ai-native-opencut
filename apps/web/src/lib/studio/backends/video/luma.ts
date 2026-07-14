@@ -62,10 +62,16 @@ function resolutionFor(resolution: string | undefined): string {
 }
 
 // UNVERIFIED: Ray-2 documents 5s and 9s as the supported durations; anything
-// else is rounded to the nearest of those two.
+// else snaps to the nearest of those two. `snapDurationSec` is the numeric
+// form that drives billing; `durationFor` is the API's string form ("5s"/"9s").
+// Both come from the one function, so the seconds `estimateCost` bills always
+// equal the seconds `submit` sends.
+function snapDurationSec(sec: number | undefined): 5 | 9 {
+	return (sec ?? 5) > 7 ? 9 : 5;
+}
+
 function durationFor(sec: number | undefined): string {
-	const n = sec ?? 5;
-	return n > 7 ? "9s" : "5s";
+	return `${snapDurationSec(sec)}s`;
 }
 
 function mapLumaStatus(state: string | undefined): JobStatus {
@@ -138,13 +144,17 @@ export const lumaBackend: GenerationBackend = {
 
 	estimateCost(req: BackendRequest): CostEstimate {
 		const credits = costFor("luma-ray", "video", {
-			seconds: req.duration,
+			seconds: snapDurationSec(req.duration),
 			resolution: req.resolution,
 		});
 		return {
 			credits,
 			basis: `Luma Ray 2 ${resolutionFor(req.resolution)} × ${durationFor(req.duration)}`,
 		};
+	},
+
+	resolveDurationSec(req: BackendRequest): number {
+		return snapDurationSec(req.duration);
 	},
 
 	async submit(req: BackendRequest): Promise<SubmitResult> {
