@@ -16,6 +16,17 @@ import { deleteTranscript } from "@/services/search/asset-transcript-store";
 // user-media memory (user-memory-store, keyed by CONTENT hash) is deliberately
 // left intact — its whole purpose is reuse after this asset is gone.
 import { deleteUnderstanding } from "@/services/search/asset-understanding-store";
+import { localAIScheduler } from "@/lib/local-ai/scheduler";
+import { useBackgroundTasksStore } from "@/stores/background-tasks-store";
+
+/**
+ * Resolution used for automatic background proxy generation on ingest.
+ * Fixed at "720p" rather than exposed as a knob: the "480p" preset has a
+ * known odd-dimension crash in generateProxy()'s scale math (853x480 -> AVC
+ * encoder rejects odd widths/heights) that is being fixed separately. 720p
+ * rounds to even dimensions for every fixture/aspect-ratio tested so far.
+ */
+const AUTO_PROXY_RESOLUTION: ProxyResolution = "720p";
 
 export class MediaManager {
 	private assets: MediaAsset[] = [];
@@ -53,6 +64,11 @@ export class MediaManager {
 			this.notify();
 			throw error;
 		}
+
+		// Fire-and-forget: never block asset-ready on this. Guarded internally
+		// by needsProxy()/the persisted proxy field, so this is a no-op for
+		// non-video/low-res assets and for assets that already have a proxy.
+		this.scheduleAutoProxyGeneration({ assetId: newAsset.id, projectId });
 
 		return newAsset.id;
 	}
@@ -109,6 +125,7 @@ export class MediaManager {
 			controller.abort();
 			this.proxyGenerators.delete(id);
 		}
+		useBackgroundTasksStore.getState().removeTask(`auto-proxy-${id}`);
 
 		this.assets = this.assets.filter((asset) => asset.id !== id);
 		this.notify();
@@ -340,6 +357,98 @@ export class MediaManager {
 		}
 	}
 
+	/**
+	 * Auto-generate a background preview proxy for a freshly-ingested video,
+	 * once the editor is idle. Synchronous/non-blocking on purpose — callers
+	 * (addMediaAsset, AddMediaAssetCommand) fire this and move on immediately;
+	 * asset-ready never waits on it.
+	 *
+	 * Idempotent: guarded by the persisted `asset.proxy` field. Project reopen
+	 * goes through loadProjectMedia (which loads any existing proxy file), not
+	 * through addMediaAsset, so reopening never re-triggers generation.
+	 */
+	scheduleAutoProxyGeneration({
+		assetId,
+		projectId,
+	}: {
+		assetId: string;
+		projectId: string;
+	}): void {
+		const asset = this.assets.find((a) => a.id === assetId);
+		if (!asset || asset.proxy || this.isProxyGenerating(assetId)) return;
+		if (!this.needsProxy(asset)) return;
+
+		void this.runAutoProxyGeneration({ assetId, projectId });
+	}
+
+	private async runAutoProxyGeneration({
+		assetId,
+		projectId,
+	}: {
+		assetId: string;
+		projectId: string;
+	}): Promise<void> {
+		// Never start (or contend with) work during playback/scrub/export —
+		// mirrors the local-AI scheduler's editor-priority gate. Once started,
+		// the ~2s WebCodecs conversion runs to completion rather than being
+		// interrupted mid-flight, same tradeoff LocalClip already makes for
+		// queued understanding-pass requests.
+		await localAIScheduler.waitForIdle();
+
+		// Re-check after the wait: the asset may have been deleted, replaced,
+		// or already proxied (e.g. a manual "Generate" click) in the meantime.
+		const asset = this.assets.find((a) => a.id === assetId);
+		if (!asset || asset.proxy || this.isProxyGenerating(assetId)) return;
+		if (!this.needsProxy(asset)) return;
+
+		const taskId = `auto-proxy-${assetId}`;
+		const tasksStore = useBackgroundTasksStore.getState();
+		tasksStore.addTask({
+			id: taskId,
+			type: "proxy-generation",
+			label: `Generating preview proxy — ${asset.name}`,
+			progress: "0%",
+		});
+
+		try {
+			await this.generateProxyForAsset({
+				assetId,
+				projectId,
+				resolution: AUTO_PROXY_RESOLUTION,
+				onProgress: (progress) => {
+					useBackgroundTasksStore.getState().updateTask(taskId, {
+						progress: `${Math.round(progress * 100)}%`,
+					});
+				},
+			});
+
+			// generateProxyForAsset swallows its own errors (the asset stays
+			// fully usable at full resolution) — infer success from whether a
+			// proxy actually landed rather than from a thrown error.
+			const finalAsset = this.assets.find((a) => a.id === assetId);
+			if (finalAsset?.proxy) {
+				tasksStore.updateTask(taskId, {
+					status: "completed",
+					completedAt: Date.now(),
+					progress: "100%",
+				});
+			} else {
+				tasksStore.updateTask(taskId, {
+					status: "error",
+					completedAt: Date.now(),
+					error: "Proxy generation failed — using original file",
+				});
+			}
+		} catch (error) {
+			console.error("Auto proxy generation failed:", error);
+			tasksStore.updateTask(taskId, {
+				status: "error",
+				completedAt: Date.now(),
+				error: error instanceof Error ? error.message : "Unknown error",
+			});
+		}
+	}
+
 	async loadProxyForAsset({
 		assetId,
 		projectId,
@@ -410,6 +519,10 @@ export class MediaManager {
 			this.proxyGenerators.delete(assetId);
 			this.notify();
 		}
+		// No-ops if there's no matching auto-proxy task (e.g. this was a
+		// manually-triggered generation, which has its own local UI progress
+		// state and never adds a background-tasks-store entry).
+		useBackgroundTasksStore.getState().removeTask(`auto-proxy-${assetId}`);
 	}
 
 	subscribe(listener: () => void): () => void {

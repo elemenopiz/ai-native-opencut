@@ -119,7 +119,12 @@ function RenderTreeController() {
 			canvasSize: { width, height },
 			background: activeProject.settings.background,
 			isPreview: true,
-			useProxy: activeProject.settings.proxyEditing ?? false,
+			// Defaults to true: once a proxy exists for an asset (auto-generated
+			// in the background on ingest, or manually generated), preview/scrub
+			// should use it automatically. Export always builds with isPreview
+			// unset, so it never reads this and always decodes full-res
+			// originals regardless of this setting.
+			useProxy: activeProject.settings.proxyEditing ?? true,
 		});
 
 		editor.renderer.setRenderTree({ renderTree });
