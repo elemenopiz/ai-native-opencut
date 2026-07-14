@@ -19,11 +19,14 @@ import { afterAll, afterEach, beforeEach, expect, mock, test } from "bun:test";
 import { webEnv } from "@byorn/env/web";
 
 /** Mutable session the auth mock returns — tests flip it per case. */
-let currentSession: { user: { id: string } } | null = {
+let currentSession: { user: { id: string; email?: string } } | null = {
 	user: { id: "u1" },
 };
 /** When set, the rate-limit mock returns this response (limited). */
 let limitedResponse: Response | undefined;
+/** How many times the (mocked) enforceRateLimit was invoked this test — lets
+ *  owner-exemption tests assert the check was SKIPPED, not just "not limited". */
+let enforceRateLimitCalls = 0;
 
 mock.module("@/lib/auth/server", () => ({
 	auth: { api: { getSession: async () => currentSession } },
@@ -34,7 +37,10 @@ mock.module("@/lib/auth/server", () => ({
 // order-dependence story).
 const realRateLimit = { ...(await import("@/lib/rate-limit")) };
 mock.module("@/lib/rate-limit", () => ({
-	enforceRateLimit: async () => limitedResponse,
+	enforceRateLimit: async () => {
+		enforceRateLimitCalls++;
+		return limitedResponse;
+	},
 }));
 afterAll(() => {
 	mock.module("@/lib/rate-limit", () => realRateLimit);
@@ -95,6 +101,7 @@ beforeEach(() => {
 	captured = null;
 	currentSession = { user: { id: "u1" } };
 	limitedResponse = undefined;
+	enforceRateLimitCalls = 0;
 	webEnv.GEMINI_API_KEY = "test-gemini-key";
 	webEnv.GEMINI_BASE_URL = "";
 	webEnv.DIRECTOR_MODEL = "";
@@ -123,6 +130,29 @@ test("key set + anonymous → 401 (the relay bills our key)", async () => {
 	const res = await POST(makeReq(validBody));
 	expect(res.status).toBe(401);
 	expect(captured).toBeNull();
+});
+
+test("a regular signed-in user goes through the rate limiter", async () => {
+	currentSession = { user: { id: "u1", email: "not-owner@example.com" } };
+	const res = await POST(makeReq(validBody));
+	expect(res.status).toBe(200);
+	expect(enforceRateLimitCalls).toBe(1);
+});
+
+test("an owner account (OWNER_EMAILS) skips the rate limiter entirely", async () => {
+	currentSession = { user: { id: "owner1", email: "zsrumishaikh@gmail.com" } };
+	const res = await POST(makeReq(validBody));
+	expect(res.status).toBe(200);
+	expect(enforceRateLimitCalls).toBe(0);
+});
+
+test("owner email match is case-insensitive, mirroring signup-grant's normalization", async () => {
+	currentSession = {
+		user: { id: "owner1", email: "ZSRumishaikh@Gmail.com" },
+	};
+	const res = await POST(makeReq(validBody));
+	expect(res.status).toBe(200);
+	expect(enforceRateLimitCalls).toBe(0);
 });
 
 test("rate-limited → the limiter's response is returned as-is", async () => {
@@ -175,7 +205,7 @@ test("native passthrough: fields forwarded untranslated, relay-only fields strip
 	// Caller's generationConfig survives, but the output budget is clamped.
 	expect(captured?.body.generationConfig).toEqual({
 		temperature: 0.7,
-		maxOutputTokens: 32000,
+		maxOutputTokens: 16000,
 	});
 	// Upstream JSON is returned verbatim.
 	expect(await res.json()).toEqual({ candidates: [] });

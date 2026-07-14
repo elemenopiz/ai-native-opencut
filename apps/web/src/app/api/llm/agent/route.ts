@@ -24,6 +24,11 @@ import Anthropic from "@anthropic-ai/sdk";
 import { webEnv } from "@byorn/env/web";
 import { auth } from "@/lib/auth/server";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { isOwnerEmail } from "@/lib/credits/signup-grant";
+import {
+	DIRECTOR_BURST_LIMIT_MESSAGE,
+	DIRECTOR_DAILY_LIMIT_MESSAGE,
+} from "@/lib/director/free-tier-copy";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -46,8 +51,12 @@ const DEFAULT_KIMI_MODEL = "kimi-k2.6";
 const DEFAULT_MAX_TOKENS = 16000;
 
 /** Hard ceiling on caller-requested output — this relay bills the server's own
- *  provider key, so an unbounded `max_tokens` is a cost-abuse lever. */
-const MAX_OUTPUT_TOKENS = 32000;
+ *  provider key, so an unbounded `max_tokens` is a cost-abuse lever. Equal to
+ *  DEFAULT_MAX_TOKENS (16k, a sane budget for one orchestration turn: reasoning
+ *  + a handful of tool calls) so a caller can no longer request DOUBLE the
+ *  intended per-turn spend — this IS the ceiling, not a generous headroom
+ *  above it. */
+const MAX_OUTPUT_TOKENS = 16000;
 
 /** The request body the browser-side agent loop sends for one model turn. */
 interface AgentRelayRequest {
@@ -98,13 +107,19 @@ export async function POST(req: Request) {
 		return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 	}
 
-	// Cap paid relay calls per account (both burst and daily volume).
-	const limited = await enforceRateLimit({
-		name: "llm:agent",
-		request: req,
-		userId: session.user.id,
-	});
-	if (limited) return limited;
+	// Cap paid relay calls per account (both burst and daily volume). Owner
+	// accounts (see OWNER_EMAILS) are exempt from the free-tier cap — they
+	// still authenticate normally, this only skips the rate check.
+	if (!isOwnerEmail(session.user.email)) {
+		const limited = await enforceRateLimit({
+			name: "llm:agent",
+			request: req,
+			userId: session.user.id,
+			dailyMessage: DIRECTOR_DAILY_LIMIT_MESSAGE,
+			minuteMessage: DIRECTOR_BURST_LIMIT_MESSAGE,
+		});
+		if (limited) return limited;
+	}
 
 	let body: AgentRelayRequest;
 	try {
