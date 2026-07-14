@@ -25,7 +25,10 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { uppercase } from "@/utils/string";
 import { clamp } from "@/utils/math";
-import { timelineTimeToPixels, timelineTimeToSnappedPixels } from "@/lib/timeline";
+import {
+	timelineTimeToPixels,
+	timelineTimeToSnappedPixels,
+} from "@/lib/timeline";
 
 const MIN_BOOKMARK_WIDTH_PX = 2;
 const BOOKMARK_MARKER_WIDTH_PX = 12;
@@ -73,7 +76,7 @@ export function TimelineBookmarksRow({
 	handleRulerMouseDown,
 }: TimelineBookmarksRowProps) {
 	const editor = useEditor();
-	const activeScene = editor.scenes.getActiveScene();
+	const activeScene = editor.scenes.getActiveSceneOrNull();
 
 	return (
 		<div className="relative h-4 flex-1 overflow-hidden">
@@ -95,7 +98,7 @@ export function TimelineBookmarksRow({
 					handleRulerTrackingMouseDown(event);
 				}}
 			>
-				{activeScene.bookmarks.map((bookmark) => (
+				{(activeScene?.bookmarks ?? []).map((bookmark) => (
 					<TimelineBookmark
 						key={`bookmark-${bookmark.time}`}
 						bookmark={bookmark}

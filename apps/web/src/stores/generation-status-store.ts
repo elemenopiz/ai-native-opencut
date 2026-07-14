@@ -46,6 +46,13 @@ interface GenerationStatusStore {
 	 */
 	startPolling: (jobId: string, pollFn: () => Promise<void>) => void;
 	stopPolling: (jobId: string) => void;
+	/**
+	 * Stop every live poll interval and drop all job statuses. For project
+	 * switches: jobIds are one project's takes, and leaving their intervals
+	 * running keeps polling (and holding status for) a project that is no
+	 * longer open.
+	 */
+	reset: () => void;
 }
 
 // Intervals live outside Zustand state — they're not serializable UI state,
@@ -101,6 +108,14 @@ export const useGenerationStatusStore = create<GenerationStatusStore>()(
 				clearInterval(interval);
 				pollingIntervals.delete(jobId);
 			}
+		},
+
+		reset: () => {
+			for (const interval of pollingIntervals.values()) {
+				clearInterval(interval);
+			}
+			pollingIntervals.clear();
+			set({ statusMap: {} });
 		},
 	}),
 );

@@ -33,6 +33,12 @@ interface BeatGridStore {
 	setGrid: (grid: BeatGrid | null) => void;
 	setAnalyzing: (isAnalyzing: boolean) => void;
 	toggleBeatSnapping: () => void;
+	/**
+	 * Drop the analyzed grid (project-scoped — its elementId/trackId/mediaId
+	 * point into one project's timeline). Keeps `beatSnappingEnabled`: that's a
+	 * user preference, not project state.
+	 */
+	reset: () => void;
 }
 
 export const useBeatGridStore = create<BeatGridStore>()((set) => ({
@@ -50,6 +56,10 @@ export const useBeatGridStore = create<BeatGridStore>()((set) => ({
 
 	toggleBeatSnapping: () => {
 		set((state) => ({ beatSnappingEnabled: !state.beatSnappingEnabled }));
+	},
+
+	reset: () => {
+		set({ grid: null, isAnalyzing: false });
 	},
 }));
 

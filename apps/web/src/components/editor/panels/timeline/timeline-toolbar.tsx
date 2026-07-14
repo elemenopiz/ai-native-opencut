@@ -217,7 +217,7 @@ function ToolbarLeftSection() {
 
 function SceneSelector() {
 	const editor = useEditor();
-	const currentScene = editor.scenes.getActiveScene();
+	const currentScene = editor.scenes.getActiveSceneOrNull();
 
 	return (
 		<div>

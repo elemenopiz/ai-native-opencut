@@ -44,6 +44,8 @@ interface BackgroundTasksState {
 	removeTask: (id: string) => void;
 	clearCompleted: () => void;
 	setMinimized: (minimized: boolean) => void;
+	/** Drop all tasks (project-scoped). Keeps `isMinimized` — a UI preference. */
+	reset: () => void;
 }
 
 export const useBackgroundTasksStore = create<BackgroundTasksState>(
@@ -100,6 +102,10 @@ export const useBackgroundTasksStore = create<BackgroundTasksState>(
 
 		setMinimized: (minimized) => {
 			set({ isMinimized: minimized });
+		},
+
+		reset: () => {
+			set({ tasks: [] });
 		},
 	}),
 );

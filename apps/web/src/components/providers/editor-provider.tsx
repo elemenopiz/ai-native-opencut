@@ -15,7 +15,7 @@ import { useMcpBridge } from "@/hooks/use-mcp-bridge";
 import { prefetchFontAtlas } from "@/lib/fonts/google-fonts";
 import { attachLocalAISchedulerToEditor } from "@/lib/local-ai/scheduler";
 import { hydrateDirectorStateFromBible } from "@/lib/director/project-bible";
-import { useTranscriptStore } from "@/stores/transcript-store";
+import { resetProjectScopedStores } from "@/stores/reset-project-scoped-stores";
 
 interface EditorProviderProps {
 	projectId: string;
@@ -55,14 +55,13 @@ export function EditorProvider({ projectId, children }: EditorProviderProps) {
 				// project switches). See `lib/director/project-bible.ts`.
 				hydrateDirectorStateFromBible(editor);
 
-				// Clear the transcript store on every project switch. It's a global
-				// in-memory singleton (transcript segments + speaker names/positions,
-				// translations, emotions), and EditorCore is reused across project
-				// switches — without this reset, the previous project's transcript and
-				// speaker captions bleed into the newly-opened project. The editor
-				// page's restore effect then repopulates from this project's own
-				// timeline caption elements once the store is empty.
-				useTranscriptStore.getState().reset();
+				// Reset every module-global store that holds per-project state
+				// (transcript, beat grid, generation polls, frame/omni chains,
+				// background tasks, …) on every project switch — EditorCore is
+				// reused across switches, so nothing else clears them. The editor
+				// page's restore effects then repopulate from this project's own
+				// data. See `stores/reset-project-scoped-stores.ts`.
+				resetProjectScopedStores();
 
 				setIsLoading(false);
 				prefetchFontAtlas();

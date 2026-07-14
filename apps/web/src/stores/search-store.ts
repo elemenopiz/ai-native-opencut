@@ -12,6 +12,8 @@ interface SearchStore {
 	pendingFindSimilarMediaId: string | null;
 	requestFindSimilar: (mediaId: string) => void;
 	consumeFindSimilar: () => string | null;
+	/** Drop any unconsumed request (its mediaId is project-scoped). */
+	reset: () => void;
 }
 
 export const useSearchStore = create<SearchStore>((set, get) => ({
@@ -22,4 +24,5 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
 		if (id) set({ pendingFindSimilarMediaId: null });
 		return id;
 	},
+	reset: () => set({ pendingFindSimilarMediaId: null }),
 }));
