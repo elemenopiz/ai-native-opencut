@@ -17,6 +17,18 @@
  * AUTHZ: every call re-checks `scopeForTool(name)` against the scopes of the
  * bearer token on THAT request (delivered via `authInfo`), so a read-only
  * token can hold a session but still can't mutate.
+ *
+ * PROJECT-BINDING REFUSAL: the session (and every relayed call) is pinned to
+ * `pin.projectId` from the bearer token — never "whichever project the
+ * browser happens to have open" — so `relayToolCall` always asks the bridge
+ * for THAT project's tab. When no such tab is registered (the user switched
+ * the editor to a different project, or closed it), a MUTATING verb is
+ * refused fast with a structured `{ refusal: "project-mismatch" }` payload
+ * naming the bound project and, when the server can see it (another live tab
+ * for the SAME user, on a different project), which project is active now. A
+ * READ verb hits the identical bridge gap but is not a binding violation (no
+ * mutation risk), so it gets the same shape with `refusal:
+ * "bridge-unavailable"` instead. See {@link bridgeRefusalFor}.
  */
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -32,7 +44,11 @@ import { toolCatalog, type ToolDescriptor } from "@/lib/director/tool-catalog";
 import { scopeForTool } from "@/lib/mcp/auth";
 import { RATE_LIMITS, getRateLimiter } from "@/lib/rate-limit";
 import { recordMcpEvent } from "@/lib/mcp/telemetry";
-import { BridgeError, getEditorBridge } from "./editor-bridge";
+import {
+	BridgeError,
+	type BridgeErrorDetails,
+	getEditorBridge,
+} from "./editor-bridge";
 
 /**
  * Generation tools do real provider work in the tab (sequential network
@@ -50,6 +66,66 @@ function jsonResult(payload: unknown, isError: boolean): CallToolResult {
 	return {
 		content: [{ type: "text", text: JSON.stringify(payload) }],
 		isError,
+	};
+}
+
+/**
+ * The structured refusal shape for a "no-tab" bridge gap. `refusal` is the
+ * discriminant a client should switch on: `"project-mismatch"` means a
+ * mutating verb was blocked because the bound project has no live editor
+ * (never silently mutate the wrong/no project); `"bridge-unavailable"` means
+ * a read verb hit the identical gap but carries no mutation risk, so it is
+ * NOT framed as a binding violation. `activeProjectId` is present only when
+ * the bridge can see another live tab for the same user on a different
+ * project (see `EditorBridge.findActiveProjectForUser`) — never another
+ * user's state.
+ */
+export interface McpBridgeRefusal {
+	ok: false;
+	refusal: "project-mismatch" | "bridge-unavailable";
+	boundProjectId: string;
+	activeProjectId?: string;
+	message: string;
+}
+
+/**
+ * Build the structured refusal for a "no-tab" {@link BridgeError}, worded
+ * distinctly for a mutating vs. a read verb (see the module doc). Both
+ * branches state the bound project, name the currently-active project when
+ * knowable, and give a one-line remedy — but only the mutating branch calls
+ * it a project-mismatch refusal; the read branch calls it what it is, a
+ * missing bridge, since a read has nothing to silently corrupt.
+ */
+export function bridgeRefusalFor(
+	mutating: boolean,
+	details: BridgeErrorDetails | undefined,
+	fallbackMessage: string,
+): McpBridgeRefusal {
+	const refusal = mutating ? "project-mismatch" : "bridge-unavailable";
+	if (!details) {
+		// Should not happen for "no-tab" (relayToolCall always attaches details),
+		// but fail into the same shape rather than a bare string if it ever does.
+		return {
+			ok: false,
+			refusal,
+			boundProjectId: "unknown",
+			message: fallbackMessage,
+		};
+	}
+	const { boundProjectId, activeProjectId } = details;
+	const message = mutating
+		? activeProjectId
+			? `Refused: this MCP session is bound to project "${boundProjectId}", but the connected editor is currently on project "${activeProjectId}". Open project "${boundProjectId}" in the editor to continue.`
+			: `Refused: this MCP session is bound to project "${boundProjectId}", and no editor tab is currently connected. Open project "${boundProjectId}" in a browser tab to continue.`
+		: activeProjectId
+			? `This read needs a live editor connection for project "${boundProjectId}"; the connected editor is currently on project "${activeProjectId}" instead. Open project "${boundProjectId}" in the editor, or retry once it reconnects.`
+			: `This read needs a live editor connection for project "${boundProjectId}", and none is currently connected. Open the project in a browser tab and retry.`;
+	return {
+		ok: false,
+		refusal,
+		boundProjectId,
+		...(activeProjectId ? { activeProjectId } : {}),
+		message,
 	};
 }
 
@@ -167,6 +243,23 @@ export function createByornMcpServer(pin: {
 			return jsonResult(result, !result.ok);
 		} catch (error) {
 			if (error instanceof BridgeError) {
+				// "no-tab" is the project-binding gap this hardening pass targets:
+				// the session's bound project has no live editor right now. Refuse
+				// with a structured payload instead of the bare bridge message —
+				// worded as a mutation refusal or a read-availability gap depending
+				// on the verb (see `bridgeRefusalFor`). Other bridge codes
+				// (user-mismatch/timeout/tab-disconnected) are different failure
+				// classes and keep their existing generic shape.
+				const payload:
+					| McpBridgeRefusal
+					| { ok: false; message: string; bridge: string } =
+					error.code === "no-tab"
+						? bridgeRefusalFor(
+								descriptor.mutating,
+								error.details,
+								error.message,
+							)
+						: { ok: false, message: error.message, bridge: error.code };
 				recordMcpEvent({
 					userId: pin.userId,
 					projectId: pin.projectId,
@@ -176,12 +269,10 @@ export function createByornMcpServer(pin: {
 						mutating: descriptor.mutating,
 						ok: false,
 						bridge: error.code,
+						...("refusal" in payload ? { refusal: payload.refusal } : {}),
 					},
 				});
-				return jsonResult(
-					{ ok: false, message: error.message, bridge: error.code },
-					true,
-				);
+				return jsonResult(payload, true);
 			}
 			throw error;
 		}
