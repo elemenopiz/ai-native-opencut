@@ -29,6 +29,7 @@ import {
 import {
 	ChipGrid,
 	GenerationBottomBar,
+	GenerationCard,
 } from "@/components/studio/generation-bottom-bar";
 import { toast } from "sonner";
 
@@ -258,7 +259,7 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 		<>
 			{backends.length > 1 && (
 				<div className="space-y-1.5">
-					<span className="text-[11px] font-medium text-muted-foreground">
+					<span className="text-xs font-medium text-muted-foreground">
 						Model
 					</span>
 					<div className="flex flex-wrap gap-1.5">
@@ -269,10 +270,10 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 								onClick={() => setBackendId(b.id)}
 								title={`${b.vendor} · ${b.safetyTier}`}
 								className={cn(
-									"rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors",
+									"rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-colors",
 									selectedBackend?.id === b.id
-										? "border-primary bg-primary text-primary-foreground"
-										: "border-border text-muted-foreground hover:border-foreground hover:text-foreground",
+										? "border-transparent bg-foreground/15 text-foreground"
+										: "border-border/50 text-muted-foreground hover:border-foreground/40 hover:text-foreground",
 								)}
 							>
 								{b.label}
@@ -295,6 +296,7 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 
 			<ChipGrid
 				label="Resolution"
+				variant="solid"
 				options={availableQualities.map((q) => ({
 					value: q.value,
 					label: q.label,
@@ -314,26 +316,14 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 					onChange={setPanels}
 				/>
 			)}
-
-			{preset.allowsMultiple && (
-				<ChipGrid
-					label="Variations"
-					options={BATCH_OPTIONS.map((count) => ({
-						value: count,
-						label: String(count),
-					}))}
-					value={n}
-					onChange={setN}
-					hint="generate a batch, drag your pick to the board"
-				/>
-			)}
 		</>
 	);
 
 	return (
 		<div className={cn("flex flex-col gap-3", className)}>
-			{/* Preset selector — compact secondary row */}
-			<div className="flex gap-2">
+			{/* Preset selector — quiet text-chips, same idiom as the popover's
+			    ChipGrid (no bold primary fill). */}
+			<div className="flex flex-wrap gap-1.5">
 				{IMAGE_PRESET_ORDER.map((id) => (
 					<button
 						key={id}
@@ -341,10 +331,10 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 						onClick={() => selectPreset(id)}
 						title={IMAGE_PRESETS[id].description}
 						className={cn(
-							"flex-1 px-2 py-1.5 rounded-md text-xs font-medium border transition-colors",
+							"rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors",
 							presetId === id
-								? "bg-primary text-primary-foreground border-primary"
-								: "border-border text-muted-foreground hover:border-foreground",
+								? "border-transparent bg-foreground/15 text-foreground"
+								: "border-border/50 text-muted-foreground hover:border-foreground/40 hover:text-foreground",
 						)}
 					>
 						{IMAGE_PRESETS[id].label}
@@ -357,7 +347,9 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 			{showReferences && (
 				<div className="space-y-1.5">
 					<div className="flex items-center justify-between">
-						<Label className="text-xs">References</Label>
+						<span className="text-xs font-medium text-muted-foreground">
+							References
+						</span>
 						<span className="text-[10px] text-muted-foreground">
 							optional · drag, drop, or browse
 						</span>
@@ -371,50 +363,67 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 				</div>
 			)}
 
-			{/* Prompt — the hero field */}
-			<div className="space-y-1.5">
-				<Label className="text-xs">
-					{presetId === "storyboard"
-						? "Scene"
-						: presetId === "character-sheet"
-							? "Character"
-							: "Prompt"}
-				</Label>
-				<div className="relative">
-					<Textarea
-						placeholder={preset.placeholder}
-						value={prompt}
-						onChange={(e) => setPrompt(e.target.value)}
-						rows={4}
-						className="resize-none text-sm pr-9"
-					/>
-					<div className="absolute right-1.5 top-1.5">
-						<EnhancePromptButton
-							mode="image"
-							getPrompt={() => prompt}
-							setPrompt={setPrompt}
+			{/* One calm surface: Prompt, Variations, and the bottom bar share a
+			    single hairline-divided card. */}
+			<GenerationCard>
+				<div className="space-y-1.5 p-3">
+					<Label className="text-xs text-muted-foreground">
+						{presetId === "storyboard"
+							? "Scene"
+							: presetId === "character-sheet"
+								? "Character"
+								: "Prompt"}
+					</Label>
+					<div className="relative">
+						<Textarea
+							placeholder={preset.placeholder}
+							value={prompt}
+							onChange={(e) => setPrompt(e.target.value)}
+							rows={4}
+							className="resize-none border-0 bg-transparent p-0 text-sm shadow-none focus-visible:ring-0 pr-9 min-h-24"
+						/>
+						<div className="absolute right-1.5 top-0">
+							<EnhancePromptButton
+								mode="image"
+								getPrompt={() => prompt}
+								setPrompt={setPrompt}
+							/>
+						</div>
+					</div>
+					{generating && progress && (
+						<p className="text-[10px] text-muted-foreground">
+							Generating {progress.done}/{progress.total}…
+						</p>
+					)}
+					{error && <p className="text-xs text-destructive">{error}</p>}
+				</div>
+
+				{preset.allowsMultiple && (
+					<div className="px-3 py-2">
+						<ChipGrid
+							label="Variations"
+							options={BATCH_OPTIONS.map((count) => ({
+								value: count,
+								label: String(count),
+							}))}
+							value={n}
+							onChange={setN}
+							hint="drag your pick to the board"
 						/>
 					</div>
-				</div>
-			</div>
+				)}
 
-			{generating && progress && (
-				<p className="text-[10px] text-muted-foreground">
-					Generating {progress.done}/{progress.total}…
-				</p>
-			)}
-			{error && <p className="text-xs text-destructive">{error}</p>}
-
-			<GenerationBottomBar
-				summary={summary}
-				settingsContent={settingsContent}
-				cost={cost}
-				onSubmit={handleGenerate}
-				submitDisabled={!prompt.trim() || generating || refUploading}
-				busy={generating}
-				submitLabel={submitLabel}
-				testIdPrefix="image-gen"
-			/>
+				<GenerationBottomBar
+					summary={summary}
+					settingsContent={settingsContent}
+					cost={cost}
+					onSubmit={handleGenerate}
+					submitDisabled={!prompt.trim() || generating || refUploading}
+					busy={generating}
+					submitLabel={submitLabel}
+					testIdPrefix="image-gen"
+				/>
+			</GenerationCard>
 
 			{/* Gallery — drag a tile to the visionboard, or click to scroll through */}
 			{stills.length > 0 && (

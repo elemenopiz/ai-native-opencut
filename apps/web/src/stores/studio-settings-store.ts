@@ -31,7 +31,6 @@ interface StudioSettingsState {
 	resolution: VideoResolution;
 	duration: number;
 	cameraPreset: string | null;
-	seedLocked: boolean;
 	// Persona consistency tier: "high" (Balanced) renders a per-shot reference
 	// still via a routed image provider (GPT Image / Gemini / …), feeding the
 	// persona's anchor + uploaded photos as references (best identity match, +1
@@ -64,7 +63,6 @@ export const useStudioSettingsStore = create<StudioSettingsState>()(
 			resolution: "720p",
 			duration: 5,
 			cameraPreset: null,
-			seedLocked: false,
 			consistencyMode: "high",
 			imageSize: "1024x1536",
 			imageQuality: "high",
