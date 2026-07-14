@@ -94,6 +94,23 @@ export function nearestDuration(
 	return "8";
 }
 
+/**
+ * The exact clip length (seconds, as a number) Veo will actually render for this
+ * request. This is the SINGLE place both `submitVeo` (what we send the provider)
+ * and `estimateCost` (what we bill) resolve the duration, so the charged seconds
+ * can never drift from the generated seconds. 1080p and reference-image
+ * conditioning each pin Veo's 8s floor regardless of the requested duration (see
+ * `nearestDuration`); everything else rounds to the nearest supported 4/6/8.
+ * Derived only from request fields (resolution + referenceImages) so
+ * `estimateCost` — which never fetches the reference bytes — resolves the same
+ * value `submit` does from the same inputs.
+ */
+export function resolveVeoDurationSec(req: BackendRequest): 4 | 6 | 8 {
+	const forceMax =
+		req.resolution === "1080p" || (req.referenceImages?.length ?? 0) > 0;
+	return Number(nearestDuration(req.duration, { forceMax })) as 4 | 6 | 8;
+}
+
 export async function fetchAsInlineData(
 	url: string,
 ): Promise<{ mimeType: string; data: string } | undefined> {
@@ -198,9 +215,12 @@ export async function submitVeo(
 			parameters: {
 				aspectRatio:
 					ASPECT_BY_ORIENTATION[req.orientation ?? "landscape"] ?? "16:9",
-				durationSeconds: nearestDuration(req.duration, {
-					forceMax: wantsHighRes || hasReferenceImages,
-				}),
+				// Same resolver `estimateCost` bills on, so the seconds we submit are
+				// exactly the seconds we charged for. `resolveVeoDurationSec` reads the
+				// request's own `resolution`/`referenceImages` (not the post-fetch
+				// `hasReferenceImages`), so a reference-conditioned request bills and
+				// renders the 8s floor consistently.
+				durationSeconds: String(resolveVeoDurationSec(req)),
 				resolution: wantsHighRes ? "1080p" : "720p",
 				// Per current docs: "allow_all" for text-to-video, "allow_adult" once
 				// an image/reference is in play (image-to-video / reference modes).
@@ -290,14 +310,19 @@ export const googleVeoBackend: GenerationBackend = {
 	},
 
 	estimateCost(req: BackendRequest): CostEstimate {
+		const seconds = resolveVeoDurationSec(req);
 		const credits = costFor("google-veo", "video", {
-			seconds: req.duration,
+			seconds,
 			resolution: req.resolution,
 		});
 		return {
 			credits,
-			basis: `Veo 3.1 ${req.resolution ?? "720p"} × ${nearestDuration(req.duration)}s (native audio)`,
+			basis: `Veo 3.1 ${req.resolution ?? "720p"} × ${seconds}s (native audio)`,
 		};
+	},
+
+	resolveDurationSec(req: BackendRequest): number {
+		return resolveVeoDurationSec(req);
 	},
 
 	submit(req: BackendRequest): Promise<SubmitResult> {

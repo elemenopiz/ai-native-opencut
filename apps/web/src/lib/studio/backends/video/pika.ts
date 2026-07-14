@@ -63,6 +63,14 @@ function subpathFor(req: BackendRequest): PikaSubpath {
 		: "text-to-video";
 }
 
+// Pika 2.2 renders only discrete 5s or 10s clips, so any requested duration
+// snaps to one of the two. This is the SINGLE place both `submit` (what we send
+// Pika) and `estimateCost` (what we bill) resolve the duration, so the charged
+// seconds always equal the submitted seconds.
+function snapDurationSec(sec: number | undefined): 5 | 10 {
+	return (sec ?? 0) > 5 ? 10 : 5;
+}
+
 /** Job id remembers which sub-path submitted it — needed because fal's
  *  status/result endpoints are rooted under the same model path used to
  *  submit, and `poll()` otherwise has no way to know which one. */
@@ -151,14 +159,19 @@ export const pikaBackend: GenerationBackend = {
 	},
 
 	estimateCost(req: BackendRequest): CostEstimate {
+		const seconds = snapDurationSec(req.duration);
 		const credits = costFor("pika", "video", {
-			seconds: req.duration,
+			seconds,
 			resolution: req.resolution,
 		});
 		return {
 			credits,
-			basis: `Pika 2.2 ${req.resolution ?? "720p"} × ${req.duration ?? 5}s`,
+			basis: `Pika 2.2 ${req.resolution ?? "720p"} × ${seconds}s`,
 		};
+	},
+
+	resolveDurationSec(req: BackendRequest): number {
+		return snapDurationSec(req.duration);
 	},
 
 	async submit(req: BackendRequest): Promise<SubmitResult> {
@@ -168,7 +181,7 @@ export const pikaBackend: GenerationBackend = {
 				prompt: req.prompt,
 				aspect_ratio: ASPECT_BY_ORIENTATION[req.orientation ?? "landscape"],
 				resolution: req.resolution === "1080p" ? "1080p" : "720p",
-				duration: req.duration && req.duration > 5 ? 10 : 5,
+				duration: snapDurationSec(req.duration),
 				...(req.seed != null ? { seed: req.seed } : {}),
 			};
 			if (subpath === "image-to-video") {

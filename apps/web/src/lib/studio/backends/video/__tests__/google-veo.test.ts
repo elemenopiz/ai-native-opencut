@@ -13,6 +13,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { webEnv } from "@byorn/env/web";
+import { costFor } from "@/lib/credits/cost-table";
 import { googleVeoBackend } from "../google-veo";
 import { googleVeoFastBackend } from "../google-veo-fast";
 
@@ -100,6 +101,65 @@ describe("googleVeoBackend.estimateCost / googleVeoFastBackend.estimateCost", ()
 		expect(standard.credits).toBeGreaterThan(fast.credits);
 		expect(standard.basis).toMatch(/native audio/i);
 		expect(fast.basis).toMatch(/Fast/);
+	});
+});
+
+describe("googleVeoBackend.estimateCost — bills the duration Veo actually renders", () => {
+	// Regression guard for the billing/submit duration mismatch: submit() snaps
+	// the requested duration to Veo's discrete 4/6/8s (and forces 8s at 1080p or
+	// with reference images), so estimateCost() must bill that SAME resolved
+	// length, not the raw request.
+	it("bills a 1080p request for the forced 8s floor, not the requested 4s", () => {
+		const est = googleVeoBackend.estimateCost({
+			modality: "video",
+			prompt: "x",
+			duration: 4,
+			resolution: "1080p",
+		});
+		expect(est.credits).toBe(
+			costFor("google-veo", "video", { seconds: 8, resolution: "1080p" }),
+		);
+		// The old behavior billed the raw 4s — strictly cheaper than the 8s truth.
+		expect(est.credits).toBeGreaterThan(
+			costFor("google-veo", "video", { seconds: 4, resolution: "1080p" }),
+		);
+		expect(est.basis).toMatch(/× 8s/);
+	});
+
+	it("bills reference-conditioned requests for the forced 8s floor", () => {
+		const est = googleVeoBackend.estimateCost({
+			modality: "video",
+			prompt: "x",
+			duration: 4,
+			referenceImages: ["https://cdn.example/a.png"],
+		});
+		expect(est.credits).toBe(
+			costFor("google-veo", "video", { seconds: 8, resolution: undefined }),
+		);
+		expect(est.basis).toMatch(/× 8s/);
+	});
+
+	it("bills the nearest supported step for a plain 720p request (7s → 8s)", () => {
+		const est = googleVeoBackend.estimateCost({
+			modality: "video",
+			prompt: "x",
+			duration: 7,
+		});
+		expect(est.credits).toBe(costFor("google-veo", "video", { seconds: 8 }));
+		expect(est.basis).toMatch(/× 8s/);
+	});
+
+	it("Fast tier applies the same resolution rule (1080p → 8s)", () => {
+		const est = googleVeoFastBackend.estimateCost({
+			modality: "video",
+			prompt: "x",
+			duration: 4,
+			resolution: "1080p",
+		});
+		expect(est.credits).toBe(
+			costFor("google-veo-fast", "video", { seconds: 8, resolution: "1080p" }),
+		);
+		expect(est.basis).toMatch(/× 8s/);
 	});
 });
 

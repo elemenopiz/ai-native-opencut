@@ -157,6 +157,17 @@ export interface GenerationBackend {
 	isAvailable(): boolean;
 	/** Honest pre-generation cost, normalized to Byorn credits. */
 	estimateCost(req: BackendRequest): CostEstimate;
+	/**
+	 * The exact clip length (whole seconds) this backend will submit for `req`,
+	 * for backends that SNAP the requested duration to a discrete provider
+	 * value (e.g. Kling's 5|10s, Luma's 5|9s, Veo's 4|6|8s). The server billing
+	 * path reads this — `costFor(id, "video", { seconds })` — so the credits
+	 * charged always equal the seconds actually generated, and it resolves from
+	 * the SAME helper `submit`/`estimateCost` use so the three can't drift. Omit
+	 * on backends that render the requested duration verbatim (e.g. Seedance);
+	 * the caller then bills the requested duration unchanged.
+	 */
+	resolveDurationSec?(req: BackendRequest): number;
 	/** Kick off generation. Never throws for provider errors — returns
 	 *  `{ status: "failed", error }` so the router/caller can fall back. */
 	submit(req: BackendRequest): Promise<SubmitResult>;

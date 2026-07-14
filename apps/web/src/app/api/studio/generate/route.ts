@@ -328,8 +328,20 @@ export async function POST(req: Request) {
 		// the same set, so polling the promoted job could settle/release the
 		// draft's hold.)
 		const takeId = nanoid();
+		// Cost is computed SERVER-SIDE, keyed by the routed backend + the exact clip
+		// length it will actually submit. Several backends snap the requested
+		// duration to a discrete provider-supported value (Kling/Pika/Runway →
+		// 5|10s, Luma → 5|9s, Veo → 4|6|8s with an 8s floor at 1080p / references);
+		// `resolveDurationSec` reports that snapped length via the SAME helper the
+		// backend's `submit` uses, so the credits we reserve equal the seconds of
+		// video we generate and get billed for — never the raw request. Backends
+		// that render the requested duration verbatim (e.g. Seedance) omit the
+		// resolver and bill the request unchanged. Billing the raw `duration` here
+		// is exactly what let the charge drift from the generated clip.
+		const billedSeconds =
+			route.backend.resolveDurationSec?.(normalized.request) ?? duration;
 		const creditCost = costFor(route.backend.id, "video", {
-			seconds: duration,
+			seconds: billedSeconds,
 			resolution,
 		});
 		try {
@@ -337,7 +349,11 @@ export async function POST(req: Request) {
 				refType: STUDIO_REF_TYPE,
 				refId: takeId,
 				idempotencyKey: `${takeId}:reserve`,
-				metadata: { backendId: route.backend.id, seconds: duration, setId },
+				metadata: {
+					backendId: route.backend.id,
+					seconds: billedSeconds,
+					setId,
+				},
 			});
 		} catch (err) {
 			if (err instanceof InsufficientCredits) {

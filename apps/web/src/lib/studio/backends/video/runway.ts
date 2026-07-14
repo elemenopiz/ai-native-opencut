@@ -122,6 +122,14 @@ function taskKindFor(req: BackendRequest): RunwayTaskKind {
 	return "text_to_video";
 }
 
+// Runway renders only discrete 5s or 10s clips, so any requested duration snaps
+// to one of the two. This is the SINGLE place both `submit` (what we send
+// Runway) and `estimateCost` (what we bill) resolve the duration, so the charged
+// seconds always equal the submitted seconds.
+function snapDurationSec(sec: number | undefined): 5 | 10 {
+	return (sec ?? 0) > 5 ? 10 : 5;
+}
+
 export const runwayBackend: GenerationBackend = {
 	id: "runway",
 	label: "Runway Gen-4",
@@ -154,14 +162,19 @@ export const runwayBackend: GenerationBackend = {
 	},
 
 	estimateCost(req: BackendRequest): CostEstimate {
+		const seconds = snapDurationSec(req.duration);
 		const credits = costFor("runway", "video", {
-			seconds: req.duration,
+			seconds,
 			resolution: req.resolution,
 		});
 		return {
 			credits,
-			basis: `Runway ${taskKindFor(req)} ${req.resolution ?? "720p"} × ${req.duration ?? 5}s`,
+			basis: `Runway ${taskKindFor(req)} ${req.resolution ?? "720p"} × ${seconds}s`,
 		};
+	},
+
+	resolveDurationSec(req: BackendRequest): number {
+		return snapDurationSec(req.duration);
 	},
 
 	async submit(req: BackendRequest): Promise<SubmitResult> {
@@ -175,7 +188,7 @@ export const runwayBackend: GenerationBackend = {
 			const body: Record<string, unknown> = {
 				model,
 				ratio: ratioFor(req),
-				duration: req.duration && req.duration > 5 ? 10 : 5,
+				duration: snapDurationSec(req.duration),
 				...(req.seed != null ? { seed: req.seed } : {}),
 			};
 

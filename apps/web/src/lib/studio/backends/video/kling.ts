@@ -88,6 +88,15 @@ function modeByResolution(resolution: string | undefined): "std" | "pro" {
 	return resolution === "1080p" ? "pro" : "std";
 }
 
+// Kling v1/v1.6 render only discrete 5s or 10s clips, so any requested duration
+// snaps to one of the two. This is the SINGLE place both `submit` (what we send
+// Kling) and `estimateCost` (what we bill) resolve the duration, so the charged
+// seconds always equal the submitted seconds — no second copy of the rule to
+// drift.
+function snapDurationSec(sec: number | undefined): 5 | 10 {
+	return (sec ?? 0) > 5 ? 10 : 5;
+}
+
 type KlingKind = "text2video" | "image2video";
 
 /** Job ids are prefixed with which endpoint created them, since Kling's poll
@@ -186,14 +195,19 @@ export const klingBackend: GenerationBackend = {
 	},
 
 	estimateCost(req: BackendRequest): CostEstimate {
+		const seconds = snapDurationSec(req.duration);
 		const credits = costFor("kling", "video", {
-			seconds: req.duration,
+			seconds,
 			resolution: req.resolution,
 		});
 		return {
 			credits,
-			basis: `Kling ${modeByResolution(req.resolution)} × ${req.duration ?? 5}s`,
+			basis: `Kling ${modeByResolution(req.resolution)} × ${seconds}s`,
 		};
+	},
+
+	resolveDurationSec(req: BackendRequest): number {
+		return snapDurationSec(req.duration);
 	},
 
 	async submit(req: BackendRequest): Promise<SubmitResult> {
@@ -208,7 +222,7 @@ export const klingBackend: GenerationBackend = {
 				model_name: webEnv.KLING_MODEL || "kling-v1-6",
 				prompt: req.prompt,
 				mode: modeByResolution(req.resolution),
-				duration: String(req.duration && req.duration > 5 ? 10 : 5),
+				duration: String(snapDurationSec(req.duration)),
 				aspect_ratio: RATIO_BY_ORIENTATION[req.orientation ?? "landscape"],
 			};
 

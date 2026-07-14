@@ -23,8 +23,8 @@
 import { webEnv } from "@byorn/env/web";
 import { costFor } from "@/lib/credits/cost-table";
 import {
-	nearestDuration,
 	pollVeo,
+	resolveVeoDurationSec,
 	submitVeo,
 } from "@/lib/studio/backends/video/google-veo";
 import type {
@@ -66,14 +66,19 @@ export const googleVeoFastBackend: GenerationBackend = {
 	},
 
 	estimateCost(req: BackendRequest): CostEstimate {
+		const seconds = resolveVeoDurationSec(req);
 		const credits = costFor("google-veo-fast", "video", {
-			seconds: req.duration,
+			seconds,
 			resolution: req.resolution,
 		});
 		return {
 			credits,
-			basis: `Veo 3.1 Fast ${req.resolution ?? "720p"} × ${nearestDuration(req.duration)}s (native audio)`,
+			basis: `Veo 3.1 Fast ${req.resolution ?? "720p"} × ${seconds}s (native audio)`,
 		};
+	},
+
+	resolveDurationSec(req: BackendRequest): number {
+		return resolveVeoDurationSec(req);
 	},
 
 	submit(req: BackendRequest): Promise<SubmitResult> {
