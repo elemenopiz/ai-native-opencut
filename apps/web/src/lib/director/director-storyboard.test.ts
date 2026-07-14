@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import type { EditorCore } from "@/core";
+import { CommandManager } from "@/core/managers/commands";
 import { usePersonaStore } from "@/stores/persona-store";
 import { createDirectorApi } from "./director-api";
 
@@ -46,13 +47,7 @@ function makeEditor(): EditorCore {
 				return id;
 			},
 		},
-		command: {
-			beginTransaction: () => {},
-			commitTransaction: () => {},
-			rollbackTransaction: () => {},
-			canUndo: () => false,
-			canRedo: () => false,
-		},
+		command: new CommandManager(),
 		media: { getAssetById: () => undefined, getAssets: () => [] },
 		project: {
 			getActiveOrNull: () => null,

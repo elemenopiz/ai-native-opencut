@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { EditorCore } from "@/core";
+import { CommandManager } from "@/core/managers/commands";
 import type { DirectorBrief } from "@/types/project";
 import type { GenerationSpec, Take } from "@/types/timeline";
 import type { GenerateExecutor } from "./types";
@@ -110,13 +111,7 @@ function makeEditor(slots: { id: string; generation: GenerationSpec }[]) {
 				brief = next;
 			},
 		},
-		command: {
-			canUndo: () => false,
-			canRedo: () => false,
-			beginTransaction: () => {},
-			commitTransaction: () => {},
-			rollbackTransaction: () => {},
-		},
+		command: new CommandManager(),
 	} as unknown as EditorCore;
 
 	return { editor, elements, getBrief: () => brief };

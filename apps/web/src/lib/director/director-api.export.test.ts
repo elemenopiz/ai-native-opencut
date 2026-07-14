@@ -1,5 +1,6 @@
 import { describe, expect, it, mock } from "bun:test";
 import type { EditorCore } from "@/core";
+import { CommandManager } from "@/core/managers/commands";
 import type { ExportOptions, ExportResult } from "@/types/export";
 import { createDirectorApi } from "./director-api";
 
@@ -30,6 +31,7 @@ function makeEditor(opts: {
 		timeline: {
 			getTotalDuration: () => opts.totalDuration ?? 12,
 		},
+		command: new CommandManager(),
 	} as unknown as EditorCore;
 	return { editor, exportSpy };
 }

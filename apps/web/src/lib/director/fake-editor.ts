@@ -6,9 +6,18 @@
  * takes, generative + voiceover slots, plain element inserts) without a browser,
  * a renderer, or the Zustand stores. Not a `.test.ts` file so bun's runner
  * doesn't treat it as a suite; imported by the Director test files.
+ *
+ * `command` is the REAL `CommandManager` (not a no-op stub) and every mutating
+ * timeline method below routes through `editor.command.execute()` with a real
+ * undo/redo pair — mirroring how the production `TimelineManager` wires each
+ * mutation. This is what lets Director's agent-scoped-undo tests (A2: origin
+ * tagging, atomic multi-step verbs, undo/redo refusal) exercise real history
+ * behavior instead of the previous always-`canUndo() === false` stub.
  */
 
 import type { EditorCore } from "@/core";
+import { CommandManager } from "@/core/managers/commands";
+import type { Command } from "@/lib/commands";
 import type { GenerationSpec, Take, TimelineTrack } from "@/types/timeline";
 import type { DirectorBrief, ProjectBible } from "@/types/project";
 
@@ -49,8 +58,25 @@ export interface FakeEditor {
 	tracksOfType: (type: string) => FakeTrack[];
 }
 
+/** Build a duck-typed `Command` (matches `@/lib/commands`' shape) from a plain
+ * do/undo pair — `redo` defaults to re-running `execute`, same as the real
+ * base `Command` class. */
+function makeCommand(
+	description: string,
+	doFn: () => void,
+	undoFn: () => void,
+): Command {
+	return {
+		execute: doFn,
+		undo: undoFn,
+		redo: doFn,
+		getDescription: () => description,
+	} as Command;
+}
+
 export function makeFakeEditor(opts?: { fps?: number }): FakeEditor {
 	const tracks: FakeTrack[] = [];
+	const command = new CommandManager();
 
 	const trackFor = (type: string): FakeTrack => {
 		let t = tracks.find((tr) => tr.type === type);
@@ -107,7 +133,15 @@ export function makeFakeEditor(opts?: { fps?: number }): FakeEditor {
 			const track = trackId
 				? (tracks.find((t) => t.id === trackId) ?? trackFor("video"))
 				: trackFor("video");
-			track.elements.push(element);
+			command.execute({
+				command: makeCommand(
+					"Add generative slot",
+					() => track.elements.push(element),
+					() => {
+						track.elements = track.elements.filter((e) => e !== element);
+					},
+				),
+			});
 			return id;
 		},
 		addVoiceoverSlot: ({
@@ -139,7 +173,15 @@ export function makeFakeEditor(opts?: { fps?: number }): FakeEditor {
 			const track = trackId
 				? (tracks.find((t) => t.id === trackId) ?? trackFor("audio"))
 				: trackFor("audio");
-			track.elements.push(element);
+			command.execute({
+				command: makeCommand(
+					"Add voiceover slot",
+					() => track.elements.push(element),
+					() => {
+						track.elements = track.elements.filter((e) => e !== element);
+					},
+				),
+			});
 			return id;
 		},
 		insertElement: ({
@@ -169,7 +211,15 @@ export function makeFakeEditor(opts?: { fps?: number }): FakeEditor {
 				placement.mode === "explicit"
 					? (tracks.find((t) => t.id === placement.trackId) ?? trackFor(type))
 					: trackFor(type);
-			track.elements.push(full);
+			command.execute({
+				command: makeCommand(
+					"Insert element",
+					() => track.elements.push(full),
+					() => {
+						track.elements = track.elements.filter((e) => e !== full);
+					},
+				),
+			});
 			return id;
 		},
 		addTakeToElement: ({
@@ -181,7 +231,18 @@ export function makeFakeEditor(opts?: { fps?: number }): FakeEditor {
 		}) => {
 			const f = find(elementId);
 			if (!f) return;
-			f.element.takes = [...(f.element.takes ?? []), take];
+			const prevTakes = f.element.takes;
+			command.execute({
+				command: makeCommand(
+					"Add take",
+					() => {
+						f.element.takes = [...(prevTakes ?? []), take];
+					},
+					() => {
+						f.element.takes = prevTakes;
+					},
+				),
+			});
 		},
 		updateTake: ({
 			elementId,
@@ -194,9 +255,20 @@ export function makeFakeEditor(opts?: { fps?: number }): FakeEditor {
 		}) => {
 			const f = find(elementId);
 			if (!f) return;
-			f.element.takes = (f.element.takes ?? []).map((t) =>
-				t.id === takeId ? { ...t, ...patch } : t,
-			);
+			const prevTakes = f.element.takes;
+			command.execute({
+				command: makeCommand(
+					"Update take",
+					() => {
+						f.element.takes = (prevTakes ?? []).map((t) =>
+							t.id === takeId ? { ...t, ...patch } : t,
+						);
+					},
+					() => {
+						f.element.takes = prevTakes;
+					},
+				),
+			});
 		},
 		selectTake: ({
 			elementId,
@@ -206,7 +278,19 @@ export function makeFakeEditor(opts?: { fps?: number }): FakeEditor {
 			takeId: string;
 		}) => {
 			const f = find(elementId);
-			if (f) f.element.activeTakeId = takeId;
+			if (!f) return;
+			const prevActiveTakeId = f.element.activeTakeId;
+			command.execute({
+				command: makeCommand(
+					"Select take",
+					() => {
+						f.element.activeTakeId = takeId;
+					},
+					() => {
+						f.element.activeTakeId = prevActiveTakeId;
+					},
+				),
+			});
 		},
 		setSlotSpec: ({
 			elementId,
@@ -216,19 +300,20 @@ export function makeFakeEditor(opts?: { fps?: number }): FakeEditor {
 			spec: GenerationSpec;
 		}) => {
 			const f = find(elementId);
-			if (f) f.element.generation = spec;
+			if (!f) return;
+			const prevSpec = f.element.generation;
+			command.execute({
+				command: makeCommand(
+					"Set slot spec",
+					() => {
+						f.element.generation = spec;
+					},
+					() => {
+						f.element.generation = prevSpec;
+					},
+				),
+			});
 		},
-	};
-
-	const command = {
-		beginTransaction() {},
-		commitTransaction() {},
-		rollbackTransaction() {},
-		execute() {},
-		undo() {},
-		redo() {},
-		canUndo: () => false,
-		canRedo: () => false,
 	};
 
 	const activeProject = {
