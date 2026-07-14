@@ -34,6 +34,51 @@ export function TimelinePlayhead({
 	const internalPlayheadRef = useRef<HTMLDivElement>(null);
 	const playheadRef = externalPlayheadRef || internalPlayheadRef;
 
+	// Cached ruler-viewport geometry for the playback rAF loop below. Reading
+	// clientWidth/scrollWidth/scrollLeft from the DOM on every tick (right
+	// after writing a layout-affecting style) forces a synchronous
+	// style/layout recalc every frame. Instead we track the three numbers we
+	// need out-of-band — width/content-width via ResizeObserver, scroll
+	// offset via a passive scroll listener — so the rAF tick never touches
+	// layout-reading DOM getters at all.
+	const viewportMetricsRef = useRef({
+		clientWidth: 0,
+		scrollWidth: 0,
+		scrollLeft: 0,
+	});
+
+	useEffect(() => {
+		const rulerViewport = rulerScrollRef.current;
+		if (!rulerViewport) return;
+
+		const readSize = () => {
+			viewportMetricsRef.current.clientWidth = rulerViewport.clientWidth;
+			viewportMetricsRef.current.scrollWidth = rulerViewport.scrollWidth;
+		};
+		const readScroll = () => {
+			viewportMetricsRef.current.scrollLeft = rulerViewport.scrollLeft;
+		};
+
+		readSize();
+		readScroll();
+
+		const resizeObserver = new ResizeObserver(readSize);
+		resizeObserver.observe(rulerViewport);
+		// The viewport's own box only changes on panel/window resize; the
+		// scrollable *content* (which drives scrollWidth) is this single
+		// wrapping child (see timeline/index.tsx) — observe it too so zoom
+		// and content-width changes stay in sync without a per-tick read.
+		const contentEl = rulerViewport.firstElementChild;
+		if (contentEl) resizeObserver.observe(contentEl);
+
+		rulerViewport.addEventListener("scroll", readScroll, { passive: true });
+
+		return () => {
+			resizeObserver.disconnect();
+			rulerViewport.removeEventListener("scroll", readScroll);
+		};
+	}, [rulerScrollRef]);
+
 	const { playheadPosition, handlePlayheadMouseDown } = useTimelinePlayhead({
 		zoomLevel,
 		rulerRef,
@@ -73,29 +118,40 @@ export function TimelinePlayhead({
 
 		let raf = 0;
 		const tick = () => {
+			// Read cached (out-of-band) geometry first, then write — never the
+			// other way around — so this tick never triggers a forced
+			// synchronous layout.
+			const metrics = viewportMetricsRef.current;
 			const time = editor.playback.getCurrentTime();
 			const centerPixel = timelineTimeToSnappedPixels({ time, zoomLevel });
-			el.style.left = `${getCenteredLineLeft({ centerPixel })}px`;
+
+			// Compositor-only write: transform never invalidates layout, unlike
+			// the `left` write this replaced.
+			el.style.transform = `translateX(${getCenteredLineLeft({ centerPixel })}px)`;
 
 			// Follow-scroll: the React-driven equivalent in useTimelinePlayhead is
 			// frozen during playback (no re-renders), so keep the playhead in view
-			// here instead.
+			// here instead. Uses the cached metrics above instead of reading
+			// clientWidth/scrollWidth/scrollLeft off the DOM every tick.
 			const rulerViewport = rulerScrollRef.current;
 			const tracksViewport = tracksScrollRef.current;
 			if (rulerViewport && tracksViewport) {
 				const playheadPixels =
 					time * TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel;
-				const viewportWidth = rulerViewport.clientWidth;
-				const scrollMaximum = rulerViewport.scrollWidth - viewportWidth;
+				const viewportWidth = metrics.clientWidth;
+				const scrollMaximum = metrics.scrollWidth - viewportWidth;
 				if (
-					playheadPixels < rulerViewport.scrollLeft ||
-					playheadPixels > rulerViewport.scrollLeft + viewportWidth
+					playheadPixels < metrics.scrollLeft ||
+					playheadPixels > metrics.scrollLeft + viewportWidth
 				) {
 					const desiredScroll = Math.max(
 						0,
 						Math.min(scrollMaximum, playheadPixels - viewportWidth / 2),
 					);
 					rulerViewport.scrollLeft = tracksViewport.scrollLeft = desiredScroll;
+					// Keep the cache in sync immediately rather than waiting for the
+					// (async) scroll event, so the next tick's comparison is correct.
+					metrics.scrollLeft = desiredScroll;
 				}
 			}
 
@@ -140,10 +196,16 @@ export function TimelinePlayhead({
 			tabIndex={0}
 			className="pointer-events-none absolute z-5"
 			style={{
-				left: `${leftPosition}px`,
+				left: 0,
 				top: 0,
 				height: `${totalHeight}px`,
 				width: `${TIMELINE_INDICATOR_LINE_WIDTH_PX}px`,
+				// Positioned via transform (not `left`) so the rAF playback loop
+				// below can move the marker with a single compositor-only write
+				// instead of a layout-invalidating one. React re-renders (rest,
+				// scrub, resize) set the same property here; the rAF loop
+				// overwrites it directly during playback.
+				transform: `translateX(${leftPosition}px)`,
 			}}
 			onKeyDown={handlePlayheadKeyDown}
 		>
