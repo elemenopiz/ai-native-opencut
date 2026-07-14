@@ -32,6 +32,14 @@ const VIDEO_CREDITS_PER_SEC: Record<string, number> = {
 	"luma-ray": 10,
 	runway: 35,
 	pika: 5,
+	// Google Veo 3.1 (native synced audio). ai.google.dev/gemini-api/docs/pricing
+	// (2026-07): Standard is $0.40/s flat across 720p+1080p → 40 credits/sec —
+	// the flat per-backend-id shape here doesn't vary by resolution (same
+	// simplification every other row uses), so this is the one real rate.
+	"google-veo": 40,
+	// Fast tier: $0.10/s @720p, $0.12/s @1080p — priced at the higher (1080p)
+	// rate so a single flat credits/sec never underbills a 1080p render.
+	"google-veo-fast": 12,
 };
 
 /** Flat credits per generated image, per backend. */

@@ -39,12 +39,17 @@ describe("costFor — video", () => {
 		expect(costFor("luma-ray", "video", { seconds: 5 })).toBe(50); // 10 × 5
 		expect(() => costFor("luma", "video")).toThrow();
 	});
+
+	it("prices Veo 3.1 Standard + Fast (Google, native synced audio)", () => {
+		expect(costFor("google-veo", "video", { seconds: 5 })).toBe(200); // 40 × 5
+		expect(costFor("google-veo-fast", "video", { seconds: 5 })).toBe(60); // 12 × 5
+	});
 });
 
 describe("videoCreditsRange / imageCreditsRange — pre-routing estimate", () => {
 	it("spans the cheapest to priciest registered video backend", () => {
-		// pika (5/sec) is cheapest, runway (35/sec) is priciest.
-		expect(videoCreditsRange(5)).toEqual({ low: 25, high: 175 });
+		// pika (5/sec) is cheapest, google-veo (40/sec, Standard) is priciest.
+		expect(videoCreditsRange(5)).toEqual({ low: 25, high: 200 });
 	});
 
 	it("spans the cheapest to priciest registered image backend", () => {
