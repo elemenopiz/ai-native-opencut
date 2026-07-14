@@ -6,7 +6,7 @@ import type {
 	VideoMode,
 } from "@/lib/studio/provider-adapter";
 import type { ImageSize, ImageQuality } from "@/lib/studio/image-generator";
-import { DEFAULT_APPROVAL_THRESHOLD_USD } from "@/lib/studio/cost";
+import { DEFAULT_APPROVAL_THRESHOLD_CREDITS } from "@/lib/studio/cost";
 
 /**
  * How attached media is interpreted:
@@ -42,9 +42,9 @@ interface StudioSettingsState {
 	imageSize: ImageSize;
 	imageQuality: ImageQuality;
 	// Cost-preview approval gate: generations whose estimated cost meets or
-	// exceeds this USD threshold ask for explicit approval before spending
+	// exceeds this CREDITS threshold ask for explicit approval before spending
 	// (see `lib/studio/cost.ts`). Trivial single re-rolls fall under it.
-	approvalThresholdUsd: number;
+	approvalThresholdCredits: number;
 	// Vision self-review: when on, the Director automatically reviews each
 	// generated slot's frames against its prompt and self-corrects (reroll/remix)
 	// up to a bounded number of attempts, still gated by the approval threshold
@@ -68,10 +68,30 @@ export const useStudioSettingsStore = create<StudioSettingsState>()(
 			consistencyMode: "high",
 			imageSize: "1024x1536",
 			imageQuality: "high",
-			approvalThresholdUsd: DEFAULT_APPROVAL_THRESHOLD_USD,
+			approvalThresholdCredits: DEFAULT_APPROVAL_THRESHOLD_CREDITS,
 			autoReviewEnabled: false,
 			set: (patch) => set(patch),
 		}),
-		{ name: "studio-settings" },
+		{
+			name: "studio-settings",
+			version: 1,
+			// v0 → v1: `approvalThresholdUsd` (USD) renamed to
+			// `approvalThresholdCredits` (1 credit = $0.01) — the whole cost-preview
+			// pipeline moved from USD to credits display. Old persisted USD values
+			// convert ×100 so a returning user's threshold means the same real spend.
+			migrate: (persisted, version) => {
+				const state = persisted as Partial<StudioSettingsState> & {
+					approvalThresholdUsd?: number;
+				};
+				if (version < 1 && typeof state.approvalThresholdUsd === "number") {
+					const { approvalThresholdUsd, ...rest } = state;
+					return {
+						...rest,
+						approvalThresholdCredits: approvalThresholdUsd * 100,
+					};
+				}
+				return state;
+			},
+		},
 	),
 );

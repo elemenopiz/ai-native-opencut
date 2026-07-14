@@ -24,13 +24,11 @@ import { useSlotGeneration } from "@/hooks/use-slot-generation";
 import { TakeProvenanceBadge } from "@/components/editor/take-provenance-badge";
 import { RemixPopover } from "@/components/studio/remix-popover";
 import { extractTakeLastFrame } from "@/lib/media/last-frame";
-import {
-	estimateVideoCredits,
-	formatCredits,
-} from "@/lib/studio/backends/cost";
 import { CAMERA_PRESETS } from "@/lib/studio/camera-presets";
-import { addsPerShotStill, estimateCost, formatUsd } from "@/lib/studio/cost";
+import { addsPerShotStill, estimateCost } from "@/lib/studio/cost";
 import { RESOLUTIONS, ORIENTATIONS } from "@/lib/studio/options";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Coins01Icon } from "@hugeicons/core-free-icons";
 import { cn } from "@/utils/ui";
 
 type GenerativeElement = VideoElement | ImageElement;
@@ -89,7 +87,7 @@ function SpecSection({
 	}
 
 	const rendersStill = addsPerShotStill(!!spec.personaId, spec.consistencyMode);
-	const cost = estimateCost(spec.resolution, spec.duration, rendersStill);
+	const cost = estimateCost(spec.duration, rendersStill);
 
 	// The take to remix from: the active take (the "prior generation" the user
 	// is looking at) or, before any take exists, the current working spec.
@@ -263,17 +261,12 @@ function SpecSection({
 						</span>
 					</div>
 					<div className="flex flex-col items-end">
-						<span className="text-sm font-semibold tabular-nums">
-							{formatUsd(cost.low)}–{formatUsd(cost.high)}
-						</span>
-						{/* Pre-generate credits preview — normalized, client-safe
-						    estimate. Exact routed cost is stamped server-side. */}
-						<span className="text-[10px] text-muted-foreground tabular-nums">
-							~
-							{formatCredits(
-								estimateVideoCredits(spec.resolution, spec.duration),
-							)}{" "}
-							credits est.
+						{/* Pre-generate credits preview — mirrors the server-authoritative
+						    billing table (`lib/credits/cost-table.ts`). Exact routed cost
+						    is stamped server-side. */}
+						<span className="flex items-center gap-1 text-sm font-semibold tabular-nums">
+							<HugeiconsIcon icon={Coins01Icon} className="size-3.5" />
+							{cost.low === cost.high ? cost.high : `${cost.low}–${cost.high}`}
 						</span>
 					</div>
 				</div>

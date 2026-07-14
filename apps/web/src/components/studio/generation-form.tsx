@@ -6,6 +6,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Coins01Icon } from "@hugeicons/core-free-icons";
 import { cn } from "@/utils/ui";
 import type {
 	VideoResolution,
@@ -21,7 +23,7 @@ import {
 	type ReferenceMediaItem,
 } from "@/components/studio/reference-media-uploader";
 import { composePromptWithCamera } from "@/lib/studio/camera-presets";
-import { addsPerShotStill, estimateCost, formatUsd } from "@/lib/studio/cost";
+import { addsPerShotStill, estimateCost } from "@/lib/studio/cost";
 import {
 	RESOLUTIONS,
 	ORIENTATIONS,
@@ -443,7 +445,12 @@ export function GenerationForm({
 	const costMult = isMultiframe
 		? Math.max(0, readyKeyframes.length - 1)
 		: count;
-	const cost = estimateCost(resolution, duration, rendersStill, costMult);
+	const cost = estimateCost(
+		duration,
+		rendersStill,
+		costMult,
+		selectedBackend?.id,
+	);
 
 	async function handleGenerate() {
 		if (!prompt.trim() || needsReference || refUploading || generating) return;
@@ -1058,8 +1065,9 @@ export function GenerationForm({
 						{rendersStill && " · +1 still"}
 					</span>
 				</div>
-				<span className="text-sm font-semibold tabular-nums">
-					{`${formatUsd(cost.low)}–${formatUsd(cost.high)}`}
+				<span className="flex items-center gap-1 text-sm font-semibold tabular-nums">
+					<HugeiconsIcon icon={Coins01Icon} className="size-3.5" />
+					{cost.low === cost.high ? cost.high : `${cost.low}–${cost.high}`}
 				</span>
 			</div>
 

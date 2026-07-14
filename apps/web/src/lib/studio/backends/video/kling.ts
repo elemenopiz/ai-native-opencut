@@ -20,7 +20,7 @@
 
 import { createHmac } from "node:crypto";
 import { webEnv } from "@byorn/env/web";
-import { estimateVideoCredits } from "@/lib/studio/backends/cost";
+import { costFor } from "@/lib/credits/cost-table";
 import { fetchWithTimeout } from "@/lib/studio/fetch-timeout";
 import type {
 	BackendRequest,
@@ -186,7 +186,7 @@ export const klingBackend: GenerationBackend = {
 	},
 
 	estimateCost(req: BackendRequest): CostEstimate {
-		const credits = estimateVideoCredits(req.resolution, req.duration);
+		const credits = costFor("kling", "video", { seconds: req.duration });
 		return {
 			credits,
 			basis: `Kling ${modeByResolution(req.resolution)} × ${req.duration ?? 5}s`,
