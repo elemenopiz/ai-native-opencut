@@ -37,6 +37,10 @@ import { PreviewToolbar } from "./toolbar";
 import { perfStats } from "@/services/renderer/perf-stats";
 import { FramePresetPicker } from "./frame-preset-picker";
 import { cn } from "@/utils/ui";
+import {
+	WorkerPreviewCanvas,
+	isWorkerCompositorEnabled,
+} from "./worker-preview-canvas";
 
 const WHEEL_ZOOM_SENSITIVITY = 0.0015;
 
@@ -54,6 +58,22 @@ export function PreviewPanel() {
 	const containerRef = useRef<HTMLDivElement>(null);
 	const { isFullscreen, toggleFullscreen } = useFullscreen({ containerRef });
 
+	// perf prototype (2026-07-14): NEXT_PUBLIC_WORKER_COMPOSITOR=1 or
+	// localStorage["byorn-worker-compositor"]="1" swaps the preview canvas
+	// for the worker-compositor path. Default OFF — untouched PreviewCanvas
+	// otherwise. See worker-preview-canvas.tsx.
+	//
+	// Initial state only reads the build-time env var (identical on server
+	// and client, so no hydration mismatch); the localStorage override is
+	// checked in an effect AFTER mount, deferring any component swap to a
+	// client-only re-render.
+	const [workerCompositorEnabled, setWorkerCompositorEnabled] = useState(
+		() => process.env.NEXT_PUBLIC_WORKER_COMPOSITOR === "1",
+	);
+	useEffect(() => {
+		if (isWorkerCompositorEnabled()) setWorkerCompositorEnabled(true);
+	}, []);
+
 	return (
 		<div
 			ref={containerRef}
@@ -67,10 +87,14 @@ export function PreviewPanel() {
 				</div>
 			</div>
 			<div className="flex min-h-0 min-w-0 flex-1 items-center justify-center p-2 pb-0">
-				<PreviewCanvas
-					onToggleFullscreen={toggleFullscreen}
-					containerRef={containerRef}
-				/>
+				{workerCompositorEnabled ? (
+					<WorkerPreviewCanvas containerRef={containerRef} />
+				) : (
+					<PreviewCanvas
+						onToggleFullscreen={toggleFullscreen}
+						containerRef={containerRef}
+					/>
+				)}
 				<RenderTreeController />
 			</div>
 			<PreviewToolbar

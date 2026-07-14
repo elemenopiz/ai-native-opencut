@@ -1,0 +1,47 @@
+{
+  "scenario": "base",
+  "mode": "off",
+  "port": "3115",
+  "rafProbe": {
+    "rafPerSec": 61,
+    "visibility": "visible"
+  },
+  "hasWorker": false,
+  "mainStatsCold": {
+    "enabled": true,
+    "fps": 28.13105763447723,
+    "avgFrameMs": 2.246666665871938,
+    "p95FrameMs": 4.700000047683716,
+    "avgDecodeMs": 2.5266666650772094,
+    "avgEffectMs": 0,
+    "avgBlitMs": 0.02333332896232605,
+    "windowSize": 120,
+    "framesRendered": 284,
+    "framesSkipped": 14,
+    "longFrames": 3,
+    "veryLongFrames": 3,
+    "renderErrors": 0
+  },
+  "mainStats": {
+    "enabled": true,
+    "fps": 5.178089284962492,
+    "avgFrameMs": 106.08372092801471,
+    "p95FrameMs": 141.5,
+    "avgDecodeMs": 165.4976743930994,
+    "avgEffectMs": 2.9790697763132497,
+    "avgBlitMs": 0.49069767774537554,
+    "windowSize": 43,
+    "framesRendered": 43,
+    "framesSkipped": 55,
+    "longFrames": 8,
+    "veryLongFrames": 8,
+    "renderErrors": 0
+  },
+  "workerStatsCold": null,
+  "workerStats": null,
+  "buildResult": {
+    "totalClips": 7,
+    "tracks": 6,
+    "assetCount": 6
+  }
+}

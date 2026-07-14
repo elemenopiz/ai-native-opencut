@@ -1,0 +1,75 @@
+{
+  "scenario": "base",
+  "mode": "on",
+  "port": "3115",
+  "rafProbe": {
+    "rafPerSec": 57,
+    "visibility": "visible"
+  },
+  "hasWorker": true,
+  "mainStatsCold": {
+    "enabled": true,
+    "fps": 0,
+    "avgFrameMs": 0,
+    "p95FrameMs": 0,
+    "avgDecodeMs": 0,
+    "avgEffectMs": 0,
+    "avgBlitMs": 0,
+    "windowSize": 0,
+    "framesRendered": 0,
+    "framesSkipped": 0,
+    "longFrames": 0,
+    "veryLongFrames": 0,
+    "renderErrors": 0
+  },
+  "mainStats": {
+    "enabled": true,
+    "fps": 0,
+    "avgFrameMs": 0,
+    "p95FrameMs": 0,
+    "avgDecodeMs": 0,
+    "avgEffectMs": 0,
+    "avgBlitMs": 0,
+    "windowSize": 0,
+    "framesRendered": 0,
+    "framesSkipped": 0,
+    "longFrames": 0,
+    "veryLongFrames": 0,
+    "renderErrors": 0
+  },
+  "workerStatsCold": {
+    "enabled": true,
+    "fps": 29.8717272883439,
+    "avgFrameMs": 1.1800000071525574,
+    "p95FrameMs": 3.5999999046325684,
+    "avgDecodeMs": 2.198333352804184,
+    "avgEffectMs": 0,
+    "avgBlitMs": 0.017499993244806927,
+    "windowSize": 120,
+    "framesRendered": 300,
+    "framesSkipped": 0,
+    "longFrames": 3,
+    "veryLongFrames": 3,
+    "renderErrors": 0
+  },
+  "workerStats": {
+    "enabled": true,
+    "fps": 23.99628964863933,
+    "avgFrameMs": 10.253333340088526,
+    "p95FrameMs": 20.600000143051147,
+    "avgDecodeMs": 12.14499999086062,
+    "avgEffectMs": 0,
+    "avgBlitMs": 0.08666667342185974,
+    "windowSize": 120,
+    "framesRendered": 624,
+    "framesSkipped": 0,
+    "longFrames": 22,
+    "veryLongFrames": 9,
+    "renderErrors": 0
+  },
+  "buildResult": {
+    "totalClips": 7,
+    "tracks": 6,
+    "assetCount": 6
+  }
+}
