@@ -32,12 +32,6 @@ const TAKE_WEBM = readFileSync(WEBM_FIXTURE);
 
 test.describe("editor happy path", () => {
 	test.beforeEach(async ({ page }) => {
-		// Skip the first-run onboarding dialog — its full-screen overlay would
-		// otherwise intercept clicks. Set before any page script runs.
-		await page.addInitScript(() => {
-			window.localStorage.setItem("hasSeenOnboarding-v3", "true");
-		});
-
 		// Provider submit: resolve immediately as a completed job (no polling),
 		// stamped with provenance + cost like the real route.
 		await page.route("**/api/studio/generate", async (route) => {

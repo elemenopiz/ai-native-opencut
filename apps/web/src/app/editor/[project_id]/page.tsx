@@ -11,7 +11,6 @@ import { Timeline } from "@/components/editor/panels/timeline";
 import { PreviewPanel } from "@/components/editor/panels/preview";
 import { EditorHeader } from "@/components/editor/editor-header";
 import { EditorProvider } from "@/components/providers/editor-provider";
-import { Onboarding } from "@/components/editor/onboarding";
 import { SharedProjectProvider } from "@/components/editor/shared-project-provider";
 import { MigrationDialog } from "@/components/editor/dialogs/migration-dialog";
 import { usePanelStore } from "@/stores/panel-store";
@@ -47,7 +46,6 @@ export default function Editor() {
 						<EditorLayout />
 					</div>
 					<AIPanelWrapper />
-					<Onboarding />
 					{/* Collab runtime (background sync + shared-project onboarding)
 						hidden for the private beta per ADR-003. */}
 					{FEATURE_COLLAB && <SharedProjectProvider />}

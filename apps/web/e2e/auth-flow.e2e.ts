@@ -76,10 +76,6 @@ function accountMenuButton(page: Page) {
 
 /** Open an editor project page and wait for its header chrome. */
 async function openEditor(page: Page) {
-	await page.addInitScript(() => {
-		// Skip the first-run onboarding overlay — it would intercept clicks.
-		window.localStorage.setItem("hasSeenOnboarding-v3", "true");
-	});
 	await page.goto("/editor/e2e-auth-flow");
 	await expect(page.getByTestId("export-open")).toBeVisible({
 		timeout: 60_000,
