@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { EditorCore } from "@/core";
+import { CommandManager } from "@/core/managers/commands";
 import type { DirectorBrief } from "@/types/project";
 import { createDirectorApi } from "./director-api";
 import { buildFrontierSystemPrompt } from "./agent";
@@ -54,7 +55,7 @@ function makeEditor() {
 				element.activeTakeId = takeId;
 			},
 		},
-		command: { canUndo: () => false, canRedo: () => false },
+		command: new CommandManager(),
 		media: { getAssets: () => [] },
 	} as unknown as EditorCore;
 
