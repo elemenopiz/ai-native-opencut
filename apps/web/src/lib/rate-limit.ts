@@ -41,6 +41,29 @@ export interface RateLimitRule {
 }
 
 /**
+ * Env-configurable daily cap on free Director LLM turns (both `/api/llm/agent`
+ * and `/api/llm/gemini`, see {@link DIRECTOR_DAILY_CAP_NAMES}). Read directly
+ * from `process.env` (not the validated `webEnv`) for the same reason as
+ * {@link upstashEnv} below: this module must stay decoupled from the app's
+ * full env schema so its unit tests don't need to satisfy unrelated required
+ * vars. Invalid/unset values fall back to a default generous enough for a
+ * real multi-hour editing session while still bounding a runaway tool loop on
+ * a route with no credit metering.
+ *
+ * Called PER-REQUEST inside {@link enforceRateLimit} rather than baked into
+ * {@link RATE_LIMITS} at module-load time — same lazy-eval convention as
+ * `upstashEnv()`/`trustedProxyHops()` below, so the cap can change without a
+ * process restart and so tests can flip `process.env` per-case.
+ */
+function directorFreeTurnsPerDay(): number {
+	const raw = Number.parseInt(
+		process.env.DIRECTOR_FREE_TURNS_PER_DAY ?? "",
+		10,
+	);
+	return Number.isInteger(raw) && raw > 0 ? raw : 150;
+}
+
+/**
  * Central table of caps, keyed by a stable route name. Tune here — routes only
  * reference the name. Poll (`studio:poll`) is intentionally generous because the
  * client polls a job in a tight loop; the true cost gates are the generation
@@ -60,10 +83,20 @@ export const RATE_LIMITS = {
 	"studio:upload": { perMinute: 30, perDay: 500 },
 	"studio:persona-still": { perMinute: 12, perDay: 300 },
 	"studio:promote": { perMinute: 6, perDay: 120 },
-	"llm:agent": { perMinute: 30, perDay: 1500 },
+	// Director chat is FREE (no credit metering) but bills OUR provider key per
+	// turn, so this pair is the only cost floor. perMinute dropped 30 → 10: a
+	// human chatting has no reason to fire more than ~1 turn every few seconds,
+	// and 10/min still comfortably covers rapid back-and-forth without being a
+	// useful burst-abuse lever. The perDay literal below (150) is only the
+	// documented DEFAULT — `enforceRateLimit` overrides it per-call with
+	// {@link directorFreeTurnsPerDay} (env-configurable via
+	// DIRECTOR_FREE_TURNS_PER_DAY) for the names in
+	// {@link DIRECTOR_DAILY_CAP_NAMES}. Owner accounts (see `isOwnerEmail`) are
+	// exempted from this cap at the call site.
+	"llm:agent": { perMinute: 10, perDay: 150 },
 	// Native Gemini Director relay (POST /api/llm/gemini) — same loop profile as
 	// llm:agent (one call per model turn of the same agent loop), so same caps.
-	"llm:gemini": { perMinute: 30, perDay: 1500 },
+	"llm:gemini": { perMinute: 10, perDay: 150 },
 	// One-shot prompt rewriter (POST /api/llm/enhance-prompt). Un-metered for
 	// beta (free but rate-limited) — a human clicking "Enhance" a handful of
 	// times per prompt, so the burst cap is tight and the daily cap generous.
@@ -114,6 +147,13 @@ export type RateLimitName = keyof typeof RATE_LIMITS;
 export interface RateLimitResult {
 	success: boolean;
 	limited: boolean;
+	/**
+	 * Which window rejected the request, when `limited` is true — lets callers
+	 * (e.g. `enforceRateLimit`'s `dailyMessage`/`minuteMessage` overrides) give
+	 * different copy for "you're going too fast" vs. "you're out for today".
+	 * Undefined when `limited` is false.
+	 */
+	window?: "minute" | "day";
 }
 
 /** Swap-in surface: routes depend only on this, not on Redis. */
@@ -149,9 +189,13 @@ export class InMemoryRateLimiter implements RateLimiter {
 		// spend a day token (otherwise a burst could exhaust the daily budget and
 		// lock the user out for the rest of the day).
 		const okMinute = this.hit(`${bucket}:m:${key}`, rule.perMinute, MINUTE_MS);
-		if (!okMinute) return { success: false, limited: true };
+		if (!okMinute) return { success: false, limited: true, window: "minute" };
 		const okDay = this.hit(`${bucket}:d:${key}`, rule.perDay, DAY_MS);
-		return { success: okDay, limited: !okDay };
+		return {
+			success: okDay,
+			limited: !okDay,
+			window: okDay ? undefined : "day",
+		};
 	}
 
 	/** Increment the fixed window for `bucketKey`; true while at/under `limit`. */
@@ -226,9 +270,15 @@ export class RedisRateLimiter implements RateLimiter {
 			// call conditional, so it can no longer run in parallel with the minute
 			// call — correctness wins over the lost parallelism.
 			const minute = await this.limiterFor(rule, bucket, "minute").limit(key);
-			if (!minute.success) return { success: false, limited: true };
+			if (!minute.success) {
+				return { success: false, limited: true, window: "minute" };
+			}
 			const day = await this.limiterFor(rule, bucket, "day").limit(key);
-			return { success: day.success, limited: !day.success };
+			return {
+				success: day.success,
+				limited: !day.success,
+				window: day.success ? undefined : "day",
+			};
 		} catch (err) {
 			// Fail open: a limiter outage must not deny paying users. Auth still gates.
 			console.error("Rate limiter error (allowing request):", err);
@@ -314,6 +364,20 @@ function ipFrom(request: Request): string {
 	return hops[idx] || "anonymous";
 }
 
+const DEFAULT_LIMIT_MESSAGE =
+	"Rate limit exceeded. Please slow down and try again shortly.";
+
+/**
+ * Buckets whose `perDay` is resolved per-request from
+ * {@link directorFreeTurnsPerDay} instead of the {@link RATE_LIMITS} literal —
+ * currently just the two Director LLM relays, which share one env-configurable
+ * free-tier cap (`DIRECTOR_FREE_TURNS_PER_DAY`).
+ */
+const DIRECTOR_DAILY_CAP_NAMES: ReadonlySet<RateLimitName> = new Set([
+	"llm:agent",
+	"llm:gemini",
+]);
+
 /**
  * Enforce the named rate limit. Keys on `userId` when present, else the caller
  * IP. Returns a ready-to-return 429 `NextResponse` when the caller is over the
@@ -321,27 +385,37 @@ function ipFrom(request: Request): string {
  *
  *   const limited = await enforceRateLimit({ name: "studio:generate", request, userId });
  *   if (limited) return limited;
+ *
+ * `dailyMessage`/`minuteMessage` let a caller give window-specific copy (e.g.
+ * the Director relays distinguish "you're going too fast" from "your free
+ * daily allowance is used up") — both fall back to the generic message when
+ * omitted, so existing callers are unaffected.
  */
 export async function enforceRateLimit({
 	name,
 	request,
 	userId,
+	dailyMessage,
+	minuteMessage,
 }: {
 	name: RateLimitName;
 	request: Request;
 	userId?: string | null;
+	dailyMessage?: string;
+	minuteMessage?: string;
 }): Promise<NextResponse | null> {
 	const key = userId ? `user:${userId}` : `ip:${ipFrom(request)}`;
-	const { limited } = await getRateLimiter().check(
-		RATE_LIMITS[name],
-		name,
-		key,
-	);
-	if (limited) {
+	const rule = DIRECTOR_DAILY_CAP_NAMES.has(name)
+		? { ...RATE_LIMITS[name], perDay: directorFreeTurnsPerDay() }
+		: RATE_LIMITS[name];
+	const result = await getRateLimiter().check(rule, name, key);
+	if (result.limited) {
+		const message =
+			result.window === "day"
+				? (dailyMessage ?? DEFAULT_LIMIT_MESSAGE)
+				: (minuteMessage ?? DEFAULT_LIMIT_MESSAGE);
 		return NextResponse.json(
-			{
-				error: "Rate limit exceeded. Please slow down and try again shortly.",
-			},
+			{ error: message },
 			{ status: 429, headers: { "Retry-After": "60" } },
 		);
 	}

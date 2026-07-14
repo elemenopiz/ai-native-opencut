@@ -39,3 +39,15 @@ export function signupGrantFor(email: string | null | undefined): number {
 		? OWNER_GRANT_CREDITS
 		: SIGNUP_GRANT_CREDITS;
 }
+
+/**
+ * Whether `email` belongs to an owner account (matched case-insensitively,
+ * same normalization as {@link signupGrantFor}). Owner accounts still sign up
+ * and go through the normal auth flow — this is a runtime check other gates
+ * (e.g. the Director daily free-turn cap in `lib/rate-limit.ts`) can use to
+ * exempt the owner from beta-only limits without duplicating the email list.
+ */
+export function isOwnerEmail(email: string | null | undefined): boolean {
+	const normalized = email?.trim().toLowerCase();
+	return Boolean(normalized && OWNER_EMAILS.includes(normalized));
+}
