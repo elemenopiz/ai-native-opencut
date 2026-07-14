@@ -22,8 +22,10 @@ import {
  */
 
 /**
- * Deliberately minimal — only what `decideNormalization` reads. Dimensions,
- * rotation, duration, audio codec etc. are all re-derived by the existing
+ * Deliberately minimal — only what `decideNormalization` reads, plus the codec
+ * parameter string that ingest persists for passthrough non-H.264 assets (see
+ * `PassthroughCodec` in `services/storage/types.ts`). Dimensions, rotation,
+ * duration, audio codec etc. are all re-derived by the existing
  * `getVideoInfo`/thumbnail pass that runs right after, and reading them here
  * (especially `computeDuration()`, worst case a full packet scan on a
  * fragmented MP4) would double that work on every ordinary H.264 ingest.
@@ -34,6 +36,13 @@ export interface ProbeResult {
 	videoCodec: VideoCodec | null;
 	/** `track.canDecode()` — whether WebCodecs in THIS browser can decode it. */
 	decodable: boolean;
+	/**
+	 * `track.getCodecParameterString()` — the FULL WebCodecs codec string (e.g.
+	 * "hvc1.1.6.L120.90", not just "hevc"), valid as the `codec` member of a
+	 * `VideoDecoder.isConfigSupported()` / `VideoDecoderConfig` call. Null when
+	 * the codec is unknown to mediabunny (which also forces `videoCodec: null`).
+	 */
+	codecParameterString: string | null;
 }
 
 export type NormalizationDecision = "passthrough" | "transcode" | "unsupported";
@@ -43,6 +52,7 @@ function unparseableResult(): ProbeResult {
 		parseable: false,
 		videoCodec: null,
 		decodable: false,
+		codecParameterString: null,
 	};
 }
 
@@ -64,15 +74,17 @@ export async function probeVideoFile(file: File): Promise<ProbeResult> {
 		const videoTrack = await input.getPrimaryVideoTrack();
 		if (!videoTrack) return unparseableResult();
 
-		const [videoCodec, decodable] = await Promise.all([
+		const [videoCodec, decodable, codecParameterString] = await Promise.all([
 			videoTrack.getCodec(),
 			videoTrack.canDecode(),
+			videoTrack.getCodecParameterString(),
 		]);
 
 		return {
 			parseable: true,
 			videoCodec,
 			decodable,
+			codecParameterString,
 		};
 	} catch {
 		return unparseableResult();

@@ -343,6 +343,7 @@ class StorageService {
 			source: mediaAsset.source,
 			derivedFrom: mediaAsset.derivedFrom,
 			normalized: mediaAsset.normalized,
+			passthrough: mediaAsset.passthrough,
 			proxy: mediaAsset.proxy,
 			needsProxy: mediaAsset.needsProxy,
 		};
@@ -411,6 +412,7 @@ class StorageService {
 			source: metadata.source,
 			derivedFrom: metadata.derivedFrom,
 			normalized: metadata.normalized,
+			passthrough: metadata.passthrough,
 			proxy: metadata.proxy,
 			needsProxy: metadata.needsProxy,
 		};

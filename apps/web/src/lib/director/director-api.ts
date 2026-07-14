@@ -4326,11 +4326,19 @@ export function createDirectorApi(
 		const finalCutNote = hasFinalCutApproval()
 			? ""
 			: " (note: no final-cut approval on record — call approveFinalCut before export next time).";
+		// Same cross-browser decode fallback surfaced as a toast in the manual
+		// export UI (export-button.tsx) — appended here so the agent (and
+		// whoever reads its transcript) also sees the quality tradeoff.
+		const degradationNote =
+			result.warnings && result.warnings.length > 0
+				? ` (note: ${result.warnings.join(" ")})`
+				: "";
 		return ok(
 			`Exported "${project.metadata.name}" — ${options.format.toUpperCase()}, ` +
 				`${megabytes.toFixed(1)} MB, ${durationSeconds.toFixed(1)}s` +
 				(downloaded ? " (downloaded)." : ".") +
-				finalCutNote,
+				finalCutNote +
+				degradationNote,
 			{
 				format: options.format,
 				bytes: result.buffer.byteLength,

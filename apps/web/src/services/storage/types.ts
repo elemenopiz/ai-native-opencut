@@ -68,6 +68,25 @@ export interface NormalizedFrom {
 	originalCodec: string;
 }
 
+/**
+ * Marker for a video asset whose `file` is the ORIGINAL, untranscoded upload
+ * ("passthrough" in `lib/media/normalize-media.ts`) in a non-H.264 codec
+ * (HEVC/VP9/AV1/…). The ingesting browser could decode it (`track.canDecode()`
+ * was true), but OTHER browsers opening the same project may not — so ingest
+ * always background-generates an H.264 proxy for these assets as a portable
+ * fallback (see `MediaManager.needsProxy`).
+ */
+export interface PassthroughCodec {
+	/**
+	 * The FULL WebCodecs codec string of the stored file's video track (e.g.
+	 * "hvc1.1.6.L120.90", NOT just the family name "hevc"). CONTRACT: this must
+	 * be valid as the `codec` member of `VideoDecoder.isConfigSupported({codec})`
+	 * / `VideoDecoderConfig` — downstream consumers re-check decodability with
+	 * it on project load, without re-probing the file bytes.
+	 */
+	codec: string;
+}
+
 export interface MediaAssetData {
 	id: string;
 	name: string;
@@ -95,6 +114,15 @@ export interface MediaAssetData {
 	 * pre-existing and passthrough assets simply lack it.
 	 */
 	normalized?: NormalizedFrom;
+	/**
+	 * Present ⇒ this asset's `file` is the original upload kept as-is at ingest
+	 * even though its video codec is NOT H.264 (the ingesting browser could
+	 * decode it). Records the full WebCodecs codec string so later loads can
+	 * cheaply re-check decodability, and makes `needsProxy()` true regardless of
+	 * resolution so a portable H.264 proxy always exists. Additive/optional —
+	 * pre-existing, H.264-original, and transcoded assets simply lack it.
+	 */
+	passthrough?: PassthroughCodec;
 	proxy?: ProxyInfo;
 	needsProxy?: boolean;
 }

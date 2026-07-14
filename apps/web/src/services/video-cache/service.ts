@@ -1,3 +1,4 @@
+import { toast } from "sonner";
 import {
 	Input,
 	ALL_FORMATS,
@@ -5,6 +6,16 @@ import {
 	CanvasSink,
 	type WrappedCanvas,
 } from "mediabunny";
+
+/**
+ * Why a sink for a given mediaId+tier failed to initialize (see
+ * `initializeSink`). "codec-unsupported" is the specific, expected case this
+ * browser can't decode the stored codec (matches `canDecode()` returning
+ * false); "init-failed" covers everything else (missing video track, decoder
+ * construction failure) — still recoverable, still worth telling the user
+ * about, just without the more specific copy.
+ */
+export type SinkInitFailureReason = "codec-unsupported" | "init-failed";
 
 interface VideoSinkData {
 	input: Input;
@@ -104,6 +115,17 @@ const SINK_POOL_SIZE = PREFETCH_RING_CAPACITY + 4;
 export class VideoCache {
 	private sinks = new Map<string, VideoSinkData>();
 	private initPromises = new Map<string, Promise<void>>();
+	/**
+	 * Sink keys (mediaId+tier, see `sinkKey`) whose `initializeSink` call
+	 * failed — e.g. `canDecode()` came back false for this browser. Recorded
+	 * instead of left to an unhandled throw so getFrameAt/warm degrade to
+	 * their existing "nothing to render yet" null path rather than crashing
+	 * the render loop, and so a known-bad sink isn't re-probed (and re-toasted)
+	 * on every single animation frame. Cleared on disposeSink (clearVideo/
+	 * clearAll/tier-cap rebuild), so a project reload or a later-arriving
+	 * proxy gets a fresh attempt.
+	 */
+	private sinkInitFailures = new Map<string, SinkInitFailureReason>();
 
 	/**
 	 * `tolerateStale` opts into the realtime drop policy: when the exact frame
@@ -506,6 +528,11 @@ export class VideoCache {
 	}): Promise<void> {
 		const key = sinkKey({ mediaId, tier });
 
+		// Already know this sink can't init (e.g. codec unsupported here) — the
+		// user's already been told once; don't re-run the (WebCodecs) probe and
+		// re-toast on every render-loop frame that touches this clip.
+		if (this.sinkInitFailures.has(key)) return;
+
 		const existing = this.sinks.get(key);
 		if (existing) {
 			// The preview/export cap follows the project's canvas size, which can
@@ -553,8 +580,10 @@ export class VideoCache {
 		tier: VideoSinkTier;
 		previewMaxSize?: number;
 	}): Promise<void> {
+		const key = sinkKey({ mediaId, tier });
+		let input: Input | undefined;
 		try {
-			const input = new Input({
+			input = new Input({
 				source: new BlobSource(file),
 				formats: ALL_FORMATS,
 			});
@@ -619,7 +648,7 @@ export class VideoCache {
 				sink = new CanvasSink(videoTrack, baseSinkOptions);
 			}
 
-			this.sinks.set(sinkKey({ mediaId, tier }), {
+			this.sinks.set(key, {
 				input,
 				sink,
 				iterator: null,
@@ -635,9 +664,52 @@ export class VideoCache {
 				maxSize: isCappedTier(tier) ? (previewMaxSize ?? null) : null,
 			});
 		} catch (error) {
+			// Free the Input's resources — we're not keeping it (no sink gets
+			// registered for `key`), unlike the success path where the sink's
+			// own disposeSink() does this later.
+			input?.dispose();
+
+			const reason: SinkInitFailureReason =
+				error instanceof Error &&
+				error.message === "Video codec not supported for decoding"
+					? "codec-unsupported"
+					: "init-failed";
+			this.sinkInitFailures.set(key, reason);
+
 			console.error(`Failed to initialize video sink for ${mediaId}:`, error);
-			throw error;
+
+			// Un-silence (HEVC cross-browser decode design doc, gap 1):
+			// previously this rethrew with no catch anywhere in the call chain,
+			// so a codec this browser can't decode surfaced as an unhandled
+			// rejection and a dead preview. getFrameAt/warm already treat "no
+			// sink" as "nothing to render yet" (their existing out-of-range
+			// null path) — swallowing here instead of rethrowing degrades the
+			// preview gracefully rather than crashing the render loop, while
+			// still telling the user why via the same toast pattern the ingest
+			// pipeline uses for other undecodable-media cases.
+			toast.warning(
+				reason === "codec-unsupported"
+					? `"${file.name}" can't be decoded in this browser (unsupported codec) — this clip may not preview or export correctly here.`
+					: `"${file.name}" couldn't be prepared for preview in this browser.`,
+			);
 		}
+	}
+
+	/**
+	 * Whether the sink for this media+tier is known to have failed to
+	 * initialize (e.g. `canDecode()` said no for this browser) — set by
+	 * `initializeSink`'s catch instead of an unhandled throw. Reachable by UI
+	 * code that wants to show/confirm degraded-playback state beyond the
+	 * one-shot toast already fired when the failure was first recorded.
+	 */
+	getSinkInitFailure({
+		mediaId,
+		tier = "full",
+	}: {
+		mediaId: string;
+		tier?: VideoSinkTier;
+	}): SinkInitFailureReason | null {
+		return this.sinkInitFailures.get(sinkKey({ mediaId, tier })) ?? null;
 	}
 
 	private disposeSink({ key }: { key: string }): void {
@@ -661,6 +733,11 @@ export class VideoCache {
 		}
 
 		this.initPromises.delete(key);
+		// A key can be "known bad" (see sinkInitFailures) without ever having a
+		// sinks entry — clear it unconditionally so a project reload or a
+		// later-arriving proxy gets a fresh init attempt instead of being stuck
+		// on a stale failure forever.
+		this.sinkInitFailures.delete(key);
 	}
 
 	clearVideo({ mediaId }: { mediaId: string }): void {
@@ -676,6 +753,10 @@ export class VideoCache {
 			this.disposeSink({ key });
 		}
 		this.initPromises.clear();
+		// A key can be "known bad" (sinkInitFailures) with no corresponding
+		// sinks entry, so the loop above alone wouldn't clear it — sweep the
+		// rest directly (project switch/unload should always get a clean slate).
+		this.sinkInitFailures.clear();
 	}
 
 	getStats() {

@@ -95,10 +95,23 @@ class MockCanvasSink {
 	}
 }
 
+/** Toggle to simulate `videoTrack.canDecode()` returning false. */
+let decodeSupported = true;
+
+/** Toggle to simulate no primary video track at all (a different init failure). */
+let noVideoTrack = false;
+
+/** `new Input(...)` construction count — bounds re-probe attempts on a known-bad sink. */
+let inputConstructions = 0;
+
 class MockInput {
+	constructor() {
+		inputConstructions += 1;
+	}
 	async getPrimaryVideoTrack() {
+		if (noVideoTrack) return null;
 		return {
-			canDecode: async () => true,
+			canDecode: async () => decodeSupported,
 			displayWidth: SOURCE_WIDTH,
 			displayHeight: SOURCE_HEIGHT,
 		};
@@ -113,6 +126,21 @@ mock.module("mediabunny", () => ({
 	CanvasSink: MockCanvasSink,
 	BlobSource: class {},
 	ALL_FORMATS: [],
+}));
+
+/** Captures every sonner call the un-silenced initializeSink catch makes. */
+const toastCalls: { warning: string[] } = { warning: [] };
+mock.module("sonner", () => ({
+	toast: {
+		warning: (msg: string) => {
+			toastCalls.warning.push(msg);
+		},
+		error: () => {},
+		success: () => {},
+		info: () => {},
+		loading: () => "toast-id",
+		dismiss: () => {},
+	},
 }));
 
 const { VideoCache, PREFETCH_RING_CAPACITY } = await import("./service");
@@ -132,6 +160,10 @@ beforeEach(() => {
 	slowFrame = null;
 	sinkConstructions = [];
 	failPreferHardware = false;
+	decodeSupported = true;
+	noVideoTrack = false;
+	inputConstructions = 0;
+	toastCalls.warning.length = 0;
 });
 
 describe("VideoCache sequential playback", () => {
@@ -575,5 +607,114 @@ describe("VideoCache hardware-decode hint (perf audit #5)", () => {
 		// recorded — it throws before pushing) and the successful fallback.
 		expect(sinkConstructions).toHaveLength(1);
 		expect(sinkConstructions[0].decoderOptions).toBeUndefined();
+	});
+});
+
+/**
+ * Part 2 of the HEVC cross-browser decode fallback design (Option A, gap 1):
+ * `initializeSink` used to throw "Video codec not supported for decoding"
+ * with no catch anywhere in the call chain the moment `canDecode()` came back
+ * false — an unhandled rejection and a dead preview. It must now degrade to
+ * the SAME "nothing to render yet" path getFrameAt/warm already use for an
+ * out-of-range clip, surface a toast once, and remember the failure so a
+ * broken sink isn't re-probed (and re-toasted) on every render-loop frame.
+ */
+describe("VideoCache un-silences a codec-unsupported sink (HEVC fallback P2)", () => {
+	it("getFrameAt resolves to null instead of throwing when canDecode() is false", async () => {
+		decodeSupported = false;
+		const cache = new VideoCache();
+
+		const frame = await cache.getFrameAt({ mediaId: "bad1", file, time: 0 });
+
+		expect(frame).toBeNull();
+		expect(cache.getStats().totalSinks).toBe(0);
+	});
+
+	it("warm resolves (does not throw) when canDecode() is false", async () => {
+		decodeSupported = false;
+		const cache = new VideoCache();
+
+		await expect(
+			cache.warm({ mediaId: "bad2", file, time: 5 }),
+		).resolves.toBeUndefined();
+	});
+
+	it("surfaces exactly one toast, and never re-probes the decoder again, across repeated calls", async () => {
+		decodeSupported = false;
+		const cache = new VideoCache();
+
+		await cache.getFrameAt({ mediaId: "bad3", file, time: 0 });
+		await cache.getFrameAt({ mediaId: "bad3", file, time: 1 });
+		await cache.warm({ mediaId: "bad3", file, time: 2 });
+
+		expect(toastCalls.warning).toHaveLength(1);
+		expect(toastCalls.warning[0]).toContain("clip.mp4");
+		expect(toastCalls.warning[0]).toContain("unsupported codec");
+		// One real construction attempt only — later calls short-circuit on the
+		// remembered failure instead of hammering WebCodecs every frame.
+		expect(inputConstructions).toBe(1);
+		expect(disposeCalls).toBe(1); // the failed Input is still disposed, not leaked
+	});
+
+	it("records the reason via getSinkInitFailure, distinguishing codec-unsupported from other init failures", async () => {
+		decodeSupported = false;
+		const cache = new VideoCache();
+		await cache.getFrameAt({ mediaId: "bad4", file, time: 0 });
+
+		expect(cache.getSinkInitFailure({ mediaId: "bad4" })).toBe(
+			"codec-unsupported",
+		);
+		// A tier that was never attempted has no recorded failure.
+		expect(
+			cache.getSinkInitFailure({ mediaId: "bad4", tier: "export" }),
+		).toBeNull();
+		// An unrelated, never-touched mediaId has no recorded failure either.
+		expect(cache.getSinkInitFailure({ mediaId: "never-touched" })).toBeNull();
+	});
+
+	it("treats a missing video track as a generic init failure, not codec-unsupported", async () => {
+		noVideoTrack = true;
+		const cache = new VideoCache();
+
+		const frame = await cache.getFrameAt({ mediaId: "bad5", file, time: 0 });
+
+		expect(frame).toBeNull();
+		expect(cache.getSinkInitFailure({ mediaId: "bad5" })).toBe("init-failed");
+		expect(toastCalls.warning).toHaveLength(1);
+		expect(toastCalls.warning[0]).not.toContain("unsupported codec");
+	});
+
+	it("clearVideo clears the remembered failure so a later retry gets a fresh attempt", async () => {
+		decodeSupported = false;
+		const cache = new VideoCache();
+
+		const first = await cache.getFrameAt({ mediaId: "bad6", file, time: 0 });
+		expect(first).toBeNull();
+		expect(cache.getSinkInitFailure({ mediaId: "bad6" })).toBe(
+			"codec-unsupported",
+		);
+
+		cache.clearVideo({ mediaId: "bad6" });
+		expect(cache.getSinkInitFailure({ mediaId: "bad6" })).toBeNull();
+
+		// Browser/asset situation "improves" (e.g. this is really testing that
+		// the cache doesn't wedge a mediaId as permanently broken) — a fresh
+		// attempt now succeeds.
+		decodeSupported = true;
+		const second = await cache.getFrameAt({ mediaId: "bad6", file, time: 0 });
+		expect(second?.timestamp).toBeCloseTo(0, 5);
+	});
+
+	it("clearAll clears remembered failures that never had a sinks entry", async () => {
+		decodeSupported = false;
+		const cache = new VideoCache();
+		await cache.getFrameAt({ mediaId: "bad7", file, time: 0 });
+		expect(cache.getSinkInitFailure({ mediaId: "bad7" })).toBe(
+			"codec-unsupported",
+		);
+
+		cache.clearAll();
+
+		expect(cache.getSinkInitFailure({ mediaId: "bad7" })).toBeNull();
 	});
 });

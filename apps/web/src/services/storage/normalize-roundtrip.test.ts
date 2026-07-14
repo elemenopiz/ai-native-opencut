@@ -147,4 +147,52 @@ describe("saveMediaAsset → loadMediaAsset — normalized provenance round-trip
 		expect(loaded).not.toBeNull();
 		expect(loaded?.normalized).toBeUndefined();
 	});
+
+	test("the passthrough codec marker survives a save/load cycle (full WebCodecs string intact)", async () => {
+		const asset: MediaAsset = {
+			id: "asset-3",
+			name: "GX010042.mp4",
+			type: "video",
+			file: new File([new Uint8Array([6, 7, 8])], "GX010042.mp4", {
+				type: "video/mp4",
+			}),
+			width: 1920,
+			height: 1080,
+			duration: 5,
+			passthrough: { codec: "hvc1.1.6.L120.90" },
+		};
+
+		await storageService.saveMediaAsset({ projectId: "p1", mediaAsset: asset });
+		const loaded = await storageService.loadMediaAsset({
+			projectId: "p1",
+			id: "asset-3",
+		});
+
+		expect(loaded).not.toBeNull();
+		// The exact string matters: downstream re-checks decodability with
+		// VideoDecoder.isConfigSupported({ codec }) on project load.
+		expect(loaded?.passthrough).toEqual({ codec: "hvc1.1.6.L120.90" });
+		// Passthrough is NOT the transcode provenance — the fields are disjoint.
+		expect(loaded?.normalized).toBeUndefined();
+	});
+
+	test("an H.264-original asset (no passthrough field) loads with passthrough undefined", async () => {
+		const asset: MediaAsset = {
+			id: "asset-4",
+			name: "plain.mp4",
+			type: "video",
+			file: new File([new Uint8Array([9])], "plain.mp4", {
+				type: "video/mp4",
+			}),
+		};
+
+		await storageService.saveMediaAsset({ projectId: "p1", mediaAsset: asset });
+		const loaded = await storageService.loadMediaAsset({
+			projectId: "p1",
+			id: "asset-4",
+		});
+
+		expect(loaded).not.toBeNull();
+		expect(loaded?.passthrough).toBeUndefined();
+	});
 });
