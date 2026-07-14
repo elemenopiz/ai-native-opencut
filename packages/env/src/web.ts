@@ -126,11 +126,10 @@ const webEnvSchema = z.object({
 	KLING_SECRET_KEY: z.string().default(""),
 	KLING_BASE_URL: z.string().default(""),
 	KLING_MODEL: z.string().default(""),
-	// Google Gemini — ONE key shared by Veo (video), Imagen (image) and
-	// Gemini Flash Image / "Nano Banana" (image).
+	// Google Gemini — ONE key shared by Imagen (image) and Gemini Flash Image /
+	// "Nano Banana" (image).
 	GEMINI_API_KEY: z.string().default(""),
 	GEMINI_BASE_URL: z.string().default(""),
-	GEMINI_VEO_MODEL: z.string().default(""),
 	GEMINI_IMAGEN_MODEL: z.string().default(""),
 	GEMINI_NANO_BANANA_MODEL: z.string().default(""),
 	// Runway (Gen-4 / Aleph).

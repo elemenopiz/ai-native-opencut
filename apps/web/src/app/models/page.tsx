@@ -30,12 +30,6 @@ const videoModels: RoutedModel[] = [
 		tags: ["seed-lock", "references", "480p-1080p"],
 	},
 	{
-		name: "Veo 3.1",
-		vendor: "Google (Gemini API)",
-		note: "High-fidelity motion with reference-image support and last-frame chaining.",
-		tags: ["references", "720p-1080p"],
-	},
-	{
 		name: "Kling AI",
 		vendor: "Kuaishou",
 		note: "Strong stylized and action shots, standard and pro quality modes.",

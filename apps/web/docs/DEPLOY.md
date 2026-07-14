@@ -250,8 +250,8 @@ declared in `packages/env/src/web.ts`; examples in `apps/web/.env.example`.
 | `NEXT_PUBLIC_GA_MEASUREMENT_ID` | No | No analytics. Build-time inlined. | Google Analytics |
 | `NEXT_PUBLIC_AI_BACKEND_URL` | No (default localhost:8420) | Local-AI features (Ollama brain, local transcription/TTS) show offline. Build-time inlined. | Wherever you host `services/ai-backend` |
 | `MODAL_TRANSCRIPTION_URL` | No | Cloud transcription unavailable. | Modal deployment URL |
-| `GEMINI_API_KEY` | **Strongly recommended for beta** | Director's auto brain-chain is frontier → Gemini → loud config error (no more local-Ollama fallback); the asset-understanding pass's native Gemini path and podcast find-best-clips/keywords are Gemini-homed — all three degrade or error without it. Also enables the Veo/Imagen/Nano-Banana Studio adapters. | aistudio.google.com |
-| `KLING_ACCESS_KEY`+`KLING_SECRET_KEY`, `RUNWAY_API_KEY`, `LUMA_API_KEY`, `FAL_KEY`, `BFL_API_KEY`, `IDEOGRAM_API_KEY` (+ optional `*_BASE_URL`/`*_MODEL`/`RUNWAY_API_VERSION` overrides, incl. `GEMINI_BASE_URL`/`GEMINI_VEO_MODEL`/`GEMINI_IMAGEN_MODEL`/`GEMINI_NANO_BANANA_MODEL`) | No | That partner backend is never routed to (adapter inert). | Each provider's console |
+| `GEMINI_API_KEY` | **Strongly recommended for beta** | Director's auto brain-chain is frontier → Gemini → loud config error (no more local-Ollama fallback); the asset-understanding pass's native Gemini path and podcast find-best-clips/keywords are Gemini-homed — all three degrade or error without it. Also enables the Imagen/Nano-Banana Studio adapters. | aistudio.google.com |
+| `KLING_ACCESS_KEY`+`KLING_SECRET_KEY`, `RUNWAY_API_KEY`, `LUMA_API_KEY`, `FAL_KEY`, `BFL_API_KEY`, `IDEOGRAM_API_KEY` (+ optional `*_BASE_URL`/`*_MODEL`/`RUNWAY_API_VERSION` overrides, incl. `GEMINI_BASE_URL`/`GEMINI_IMAGEN_MODEL`/`GEMINI_NANO_BANANA_MODEL`) | No | That partner backend is never routed to (adapter inert). | Each provider's console |
 | `VERCEL_GIT_COMMIT_SHA` / `GIT_SHA` | No | `/api/health` omits `sha`. | Vercel injects the first; set `GIT_SHA` in Docker |
 
 ---

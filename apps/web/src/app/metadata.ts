@@ -18,7 +18,6 @@ export const baseMetaData: Metadata = {
 		"seed lock persona",
 		"AI video model routing",
 		"Seedance video generation",
-		"Veo video generation",
 		"Kling video generation",
 		"AI storyboard to video",
 		"agent-driven video editing",

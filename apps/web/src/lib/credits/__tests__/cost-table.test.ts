@@ -12,7 +12,6 @@ describe("costFor — video", () => {
 		expect(costFor("byteplus-seedance", "video", { seconds: 8 })).toBe(80);
 		expect(costFor("runway", "video", { seconds: 5 })).toBe(175); // 35 × 5
 		expect(costFor("pika", "video", { seconds: 5 })).toBe(25); // 5 × 5
-		expect(costFor("google-veo", "video", { seconds: 5 })).toBe(100); // 20 × 5
 	});
 
 	it("rounds fractional seconds UP (ceil)", () => {

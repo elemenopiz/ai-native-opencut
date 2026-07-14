@@ -37,7 +37,7 @@ Human-operator checklist for the first-ever prod deploy: Vercel + fresh Neon Pos
 - [ ] `POLAR_ACCESS_TOKEN`, `POLAR_WEBHOOK_SECRET`, `POLAR_ORGANIZATION_ID`, `POLAR_SERVER` (default `sandbox`)
 - [ ] `MOONSHOT_API_KEY`, `DIRECTOR_MODEL`, `PEXELS_API_KEY`, `FREESOUND_CLIENT_ID`/`FREESOUND_API_KEY`, `MARBLE_WORKSPACE_KEY`, `NEXT_PUBLIC_GA_MEASUREMENT_ID`, `MODAL_TRANSCRIPTION_URL`
 - [ ] `ADMIN_EMAILS`, `CREDITS_ENFORCED` (default `true`), `TRUSTED_PROXY_HOPS` (default 1 — correct for Vercel), `R2_MAX_STORAGE_BYTES`
-- [ ] Partner backends: `KLING_ACCESS_KEY`+`KLING_SECRET_KEY`, `RUNWAY_API_KEY`, `LUMA_API_KEY`, `FAL_KEY`, `BFL_API_KEY`, `IDEOGRAM_API_KEY` (+ their `*_BASE_URL`/`*_MODEL` overrides, `GEMINI_BASE_URL`/`GEMINI_VEO_MODEL`/`GEMINI_IMAGEN_MODEL`/`GEMINI_NANO_BANANA_MODEL`)
+- [ ] Partner backends: `KLING_ACCESS_KEY`+`KLING_SECRET_KEY`, `RUNWAY_API_KEY`, `LUMA_API_KEY`, `FAL_KEY`, `BFL_API_KEY`, `IDEOGRAM_API_KEY` (+ their `*_BASE_URL`/`*_MODEL` overrides, `GEMINI_BASE_URL`/`GEMINI_IMAGEN_MODEL`/`GEMINI_NANO_BANANA_MODEL`)
 - [ ] `NEXT_PUBLIC_UNDERSTANDING_MODEL` (understanding-pass model override), `LOG_LEVEL` (server log verbosity), `GIT_SHA` (Vercel auto-injects `VERCEL_GIT_COMMIT_SHA`; only needed on non-Vercel hosts)
 
 Full descriptions/consequences for every var: `DEPLOY.md` § Environment variable matrix.

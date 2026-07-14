@@ -130,7 +130,7 @@ export function GenerationForm({
 	} = useStudioSettingsStore();
 
 	// ── Backend-aware controls ────────────────────────────────────────────────
-	// The catalog of configured video backends (BytePlus / Veo / Kling / …),
+	// The catalog of configured video backends (BytePlus / Kling / …),
 	// fetched client-safe from GET /api/studio/backends. Each carries its real
 	// capability surface (resolutions / orientations / duration range / modes /
 	// seed-lock / omni-reference / last-frame) so the form offers only what the
@@ -932,7 +932,7 @@ export function GenerationForm({
 			</div>
 
 			{/* Seed — only shown for backends that accept a reproducible seed.
-			    Seedless models (e.g. Veo, Kling, Luma) hide this entirely. */}
+			    Seedless models (e.g. Kling, Luma) hide this entirely. */}
 			{supportsSeedLock && (
 				<div className="space-y-1.5">
 					<div className="flex items-center justify-between">

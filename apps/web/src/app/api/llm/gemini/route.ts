@@ -19,7 +19,7 @@
  *    with `error: "gemini_not_configured"`, which the client agent detects and
  *    uses to fall on to the next brain (local Ollama, ultimately).
  *  - `GEMINI_BASE_URL` (optional) — API base override; defaults to the public
- *    Gemini API (same convention as the Veo/Imagen studio backends).
+ *    Gemini API (same convention as the Imagen studio backend).
  *  - `DIRECTOR_MODEL` (optional) — honored ONLY when it names a gemini model;
  *    a Claude/Kimi id configured for the sibling relay is ignored here.
  */
@@ -36,7 +36,7 @@ export const maxDuration = 120;
 /** Default model for the native Gemini Director brain; override with DIRECTOR_MODEL. */
 const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
 
-/** Public Gemini API base (same default the studio's Veo/Imagen adapters use). */
+/** Public Gemini API base (same default the studio's Imagen adapter uses). */
 const DEFAULT_GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
 
 /** Non-streaming per-turn output budget — mirrors the agent relay's default. */

@@ -22,7 +22,6 @@ const VIDEO_CREDITS_PER_SEC: Record<string, number> = {
 	"byteplus-seedance": 10,
 	kling: 10,
 	luma: 10,
-	"google-veo": 20,
 	runway: 35,
 	pika: 5,
 };

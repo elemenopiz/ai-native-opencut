@@ -224,7 +224,7 @@ test("stream: true → :streamGenerateContent?alt=sse, SSE body passed through v
 	expect(await res.text()).toBe(sse);
 });
 
-test("GEMINI_BASE_URL override is used verbatim (same convention as the Veo adapter)", async () => {
+test("GEMINI_BASE_URL override is used verbatim (same convention as the Imagen adapter)", async () => {
 	webEnv.GEMINI_BASE_URL = "https://proxy.example.com/v1beta";
 	await POST(makeReq(validBody));
 	expect(captured?.url).toBe(
