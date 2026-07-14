@@ -30,10 +30,25 @@ import { eq } from "drizzle-orm";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { scopeForTool } from "@/lib/director/tool-catalog";
-import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { mcpEvents } from "@/lib/db/schema-mcp";
 import { InMemoryRateLimiter, getRateLimiter } from "@/lib/rate-limit";
+
+// Load the REAL db implementation and re-pin the "@/lib/db" alias to it,
+// immune to cross-file mock leakage (same query-suffix trick as
+// `app/api/telemetry/__tests__/verb-route.test.ts` / `tts/__tests__/route.test.ts`).
+// This file asserts on REAL mcp_events rows written through `recordMcpEvent`
+// (imported deep inside `build-mcp-server.ts` via the plain "@/lib/db"
+// specifier), so it needs the real implementation even in a full-suite run
+// where an earlier file's `mock.module("@/lib/db", fakeDb)` (missing
+// `.catch`/`.transaction`) would otherwise leak forward — see
+// `lib/mcp/__tests__/telemetry.test.ts`'s header for the original writeup of
+// this gotcha.
+const realDb = (await import(
+	"../../db/index.ts?real" as string
+)) as typeof import("@/lib/db");
+mock.module("@/lib/db", () => ({ ...realDb }));
+const { db } = realDb;
 
 const USER_ID = `mcp-telemetry-enrich-${crypto.randomUUID()}`;
 const VALID_TOKEN = "mcp_telemetry_enrich_token";
