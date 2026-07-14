@@ -94,6 +94,12 @@ export function WorkerPreviewCanvas({
 	const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
 	const outerContainerRef = useRef<HTMLDivElement>(null);
 	const compositorRef = useRef<WorkerCompositor | null>(null);
+	// Separate from compositorRef: this must stay true for the rest of this
+	// component INSTANCE's life, even across a dispose(). See the mount
+	// effect below for why compositorRef alone can't guard
+	// transferControlToOffscreen() against React StrictMode's dev-only
+	// double-invoke.
+	const hasTransferredCanvasRef = useRef(false);
 	const overlayRootRef = useRef<RootNode | null>(null);
 	const lastOverlayFrameRef = useRef(-1);
 	const overlayRenderingRef = useRef(false);
@@ -152,14 +158,33 @@ export function WorkerPreviewCanvas({
 
 	// Mount the worker exactly once, as soon as the canvas element and the
 	// project's native size are both available. transferControlToOffscreen
-	// throws if called twice on the same canvas, so this must never re-run:
-	// activeProject.settings.fps and editor.playback.* below are read for
-	// their value AT MOUNT TIME only — the internal compositorRef.current
-	// guard (not this dep array) is what prevents re-running.
+	// throws if called twice on the same canvas element, so this effect's
+	// BODY must run at most once for the life of this <canvas> DOM node.
+	//
+	// Deliberately `[]` deps: nativeWidth/nativeHeight/activeProject.settings.fps
+	// and editor.playback.* below are read for their value AT MOUNT TIME only.
+	// Canvas-size changes are NOT handled here — the separate resize effect
+	// below posts a resize message to the already-mounted worker instead of
+	// tearing this effect down and re-running it (which would tear down the
+	// compositor and re-transfer the same canvas element, throwing).
+	//
+	// hasTransferredCanvasRef (NOT compositorRef) is the re-run guard, and it
+	// is intentionally never reset in the cleanup below. React StrictMode's
+	// dev-only mount -> cleanup -> mount double-invoke re-runs this effect's
+	// body on the SAME component instance and the SAME <canvas> DOM node
+	// (React does not recreate refs or DOM between the two invocations), so a
+	// guard cleared by cleanup — like compositorRef.current, which legitimately
+	// must be nulled on real teardown — would let StrictMode's second
+	// invocation call transferControlToOffscreen() again and throw.
+	// hasTransferredCanvasRef staying true for the rest of this instance's
+	// life is correct: a genuine unmount destroys the instance (and its refs)
+	// entirely, so a later genuine remount gets a fresh ref alongside a fresh
+	// <canvas> element.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: mount-once, see comment above
 	useEffect(() => {
-		if (compositorRef.current) return;
+		if (hasTransferredCanvasRef.current) return;
 		if (!canvasRef.current || !nativeWidth || !nativeHeight) return;
+		hasTransferredCanvasRef.current = true;
 
 		const compositor = new WorkerCompositor();
 		compositorRef.current = compositor;
@@ -185,7 +210,7 @@ export function WorkerPreviewCanvas({
 			compositor.dispose();
 			if (compositorRef.current === compositor) compositorRef.current = null;
 		};
-	}, [nativeWidth, nativeHeight]);
+	}, []);
 
 	// Resize after the initial mount (frame-preset / canvas-size change).
 	useLayoutEffect(() => {
@@ -242,7 +267,7 @@ export function WorkerPreviewCanvas({
 			canvasSize,
 			background: activeProject.settings.background,
 			isPreview: true,
-			useProxy: activeProject.settings.proxyEditing ?? false,
+			useProxy: activeProject.settings.proxyEditing ?? true,
 		});
 
 		const { overlayTracks } = splitTracksForWorkerCompositor(tracks);
@@ -255,7 +280,7 @@ export function WorkerPreviewCanvas({
 			// background; this overlay must only add text/image/sticker.
 			background: { type: "color", color: "transparent" },
 			isPreview: true,
-			useProxy: activeProject.settings.proxyEditing ?? false,
+			useProxy: activeProject.settings.proxyEditing ?? true,
 		});
 		lastOverlayFrameRef.current = -1;
 	}, [

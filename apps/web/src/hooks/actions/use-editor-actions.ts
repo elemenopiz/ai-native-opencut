@@ -374,10 +374,8 @@ export function useEditorActions() {
 	useActionHandler(
 		"freeze-frame",
 		async () => {
-			const renderTree = editor.renderer.getRenderTree();
 			const project = editor.project.getActive();
-
-			if (!renderTree || !project) return;
+			if (!project) return;
 
 			const currentTime = editor.playback.getCurrentTime();
 			const duration = editor.timeline.getTotalDuration();
@@ -388,6 +386,23 @@ export function useEditorActions() {
 			const { CanvasRenderer } = await import(
 				"@/services/renderer/canvas-renderer"
 			);
+			// Build the render tree on demand instead of reading
+			// editor.renderer.getRenderTree(): that tree is only kept up to date
+			// by RenderTreeController, which is NOT mounted when the worker
+			// compositor is active (its scene tree lives in the worker instead —
+			// see worker-preview-canvas.tsx), so the stored tree can be stale or
+			// null in that mode. Mirrors RenderTreeController's own buildScene()
+			// call exactly, so freeze-frame output is unchanged either way.
+			const { buildScene } = await import("@/services/renderer/scene-builder");
+			const renderTree = buildScene({
+				tracks: editor.timeline.getTracks(),
+				mediaAssets: editor.media.getAssets(),
+				duration,
+				canvasSize,
+				background: project.settings.background,
+				isPreview: true,
+				useProxy: project.settings.proxyEditing ?? true,
+			});
 
 			const lastFrameTime = getLastFrameTime({ duration, fps });
 			const renderTime = Math.min(currentTime, lastFrameTime);

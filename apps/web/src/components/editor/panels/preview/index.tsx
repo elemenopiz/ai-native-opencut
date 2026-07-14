@@ -95,7 +95,15 @@ export function PreviewPanel() {
 						containerRef={containerRef}
 					/>
 				)}
-				<RenderTreeController />
+				{/* WorkerPreviewCanvas owns its own scene tree inside the worker (plus
+				    a main-thread overlay-only tree) when the worker compositor is
+				    active — RenderTreeController's continuously-maintained
+				    editor.renderer render tree has no consumer in that mode (the only
+				    other reader, PreviewCanvas, isn't mounted either), so mounting it
+				    would just be a redundant main-thread buildScene() on every edit.
+				    The freeze-frame action (use-editor-actions.ts) builds its own
+				    render tree on demand instead of depending on this one. */}
+				{!workerCompositorEnabled && <RenderTreeController />}
 			</div>
 			<PreviewToolbar
 				isFullscreen={isFullscreen}
