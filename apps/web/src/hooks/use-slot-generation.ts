@@ -154,6 +154,16 @@ export function useSlotGeneration() {
 			/** Channel override (computed once by `generateAllSlots`); resolved
 			 *  from the element's type when omitted. */
 			channel?: GenerationChannel;
+			/**
+			 * AI Edit tab's "Replace clip source" scope toggle
+			 * (`spec.replaceSource`). When true, the winning take is promoted to
+			 * the slot's active source even if a take is already active — the
+			 * caller passes `spec.replaceSource` through explicitly rather than
+			 * this hook reading it itself, since a remix's spec may differ from
+			 * the slot's live spec. Omitted/false ⇒ today's non-destructive
+			 * behavior (only auto-selects when nothing is active yet).
+			 */
+			promote?: boolean;
 		}): Promise<{ ok: number; failed: number }> => {
 			const projectId = getActiveProjectId();
 			if (!projectId) return { ok: 0, failed: 0 };
@@ -182,9 +192,11 @@ export function useSlotGeneration() {
 
 			// Auto-select the first successful take, in original request order, so
 			// the slot fills immediately — mirrors the previous "first success
-			// becomes the active take" behavior, but only if nothing is active yet
-			// (e.g. a prior generation already filled this slot).
-			if (slotHasNoActiveTake(params.elementId)) {
+			// becomes the active take" behavior. Normally only when nothing is
+			// active yet (e.g. a prior generation already filled this slot); when
+			// `promote` is set (the clip's "Replace clip source" scope is ON),
+			// always promote the winner, clobbering whatever was active.
+			if (params.promote || slotHasNoActiveTake(params.elementId)) {
 				const firstSuccess = results.find((r) => r.success);
 				if (firstSuccess) {
 					editor.timeline.selectTake({

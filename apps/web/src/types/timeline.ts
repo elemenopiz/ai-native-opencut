@@ -185,6 +185,16 @@ export interface GenerationSpec {
 	resolution: VideoResolution;
 	orientation: VideoOrientation;
 	duration: number;
+	/**
+	 * AI Edit tab "Replace clip source" scope toggle. `true` ⇒ when a Rerun or
+	 * Edit (remix) on this slot completes, the winning take is auto-promoted to
+	 * the clip's active source (mirrors `slotHasNoActiveTake`'s existing
+	 * first-generation auto-select, but every time). Omitted/`false` (default)
+	 * ⇒ the result lands as a new take in the filmstrip for the user to review
+	 * and pick manually — today's behavior. Per-clip, persisted on the spec like
+	 * `seedLocked`. See `useSlotGeneration().generateIntoSlot`'s `promote` param.
+	 */
+	replaceSource?: boolean;
 
 	// ── Voiceover (TTS) takes — additive; absent ⇒ visual generation ─────────
 	/** Discriminator: "voiceover" routes this spec through the TTS engine

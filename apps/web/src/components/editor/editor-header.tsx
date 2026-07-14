@@ -58,6 +58,7 @@ import { useBoardStore } from "@/stores/board-store";
 import { SaveArrangementDialog } from "@/components/arrangements/save-arrangement-dialog";
 import { AccountMenu } from "@/components/auth/account-menu";
 import { CreditBalancePill } from "@/components/editor/credit-balance-pill";
+import { CreditHistoryButton } from "@/components/editor/credit-history-button";
 import { OutOfCreditsDialog } from "@/components/editor/dialogs/out-of-credits-dialog";
 
 export function EditorHeader() {
@@ -134,6 +135,7 @@ export function EditorHeader() {
 				</Button>
 				<ExportButton />
 				<CreditBalancePill />
+				<CreditHistoryButton />
 				<AccountMenu />
 			</nav>
 			<VersionControlDrawer
