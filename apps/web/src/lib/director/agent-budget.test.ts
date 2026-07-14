@@ -97,7 +97,8 @@ function budgetedReel(): {
 		executor: readyExecutor,
 		backends: async () => catalog(),
 	});
-	// Three 4s shots at 480p → base $0.20 each; hero starts premium under a $5 cap.
+	// Three 4s shots at 480p → base $0.44 each (cheapest registered video
+	// backend's post-markup sale rate); hero starts premium under a $5 cap.
 	director.storyboard({
 		shots: [
 			{ prompt: "logo reveal hero shot", duration: 4, importance: "hero" },
@@ -117,9 +118,10 @@ afterEach(() => {
 describe("whole-reel budget gate (frontier loop)", () => {
 	test("down-routes an overrunning generation to the cheaper backend and records the spend", async () => {
 		const { fake, director } = budgetedReel();
-		// Leave $0.70: the $0.60 all-cheap batch fits, but standard ($1.14) and
-		// premium ($1.92) do not → the loop must down-route to cheap.
-		director.recordSpend({ usd: 4.3 });
+		// Leave $1.50: the $1.32 all-cheap batch (3 × 0.44) fits, but standard
+		// ($2.508 = 3 × 0.836) and premium ($4.224 = 3 × 1.408) do not → the loop
+		// must down-route to cheap.
+		director.recordSpend({ usd: 3.5 });
 
 		let call = 0;
 		global.fetch = mock(async () =>
@@ -157,14 +159,14 @@ describe("whole-reel budget gate (frontier loop)", () => {
 			| undefined;
 		expect(budgetEvent).toBeDefined();
 		expect(budgetEvent?.budgetUsd).toBe(5);
-		expect(budgetEvent?.spentUsd).toBeCloseTo(4.3 + 0.6, 5);
+		expect(budgetEvent?.spentUsd).toBeCloseTo(3.5 + 1.32, 5);
 		// Never exceeded the cap.
 		expect(director.getBudgetStatus().data?.spentUsd).toBeLessThanOrEqual(5);
 	});
 
 	test("pauses for approval when not even the cheapest tier fits the remaining budget", async () => {
 		const { fake, director } = budgetedReel();
-		director.recordSpend({ usd: 4.85 }); // only $0.15 left; all-cheap needs $0.60
+		director.recordSpend({ usd: 4.85 }); // only $0.15 left; all-cheap needs $1.32
 
 		global.fetch = mock(async () => generateTurn()) as unknown as typeof fetch;
 

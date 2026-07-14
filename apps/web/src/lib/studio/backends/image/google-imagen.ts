@@ -14,6 +14,7 @@
 import { webEnv } from "@byorn/env/web";
 import { nanoid } from "nanoid";
 import { fetchWithTimeout, MEDIA_TIMEOUT_MS } from "@/lib/studio/fetch-timeout";
+import { costFor } from "@/lib/credits/cost-table";
 import type {
 	BackendRequest,
 	CostEstimate,
@@ -31,14 +32,11 @@ const GEMINI_API_KEY_ENV = "GEMINI_API_KEY";
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const IMAGEN_MODEL = webEnv.GEMINI_IMAGEN_MODEL || "imagen-4.0-generate-001";
 
-/** UNVERIFIED: exact USD — Google publishes per-image pricing that varies by
- *  the standard/ultra/fast Imagen 4 variant; these are order-of-magnitude
- *  estimates for the standard model used here. */
-const CREDITS_BY_QUALITY: Record<string, number> = {
-	low: 6,
-	medium: 6,
-	high: 12, // "2K" imageSize
-};
+// Billing is flat per image regardless of quality (see cost-table.ts) — the
+// quality knob only changes the imageSize (1K vs 2K) requested from Google,
+// not the credit price. `estimateCost` below reads `costFor` directly rather
+// than a second hand-set quality-tiered table, so display can't drift from
+// what's actually charged.
 
 interface ImagenPredictResponse {
 	predictions?: Array<{ bytesBase64Encoded?: string; mimeType?: string }>;
@@ -90,7 +88,7 @@ export const googleImagenBackend: GenerationBackend = {
 	},
 
 	estimateCost(req: BackendRequest): CostEstimate {
-		const credits = CREDITS_BY_QUALITY[req.quality ?? "high"] ?? 12;
+		const credits = costFor("google-imagen", "image", { count: 1 });
 		return {
 			credits,
 			basis: `Imagen 4 (${mapQualityToImageSize(req.quality)})`,

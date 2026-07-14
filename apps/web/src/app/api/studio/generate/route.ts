@@ -330,6 +330,7 @@ export async function POST(req: Request) {
 		const takeId = nanoid();
 		const creditCost = costFor(route.backend.id, "video", {
 			seconds: duration,
+			resolution,
 		});
 		try {
 			await meteredReserve(session.user.id, creditCost, {

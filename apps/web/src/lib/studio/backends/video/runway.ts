@@ -154,7 +154,10 @@ export const runwayBackend: GenerationBackend = {
 	},
 
 	estimateCost(req: BackendRequest): CostEstimate {
-		const credits = costFor("runway", "video", { seconds: req.duration });
+		const credits = costFor("runway", "video", {
+			seconds: req.duration,
+			resolution: req.resolution,
+		});
 		return {
 			credits,
 			basis: `Runway ${taskKindFor(req)} ${req.resolution ?? "720p"} × ${req.duration ?? 5}s`,

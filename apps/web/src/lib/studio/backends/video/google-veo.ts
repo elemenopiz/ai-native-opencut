@@ -290,7 +290,10 @@ export const googleVeoBackend: GenerationBackend = {
 	},
 
 	estimateCost(req: BackendRequest): CostEstimate {
-		const credits = costFor("google-veo", "video", { seconds: req.duration });
+		const credits = costFor("google-veo", "video", {
+			seconds: req.duration,
+			resolution: req.resolution,
+		});
 		return {
 			credits,
 			basis: `Veo 3.1 ${req.resolution ?? "720p"} × ${nearestDuration(req.duration)}s (native audio)`,
