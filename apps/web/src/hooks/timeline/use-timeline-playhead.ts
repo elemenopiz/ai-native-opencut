@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useEdgeAutoScroll } from "@/hooks/timeline/use-edge-auto-scroll";
 import { useEditor } from "../use-editor";
 import { useShiftKey } from "@/hooks/use-shift-key";
+import { useScrubAudio } from "@/hooks/audio/use-scrub-audio";
 import { findSnapPoints, snapToNearestPoint } from "@/lib/timeline/snap-utils";
 import { getSnapBeats } from "@/stores/beat-grid-store";
 import { TIMELINE_CONSTANTS } from "@/constants/timeline-constants";
@@ -40,6 +41,12 @@ export function useTimelinePlayhead({
 	const [isDraggingRuler, setIsDraggingRuler] = useState(false);
 	const [hasDraggedRuler, setHasDraggedRuler] = useState(false);
 	const lastMouseXRef = useRef<number>(0);
+
+	// Grain-based audible scrub (§4.2, apps/web/docs/poach/palmier-delta-refresh-2026-07-14.md).
+	// Entirely off the render path: onDragStart/onDragTick/onDragEnd call
+	// straight into the ScrubPlayer, no setState, no store writes.
+	const scrubAudio = useScrubAudio();
+	const isFirstScrubTickRef = useRef(true);
 
 	const playheadPosition =
 		isScrubbing && scrubTime !== null ? scrubTime : currentTime;
@@ -103,6 +110,13 @@ export function useTimelinePlayhead({
 			setScrubTime(time);
 			seek({ time });
 
+			if (isFirstScrubTickRef.current) {
+				isFirstScrubTickRef.current = false;
+				scrubAudio.onDragStart(time);
+			} else {
+				scrubAudio.onDragTick(time);
+			}
+
 			lastMouseXRef.current = event.clientX;
 		},
 		[
@@ -114,6 +128,7 @@ export function useTimelinePlayhead({
 			isShiftHeldRef,
 			editor.scenes,
 			editor.timeline,
+			scrubAudio,
 		],
 	);
 
@@ -121,6 +136,7 @@ export function useTimelinePlayhead({
 		({ event }: { event: React.MouseEvent }) => {
 			event.preventDefault();
 			event.stopPropagation();
+			isFirstScrubTickRef.current = true;
 			editor.playback.setScrubbing({ isScrubbing: true });
 			handleScrub({ event });
 		},
@@ -136,6 +152,7 @@ export function useTimelinePlayhead({
 			event.preventDefault();
 			setIsDraggingRuler(true);
 			setHasDraggedRuler(false);
+			isFirstScrubTickRef.current = true;
 
 			editor.playback.setScrubbing({ isScrubbing: true });
 			handleScrub({ event, snappingEnabled: false });
@@ -173,6 +190,7 @@ export function useTimelinePlayhead({
 
 		const handleMouseUp = ({ event }: { event: MouseEvent }) => {
 			editor.playback.setScrubbing({ isScrubbing: false });
+			scrubAudio.onDragEnd();
 			if (scrubTime !== null) {
 				seek({ time: scrubTime });
 				editor.project.setTimelineViewState({
@@ -214,6 +232,7 @@ export function useTimelinePlayhead({
 		editor,
 		tracksScrollRef,
 		zoomLevel,
+		scrubAudio,
 	]);
 
 	useEffect(() => {

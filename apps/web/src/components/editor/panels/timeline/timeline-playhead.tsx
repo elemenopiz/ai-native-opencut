@@ -9,6 +9,7 @@ import {
 import { TIMELINE_CONSTANTS } from "@/constants/timeline-constants";
 import { useTimelinePlayhead } from "@/hooks/timeline/use-timeline-playhead";
 import { useEditor } from "@/hooks/use-editor";
+import { useScrubAudio } from "@/hooks/audio/use-scrub-audio";
 
 interface TimelinePlayheadProps {
 	zoomLevel: number;
@@ -41,6 +42,7 @@ export function TimelinePlayhead({
 		tracksScrollRef,
 		playheadRef,
 	});
+	const scrubAudio = useScrubAudio();
 
 	// Use scrollHeight (total content) so the playhead extends through all tracks,
 	// not just the visible viewport
@@ -127,6 +129,8 @@ export function TimelinePlayhead({
 		);
 
 		editor.playback.seek({ time: nextTime });
+		// Single-frame step: one audible grain at the landed frame (§4.2).
+		scrubAudio.onFrameStep(nextTime, direction === 1 ? "forward" : "reverse");
 	};
 
 	return (
