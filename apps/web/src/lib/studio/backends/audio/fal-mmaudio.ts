@@ -29,7 +29,7 @@
  */
 
 import { webEnv } from "@byorn/env/web";
-import { estimateAudioCredits } from "@/lib/studio/backends/cost";
+import { costFor } from "@/lib/credits/cost-table";
 import { fetchWithTimeout } from "@/lib/studio/fetch-timeout";
 import type {
 	BackendRequest,
@@ -120,7 +120,11 @@ export const falMmaudioBackend: GenerationBackend = {
 
 	estimateCost(req: BackendRequest): CostEstimate {
 		const duration = Math.min(req.duration ?? 8, MMAUDIO_MAX_DURATION_SEC);
-		const credits = estimateAudioCredits(duration);
+		// Sourced directly from cost-table.ts's costFor() — the same
+		// server-authoritative billing table the credit-preview UI mirrors —
+		// so this is exactly what the job will cost, not a separate normalized
+		// routing unit that can drift from real billing.
+		const credits = costFor("fal-mmaudio", "audio", { seconds: duration });
 		return { credits, basis: `MMAudio V2 score × ${duration}s` };
 	},
 

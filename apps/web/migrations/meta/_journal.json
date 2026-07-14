@@ -71,13 +71,6 @@
 			"when": 1751800000000,
 			"tag": "0009_delete_floor_and_takes_job_index",
 			"breakpoints": true
-		},
-		{
-			"idx": 10,
-			"version": "7",
-			"when": 1751900000000,
-			"tag": "0010_audio_jobs",
-			"breakpoints": true
 		}
 	]
 }

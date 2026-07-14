@@ -8,7 +8,7 @@
 -- legacy-backfilled `takes.owner_id`) — this table starts post-auth, so the
 -- poll route's ownership check can always rely on it.
 --
--- Run after 0009_delete_floor_and_takes_job_index.sql
+-- Run after 0010_mcp_events.sql
 
 CREATE TABLE IF NOT EXISTS "audio_jobs" (
 	"id" text PRIMARY KEY NOT NULL,

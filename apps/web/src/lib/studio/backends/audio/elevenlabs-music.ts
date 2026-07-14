@@ -26,7 +26,7 @@
 
 import { webEnv } from "@byorn/env/web";
 import { nanoid } from "nanoid";
-import { estimateAudioCredits } from "@/lib/studio/backends/cost";
+import { costFor } from "@/lib/credits/cost-table";
 import { fetchWithTimeout, MEDIA_TIMEOUT_MS } from "@/lib/studio/fetch-timeout";
 import type {
 	BackendRequest,
@@ -83,7 +83,11 @@ export const elevenlabsMusicBackend: GenerationBackend = {
 
 	estimateCost(req: BackendRequest): CostEstimate {
 		const duration = req.duration ?? 30;
-		const credits = estimateAudioCredits(duration);
+		// Sourced directly from cost-table.ts's costFor() — the same
+		// server-authoritative billing table the credit-preview UI mirrors —
+		// so this is exactly what the job will cost, not a separate normalized
+		// routing unit that can drift from real billing.
+		const credits = costFor("elevenlabs-music", "audio", { seconds: duration });
 		return {
 			credits,
 			basis: `ElevenLabs Music × ${duration}s${req.instrumental ? " (instrumental)" : ""}`,

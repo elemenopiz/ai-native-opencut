@@ -28,7 +28,6 @@ export {
 	sumCredits,
 	formatCredits,
 	estimateVideoCredits,
-	estimateAudioCredits,
 	relativeCostTier,
 	VIDEO_CREDITS_PER_SEC,
 } from "@/lib/studio/backends/cost";
