@@ -35,6 +35,8 @@ import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { verifyProjectToken } from "@/lib/mcp/auth";
 import { createByornMcpServer } from "@/lib/mcp/build-mcp-server";
 import { getMcpSessionStore } from "@/lib/mcp/mcp-session-store";
+import { RATE_LIMITS, getRateLimiter } from "@/lib/rate-limit";
+import { recordMcpEvent } from "@/lib/mcp/telemetry";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -77,6 +79,25 @@ async function handleMcpRequest(req: Request): Promise<Response> {
 	}
 	const authInfo = toAuthInfo(token, grant);
 
+	// ---- transport-level rate limit (blanket safety net, not verb-aware) --
+	// Covers every JSON-RPC method plus the GET SSE stream and DELETE — the
+	// verb-aware read/write caps that matter for cost/DB load are enforced
+	// per `tools/call` in build-mcp-server.ts, where the tool name is known.
+	// A bare 429 is the acceptable fallback here (no MCP session/tool-call
+	// context exists yet to shape a protocol-level tool error into).
+	const transportLimit = await getRateLimiter().check(
+		RATE_LIMITS["mcp:transport"],
+		"mcp:transport",
+		`user:${grant.userId}`,
+	);
+	if (transportLimit.limited) {
+		return rpcError(
+			429,
+			-32000,
+			"Rate limit exceeded. Please slow down and try again shortly.",
+		);
+	}
+
 	const store = getMcpSessionStore();
 	const sessionId = req.headers.get("mcp-session-id");
 
@@ -85,13 +106,21 @@ async function handleMcpRequest(req: Request): Promise<Response> {
 		const session = store.touch(sessionId);
 		if (!session) {
 			// Unknown/evicted (idle or LRU) → 404 so the client re-initializes.
-			return rpcError(404, -32001, "Session not found or expired — send a new initialize request.");
+			return rpcError(
+				404,
+				-32001,
+				"Session not found or expired — send a new initialize request.",
+			);
 		}
 		if (
 			session.userId !== grant.userId ||
 			session.projectId !== grant.projectId
 		) {
-			return rpcError(403, -32003, "This session belongs to a different user/project than the presented token.");
+			return rpcError(
+				403,
+				-32003,
+				"This session belongs to a different user/project than the presented token.",
+			);
 		}
 		return session.transport.handleRequest(req, { authInfo });
 	}
@@ -107,7 +136,11 @@ async function handleMcpRequest(req: Request): Promise<Response> {
 		return rpcError(400, -32700, "Parse error: body must be JSON.");
 	}
 	if (!isInitializeRequest(body)) {
-		return rpcError(400, -32000, "Expected an initialize request when no Mcp-Session-Id is present.");
+		return rpcError(
+			400,
+			-32000,
+			"Expected an initialize request when no Mcp-Session-Id is present.",
+		);
 	}
 
 	const server = createByornMcpServer({
@@ -126,6 +159,11 @@ async function handleMcpRequest(req: Request): Promise<Response> {
 				projectId: grant.projectId,
 				createdAt: now,
 				lastSeenAt: now,
+			});
+			recordMcpEvent({
+				userId: grant.userId,
+				projectId: grant.projectId,
+				event: "session_initialized",
 			});
 		},
 		// Client sent DELETE → transport closed the session itself; just forget it.

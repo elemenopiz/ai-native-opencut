@@ -23,10 +23,15 @@ executor extension files, and the MCP HTTP transport layer. Their surface is
 including `undo`, not 11. Corrected 2026-07-09 against `ToolDefinitions.swift`
 HEAD `cd74ce3`, which declares 45 tools.)
 
-**Our surface today** (19 verbs): `getReel`, `getSlot`, `storyboard`,
+**Our surface today** (19 verbs at the time this doc was written): `getReel`, `getSlot`, `storyboard`,
 `reserveSlot`, `setPrompt`, `generate`, `reroll`, `remix`, `chooseTake`,
 `trim`, `move`, `split`, `reorder`, `remove`, `undo`, `redo`, `export`,
 `getConsistencyContext`, `setConsistencyContext`.
+>
+> **Stale — corrected 2026-07-14:** the catalog has since grown to **53 verbs**
+> (`apps/web/src/lib/director/tool-catalog.ts`). The gap analysis below is a
+> historical snapshot against the 19-verb surface and has not been re-run
+> against the current catalog.
 
 **Verdict legend** used throughout:
 

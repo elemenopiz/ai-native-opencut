@@ -22,6 +22,7 @@ import { auth } from "@/lib/auth/server";
 import { generateUUID } from "@/utils/id";
 import { hashToken, MCP_SCOPES, parseScopes } from "@/lib/mcp/auth";
 import { getTokenCache } from "@/lib/mcp/token-cache";
+import { recordMcpEvent } from "@/lib/mcp/telemetry";
 
 const createTokenSchema = z.object({
 	projectId: z.string().min(1),
@@ -69,6 +70,13 @@ export async function POST(request: NextRequest) {
 		};
 
 		await db.insert(mcpTokens).values(row);
+
+		recordMcpEvent({
+			userId: session.user.id,
+			projectId: row.projectId,
+			event: "token_created",
+			meta: { scopes, hasLabel: Boolean(parsed.data.label) },
+		});
 
 		// The RAW token is returned exactly once — it is never recoverable later.
 		return NextResponse.json(

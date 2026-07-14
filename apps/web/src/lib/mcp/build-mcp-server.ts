@@ -30,6 +30,8 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { toolCatalog, type ToolDescriptor } from "@/lib/director/tool-catalog";
 import { scopeForTool } from "@/lib/mcp/auth";
+import { RATE_LIMITS, getRateLimiter } from "@/lib/rate-limit";
+import { recordMcpEvent } from "@/lib/mcp/telemetry";
 import { BridgeError, getEditorBridge } from "./editor-bridge";
 
 /**
@@ -94,10 +96,47 @@ export function createByornMcpServer(pin: {
 		const requiredScope = scopeForTool(name);
 		const grantedScopes = extra.authInfo?.scopes ?? [];
 		if (!grantedScopes.includes(requiredScope)) {
+			recordMcpEvent({
+				userId: pin.userId,
+				projectId: pin.projectId,
+				event: "tool_call",
+				verb: name,
+				meta: { mutating: descriptor.mutating, blocked: "scope" },
+			});
 			return jsonResult(
 				{
 					ok: false,
 					message: `Forbidden: tool "${name}" requires the "${requiredScope}" scope, but this token only grants [${grantedScopes.join(", ")}].`,
+				},
+				true,
+			);
+		}
+
+		// Per-verb rate limit: read-scope calls (getReel, searchMedia, …) are
+		// generous — a runaway agent loop must not be able to hammer
+		// Postgres/embedding search unbounded. Mutating calls (generate, trim,
+		// remove, …) get a tighter cap. Keyed on the session's pinned
+		// {userId, projectId}, not the raw token, so every token issued for the
+		// same project shares one budget.
+		const rateBucket = descriptor.mutating ? "mcp:write" : "mcp:read";
+		const rateKey = `${pin.userId}:${pin.projectId}`;
+		const rateResult = await getRateLimiter().check(
+			RATE_LIMITS[rateBucket],
+			rateBucket,
+			rateKey,
+		);
+		if (rateResult.limited) {
+			recordMcpEvent({
+				userId: pin.userId,
+				projectId: pin.projectId,
+				event: "tool_call",
+				verb: name,
+				meta: { mutating: descriptor.mutating, blocked: "rate_limit" },
+			});
+			return jsonResult(
+				{
+					ok: false,
+					message: `Rate limit exceeded for ${descriptor.mutating ? "mutating" : "read"} MCP tools on this project. Please slow down and try again shortly.`,
 				},
 				true,
 			);
@@ -118,10 +157,31 @@ export function createByornMcpServer(pin: {
 				args,
 				timeoutMs,
 			});
+			recordMcpEvent({
+				userId: pin.userId,
+				projectId: pin.projectId,
+				event: "tool_call",
+				verb: name,
+				meta: { mutating: descriptor.mutating, ok: result.ok },
+			});
 			return jsonResult(result, !result.ok);
 		} catch (error) {
 			if (error instanceof BridgeError) {
-				return jsonResult({ ok: false, message: error.message, bridge: error.code }, true);
+				recordMcpEvent({
+					userId: pin.userId,
+					projectId: pin.projectId,
+					event: "tool_call",
+					verb: name,
+					meta: {
+						mutating: descriptor.mutating,
+						ok: false,
+						bridge: error.code,
+					},
+				});
+				return jsonResult(
+					{ ok: false, message: error.message, bridge: error.code },
+					true,
+				);
 			}
 			throw error;
 		}
