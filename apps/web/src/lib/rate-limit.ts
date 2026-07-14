@@ -140,6 +140,23 @@ export const RATE_LIMITS = {
 	// Inviting teammates sends an email per call — keep it human-paced so one
 	// account can't turn the inviter into a spam cannon.
 	"vc:invite": { perMinute: 5, perDay: 100 },
+	// MCP transport envelope (`/api/mcp`, any JSON-RPC method: initialize,
+	// tools/list, ping, the standalone GET SSE stream, DELETE session
+	// teardown). Deliberately generous and NOT verb-aware — it is a blanket
+	// safety net against session/protocol churn (e.g. a misbehaving client
+	// re-initializing in a loop), keyed on the token's userId. The verb-aware
+	// caps that matter for cost/DB load live below and are enforced per
+	// `tools/call` in build-mcp-server.ts, where the tool name is known.
+	"mcp:transport": { perMinute: 300, perDay: 20_000 },
+	// Read-only Director verbs called over MCP (getReel, searchMedia, …). A
+	// runaway agent loop can otherwise hammer Postgres/embedding search
+	// unbounded — see build-mcp-server.ts's `tools/call` handler, which picks
+	// this bucket via the catalog's `mutating` flag.
+	"mcp:read": { perMinute: 120, perDay: 6000 },
+	// Mutating Director verbs called over MCP (generate, trim, remove, …).
+	// Tighter than read — these write to the timeline and some spend a
+	// provider credit.
+	"mcp:write": { perMinute: 30, perDay: 1500 },
 } satisfies Record<string, RateLimitRule>;
 
 export type RateLimitName = keyof typeof RATE_LIMITS;

@@ -21,7 +21,7 @@
 
 ## 2. Threat read
 
-Restated bet: *our Sprint-2 wedge is "external agents drive our timeline over MCP" (shared `toolCatalog()`, ~21 verbs, relay-bridge to in-browser EditorCore, per-project token auth). Vyra ships exactly that as a product.* So the MCP-editor lane is **contested, not owned.**
+Restated bet: *our Sprint-2 wedge is "external agents drive our timeline over MCP" (shared `toolCatalog()`, ~21 verbs at the time this doc was written — the catalog has since grown to 53, see `apps/web/src/lib/director/tool-catalog.ts` — relay-bridge to in-browser EditorCore, per-project token auth). Vyra ships exactly that as a product.* So the MCP-editor lane is **contested, not owned.**
 
 Confirmed and sharpened:
 

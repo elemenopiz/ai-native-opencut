@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, index } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, index, jsonb } from "drizzle-orm/pg-core";
 import { users } from "./schema";
 
 // ─── MCP Tokens ───────────────────────────────────────────────────────────────
@@ -36,5 +36,41 @@ export const mcpTokens = pgTable(
 	(t) => [
 		index("mcp_tokens_user_id_idx").on(t.userId),
 		index("mcp_tokens_project_id_idx").on(t.projectId),
+	],
+);
+
+// ─── MCP Events ─────────────────────────────────────────────────────────────
+// Lightweight usage telemetry for the external MCP server — see
+// `src/lib/mcp/telemetry.ts` for the fire-and-forget writer. One row per
+// event: token issuance, session establishment, and per-verb `tools/call`
+// (including calls blocked by scope or rate limit, so abuse is visible too).
+//
+// `userId` is nullable + ON DELETE SET NULL (mirrors the actor-FK pattern in
+// migration 0009) so account deletion never FK-blocks on a telemetry row; the
+// event survives for aggregate counts with `userId` cleared. `projectId` is
+// the same opaque client-side id as `mcp_tokens.project_id` — not an FK,
+// there is no server-side projects table.
+
+export const mcpEvents = pgTable(
+	"mcp_events",
+	{
+		id: text("id").primaryKey(),
+		ts: timestamp("ts")
+			.$defaultFn(() => new Date())
+			.notNull(),
+		userId: text("user_id").references(() => users.id, {
+			onDelete: "set null",
+		}),
+		projectId: text("project_id"),
+		// "token_created" | "session_initialized" | "tool_call" — see McpEventName.
+		event: text("event").notNull(),
+		// Director verb name; populated for "tool_call" events only.
+		verb: text("verb"),
+		meta: jsonb("meta"),
+	},
+	(t) => [
+		index("mcp_events_user_id_idx").on(t.userId),
+		index("mcp_events_event_idx").on(t.event),
+		index("mcp_events_ts_idx").on(t.ts),
 	],
 );
