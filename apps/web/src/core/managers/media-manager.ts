@@ -271,8 +271,17 @@ export class MediaManager {
 		return this.assets.find((a) => a.id === id);
 	}
 
+	/**
+	 * Whether this video should get a background H.264 preview proxy:
+	 * - above 1920×1080 (the original perf case), OR
+	 * - stored passthrough in a non-H.264 codec (HEVC/VP9/AV1 kept as-is because
+	 *   THIS browser could decode it — see `PassthroughCodec`), at ANY
+	 *   resolution: the proxy is the guaranteed-portable fallback for browsers
+	 *   that can't decode the original.
+	 */
 	needsProxy(asset: MediaAsset): boolean {
 		if (asset.type !== "video") return false;
+		if (asset.passthrough) return true;
 		if (!asset.width || !asset.height) return false;
 		return (
 			asset.width > PROXY_THRESHOLD_WIDTH ||

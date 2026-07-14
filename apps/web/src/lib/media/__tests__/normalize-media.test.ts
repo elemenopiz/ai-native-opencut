@@ -9,6 +9,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 type TrackStub = {
 	getCodec: () => Promise<string | null>;
 	canDecode?: () => Promise<boolean>;
+	getCodecParameterString?: () => Promise<string | null>;
 	isVideoTrack?: () => boolean;
 };
 
@@ -108,6 +109,7 @@ function makeVideoTrack(overrides: Partial<TrackStub> = {}): TrackStub {
 	return {
 		getCodec: async () => "avc",
 		canDecode: async () => true,
+		getCodecParameterString: async () => "avc1.640028",
 		isVideoTrack: () => true,
 		...overrides,
 	};
@@ -191,10 +193,11 @@ describe("decideNormalization — decision table", () => {
 });
 
 describe("probeVideoFile", () => {
-	test("reports codec + decodable (nothing else — hot-path probe stays slim)", async () => {
+	test("reports codec + decodable + full codec string (nothing else — hot-path probe stays slim)", async () => {
 		videoTrack = makeVideoTrack({
 			getCodec: async () => "hevc",
 			canDecode: async () => true,
+			getCodecParameterString: async () => "hvc1.1.6.L120.90",
 		});
 
 		const result = await probeVideoFile(file());
@@ -202,6 +205,7 @@ describe("probeVideoFile", () => {
 			parseable: true,
 			videoCodec: "hevc",
 			decodable: true,
+			codecParameterString: "hvc1.1.6.L120.90",
 		});
 		expect(disposed).toBe(1); // input always disposed
 	});
@@ -299,10 +303,11 @@ describe("normalizeVideoFile", () => {
 });
 
 describe("processMediaAssets — normalize-on-ingest wiring", () => {
-	test("passthrough (hevc/decodable, the GoPro/iPhone case): ingests the raw file as-is, no transcode", async () => {
+	test("passthrough (hevc/decodable, the GoPro/iPhone case): ingests the raw file as-is, no transcode, and persists the codec marker", async () => {
 		videoTrack = makeVideoTrack({
 			getCodec: async () => "hevc",
 			canDecode: async () => true,
+			getCodecParameterString: async () => "hvc1.1.6.L120.90",
 		});
 		// No `conversion` stub configured — if the code took the transcode path
 		// it would throw (`Conversion.init` requires one), so this also proves
@@ -318,6 +323,10 @@ describe("processMediaAssets — normalize-on-ingest wiring", () => {
 		expect(asset.file.name).toBe("GX010042.mp4");
 		expect(getVideoInfoFile?.name).toBe("GX010042.mp4");
 		expect(asset.normalized).toBeUndefined();
+		// The passthrough marker carries the FULL WebCodecs codec string (the
+		// VideoDecoder.isConfigSupported contract), not the "hevc" family name —
+		// it's what makes needsProxy() true at any resolution for this asset.
+		expect(asset.passthrough).toEqual({ codec: "hvc1.1.6.L120.90" });
 		expect(toastCalls.success).toHaveLength(0);
 		expect(toastCalls.error).toHaveLength(0);
 	});
@@ -333,6 +342,9 @@ describe("processMediaAssets — normalize-on-ingest wiring", () => {
 		expect(asset).toBeDefined();
 		expect(asset.file.name).toBe("GX010042.mp4"); // original, un-substituted
 		expect(asset.normalized).toBeUndefined();
+		// No passthrough marker either: the marker means "decodable here, kept
+		// as-is" — an UNdecodable ingest is a different (warned) state.
+		expect(asset.passthrough).toBeUndefined();
 		expect(toastCalls.error).toHaveLength(1);
 		expect(toastCalls.error[0]).toContain("HEVC");
 	});
@@ -363,18 +375,52 @@ describe("processMediaAssets — normalize-on-ingest wiring", () => {
 	// today (see `decideNormalization`'s doc comment on the kept-but-unreached
 	// "transcode" decision).
 
-	test("passthrough (avc): no transcode, no provenance, no toast", async () => {
+	test("passthrough (avc): no transcode, no provenance, no toast — and NO passthrough marker (H.264 needs no fallback proxy)", async () => {
 		videoTrack = makeVideoTrack({
 			getCodec: async () => "avc",
 			canDecode: async () => true,
+			getCodecParameterString: async () => "avc1.640028",
 		});
 
 		const [asset] = await processMediaAssets({ files: [file()] });
 
 		expect(asset.file.name).toBe("GX010042.mp4");
 		expect(asset.normalized).toBeUndefined();
+		expect(asset.passthrough).toBeUndefined();
 		expect(toastCalls.error).toHaveLength(0);
 		expect(toastCalls.success).toHaveLength(0);
 		expect(getVideoInfoFile?.name).toBe("GX010042.mp4");
+	});
+
+	test("passthrough (vp9): also gets the codec marker — the mechanism is codec-agnostic, not HEVC-specific", async () => {
+		videoTrack = makeVideoTrack({
+			getCodec: async () => "vp9",
+			canDecode: async () => true,
+			getCodecParameterString: async () => "vp09.00.10.08",
+		});
+
+		const [asset] = await processMediaAssets({ files: [file()] });
+
+		expect(asset.file.name).toBe("GX010042.mp4");
+		expect(asset.passthrough).toEqual({ codec: "vp09.00.10.08" });
+		expect(toastCalls.error).toHaveLength(0);
+	});
+
+	test("passthrough (non-avc) with a null codec parameter string: no marker rather than a junk contract value", async () => {
+		// Defensive: mediabunny returns null from getCodecParameterString only
+		// when the codec is unknown (which also nulls videoCodec, forcing
+		// "unsupported") — but if that invariant ever slips, persisting a null/
+		// family-name codec would poison the VideoDecoder.isConfigSupported
+		// contract downstream. Skip the marker instead.
+		videoTrack = makeVideoTrack({
+			getCodec: async () => "hevc",
+			canDecode: async () => true,
+			getCodecParameterString: async () => null,
+		});
+
+		const [asset] = await processMediaAssets({ files: [file()] });
+
+		expect(asset.file.name).toBe("GX010042.mp4");
+		expect(asset.passthrough).toBeUndefined();
 	});
 });

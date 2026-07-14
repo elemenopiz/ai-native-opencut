@@ -1,6 +1,9 @@
 import { toast } from "sonner";
 import type { MediaAsset } from "@/types/assets";
-import type { NormalizedFrom } from "@/services/storage/types";
+import type {
+	NormalizedFrom,
+	PassthroughCodec,
+} from "@/services/storage/types";
 import { getMediaTypeFromFile } from "@/lib/media/media-utils";
 import { getVideoInfo } from "./mediabunny";
 import {
@@ -256,6 +259,7 @@ export async function processMediaAssets({
 		let assetFile = file;
 		let assetUrl = URL.createObjectURL(file);
 		let normalized: NormalizedFrom | undefined;
+		let passthrough: PassthroughCodec | undefined;
 		let thumbnailUrl: string | undefined;
 		let duration: number | undefined;
 		let width: number | undefined;
@@ -308,6 +312,18 @@ export async function processMediaAssets({
 							);
 							toast.dismiss(toastId);
 						}
+					} else if (
+						decision === "passthrough" &&
+						probe.videoCodec !== "avc" &&
+						probe.codecParameterString
+					) {
+						// Kept as-is in a non-H.264 codec THIS browser happens to
+						// decode. Persist the full WebCodecs codec string so later
+						// loads can re-check decodability cheaply, and so needsProxy()
+						// always schedules a portable H.264 fallback proxy for it
+						// regardless of resolution. H.264 originals stay unmarked —
+						// they're already universally decodable and need no fallback.
+						passthrough = { codec: probe.codecParameterString };
 					} else if (decision === "unsupported") {
 						// Distinguish "codec we know but this browser can't decode" from
 						// "no readable video track at all" (audio-only-in-video-container,
@@ -370,6 +386,7 @@ export async function processMediaAssets({
 				height,
 				fps,
 				normalized,
+				passthrough,
 			});
 
 			await new Promise((resolve) => setTimeout(resolve, 0));
