@@ -80,7 +80,7 @@ export function Footer() {
 }
 
 /**
- * Byorn brand mark — the transparent white bear face.
+ * Byorn brand mark — the simplified bear face (same art as the favicon).
  *
  * Imported statically (not a /public string src) so Next serves it from a
  * content-hashed URL. When the art changes, the URL changes, so browsers and

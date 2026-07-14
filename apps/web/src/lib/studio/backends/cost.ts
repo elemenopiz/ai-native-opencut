@@ -1,31 +1,17 @@
 /**
- * Cost helpers — normalize every backend's estimate into one Byorn credit unit
- * and convert to the `TakeCost` we stamp on takes. The point is the inverse of
- * Firefly's opacity: an honest number BEFORE you generate, per model, on the slot.
+ * Cost helpers — convert a backend's estimate to the `TakeCost` we stamp on
+ * takes, plus routing-tier helpers. The point is the inverse of Firefly's
+ * opacity: an honest number BEFORE you generate, per model, on the slot.
+ *
+ * Video backends' own `estimateCost().credits` (in `backends/video/*.ts`) are
+ * sourced directly from `lib/credits/cost-table.ts`'s `costFor()` — the same
+ * server-authoritative billing table the credit-preview UI mirrors — so there
+ * is exactly one number for "what will this cost," not a separate normalized
+ * routing unit that can drift from real billing.
  */
 
 import type { CostEstimate } from "@/lib/studio/backends/types";
 import type { TakeCost } from "@/types/timeline";
-
-/**
- * Shared video credit model, normalized to Byorn credits. Adapters may override
- * with a provider-specific rate, but reusing this keeps cross-backend numbers
- * comparable (the whole reason to normalize). Roughly resolution-linear.
- */
-export const VIDEO_CREDITS_PER_SEC: Record<string, number> = {
-	"480p": 20,
-	"720p": 50,
-	"1080p": 100,
-};
-
-export function estimateVideoCredits(
-	resolution: string | undefined,
-	durationSec: number | undefined,
-): number {
-	const rate = VIDEO_CREDITS_PER_SEC[resolution ?? "720p"] ?? 50;
-	const dur = durationSec ?? 5;
-	return Math.round(rate * dur);
-}
 
 /** Convert a backend estimate into a take-stamped cost. */
 export function toTakeCost(

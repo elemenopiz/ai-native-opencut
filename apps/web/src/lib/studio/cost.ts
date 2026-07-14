@@ -1,29 +1,22 @@
-import type { VideoResolution } from "@/lib/studio/provider-adapter";
+import {
+	estimateImageCredits,
+	estimateVideoCredits,
+} from "@/lib/credits/estimate";
 
-/** A low/high USD cost range. */
+/** A low/high credits range (1 credit = US$0.01 of real provider cost — see
+ *  `lib/credits/cost-table.ts`, the server-authoritative billing table this
+ *  whole pipeline mirrors). `low === high` when the estimate is exact (a known
+ *  backend); a genuine spread only appears pre-routing, when the backend that
+ *  will actually run isn't known yet. */
 export interface CostRange {
 	low: number;
 	high: number;
 }
 
-/** Per-second video render cost range, by resolution (USD). */
-export const RATE_PER_SEC: Record<VideoResolution, [number, number]> = {
-	"480p": [0.03, 0.05],
-	"720p": [0.07, 0.1],
-	"1080p": [0.23, 0.37],
-};
-
-/** GPT Image still cost when high-consistency renders a fresh per-shot frame (USD). */
-export const PER_SHOT_STILL_COST = 0.04;
-
-export function formatUsd(n: number): string {
-	return n < 1 ? `${(n * 100).toFixed(0)}¢` : `$${n.toFixed(2)}`;
-}
-
 /**
- * Whether a generation renders a fresh per-shot still that adds API cost (the +1
- * GPT Image charge). Single source of truth so the cost-estimate call sites can't
- * drift on what counts toward cost.
+ * Whether a generation renders a fresh per-shot still that adds API cost (the
+ * +1 image-backend charge). Single source of truth so the cost-estimate call
+ * sites can't drift on what counts toward cost.
  *
  * Only "high" (Balanced) bills for the still — it renders a per-shot reference
  * still via a routed image provider. "fast" reuses the anchor (no still), so it
@@ -43,21 +36,25 @@ export function addsPerShotStill(
 }
 
 /**
- * Live, dynamic cost estimate for the current settings. `count` variations share
- * a single per-shot still (it's rendered once for the whole batch), so the still
- * cost is added ONCE while the per-second video cost scales with count.
+ * Live, dynamic credits estimate for the current settings. `count` variations
+ * share a single per-shot still (it's rendered once for the whole batch), so
+ * the still cost is added ONCE while the per-second video cost scales with
+ * count. Pass `backendId` when it's known (e.g. the form's selected model) for
+ * an exact number; omitted, this returns a min–max range across every
+ * registered video backend (real billing doesn't vary by resolution, only by
+ * backend + duration — see `cost-table.ts`).
  */
 export function estimateCost(
-	resolution: VideoResolution,
 	duration: number,
 	rendersStill: boolean,
 	count = 1,
+	backendId?: string,
 ): CostRange {
-	const [lo, hi] = RATE_PER_SEC[resolution];
-	const still = rendersStill ? PER_SHOT_STILL_COST : 0;
+	const video = estimateVideoCredits(duration, backendId);
+	const still = rendersStill ? estimateImageCredits(1).low : 0;
 	return {
-		low: lo * duration * count + still,
-		high: hi * duration * count + still,
+		low: video.low * count + still,
+		high: video.high * count + still,
 	};
 }
 
@@ -67,22 +64,22 @@ export function estimateCost(
  * with no timeline dependency — every `GenerationSpec` is assignable to it.
  */
 export interface CostSpec {
-	resolution: VideoResolution;
 	duration: number;
 	personaId?: string;
 	consistencyMode?: "high" | "fast";
 }
 
-/** Cost of generating `count` takes of a single shot from its spec. */
+/** Credits to generate `count` takes of a single shot from its spec. The
+ *  backend that will run isn't known pre-routing, so this is a range. */
 export function estimateSpecCost(spec: CostSpec, count = 1): CostRange {
 	const rendersStill = addsPerShotStill(!!spec.personaId, spec.consistencyMode);
-	return estimateCost(spec.resolution, spec.duration, rendersStill, count);
+	return estimateCost(spec.duration, rendersStill, count);
 }
 
 /**
- * Cost of a whole batch: `count` takes for each of `specs`. `clips` is the total
- * number of takes that will actually be rendered (the batch's "size"), so a
- * caller can show "generate N clips (~$low–$high)" from one call.
+ * Credits for a whole batch: `count` takes for each of `specs`. `clips` is the
+ * total number of takes that will actually be rendered (the batch's "size"),
+ * so a caller can show "generate N clips (~low–high cr)" from one call.
  */
 export function estimateBatchCost(
 	specs: CostSpec[],
@@ -104,12 +101,13 @@ export function estimateBatchCost(
 // threshold and run without a prompt; anything pricier confirms first.
 
 /**
- * Default USD ceiling above which a generation should be confirmed before it
- * runs. Sensible middle ground: a single short 480p re-roll stays under it, but
- * a multi-shot "generate all" (or a few 1080p takes) crosses it. User-overridable
- * via `studio-settings-store`'s `approvalThresholdUsd`.
+ * Default credits ceiling above which a generation should be confirmed before
+ * it runs. Sensible middle ground: a single short re-roll on a cheap backend
+ * stays under it, but a multi-shot "generate all" (or a few premium-tier
+ * takes) crosses it. User-overridable via `studio-settings-store`'s
+ * `approvalThresholdCredits`. (50 credits = the prior $0.50 USD default.)
  */
-export const DEFAULT_APPROVAL_THRESHOLD_USD = 0.5;
+export const DEFAULT_APPROVAL_THRESHOLD_CREDITS = 50;
 
 /**
  * Whether an estimate warrants explicit approval. Gates on the HIGH end of the
@@ -117,40 +115,46 @@ export const DEFAULT_APPROVAL_THRESHOLD_USD = 0.5;
  */
 export function needsApproval(
 	estimate: CostRange,
-	threshold: number = DEFAULT_APPROVAL_THRESHOLD_USD,
+	threshold: number = DEFAULT_APPROVAL_THRESHOLD_CREDITS,
 ): boolean {
 	return estimate.high >= threshold;
 }
 
-/** Render an estimate as a compact "$low–$high" string. */
+/** Render an estimate as a compact "N cr" or "low–high cr" string. */
 export function formatCostRange(estimate: CostRange): string {
-	return `${formatUsd(estimate.low)}–${formatUsd(estimate.high)}`;
+	return estimate.low === estimate.high
+		? `${estimate.low} cr`
+		: `${estimate.low}–${estimate.high} cr`;
 }
 
 // ─── Audio cost (voiceover TTS + music bed) ──────────────────────────────────
 // The Director's audio verbs (`addVoiceover`/`addMusicBed`) hit PAID backends
 // just like a visual `generate`, so they ride the SAME cost-preview approval
-// gate. These estimators mirror `estimateBatchCost`'s shape (a `CostRange` plus
-// a `clips` count) so the agent's approval path treats an audio spend exactly
-// like a generation one.
+// gate — these estimators mirror `estimateBatchCost`'s shape (a `CostRange`
+// plus a `clips` count) so the agent's approval path treats an audio spend
+// exactly like a generation one. Unlike video/image, TTS and music-bed aren't
+// metered actions in `cost-table.ts` yet (no server-authoritative rate to
+// mirror), so these stay independent, hand-calibrated credit estimates —
+// display/approval-gate sizing only, not a billing source of truth.
 
 /**
- * Per-1000-characters cost range for synthesized speech (USD). Premium neural
- * TTS with voice cloning (the persona/`voiceRef` path) is billed by the length
- * of the synthesized text, so a long monologue costs materially more than a
+ * Per-1000-characters credits range for synthesized speech. Premium neural TTS
+ * with voice cloning (the persona/`voiceRef` path) is billed by the length of
+ * the synthesized text, so a long monologue costs materially more than a
  * one-line VO — which is exactly why it needs the approval gate.
  */
-export const TTS_RATE_PER_1K_CHARS: [number, number] = [0.15, 0.3];
+export const TTS_CREDITS_PER_1K_CHARS: [number, number] = [15, 30];
 
 /**
- * Flat cost range for sourcing one music-bed track — a search plus a licensed
- * download from the paid sounds backend. Independent of the query and of how
- * long the bed spans (one track is fetched once, then looped/trimmed locally).
+ * Flat credits range for sourcing one music-bed track — a search plus a
+ * licensed download from the paid sounds backend. Independent of the query and
+ * of how long the bed spans (one track is fetched once, then looped/trimmed
+ * locally).
  */
-export const MUSIC_BED_COST: [number, number] = [0.02, 0.06];
+export const MUSIC_BED_CREDITS: [number, number] = [2, 6];
 
 /**
- * Cost of synthesizing one voiceover from its script. `clips: 1` — a VO add
+ * Credits to synthesize one voiceover from its script. `clips: 1` — a VO add
  * renders a single audio take — so the gate counts it like a one-clip generate.
  * An empty script costs nothing (the verb rejects it before spending).
  */
@@ -159,13 +163,17 @@ export function estimateVoiceoverCost(
 ): CostRange & { clips: number } {
 	const chars = script.trim().length;
 	if (chars === 0) return { low: 0, high: 0, clips: 0 };
-	const [lo, hi] = TTS_RATE_PER_1K_CHARS;
+	const [lo, hi] = TTS_CREDITS_PER_1K_CHARS;
 	const thousands = chars / 1000;
-	return { low: lo * thousands, high: hi * thousands, clips: 1 };
+	return {
+		low: Math.max(1, Math.ceil(lo * thousands)),
+		high: Math.max(1, Math.ceil(hi * thousands)),
+		clips: 1,
+	};
 }
 
-/** Cost of laying down one music bed (flat per-track fee). `clips: 1`. */
+/** Credits to lay down one music bed (flat per-track fee). `clips: 1`. */
 export function estimateMusicBedCost(): CostRange & { clips: number } {
-	const [lo, hi] = MUSIC_BED_COST;
+	const [lo, hi] = MUSIC_BED_CREDITS;
 	return { low: lo, high: hi, clips: 1 };
 }

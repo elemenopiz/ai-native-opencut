@@ -348,3 +348,14 @@ export function formatSpend(
 		? `spent ${spent}`
 		: `spent ${spent} of ${formatUsd(spend.budgetUsd)}`;
 }
+
+/**
+ * Format a USD amount for reel-budget copy. This module stays USD-denominated
+ * by design (a real dollar cap the user sets — see the module doc above), a
+ * separate unit from the credits-denominated per-action cost-preview gate
+ * (`studio/cost.ts`). Lives here (rather than there) so budget callers don't
+ * depend on the credits-display module for a dollar formatter.
+ */
+export function formatUsd(n: number): string {
+	return n < 1 ? `${(n * 100).toFixed(0)}¢` : `$${n.toFixed(2)}`;
+}

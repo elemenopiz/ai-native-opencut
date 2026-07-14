@@ -62,10 +62,18 @@ class FakeAnthropic {
 	constructor(_opts: unknown) {}
 }
 
+/** Mutable session the auth mock returns — tests flip it per case. */
+let currentSession: { user: { id: string; name: string; email?: string } } = {
+	user: { id: "u1", name: "U" },
+};
+/** How many times the (mocked) enforceRateLimit was invoked this test — lets
+ *  owner-exemption tests assert the check was SKIPPED, not just "not limited". */
+let enforceRateLimitCalls = 0;
+
 mock.module("@anthropic-ai/sdk", () => ({ default: FakeAnthropic }));
 mock.module("@/lib/auth/server", () => ({
 	auth: {
-		api: { getSession: async () => ({ user: { id: "u1", name: "U" } }) },
+		api: { getSession: async () => currentSession },
 	},
 }));
 // Snapshot the REAL rate-limit exports (the spread copies current function
@@ -75,7 +83,10 @@ mock.module("@/lib/auth/server", () => ({
 // one sees a rate limiter that never limits (order-dependent 429 failures).
 const realRateLimit = { ...(await import("@/lib/rate-limit")) };
 mock.module("@/lib/rate-limit", () => ({
-	enforceRateLimit: async () => undefined,
+	enforceRateLimit: async () => {
+		enforceRateLimitCalls++;
+		return undefined;
+	},
 }));
 afterAll(() => {
 	mock.module("@/lib/rate-limit", () => realRateLimit);
@@ -116,6 +127,8 @@ const savedMoonshotKey = webEnv.MOONSHOT_API_KEY;
 beforeEach(() => {
 	state.streamSignal = null;
 	state.streamCreated = 0;
+	currentSession = { user: { id: "u1", name: "U" } };
+	enforceRateLimitCalls = 0;
 	webEnv.ANTHROPIC_API_KEY = "test-key";
 	webEnv.MOONSHOT_API_KEY = "";
 });
@@ -148,4 +161,30 @@ test("aborting the client request aborts the upstream stream and tears it down",
 	// Clean teardown: no error frame flushed to the gone connection, stream ended.
 	expect(body).not.toContain("event: error");
 	expect(body).not.toContain("event: final");
+});
+
+test("a regular signed-in user goes through the rate limiter", async () => {
+	currentSession = {
+		user: { id: "u1", name: "U", email: "not-owner@example.com" },
+	};
+	const req = makeReq(
+		{ messages: [{ role: "user", content: "hi" }] },
+		new AbortController().signal,
+	);
+	const res = await POST(req);
+	expect(res.status).toBe(200);
+	expect(enforceRateLimitCalls).toBe(1);
+});
+
+test("an owner account (OWNER_EMAILS) skips the rate limiter entirely", async () => {
+	currentSession = {
+		user: { id: "owner1", name: "Owner", email: "zsrumishaikh@gmail.com" },
+	};
+	const req = makeReq(
+		{ messages: [{ role: "user", content: "hi" }] },
+		new AbortController().signal,
+	);
+	const res = await POST(req);
+	expect(res.status).toBe(200);
+	expect(enforceRateLimitCalls).toBe(0);
 });

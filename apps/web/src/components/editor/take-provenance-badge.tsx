@@ -76,7 +76,6 @@ export function TakeProvenanceBadge({
 					<TooltipContent side="top" className="max-w-56 text-xs">
 						<p>
 							{formatCredits(cost.credits)} credits
-							{cost.usd != null ? ` · ~$${cost.usd.toFixed(2)}` : ""}
 							{cost.estimated ? " (estimate)" : ""}
 						</p>
 						{cost.basis && (

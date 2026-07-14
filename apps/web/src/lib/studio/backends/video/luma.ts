@@ -21,7 +21,7 @@
  */
 
 import { webEnv } from "@byorn/env/web";
-import { estimateVideoCredits } from "@/lib/studio/backends/cost";
+import { costFor } from "@/lib/credits/cost-table";
 import { fetchWithTimeout } from "@/lib/studio/fetch-timeout";
 import type {
 	BackendRequest,
@@ -137,7 +137,7 @@ export const lumaBackend: GenerationBackend = {
 	},
 
 	estimateCost(req: BackendRequest): CostEstimate {
-		const credits = estimateVideoCredits(req.resolution, req.duration);
+		const credits = costFor("luma-ray", "video", { seconds: req.duration });
 		return {
 			credits,
 			basis: `Luma Ray 2 ${resolutionFor(req.resolution)} × ${durationFor(req.duration)}`,

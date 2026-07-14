@@ -14,6 +14,8 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Coins01Icon } from "@hugeicons/core-free-icons";
 import { formatCostRange, type CostRange } from "@/lib/studio/cost";
 
 interface CostApprovalDialogProps {
@@ -53,7 +55,8 @@ export function CostApprovalDialog({
 							{clips} clip{clips === 1 ? "" : "s"}
 						</span>{" "}
 						at an estimated{" "}
-						<span className="font-semibold text-foreground tabular-nums">
+						<span className="inline-flex items-center gap-1 font-semibold text-foreground tabular-nums">
+							<HugeiconsIcon icon={Coins01Icon} className="size-3.5" />
 							{formatCostRange(estimate)}
 						</span>
 						. Nothing is spent until you approve.
