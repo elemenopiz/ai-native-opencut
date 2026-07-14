@@ -38,16 +38,6 @@ export interface ProbeResult {
 
 export type NormalizationDecision = "passthrough" | "transcode" | "unsupported";
 
-/**
- * Video codecs we treat as already-portable: playable everywhere and safe to
- * keep inside an MP4 without re-encoding. AVC (H.264) is the universal baseline
- * every target browser decodes; every other codec (hevc/vp9/av1/vp8/prores) is
- * considered non-portable and gets transcoded when it's decodable here.
- */
-const PORTABLE_VIDEO_CODECS: ReadonlySet<VideoCodec> = new Set<VideoCodec>([
-	"avc",
-]);
-
 function unparseableResult(): ProbeResult {
 	return {
 		parseable: false,
@@ -93,19 +83,30 @@ export async function probeVideoFile(file: File): Promise<ProbeResult> {
 
 /**
  * Decide what ingest should do with a probed video:
- * - `passthrough`: already AVC/H.264 and decodable — no work.
- * - `transcode`: decodable but a non-portable codec (hevc/vp9/av1/…) — re-encode
- *   to H.264 so preview, export, and other browsers all handle it. HEVC →
- *   transcode is the primary case this feature exists for.
+ * - `passthrough`: `track.canDecode()` said yes in THIS browser — no work.
+ *   Every downstream consumer (VideoCache's CanvasSink playback/seek,
+ *   VideoSampleSink thumbnails, export's decode-then-re-encode) already
+ *   drives mediabunny/WebCodecs generically by container+codec, not by
+ *   assuming AVC, so a decodable HEVC/VP9/AV1/… source needs no ingest-time
+ *   re-encode: keeping the original bytes is correct AND ~50-100x cheaper
+ *   than the previous unconditional full-res transcode (measured: an 11-20s
+ *   HEVC transcode collapses to a probe read, <0.2s).
  * - `unsupported`: undecodable here, or unparseable — we can neither play nor
- *   re-encode it in this browser; ingest it as-is and let the caller warn.
+ *   re-encode it in this browser (re-encoding requires decoding it first, so
+ *   there is no "transcode our way out of this" option); ingest it as-is and
+ *   let the caller warn.
+ * - `transcode`: not reachable by this decodable-gated policy today (nothing
+ *   both fails `canDecode()` and can still be fed through `normalizeVideoFile`,
+ *   since that path itself decodes via WebCodecs). Kept as a decision + a
+ *   working `normalizeVideoFile` seam for a future forced-conversion case
+ *   (e.g. an explicit "convert for sharing with browsers that can't decode
+ *   HEVC" action) rather than deleted.
  */
 export function decideNormalization(probe: ProbeResult): NormalizationDecision {
 	if (!probe.parseable || !probe.decodable || !probe.videoCodec) {
 		return "unsupported";
 	}
-	if (PORTABLE_VIDEO_CODECS.has(probe.videoCodec)) return "passthrough";
-	return "transcode";
+	return "passthrough";
 }
 
 function basename(name: string): string {

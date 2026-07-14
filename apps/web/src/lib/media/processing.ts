@@ -119,28 +119,49 @@ export async function generateThumbnails({
 			throw new Error("Video codec not supported for decoding");
 		}
 
-		const sink = new VideoSampleSink(videoTrack);
-		const thumbnails: string[] = [];
+		// Explicit hardware-decode hint (perf audit #5): measured 2-3x decode
+		// throughput + much tighter run-to-run variance vs the WebCodecs default
+		// "no-preference". `canDecode()` above already confirmed this
+		// codec/config decodes here at all, but not that the hardware path
+		// specifically works on this device — a rare failure there falls back
+		// to the default and re-runs the decode once rather than losing the
+		// thumbnail entirely.
+		const decodeAllFrames = async (
+			hardwareAcceleration: "prefer-hardware" | "no-preference",
+		): Promise<string[]> => {
+			const sink = new VideoSampleSink(videoTrack, { hardwareAcceleration });
+			const frames: string[] = [];
 
-		for await (const frame of sink.samplesAtTimestamps(timesInSeconds)) {
-			if (!frame) continue;
-			try {
-				thumbnails.push(
-					renderToThumbnailDataUrl({
-						width: videoTrack.displayWidth,
-						height: videoTrack.displayHeight,
-						draw: ({ context, width, height }) => {
-							frame.draw(context, 0, 0, width, height);
-						},
-						fullResolution,
-					}),
-				);
-			} finally {
-				frame.close();
+			for await (const frame of sink.samplesAtTimestamps(timesInSeconds)) {
+				if (!frame) continue;
+				try {
+					frames.push(
+						renderToThumbnailDataUrl({
+							width: videoTrack.displayWidth,
+							height: videoTrack.displayHeight,
+							draw: ({ context, width, height }) => {
+								frame.draw(context, 0, 0, width, height);
+							},
+							fullResolution,
+						}),
+					);
+				} finally {
+					frame.close();
+				}
 			}
-		}
 
-		return thumbnails;
+			return frames;
+		};
+
+		try {
+			return await decodeAllFrames("prefer-hardware");
+		} catch (error) {
+			console.warn(
+				"prefer-hardware thumbnail decode failed; retrying with no-preference",
+				error,
+			);
+			return await decodeAllFrames("no-preference");
+		}
 	} finally {
 		input.dispose();
 	}

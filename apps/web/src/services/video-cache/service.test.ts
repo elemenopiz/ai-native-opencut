@@ -73,8 +73,20 @@ let sinkConstructions: Array<Record<string, unknown>> = [];
 const SOURCE_WIDTH = 3840;
 const SOURCE_HEIGHT = 2160;
 
+/** When set, constructing a prefer-hardware CanvasSink throws once. */
+let failPreferHardware = false;
+
 class MockCanvasSink {
 	constructor(_track: unknown, options?: Record<string, unknown>) {
+		const decoderOptions = options?.decoderOptions as
+			| { hardwareAcceleration?: string }
+			| undefined;
+		if (
+			failPreferHardware &&
+			decoderOptions?.hardwareAcceleration === "prefer-hardware"
+		) {
+			throw new Error("simulated hardware decoder init failure");
+		}
 		sinkConstructions.push(options ?? {});
 	}
 	canvases(startTime: number) {
@@ -119,6 +131,7 @@ beforeEach(() => {
 	iteratorsClosed = 0;
 	slowFrame = null;
 	sinkConstructions = [];
+	failPreferHardware = false;
 });
 
 describe("VideoCache sequential playback", () => {
@@ -536,5 +549,31 @@ describe("VideoCache sink tiers", () => {
 
 		expect(disposeCalls).toBe(3);
 		expect(cache.getStats().totalSinks).toBe(0);
+	});
+});
+
+describe("VideoCache hardware-decode hint (perf audit #5)", () => {
+	it("constructs the sink with decoderOptions.hardwareAcceleration: prefer-hardware", async () => {
+		const cache = new VideoCache();
+
+		await cache.getFrameAt({ mediaId: "hw1", file, time: 0 });
+
+		expect(sinkConstructions).toHaveLength(1);
+		expect(sinkConstructions[0].decoderOptions).toEqual({
+			hardwareAcceleration: "prefer-hardware",
+		});
+	});
+
+	it("falls back to no-preference (and still serves a frame) if the prefer-hardware sink fails to construct", async () => {
+		failPreferHardware = true;
+		const cache = new VideoCache();
+
+		const frame = await cache.getFrameAt({ mediaId: "hw2", file, time: 0 });
+
+		expect(frame?.timestamp).toBeCloseTo(0, 5);
+		// Two constructor attempts: the failed prefer-hardware one (never
+		// recorded — it throws before pushing) and the successful fallback.
+		expect(sinkConstructions).toHaveLength(1);
+		expect(sinkConstructions[0].decoderOptions).toBeUndefined();
 	});
 });

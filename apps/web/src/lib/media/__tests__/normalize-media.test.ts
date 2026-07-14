@@ -161,9 +161,9 @@ describe("decideNormalization — decision table", () => {
 		);
 	});
 
-	test("hevc + decodable → transcode (the GoPro/iPhone case)", () => {
+	test("hevc + decodable → passthrough (the GoPro/iPhone case, hardware-decodable)", () => {
 		expect(decideNormalization(probe({ videoCodec: "hevc" }))).toBe(
-			"transcode",
+			"passthrough",
 		);
 	});
 
@@ -181,10 +181,10 @@ describe("decideNormalization — decision table", () => {
 		).toBe("unsupported");
 	});
 
-	test("other non-portable decodable codecs → transcode", () => {
+	test("other decodable non-avc codecs → passthrough (decodability is the gate, not codec identity)", () => {
 		for (const codec of ["vp9", "av1", "vp8", "prores"]) {
 			expect(decideNormalization(probe({ videoCodec: codec }))).toBe(
-				"transcode",
+				"passthrough",
 			);
 		}
 	});
@@ -299,24 +299,27 @@ describe("normalizeVideoFile", () => {
 });
 
 describe("processMediaAssets — normalize-on-ingest wiring", () => {
-	test("transcode (hevc/decodable): substitutes the normalized file + records provenance", async () => {
+	test("passthrough (hevc/decodable, the GoPro/iPhone case): ingests the raw file as-is, no transcode", async () => {
 		videoTrack = makeVideoTrack({
 			getCodec: async () => "hevc",
 			canDecode: async () => true,
 		});
-		conversion = passthroughConversion();
+		// No `conversion` stub configured — if the code took the transcode path
+		// it would throw (`Conversion.init` requires one), so this also proves
+		// `normalizeVideoFile` is never invoked for decodable HEVC anymore.
+		conversion = null;
 
 		const [asset] = await processMediaAssets({ files: [file()] });
 
-		// The asset's backing file is the transcoded one (named *-normalized.mp4),
-		// and that's what the downstream decode (getVideoInfo) ran against.
-		expect(asset.file.name).toBe("GX010042-normalized.mp4");
-		expect(getVideoInfoFile?.name).toBe("GX010042-normalized.mp4");
-		expect(asset.normalized).toEqual({
-			originalName: "GX010042.mp4",
-			originalCodec: "hevc",
-		});
-		expect(toastCalls.success).toHaveLength(1);
+		// The asset's backing file is the ORIGINAL bytes — no `-normalized.mp4`
+		// substitution, no provenance metadata, no conversion toast. Playback,
+		// export, and thumbnailing all decode this via the same codec-agnostic
+		// WebCodecs sinks (video-cache/processing), so passthrough is correct.
+		expect(asset.file.name).toBe("GX010042.mp4");
+		expect(getVideoInfoFile?.name).toBe("GX010042.mp4");
+		expect(asset.normalized).toBeUndefined();
+		expect(toastCalls.success).toHaveLength(0);
+		expect(toastCalls.error).toHaveLength(0);
 	});
 
 	test("unsupported (undecodable): still ingests the asset but warns with the codec", async () => {
@@ -347,27 +350,18 @@ describe("processMediaAssets — normalize-on-ingest wiring", () => {
 		expect(toastCalls.error[0]).not.toContain("decode");
 	});
 
-	test("normalize throws → falls back to the original file (ingest never worse)", async () => {
-		videoTrack = makeVideoTrack({
-			getCodec: async () => "hevc",
-			canDecode: async () => true,
-		});
-		// Invalid conversion ⇒ normalizeVideoFile throws ⇒ processMediaAssets keeps original.
-		conversion = {
-			isValid: false,
-			utilizedTracks: [],
-			discardedTracks: [{ reason: "no_encodable_target_codec" }],
-			execute: async () => {},
-		};
-
-		const [asset] = await processMediaAssets({ files: [file()] });
-
-		expect(asset).toBeDefined();
-		expect(asset.file.name).toBe("GX010042.mp4"); // original, not normalized
-		expect(asset.normalized).toBeUndefined();
-		expect(getVideoInfoFile?.name).toBe("GX010042.mp4");
-		expect(toastCalls.dismiss).toBe(1);
-	});
+	// NOTE: a prior "normalize throws → falls back to the original file" wiring
+	// test lived here, exercising decision==="transcode" via a decodable HEVC
+	// probe. Under the new decodable-gated policy that decision is no longer
+	// reachable through the real (unmocked) `decideNormalization` — decodable
+	// video always takes the "passthrough" branch above, so there is no wiring
+	// path left that calls `normalizeVideoFile` to make throw. The underlying
+	// safety property (a failed transcode falls back to the original file) is
+	// still real code in `processing.ts` and is unit-tested at the
+	// `normalizeVideoFile` level above ("throws when the conversion is
+	// invalid", etc.); it is intentionally not reachable via processMediaAssets
+	// today (see `decideNormalization`'s doc comment on the kept-but-unreached
+	// "transcode" decision).
 
 	test("passthrough (avc): no transcode, no provenance, no toast", async () => {
 		videoTrack = makeVideoTrack({
