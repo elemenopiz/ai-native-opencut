@@ -357,7 +357,7 @@ describe("POST /api/studio/audio — reserve before dispatch", () => {
 
 		expect(ops()).toEqual(["reserve", "submit"]);
 		const [reserve] = eventsOf("reserve");
-		expect(reserve.credits).toBe(15); // elevenlabs-music: 0.25/s × 60s
+		expect(reserve.credits).toBe(38); // elevenlabs-music: 0.625/s (COGS 0.25 × 2.5) × 60s = 37.5 → ceil
 
 		const job = insertedJob();
 		expect(job).toBeDefined();
@@ -377,7 +377,7 @@ describe("POST /api/studio/audio — reserve before dispatch", () => {
 	});
 
 	it("402s before ANY provider call when the job can't be afforded", async () => {
-		state.spendable = 1; // 60s music needs 15
+		state.spendable = 1; // 60s music needs 38
 		const res = await POST(
 			jsonRequest({ action: "music", prompt: "x", duration: 60 }),
 		);

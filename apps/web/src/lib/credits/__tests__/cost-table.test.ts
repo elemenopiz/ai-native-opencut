@@ -119,16 +119,16 @@ describe("costFor — image", () => {
 	});
 });
 
-describe("costFor — audio", () => {
-	it("charges MMAudio (~$0.001/sec → 0.1 credit/sec) rounded up", () => {
-		expect(costFor("fal-mmaudio", "audio", { seconds: 8 })).toBe(1); // ceil(0.8)
-		expect(costFor("fal-mmaudio", "audio", { seconds: 30 })).toBe(3); // ceil(3.0)
-		expect(costFor("fal-mmaudio", "audio", { seconds: 21 })).toBe(3); // ceil(2.1)
+describe("costFor — audio (COGS × 2.5 markup)", () => {
+	it("charges MMAudio (COGS 0.1 cr/sec × 2.5 = 0.25 cr/sec) rounded up", () => {
+		expect(costFor("fal-mmaudio", "audio", { seconds: 8 })).toBe(2); // ceil(2.0)
+		expect(costFor("fal-mmaudio", "audio", { seconds: 30 })).toBe(8); // ceil(7.5)
+		expect(costFor("fal-mmaudio", "audio", { seconds: 21 })).toBe(6); // ceil(5.25)
 	});
 
-	it("charges ElevenLabs Music (~$0.15/min → 0.25 credit/sec ≈ 15 credits/min) rounded up", () => {
-		expect(costFor("elevenlabs-music", "audio", { seconds: 60 })).toBe(15);
-		expect(costFor("elevenlabs-music", "audio", { seconds: 30 })).toBe(8); // ceil(7.5)
+	it("charges ElevenLabs Music (COGS 0.25 cr/sec × 2.5 = 0.625 cr/sec) rounded up", () => {
+		expect(costFor("elevenlabs-music", "audio", { seconds: 60 })).toBe(38); // ceil(37.5)
+		expect(costFor("elevenlabs-music", "audio", { seconds: 30 })).toBe(19); // ceil(18.75)
 	});
 
 	it("charges at least 1 credit for any paid audio job", () => {
@@ -136,7 +136,7 @@ describe("costFor — audio", () => {
 	});
 
 	it("falls back to the default 5s clip length when seconds is omitted", () => {
-		expect(costFor("elevenlabs-music", "audio")).toBe(2); // ceil(0.25 × 5)
+		expect(costFor("elevenlabs-music", "audio")).toBe(4); // ceil(0.625 × 5)
 	});
 
 	it("throws on an unknown audio backend (fail loud, never $0)", () => {
@@ -183,6 +183,8 @@ describe("allPricedOps — no-negative-margin sanity gate", () => {
 				"google-imagen",
 				"google-nano-banana",
 				"ideogram",
+				"fal-mmaudio",
+				"elevenlabs-music",
 			]),
 		);
 	});

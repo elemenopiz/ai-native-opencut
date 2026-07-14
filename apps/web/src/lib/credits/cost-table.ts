@@ -20,7 +20,7 @@
  * sync).
  *
  * The `backendId` keys MUST match the ids registered in `lib/studio/backends/*`
- * (verified against video/ and image/ adapters).
+ * (verified against video/, image/, and audio/ adapters).
  */
 
 export type CreditAction =
@@ -102,6 +102,21 @@ const IMAGE_COGS_FLAT: Record<string, number> = {
 /** @see IMAGE_COGS_FLAT */
 const IMAGE_COGS_LAST_VERIFIED = "2026-07-14";
 
+/**
+ * COGS per generated SECOND of audio, per backend. Carried forward unchanged
+ * from the pre-markup table (these WERE the billed flat rates).
+ *   fal-mmaudio      — video-to-audio "score": fal.ai lists MMAudio V2 at
+ *                       ~$0.001/generated-second → 0.1 credit/sec.
+ *   elevenlabs-music — text-to-music: ElevenLabs Music is $0.15/minute →
+ *                       $0.0025/sec → 0.25 credit/sec (≈15 credits/min).
+ */
+const AUDIO_COGS_PER_SEC: Record<string, number> = {
+	"fal-mmaudio": 0.1,
+	"elevenlabs-music": 0.25,
+};
+/** @see AUDIO_COGS_PER_SEC */
+const AUDIO_COGS_LAST_VERIFIED = "2026-07-14";
+
 // ─── Markup — founder-approved, resolution-degressive for Seedance ─────────
 
 /**
@@ -136,6 +151,9 @@ const VIDEO_MARKUP_FLAT: Record<string, number> = {
 
 /** Flat markup applied to every image backend's COGS. */
 const IMAGE_MARKUP = 2.5;
+
+/** Flat markup applied to every audio backend's COGS — same 2.5x as images. */
+const AUDIO_MARKUP = 2.5;
 
 /** Sale rate = ceil(COGS × markup) — never round DOWN a sale price. */
 function saleRate(cogs: number, markup: number): number {
@@ -172,18 +190,21 @@ const IMAGE_SALE_FLAT: Record<string, number> = Object.fromEntries(
 );
 
 /**
- * Credits charged per generated SECOND of audio, per backend.
- *   fal-mmaudio      — video-to-audio "score": fal.ai lists MMAudio V2 at
- *                       ~$0.001/generated-second → 0.1 credit/sec.
- *   elevenlabs-music — text-to-music: ElevenLabs Music is $0.15/minute →
- *                       $0.0025/sec → 0.25 credit/sec (≈15 credits/min).
- * Both round UP to the nearest whole credit with a 1-credit floor (below),
- * same convention as video/image.
+ * Credits charged per generated SECOND of audio, per backend. UNLIKE the sale
+ * tables above, this is left as a fractional per-second rate rather than
+ * pre-rounded with {@link saleRate} — audio jobs range from a few seconds
+ * (a short score) to minutes (a full music bed), so `costFor` ceils the
+ * TOTAL (rate × seconds) once at the end, same as the pre-markup table did,
+ * instead of ceiling the per-second rate first and compounding the rounding
+ * error across a long clip. fal-mmaudio: 0.1×2.5=0.25 cr/sec. elevenlabs-music:
+ * 0.25×2.5=0.625 cr/sec.
  */
-const AUDIO_CREDITS_PER_SEC: Record<string, number> = {
-	"fal-mmaudio": 0.1,
-	"elevenlabs-music": 0.25,
-};
+const AUDIO_SALE_PER_SEC: Record<string, number> = Object.fromEntries(
+	Object.entries(AUDIO_COGS_PER_SEC).map(([id, cogs]) => [
+		id,
+		cogs * AUDIO_MARKUP,
+	]),
+);
 
 /**
  * Actions that are always FREE (cost 0) regardless of backend. These are local
@@ -258,7 +279,7 @@ export function costFor(
 	}
 
 	if (action === "audio") {
-		const rate = AUDIO_CREDITS_PER_SEC[backendId];
+		const rate = AUDIO_SALE_PER_SEC[backendId];
 		if (rate == null) {
 			throw new Error(`No audio credit rate for backend "${backendId}"`);
 		}
@@ -318,10 +339,10 @@ export function imageCreditsRange(count = 1): { low: number; high: number } {
 /** One priced op's COGS vs. SALE — the audit row `allPricedOps()` returns. */
 export interface PricedOp {
 	backendId: string;
-	action: "video" | "image";
+	action: "video" | "image" | "audio";
 	/** Only set for the per-resolution Seedance rows. */
 	resolution?: VideoResolution;
-	/** Provider cost, credits per second (video) or per image (image). */
+	/** Provider cost, credits per second (video/audio) or per image (image). */
 	cogs: number;
 	/** What `costFor` actually charges, same unit as `cogs`. */
 	sale: number;
@@ -368,6 +389,16 @@ export function allPricedOps(): PricedOp[] {
 			cogs,
 			sale: IMAGE_SALE_FLAT[backendId],
 			lastVerified: IMAGE_COGS_LAST_VERIFIED,
+		});
+	}
+
+	for (const [backendId, cogs] of Object.entries(AUDIO_COGS_PER_SEC)) {
+		rows.push({
+			backendId,
+			action: "audio",
+			cogs,
+			sale: AUDIO_SALE_PER_SEC[backendId],
+			lastVerified: AUDIO_COGS_LAST_VERIFIED,
 		});
 	}
 
