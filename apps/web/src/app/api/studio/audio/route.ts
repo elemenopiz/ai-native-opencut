@@ -108,6 +108,49 @@ export async function POST(req: Request) {
 			);
 		}
 
+		// Reject malformed numeric/boolean/string fields BEFORE any credit-
+		// reservation logic runs. A non-finite `duration` (NaN from a malformed
+		// client payload) silently defeats ledger.reserve()'s insufficient-funds
+		// gate — `credits < 0` and `credits > 0 && spendable < credits` are both
+		// `false` when `credits` is NaN — and then crashes the integer `duration`
+		// column write mid-transaction as an uncaught 500. `instrumental`/`lyrics`
+		// flow straight into typed DB columns and `seed` into the provider
+		// payload + provenance unchecked, so validate them here too — this is
+		// deliberately NOT delegated to the downstream `clamp()` below, which
+		// only handles in-range-but-out-of-bounds numbers, not non-numbers.
+		if (
+			body.duration !== undefined &&
+			(typeof body.duration !== "number" ||
+				!Number.isFinite(body.duration) ||
+				body.duration <= 0)
+		) {
+			return NextResponse.json(
+				{ error: "duration must be a finite positive number" },
+				{ status: 400 },
+			);
+		}
+		if (instrumental !== undefined && typeof instrumental !== "boolean") {
+			return NextResponse.json(
+				{ error: "instrumental must be a boolean" },
+				{ status: 400 },
+			);
+		}
+		if (lyrics !== undefined && typeof lyrics !== "string") {
+			return NextResponse.json(
+				{ error: "lyrics must be a string" },
+				{ status: 400 },
+			);
+		}
+		if (
+			seed !== undefined &&
+			(typeof seed !== "number" || !Number.isFinite(seed))
+		) {
+			return NextResponse.json(
+				{ error: "seed must be a finite number" },
+				{ status: 400 },
+			);
+		}
+
 		const backendId = model || DEFAULT_AUDIO_BACKEND[action];
 		const backend = getBackend(backendId);
 		if (!backend || backend.modality !== "audio") {

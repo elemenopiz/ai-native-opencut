@@ -348,6 +348,76 @@ describe("POST /api/studio/audio — auth + validation", () => {
 	});
 });
 
+// A malformed `duration` used to become NaN downstream (`Math.round(NaN)` /
+// `clamp(NaN, …)`), which silently defeated ledger.reserve()'s insufficient-
+// funds gate (NaN comparisons are always false) and then crashed the integer
+// `duration` column write as an uncaught 500. These assert the route now
+// rejects with a clean 400 BEFORE any credit-reservation logic runs — no
+// reserve/submit event should ever fire.
+describe("POST /api/studio/audio — malformed input rejected before credit logic", () => {
+	it.each([
+		Number.NaN,
+		Number.POSITIVE_INFINITY,
+		Number.NEGATIVE_INFINITY,
+		-5,
+		0,
+	])(
+		"400s on a non-finite/non-positive duration (%p) — no reserve fires",
+		async (duration) => {
+			const res = await POST(
+				jsonRequest({ action: "music", prompt: "x", duration }),
+			);
+			expect(res.status).toBe(400);
+			expect((await res.json()).error).toMatch(/duration/);
+			expect(ops()).toEqual([]);
+		},
+	);
+
+	it("400s when duration is a non-numeric type (string)", async () => {
+		const res = await POST(
+			jsonRequest({ action: "music", prompt: "x", duration: "60" }),
+		);
+		expect(res.status).toBe(400);
+		expect((await res.json()).error).toMatch(/duration/);
+		expect(ops()).toEqual([]);
+	});
+
+	it("400s when instrumental is not a boolean", async () => {
+		const res = await POST(
+			jsonRequest({ action: "music", prompt: "x", instrumental: "yes" }),
+		);
+		expect(res.status).toBe(400);
+		expect((await res.json()).error).toMatch(/instrumental/);
+		expect(ops()).toEqual([]);
+	});
+
+	it("400s when lyrics is not a string", async () => {
+		const res = await POST(
+			jsonRequest({ action: "music", prompt: "x", lyrics: 12345 }),
+		);
+		expect(res.status).toBe(400);
+		expect((await res.json()).error).toMatch(/lyrics/);
+		expect(ops()).toEqual([]);
+	});
+
+	it("400s when seed is not a finite number", async () => {
+		const res = await POST(
+			jsonRequest({ action: "music", prompt: "x", seed: Number.NaN }),
+		);
+		expect(res.status).toBe(400);
+		expect((await res.json()).error).toMatch(/seed/);
+		expect(ops()).toEqual([]);
+	});
+
+	it("still accepts a valid, in-range duration (unaffected by the new checks)", async () => {
+		const res = await POST(
+			jsonRequest({ action: "music", prompt: "x", duration: 60 }),
+		);
+		expect(res.status).toBe(200);
+		expect(ops()).toEqual(["reserve", "submit"]);
+	});
+});
+
 describe("POST /api/studio/audio — reserve before dispatch", () => {
 	it("reserves the server-computed cost BEFORE submit, keyed by the job id", async () => {
 		const res = await POST(
