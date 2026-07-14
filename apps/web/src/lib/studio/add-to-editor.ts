@@ -5,11 +5,12 @@ import { buildElementFromMedia } from "@/lib/timeline/element-utils";
 import { TIMELINE_CONSTANTS } from "@/constants/timeline-constants";
 import type { PendingClip } from "@/stores/studio-handoff-store";
 
-/** A Studio output (video take or image still) headed for a project. */
+/** A Studio output (video take, image still, or generated audio) headed for
+ *  a project. */
 export interface StudioMediaItem {
 	url: string;
 	name: string;
-	kind: "video" | "image";
+	kind: "video" | "image" | "audio";
 }
 
 /**
@@ -43,10 +44,20 @@ export async function addItemsToProjectMedia({
 			if (!res.ok) throw new Error(`fetch failed ${res.status}`);
 
 			const blob = await res.blob();
-			const isImage = item.kind === "image";
-			const ext = isImage ? "png" : "mp4";
-			const fallbackType = isImage ? "image/png" : "video/mp4";
-			const expectedPrefix = isImage ? "image/" : "video/";
+			const ext =
+				item.kind === "image" ? "png" : item.kind === "audio" ? "mp3" : "mp4";
+			const fallbackType =
+				item.kind === "image"
+					? "image/png"
+					: item.kind === "audio"
+						? "audio/mpeg"
+						: "video/mp4";
+			const expectedPrefix =
+				item.kind === "image"
+					? "image/"
+					: item.kind === "audio"
+						? "audio/"
+						: "video/";
 
 			const fileName = item.name.toLowerCase().endsWith(`.${ext}`)
 				? item.name

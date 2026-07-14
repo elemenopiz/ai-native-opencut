@@ -336,6 +336,21 @@ export function imageCreditsRange(count = 1): { low: number; high: number } {
 	};
 }
 
+/** Cheapest/priciest registered audio backend's per-second credit cost for
+ *  `seconds` — same pre-routing-estimate purpose as {@link videoCreditsRange}.
+ *  `fal-mmaudio` (score) and `elevenlabs-music` (music) price very
+ *  differently, so this range is wide until a backend is actually pinned. */
+export function audioCreditsRange(seconds: number): {
+	low: number;
+	high: number;
+} {
+	const rates = Object.values(AUDIO_SALE_PER_SEC);
+	return {
+		low: Math.max(1, Math.ceil(Math.min(...rates) * seconds)),
+		high: Math.max(1, Math.ceil(Math.max(...rates) * seconds)),
+	};
+}
+
 /** One priced op's COGS vs. SALE — the audit row `allPricedOps()` returns. */
 export interface PricedOp {
 	backendId: string;

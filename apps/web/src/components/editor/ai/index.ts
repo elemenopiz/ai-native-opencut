@@ -25,9 +25,6 @@ export type {
 export { ImageGenDialog } from "./image-gen-dialog";
 export type { ImageGenModel, ImageAspectRatio } from "./image-gen-dialog";
 
-export { VoiceoverPanel } from "./voiceover-panel";
-export type { VoiceOption, VoiceoverResult } from "./voiceover-panel";
-
 export { FillerRemovalBar } from "./filler-removal-bar";
 export type { FillerSensitivity } from "./filler-removal-bar";
 

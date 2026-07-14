@@ -17,7 +17,7 @@ export interface BackendInfo {
 	id: string;
 	label: string;
 	vendor: string;
-	modality: "video" | "image";
+	modality: "video" | "image" | "audio";
 	safetyTier: SafetyTier;
 	intents: string[];
 	// Per-backend constraint surface (video backends). The generation form reads
@@ -36,6 +36,9 @@ export interface BackendInfo {
 	/** Accepts a silent-render request (e.g. Seedance). Omitted when the
 	 *  backend's audio can't be toggled off (e.g. Veo's native audio). */
 	supportsAudioToggle?: boolean;
+	// Audio-oriented — true when this backend needs a source video
+	// (video-to-audio "score" generation) rather than working from text alone.
+	requiresVideoRef?: boolean;
 	/** Normalized credits for a nominal generation (relative-cost ranking aid). */
 	relativeCost: number;
 	/** Cost bucket vs. the cheapest available backend of this modality. */
@@ -48,7 +51,7 @@ export interface BackendInfo {
  * Only returns backends the server reports as available, so unconfigured
  * providers never show up as options.
  */
-export function useBackends(modality: "video" | "image" | null): {
+export function useBackends(modality: "video" | "image" | "audio" | null): {
 	backends: BackendInfo[];
 	loading: boolean;
 	error: string | null;
