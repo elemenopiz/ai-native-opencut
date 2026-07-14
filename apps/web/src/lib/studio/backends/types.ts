@@ -25,7 +25,7 @@ import type { SafetyTier } from "@/types/timeline";
 
 export type { SafetyTier };
 
-export type GenerationModality = "video" | "image";
+export type GenerationModality = "video" | "image" | "audio";
 
 /**
  * What a timeline slot is asking for — the router's primary signal. Inferred
@@ -38,7 +38,9 @@ export type SlotIntent =
 	| "character-still" // persona reference frame / identity-critical still
 	| "broll-still" // generic still / texture / background plate
 	| "text-in-image" // typography-heavy still → route to a strong text-render model
-	| "upscale"; // enhance / upscale pass
+	| "upscale" // enhance / upscale pass
+	| "video-score" // video-conditioned ambience/foley (MMAudio-class)
+	| "text-music"; // text/lyrics-to-music (ElevenLabs Music-class)
 
 export type BackendId = string;
 
@@ -61,6 +63,10 @@ export interface BackendCapabilities {
 	supportsLastFrame: boolean;
 	/** Reference-conditioned edits (image→image identity carry when no seed). */
 	supportsReferenceEdits: boolean;
+	// Audio-oriented
+	/** True when this backend needs a source video (video-to-audio "score"
+	 *  generation, e.g. MMAudio) rather than working from text alone. */
+	requiresVideoRef?: boolean;
 	/** Slot intents this backend is a good fit for — the router's fitness filter. */
 	intents: SlotIntent[];
 }
@@ -97,6 +103,14 @@ export interface BackendRequest {
 	duration?: number;
 	size?: ImageSize;
 	quality?: ImageQuality;
+	// ── Audio (score / music) ──────────────────────────────────────────────
+	/** Text-to-music only: force an instrumental take (no vocals). */
+	instrumental?: boolean;
+	/** Text-to-music only: optional lyric lines to guide vocal generation. */
+	lyrics?: string;
+	// NOTE: video-to-audio "score" generation (MMAudio-class) reuses
+	// `referenceVideos[0]` as the source video URL rather than adding a new
+	// field — it is already the modality-agnostic "reference video" slot.
 }
 
 export type JobStatus = "pending" | "processing" | "completed" | "failed";

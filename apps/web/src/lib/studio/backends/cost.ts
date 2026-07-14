@@ -27,6 +27,22 @@ export function estimateVideoCredits(
 	return Math.round(rate * dur);
 }
 
+/**
+ * Shared audio credit model (routing estimate only — the real billing rate
+ * per backend lives in `credits/cost-table.ts`'s `costFor`, same split as
+ * video's `VIDEO_CREDITS_PER_SEC` above vs. the cost table). One flat
+ * per-second rate is enough for the router/UI's relative "cheap vs premium"
+ * signal since MMAudio and ElevenLabs Music aren't interchangeable for the
+ * same slot (score vs. music are different intents), so nothing routes them
+ * against each other on price.
+ */
+const AUDIO_CREDITS_PER_SEC = 0.2;
+
+export function estimateAudioCredits(durationSec: number | undefined): number {
+	const dur = durationSec ?? 8;
+	return Math.max(1, Math.round(AUDIO_CREDITS_PER_SEC * dur));
+}
+
 /** Convert a backend estimate into a take-stamped cost. */
 export function toTakeCost(
 	estimate: CostEstimate,

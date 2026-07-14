@@ -19,7 +19,7 @@ import type {
  * provider keys are actually configured (`isAvailable()`) are returned.
  */
 
-const MODALITIES: GenerationModality[] = ["video", "image"];
+const MODALITIES: GenerationModality[] = ["video", "image", "audio"];
 
 export interface BackendInfo {
 	id: string;
@@ -38,6 +38,9 @@ export interface BackendInfo {
 	supportsOmniReference: boolean;
 	supportsLastFrame: boolean;
 	supportsReferenceEdits: boolean;
+	// Audio-oriented — true when this backend needs a source video
+	// (video-to-audio "score" generation) rather than working from text alone.
+	requiresVideoRef?: boolean;
 	/** Normalized credits for a nominal generation — the honest, comparable
 	 *  number the Director ranks on (Firefly refuses to publish this per model). */
 	relativeCost: number;
@@ -60,6 +63,7 @@ const NOMINAL_REQUEST: Record<GenerationModality, BackendRequest> = {
 		duration: 5,
 	},
 	image: { modality: "image", prompt: "" },
+	audio: { modality: "audio", prompt: "", duration: 8 },
 };
 
 export function GET(req: Request) {
@@ -102,6 +106,7 @@ export function GET(req: Request) {
 		supportsOmniReference: b.capabilities.supportsOmniReference,
 		supportsLastFrame: b.capabilities.supportsLastFrame,
 		supportsReferenceEdits: b.capabilities.supportsReferenceEdits,
+		requiresVideoRef: b.capabilities.requiresVideoRef,
 		relativeCost: credits,
 		costTier: relativeCostTier(
 			credits,

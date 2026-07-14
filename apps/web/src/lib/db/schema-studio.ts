@@ -144,6 +144,51 @@ export const imageStills = pgTable(
 	(t) => [index("image_stills_user_id_idx").on(t.userId)],
 );
 
+// ─── Audio Jobs ───────────────────────────────────────────────────────────
+// One audio-generation job: either a video-conditioned "score" (MMAudio,
+// `resultUrl` is a video re-muxed with generated audio) or a text-to-music
+// take (ElevenLabs Music, `resultUrl` is an audio file). Deliberately separate
+// from `takes` — audio isn't a Seedance-style video draft/promote flow, and
+// keeping its own table avoids widening `takes`' video-shaped columns
+// (resolution, seed-lock, etc.) for a modality that doesn't use most of them.
+// `ownerId` is NOT NULL (unlike the legacy-backfilled `takes.ownerId`) since
+// this table starts post-auth — every row has a real owner from creation, and
+// the poll route's ownership check depends on that being true.
+
+export const audioJobs = pgTable(
+	"audio_jobs",
+	{
+		id: text("id").primaryKey(),
+		ownerId: text("owner_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		// "score" (video-to-audio, MMAudio) | "music" (text-to-music, ElevenLabs)
+		action: text("action").notNull(),
+		backendId: text("backend_id").notNull(),
+		prompt: text("prompt"),
+		// Source video URL for "score" jobs; null for "music" jobs.
+		sourceVideoUrl: text("source_video_url"),
+		duration: integer("duration"),
+		instrumental: boolean("instrumental"),
+		lyrics: text("lyrics"),
+		// "pending" | "processing" | "completed" | "failed"
+		status: text("status").notNull().default("pending"),
+		providerJobId: text("provider_job_id"),
+		resultUrl: text("result_url"),
+		errorMessage: text("error_message"),
+		createdAt: timestamp("created_at")
+			.$defaultFn(() => new Date())
+			.notNull(),
+		updatedAt: timestamp("updated_at")
+			.$defaultFn(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		index("audio_jobs_owner_id_idx").on(t.ownerId),
+		index("audio_jobs_provider_job_id_idx").on(t.providerJobId),
+	],
+);
+
 // ─── Personas ───────────────────────────────────────────────────────────────
 // Reusable character identity (reference-conditioned, no training). The anchor
 // image + locked descriptor are threaded through every shot so the same

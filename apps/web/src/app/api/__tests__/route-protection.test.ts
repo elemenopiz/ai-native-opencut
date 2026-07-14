@@ -1,4 +1,4 @@
-import { describe, expect, it, mock } from "bun:test";
+import { afterAll, describe, expect, it, mock } from "bun:test";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 
@@ -44,6 +44,9 @@ mock.module("@/lib/auth/server", () => ({
 // Import-side-effect firewall — the sweep never gets past the 401, so these
 // stubs are unreachable at run time; they exist so the real adapter registry
 // is never populated from this file. Shape mirrors credit-metering.test.ts.
+// Snapshot + restore in afterAll (below) — other test files import the real
+// barrel (getBackend etc.), and bun shares one module registry per process.
+const realBackends = { ...(await import("@/lib/studio/backends")) };
 mock.module("@/lib/studio/backends", () => ({
 	ensureBackendsRegistered: () => {},
 	normalizeSeedLock: () => {
@@ -55,6 +58,9 @@ mock.module("@/lib/studio/backends", () => ({
 	routeSlot: () => {
 		throw new Error("unreachable: sweep requests are sessionless (401)");
 	},
+	getBackend: () => {
+		throw new Error("unreachable: sweep requests are sessionless (401)");
+	},
 	allBackends: () => [],
 	availableBackends: () => [],
 	defaultBackend: () => {
@@ -62,6 +68,9 @@ mock.module("@/lib/studio/backends", () => ({
 	},
 	relativeCostTier: () => "standard",
 }));
+afterAll(() => {
+	mock.module("@/lib/studio/backends", () => realBackends);
+});
 
 // Some routes deliberately 503 BEFORE the session check when their provider key
 // is unconfigured (tts, enhance-prompt: "no key → hide the feature" contract).
@@ -206,6 +215,26 @@ const SWEEP: SweepCase[] = [
 			POST: [makeRequest("POST", `${BASE}/mcp/tokens`, { projectId: "p1" })],
 			GET: [makeRequest("GET", `${BASE}/mcp/tokens`)],
 			DELETE: [makeRequest("DELETE", `${BASE}/mcp/tokens?id=t1`)],
+		},
+	},
+	{
+		file: "studio/audio/route.ts",
+		calls: {
+			POST: [
+				makeRequest("POST", `${BASE}/studio/audio`, {
+					action: "music",
+					prompt: "x",
+				}),
+			],
+		},
+	},
+	{
+		file: "studio/audio/[jobId]/route.ts",
+		calls: {
+			GET: [
+				makeRequest("GET", `${BASE}/studio/audio/j1`),
+				params({ jobId: "j1" }),
+			],
 		},
 	},
 	{

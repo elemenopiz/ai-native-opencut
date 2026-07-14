@@ -15,7 +15,12 @@
  * (verified against video/ and image/ adapters).
  */
 
-export type CreditAction = "video" | "image" | "enhance-prompt" | "infographic";
+export type CreditAction =
+	| "video"
+	| "image"
+	| "audio"
+	| "enhance-prompt"
+	| "infographic";
 
 /** Credits charged per generated SECOND of video, per backend. */
 const VIDEO_CREDITS_PER_SEC: Record<string, number> = {
@@ -35,6 +40,20 @@ const IMAGE_CREDITS_FLAT: Record<string, number> = {
 	// 4K (~$0.24) is not exposed in the beta UI (cost control).
 	"google-nano-banana": 14,
 	ideogram: 3,
+};
+
+/**
+ * Credits charged per generated SECOND of audio, per backend.
+ *   fal-mmaudio      — video-to-audio "score": fal.ai lists MMAudio V2 at
+ *                       ~$0.001/generated-second → 0.1 credit/sec.
+ *   elevenlabs-music — text-to-music: ElevenLabs Music is $0.15/minute →
+ *                       $0.0025/sec → 0.25 credit/sec (≈15 credits/min).
+ * Both round UP to the nearest whole credit with a 1-credit floor (below),
+ * same convention as video/image.
+ */
+const AUDIO_CREDITS_PER_SEC: Record<string, number> = {
+	"fal-mmaudio": 0.1,
+	"elevenlabs-music": 0.25,
 };
 
 /**
@@ -89,6 +108,15 @@ export function costFor(
 			throw new Error(`No image credit rate for backend "${backendId}"`);
 		}
 		const credits = Math.ceil(rate * Math.max(1, count));
+		return Math.max(1, credits);
+	}
+
+	if (action === "audio") {
+		const rate = AUDIO_CREDITS_PER_SEC[backendId];
+		if (rate == null) {
+			throw new Error(`No audio credit rate for backend "${backendId}"`);
+		}
+		const credits = Math.ceil(rate * seconds);
 		return Math.max(1, credits);
 	}
 

@@ -48,6 +48,10 @@ export function availableBackends(
 export const DEFAULT_BACKEND_ID: Record<GenerationModality, BackendId> = {
 	video: "byteplus-seedance",
 	image: "google-nano-banana",
+	// Text-to-music needs only a prompt (no video asset), so it is the
+	// sensible "always works" audio default; video-to-audio "score" is picked
+	// explicitly by the caller (it requires an uploaded video reference).
+	audio: "elevenlabs-music",
 };
 
 export function defaultBackend(

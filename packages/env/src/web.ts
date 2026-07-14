@@ -141,13 +141,23 @@ const webEnvSchema = z.object({
 	LUMA_API_KEY: z.string().default(""),
 	LUMA_BASE_URL: z.string().default(""),
 	LUMA_MODEL: z.string().default(""),
-	// fal.ai — aggregator used for Pika 2.2.
+	// fal.ai — aggregator used for Pika 2.2 (video) and MMAudio V2 (audio,
+	// video-to-audio score generation). Same key unlocks both.
 	FAL_KEY: z.string().default(""),
 	FAL_BASE_URL: z.string().default(""),
 	// Black Forest Labs FLUX (image).
 	BFL_API_KEY: z.string().default(""),
 	// Ideogram 3.0 (image).
 	IDEOGRAM_API_KEY: z.string().default(""),
+	// ElevenLabs Music — text-to-music (lyrics + instrumental toggle, licensed
+	// stems). Distinct from any future ElevenLabs TTS integration (not wired
+	// today; /api/tts uses a different provider) — same account, own key entry
+	// so either can be configured independently.
+	ELEVENLABS_API_KEY: z.string().default(""),
+	ELEVENLABS_BASE_URL: z.string().default(""),
+	// "music_v1" | "music_v2" — defaults to the adapter's own built-in default
+	// (music_v2) when blank.
+	ELEVENLABS_MUSIC_MODEL: z.string().default(""),
 
 	// ── Deploy metadata (host-injected, optional) ─────────────────────────
 	// Surfaced by GET /api/health as `sha`. Vercel injects the first one

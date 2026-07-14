@@ -210,6 +210,12 @@ mock.module("@/lib/credits/metering", () => ({
 		),
 }));
 
+// Snapshot the REAL backends barrel and restore it in afterAll — other test
+// files (e.g. the audio route's own credit-metering test) import getBackend/
+// registerBackend/etc. from this same barrel; without the restore, whichever
+// test file runs after this one in the shared bun process gets this
+// routeSlot-only stub and breaks. Same gotcha as the rate-limit restore above.
+const realBackends = { ...(await import("@/lib/studio/backends")) };
 mock.module("@/lib/studio/backends", () => ({
 	ensureBackendsRegistered: () => {},
 	normalizeSeedLock: (request: unknown) => ({
@@ -236,6 +242,9 @@ mock.module("@/lib/studio/backends", () => ({
 		},
 	}),
 }));
+afterAll(() => {
+	mock.module("@/lib/studio/backends", () => realBackends);
+});
 
 mock.module("@/lib/studio/persona-still", () => ({
 	renderPersonaStill: async () => {

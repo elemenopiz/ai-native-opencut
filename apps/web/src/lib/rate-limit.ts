@@ -54,6 +54,12 @@ export const RATE_LIMITS = {
 	// (SSRF-guarded) relay, not to throttle normal imports.
 	"studio:proxy": { perMinute: 90, perDay: 5000 },
 	"studio:image": { perMinute: 12, perDay: 300 },
+	// Audio generation (score / music). Same burst profile as image — one
+	// paid provider call per click.
+	"studio:audio": { perMinute: 12, perDay: 300 },
+	// Audio job poll (MMAudio's async fal.ai queue). Generous like studio:poll —
+	// the client polls a job in a tight loop.
+	"studio:audio-poll": { perMinute: 90, perDay: 5000 },
 	// Rehost of user-uploaded reference media to R2. Not a paid model call, but an
 	// open write path to our object storage — cap it to bound cost/abuse while
 	// staying generous enough for a real multi-file reference upload.
