@@ -4,6 +4,7 @@ import { VisualNode, type VisualNodeParams } from "./visual-node";
 import {
 	videoCache,
 	WARM_LOOKAHEAD_SECONDS,
+	type VideoSinkTier,
 } from "@/services/video-cache/service";
 import { perfStats } from "../perf-stats";
 
@@ -13,10 +14,19 @@ export interface VideoNodeParams extends VisualNodeParams {
 	mediaId: string;
 	/**
 	 * When set (preview scenes only), frames decode via the capped "preview"
-	 * sink tier instead of at native source resolution. Export/snapshot scenes
-	 * leave this unset and stay on the full-res tier.
+	 * sink tier instead of at native source resolution.
 	 */
 	previewDecodeMaxSize?: number;
+	/**
+	 * When set (export/snapshot scenes only), frames decode via the capped
+	 * "export" sink tier, capped at the output canvas's long edge, instead of
+	 * at native source resolution. scene-builder.ts leaves this unset for any
+	 * element whose on-screen sampling could exceed that cap (e.g. a >1x zoom
+	 * transform) — those elements fall back to the full-res tier so a zoomed
+	 * export doesn't upscale a pre-downscaled decode. Mutually exclusive with
+	 * `previewDecodeMaxSize`; only one is ever set on a given built scene.
+	 */
+	exportDecodeMaxSize?: number;
 }
 
 export class VideoNode extends VisualNode<VideoNodeParams> {
@@ -98,8 +108,14 @@ export class VideoNode extends VisualNode<VideoNodeParams> {
 		time: number;
 		tolerateStale: boolean;
 	}): Promise<WrappedCanvas | null> {
-		const tier =
-			this.params.previewDecodeMaxSize !== undefined ? "preview" : "full";
+		const tier: VideoSinkTier =
+			this.params.previewDecodeMaxSize !== undefined
+				? "preview"
+				: this.params.exportDecodeMaxSize !== undefined
+					? "export"
+					: "full";
+		const decodeMaxSize =
+			this.params.previewDecodeMaxSize ?? this.params.exportDecodeMaxSize;
 
 		if (!this.isInRange({ time })) {
 			// Shortly before this clip starts, position its decoder at the first
@@ -112,7 +128,7 @@ export class VideoNode extends VisualNode<VideoNodeParams> {
 					file: this.params.file,
 					time: this.getSourceLocalTime({ time: this.params.timeOffset }),
 					tier,
-					previewMaxSize: this.params.previewDecodeMaxSize,
+					previewMaxSize: decodeMaxSize,
 				});
 			}
 			return null;
@@ -125,7 +141,7 @@ export class VideoNode extends VisualNode<VideoNodeParams> {
 			time: this.getSourceLocalTime({ time }),
 			tolerateStale,
 			tier,
-			previewMaxSize: this.params.previewDecodeMaxSize,
+			previewMaxSize: decodeMaxSize,
 		});
 		if (decodeStart !== 0) {
 			perfStats.addDecodeTime({ ms: performance.now() - decodeStart });

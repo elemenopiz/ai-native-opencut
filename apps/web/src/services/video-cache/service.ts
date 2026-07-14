@@ -35,19 +35,29 @@ interface VideoSinkData {
 	 * how callers schedule their fetches.
 	 */
 	chain: Promise<unknown>;
-	/** Long-edge decode cap the sink was created with (preview tier only). */
+	/** Long-edge decode cap the sink was created with (preview/export tiers only). */
 	maxSize: number | null;
 }
 
 /**
- * Decode tiers. "full" decodes at the source's native resolution and is what
- * export and snapshot MUST use. "preview" caps the decoded long edge at
- * `previewMaxSize` so the render loop never pays for pixels the preview
- * canvas can't show (e.g. 4K sources on a 1080p project). Each tier gets its
+ * Decode tiers. "full" decodes at the source's native resolution — required
+ * whenever an element's on-screen sampling could exceed the output/preview
+ * canvas density (e.g. a >1x zoom transform), where downscaling at decode
+ * would bake in a soft, upscaled result. "preview" caps the decoded long edge
+ * at `previewMaxSize` so the live render loop never pays for pixels the
+ * preview canvas can't show (e.g. 4K sources on a 1080p project). "export"
+ * is the same cap mechanism applied to export/snapshot scenes, capped at the
+ * output canvas's long edge instead of the (possibly zoomed) preview canvas —
+ * see scene-builder.ts's per-element full-res fallback. Each tier gets its
  * own sink/decoder, keyed mediaId+tier, so the tiers never fight over one
  * iterator position.
  */
-export type VideoSinkTier = "full" | "preview";
+export type VideoSinkTier = "full" | "preview" | "export";
+
+/** Tiers whose sink decodes at a capped (non-native) resolution. */
+function isCappedTier(tier: VideoSinkTier): tier is "preview" | "export" {
+	return tier === "preview" || tier === "export";
+}
 
 /** How far ahead of a clip's start a warm() pre-seek is worth doing. */
 export const WARM_LOOKAHEAD_SECONDS = 1.0;
@@ -55,8 +65,9 @@ export const WARM_LOOKAHEAD_SECONDS = 1.0;
 /** A sink read this recently is considered in active use by a renderer. */
 const ACTIVE_USE_WINDOW_MS = 250;
 
-/** mediaIds are nanoids (no ":"), so this suffix can't collide. */
+/** mediaIds are nanoids (no ":"), so these suffixes can't collide. */
 const PREVIEW_KEY_SUFFIX = "::preview";
+const EXPORT_KEY_SUFFIX = "::export";
 
 function sinkKey({
 	mediaId,
@@ -65,7 +76,9 @@ function sinkKey({
 	mediaId: string;
 	tier: VideoSinkTier;
 }): string {
-	return tier === "preview" ? `${mediaId}${PREVIEW_KEY_SUFFIX}` : mediaId;
+	if (tier === "preview") return `${mediaId}${PREVIEW_KEY_SUFFIX}`;
+	if (tier === "export") return `${mediaId}${EXPORT_KEY_SUFFIX}`;
+	return mediaId;
 }
 
 /**
@@ -111,9 +124,10 @@ export class VideoCache {
 		file: File;
 		time: number;
 		tolerateStale?: boolean;
-		/** Decode tier; export/snapshot must stay on the "full" default. */
+		/** Decode tier; elements that need native-resolution decode (full res
+		 *  fallback) must stay on the "full" default. */
 		tier?: VideoSinkTier;
-		/** Long-edge cap for the preview tier's decoded frames. */
+		/** Long-edge cap for the preview/export tiers' decoded frames. */
 		previewMaxSize?: number;
 	}): Promise<WrappedCanvas | null> {
 		await this.ensureSink({ mediaId, file, tier, previewMaxSize });
@@ -494,11 +508,11 @@ export class VideoCache {
 
 		const existing = this.sinks.get(key);
 		if (existing) {
-			// The preview cap follows the project's canvas size, which can change
-			// mid-session (frame preset switch) — rebuild the sink at the new cap
-			// instead of serving stale-resolution frames forever.
+			// The preview/export cap follows the project's canvas size, which can
+			// change mid-session (frame preset switch) — rebuild the sink at the
+			// new cap instead of serving stale-resolution frames forever.
 			if (
-				tier === "preview" &&
+				isCappedTier(tier) &&
 				previewMaxSize !== undefined &&
 				existing.maxSize !== previewMaxSize
 			) {
@@ -555,12 +569,13 @@ export class VideoCache {
 				throw new Error("Video codec not supported for decoding");
 			}
 
-			// Preview tier: have mediabunny convert decoded frames straight to the
-			// capped size (aspect preserved), so every downstream copy/composite of
-			// this frame touches fewer pixels. Sources already within the cap keep
-			// their native size — no upscaling, no wasted conversion.
+			// Capped tiers (preview/export): have mediabunny convert decoded frames
+			// straight to the capped size (aspect preserved), so every downstream
+			// copy/composite of this frame touches fewer pixels. Sources already
+			// within the cap keep their native size — no upscaling, no wasted
+			// conversion.
 			let outputSize: { width: number; height: number } | undefined;
-			if (tier === "preview" && previewMaxSize !== undefined) {
+			if (isCappedTier(tier) && previewMaxSize !== undefined) {
 				const longEdge = Math.max(
 					videoTrack.displayWidth,
 					videoTrack.displayHeight,
@@ -617,7 +632,7 @@ export class VideoCache {
 				fillCancelled: false,
 				warmPromise: null,
 				chain: Promise.resolve(),
-				maxSize: tier === "preview" ? (previewMaxSize ?? null) : null,
+				maxSize: isCappedTier(tier) ? (previewMaxSize ?? null) : null,
 			});
 		} catch (error) {
 			console.error(`Failed to initialize video sink for ${mediaId}:`, error);
@@ -650,7 +665,7 @@ export class VideoCache {
 
 	clearVideo({ mediaId }: { mediaId: string }): void {
 		// A media can hold one sink per tier — dispose them all.
-		for (const tier of ["full", "preview"] as const) {
+		for (const tier of ["full", "preview", "export"] as const) {
 			this.disposeSink({ key: sinkKey({ mediaId, tier }) });
 		}
 	}

@@ -28,6 +28,16 @@ export interface TransitionSourceParams {
 	opacity: number;
 	blendMode?: BlendMode;
 	effects?: Effect[];
+	/**
+	 * When set (export/snapshot scenes only), this source's frames decode via
+	 * the capped "export" sink tier — the SAME sink its VideoNode uses — so a
+	 * transition doesn't spin up a second, full-res decoder for media the rest
+	 * of the export is reading capped. Mirrors VideoNodeParams.exportDecodeMaxSize
+	 * (including the per-element full-res fallback: scene-builder leaves it
+	 * unset when the element samples above output density). Preview scenes
+	 * leave it unset and keep their existing full-tier transition decode.
+	 */
+	exportDecodeMaxSize?: number;
 }
 
 export interface TransitionNodeParams {
@@ -235,6 +245,9 @@ export class TransitionNode extends BaseNode<TransitionNodeParams> {
 					time,
 				}),
 				tolerateStale,
+				tier:
+					sourceParams.exportDecodeMaxSize !== undefined ? "export" : "full",
+				previewMaxSize: sourceParams.exportDecodeMaxSize,
 			});
 			if (frame) {
 				return {

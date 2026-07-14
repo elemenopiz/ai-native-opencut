@@ -26,6 +26,53 @@ const BLUR_BACKGROUND_ZOOM_SCALE = 1.4;
  */
 const PREVIEW_MIN_DECODE_CAP = 1920;
 
+/**
+ * Export/snapshot scenes render at a fixed output canvas size (no user
+ * pan/zoom of an editing viewport, unlike preview) — so decode can be capped
+ * exactly at the canvas's long edge with zero quality loss for elements drawn
+ * 1:1 (contain-fit, no zoom). `elementSamplesAboveOutputDensity` is the
+ * correctness gate: any element whose effective on-screen magnification could
+ * exceed that 1:1 mapping falls back to the uncapped "full" decode tier
+ * instead, per opportunity #2's "full-res fallback" requirement. When in
+ * doubt this returns true (decode full) — see the caveats on crop and easing
+ * overshoot below.
+ */
+function elementSamplesAboveOutputDensity({
+	element,
+}: {
+	element: VisualElement;
+}): boolean {
+	// Base zoom above 1x upscales the decoded frame at paint time; decoding at
+	// the (lower) output cap would bake in that upscale as a soft image.
+	if (element.transform.scale > 1) return true;
+
+	// A `transform.scale` keyframe animates zoom over the clip's life; any
+	// keyframe value above 1x means some portion of the clip needs full res.
+	// Caveat: this does not account for cubic-bezier easing overshoot beyond
+	// the keyframe values themselves (a curve can transiently exceed its
+	// endpoints) — an accepted, narrow gap per "when in doubt, decode full"
+	// erring the other way would require resolving the full easing curve.
+	const scaleChannel = element.animations?.channels["transform.scale"];
+	if (scaleChannel?.valueKind === "number") {
+		for (const keyframe of scaleChannel.keyframes) {
+			if (keyframe.value > 1) return true;
+		}
+	}
+
+	// `crop` is modeled on the timeline element but not yet consumed by the
+	// canvas render pipeline (video-node/visual-node never read it) — so it
+	// can't currently push sampling density above the output today. Still
+	// treated as a fallback trigger defensively: a non-zero crop signals
+	// tighter effective framing than the full source frame, and this keeps
+	// the export tier honest if/when crop rendering lands.
+	const crop = element.crop;
+	if (crop && (crop.top || crop.right || crop.bottom || crop.left)) {
+		return true;
+	}
+
+	return false;
+}
+
 function getVisibleSortedElements({ track }: { track: TimelineTrack }) {
 	return track.elements
 		.filter((element) => !("hidden" in element && element.hidden))
@@ -51,11 +98,18 @@ function buildTrackNodes({
 }): BaseNode[] {
 	const nodes: BaseNode[] = [];
 
-	// Export and snapshot build scenes without `isPreview` and must keep
-	// decoding at native source resolution (previewDecodeMaxSize undefined).
 	const previewDecodeMaxSize = isPreview
 		? Math.max(PREVIEW_MIN_DECODE_CAP, canvasSize.width, canvasSize.height)
 		: undefined;
+
+	// Export and snapshot scenes render at a fixed output canvas size, so
+	// decode can be capped at its long edge — per-element, since a zoomed
+	// element still needs the uncapped "full" tier (see
+	// elementSamplesAboveOutputDensity). Undefined for preview scenes, which
+	// use previewDecodeMaxSize above instead.
+	const exportDecodeMaxSize = isPreview
+		? undefined
+		: Math.max(canvasSize.width, canvasSize.height);
 
 	for (const track of tracks) {
 		const elements = getVisibleSortedElements({ track });
@@ -90,12 +144,21 @@ function buildTrackNodes({
 					: mediaAsset.url;
 
 				if (mediaAsset.type === "video") {
+					// A capped export decode would upscale (soften) elements whose
+					// effective on-screen sampling exceeds the output canvas density
+					// (zoom > 1x, etc.) — those fall back to the full-res tier.
+					const needsFullResExport =
+						exportDecodeMaxSize !== undefined &&
+						elementSamplesAboveOutputDensity({ element });
 					nodes.push(
 						new VideoNode({
 							mediaId: mediaAsset.id,
 							url: effectiveUrl,
 							file: effectiveFile,
 							previewDecodeMaxSize,
+							exportDecodeMaxSize: needsFullResExport
+								? undefined
+								: exportDecodeMaxSize,
 							duration: element.duration,
 							timeOffset: element.startTime,
 							trimStart: element.trimStart,
@@ -217,7 +280,19 @@ export function buildScene({
 				useProxy,
 			}),
 		);
-		allNodes.push(...buildTransitionNodes({ tracks: [track], mediaMap }));
+		allNodes.push(
+			...buildTransitionNodes({
+				tracks: [track],
+				mediaMap,
+				// Export scenes: transitions must read from the SAME capped export
+				// sink their clips' VideoNodes use — a second full-res decoder per
+				// media measurably regressed export. Preview scenes pass undefined
+				// (transitions keep their existing full-tier decode there).
+				exportDecodeMaxSize: isPreview
+					? undefined
+					: Math.max(canvasSize.width, canvasSize.height),
+			}),
+		);
 	}
 
 	for (const backgroundNode of buildBackgroundNodes({
@@ -276,9 +351,12 @@ function buildBackgroundNodes({
 function buildTransitionNodes({
 	tracks,
 	mediaMap,
+	exportDecodeMaxSize,
 }: {
 	tracks: TimelineTrack[];
 	mediaMap: Map<string, MediaAsset>;
+	/** Export scenes only — see the buildScene call site. */
+	exportDecodeMaxSize?: number;
 }): TransitionNode[] {
 	const transitionNodes: TransitionNode[] = [];
 
@@ -333,6 +411,13 @@ function buildTransitionNodes({
 							opacity: current.opacity,
 							blendMode: current.blendMode,
 							effects: current.effects,
+							// Same per-element full-res fallback as the clip's VideoNode,
+							// so both read the same sink tier.
+							exportDecodeMaxSize:
+								exportDecodeMaxSize !== undefined &&
+								!elementSamplesAboveOutputDensity({ element: current })
+									? exportDecodeMaxSize
+									: undefined,
 						},
 						sourceB: {
 							duration: next.duration,
@@ -347,6 +432,11 @@ function buildTransitionNodes({
 							opacity: (next as VisualElement).opacity,
 							blendMode: (next as VisualElement).blendMode,
 							effects: (next as VisualElement).effects,
+							exportDecodeMaxSize:
+								exportDecodeMaxSize !== undefined &&
+								!elementSamplesAboveOutputDensity({ element: next })
+									? exportDecodeMaxSize
+									: undefined,
 						},
 						mediaMap,
 						mediaIdA: current.mediaId,
