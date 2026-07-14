@@ -62,8 +62,7 @@ export function StarredTakesView() {
 				projectId,
 				clips: [{ id: crypto.randomUUID(), videoUrl, name }],
 			});
-			if (added > 0) toast.success("Added to the timeline.");
-			else toast.error("Could not add to the timeline.");
+			if (added === 0) toast.error("Could not add to the timeline.");
 		},
 		[editor],
 	);

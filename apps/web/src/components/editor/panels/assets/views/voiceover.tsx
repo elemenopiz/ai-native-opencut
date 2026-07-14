@@ -504,8 +504,6 @@ export function VoiceoverView() {
 			trackId,
 			fallbackDuration: 5,
 		});
-
-		toast.success("Voiceover added to timeline");
 	}, [editor, generatedBlob, landVoiceoverAudio]);
 
 	return (

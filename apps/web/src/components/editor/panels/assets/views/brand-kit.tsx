@@ -404,7 +404,6 @@ export function BrandKitView() {
 		}
 
 		setAppliedTrackIds((prev) => [...prev, ...newTrackIds]);
-		toast.success(`Applied ${newTrackIds.length} brand element${newTrackIds.length > 1 ? "s" : ""}`);
 	}, [editor, config]);
 
 	// ── Add Lower Third ──
@@ -450,7 +449,6 @@ export function BrandKitView() {
 		});
 
 		setAppliedTrackIds((prev) => [...prev, trackId]);
-		toast.success("Lower third added");
 	}, [editor, config]);
 
 	// ── Helper: add logo image to a specific time range ──
@@ -555,7 +553,6 @@ export function BrandKitView() {
 		ids.push(trackId);
 
 		setAppliedTrackIds((prev) => [...prev, ...ids]);
-		toast.success("Intro card added at start");
 	}, [editor, config, addLogoToTimeRange]);
 
 	// ── Add Outro Card ──
@@ -617,7 +614,6 @@ export function BrandKitView() {
 		ids.push(trackId);
 
 		setAppliedTrackIds((prev) => [...prev, ...ids]);
-		toast.success("Outro card added at end");
 	}, [editor, config, addLogoToTimeRange]);
 
 	// ── Remove All ──

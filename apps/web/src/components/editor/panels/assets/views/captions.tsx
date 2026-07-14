@@ -587,7 +587,6 @@ export function Captions() {
 		});
 
 		setSubtitleTracks((prev) => [...prev, { trackId, language: "original" }]);
-		toast.success(`Subtitles added — ${preset.name} style`);
 	};
 
 	// Import an existing subtitle file (.srt / .vtt / .ass / .ssa) and lay its

@@ -274,7 +274,10 @@ export async function processMediaAssets({
 								originalName: file.name,
 								originalCodec: probe.videoCodec ?? "unknown",
 							};
-							toast.success(`Converted ${file.name} to H.264`, { id: toastId });
+							// Conversion to a compatible format is an internal ingest
+							// detail — no need to announce it on success. Just clear the
+							// progress toast.
+							toast.dismiss(toastId);
 						} catch (normalizeError) {
 							// Never make ingest worse than before: keep the original file
 							// and fall through to the existing best-effort decode path.

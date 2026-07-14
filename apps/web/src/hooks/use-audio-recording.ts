@@ -241,8 +241,6 @@ export function useAudioRecording() {
 				element,
 				placement: { mode: "explicit", trackId: targetTrack.id },
 			});
-
-			toast.success("Recording added to timeline");
 		},
 		[editor],
 	);

@@ -8,7 +8,6 @@ import { useEditor } from "@/hooks/use-editor";
 import { colorAdjustEffectDefinition } from "@/lib/effects/definitions/color-adjust";
 import { hasEffect, registerEffect } from "@/lib/effects/registry";
 import { buildEffectElement } from "@/lib/timeline/element-utils";
-import { toast } from "sonner";
 
 interface AdjustmentValues {
 	brightness: number;
@@ -91,8 +90,6 @@ export function AdjustmentView() {
 			placement: { mode: "auto", trackType: "effect" },
 			element,
 		});
-
-		toast.success("Adjustment added to selected clip");
 	}, [editor, values]);
 
 	const handleReset = useCallback(() => {

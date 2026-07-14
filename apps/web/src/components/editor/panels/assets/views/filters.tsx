@@ -7,7 +7,6 @@ import { useEditor } from "@/hooks/use-editor";
 import { FILTER_PRESETS, type FilterPreset, colorAdjustEffectDefinition } from "@/lib/effects/definitions/color-adjust";
 import { hasEffect, registerEffect } from "@/lib/effects/registry";
 import { buildEffectElement } from "@/lib/timeline/element-utils";
-import { toast } from "sonner";
 
 export function FiltersView() {
 	const editor = useEditor();
@@ -52,8 +51,6 @@ export function FiltersView() {
 				placement: { mode: "auto", trackType: "effect" },
 				element,
 			});
-
-			toast.success(`"${preset.name}" filter added to selected clip`);
 		},
 		[editor],
 	);

@@ -163,7 +163,6 @@ function applyToSelected(
 			updates,
 		})),
 	});
-	toast.success("Applied to selected clip");
 }
 
 function OverlayIcon({ preset }: { preset: OverlayPreset }) {
@@ -231,7 +230,6 @@ const OVERLAY_CATEGORIES: { name: string; presets: OverlayPreset[] }[] = [
 							},
 						}],
 					});
-					toast.success("PiP overlay applied — bottom right");
 				},
 			},
 			{
@@ -262,7 +260,6 @@ const OVERLAY_CATEGORIES: { name: string; presets: OverlayPreset[] }[] = [
 							},
 						}],
 					});
-					toast.success("PiP overlay applied — bottom left");
 				},
 			},
 			{
@@ -293,7 +290,6 @@ const OVERLAY_CATEGORIES: { name: string; presets: OverlayPreset[] }[] = [
 							},
 						}],
 					});
-					toast.success("PiP overlay applied — top right");
 				},
 			},
 			{
@@ -320,7 +316,6 @@ const OVERLAY_CATEGORIES: { name: string; presets: OverlayPreset[] }[] = [
 							},
 						}],
 					});
-					toast.success("PiP overlay applied — center");
 				},
 			},
 		],
@@ -353,7 +348,6 @@ const OVERLAY_CATEGORIES: { name: string; presets: OverlayPreset[] }[] = [
 							},
 						}],
 					});
-					toast.success("Split screen — left half");
 				},
 			},
 			{
@@ -381,7 +375,6 @@ const OVERLAY_CATEGORIES: { name: string; presets: OverlayPreset[] }[] = [
 							},
 						}],
 					});
-					toast.success("Split screen — right half");
 				},
 			},
 			{
@@ -409,7 +402,6 @@ const OVERLAY_CATEGORIES: { name: string; presets: OverlayPreset[] }[] = [
 							},
 						}],
 					});
-					toast.success("Split screen — top half");
 				},
 			},
 			{
@@ -437,7 +429,6 @@ const OVERLAY_CATEGORIES: { name: string; presets: OverlayPreset[] }[] = [
 							},
 						}],
 					});
-					toast.success("Split screen — bottom half");
 				},
 			},
 		],
@@ -466,7 +457,6 @@ const OVERLAY_CATEGORIES: { name: string; presets: OverlayPreset[] }[] = [
 							},
 						}],
 					});
-					toast.success("Ghost overlay applied");
 				},
 			},
 			{
@@ -490,7 +480,6 @@ const OVERLAY_CATEGORIES: { name: string; presets: OverlayPreset[] }[] = [
 							},
 						}],
 					});
-					toast.success("Dark overlay applied");
 				},
 			},
 			{
@@ -514,7 +503,6 @@ const OVERLAY_CATEGORIES: { name: string; presets: OverlayPreset[] }[] = [
 							},
 						}],
 					});
-					toast.success("Light leak overlay applied");
 				},
 			},
 			{
@@ -538,7 +526,6 @@ const OVERLAY_CATEGORIES: { name: string; presets: OverlayPreset[] }[] = [
 							},
 						}],
 					});
-					toast.success("Reset to normal");
 				},
 			},
 		],

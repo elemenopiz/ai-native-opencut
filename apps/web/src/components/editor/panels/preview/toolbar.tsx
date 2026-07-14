@@ -16,7 +16,6 @@ import {
 	SearchMinusIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { OcSocialIcon } from "@byorn/ui/icons";
 import { Separator } from "@/components/ui/separator";
 import {
 	DropdownMenu,
@@ -83,16 +82,6 @@ export function PreviewToolbar({
 				<PlaybackQualityPicker />
 				<Separator orientation="vertical" className="h-4" />
 				<PreviewZoomControls />
-				<Separator orientation="vertical" className="h-4" />
-				<Button
-					variant="secondary"
-					size="sm"
-					className="[&_svg]:size-auto px-1 h-7"
-					onClick={onToggleFullscreen}
-					title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-				>
-					<OcSocialIcon size={20} />
-				</Button>
 				<Separator orientation="vertical" className="h-4" />
 				<Button
 					variant="text"

@@ -121,8 +121,6 @@ export function useThumbnailGen() {
 				element,
 				placement: { mode: "explicit", trackId: targetTrack.id },
 			});
-
-			toast.success("Thumbnail added to timeline");
 		},
 		[editor],
 	);

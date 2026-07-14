@@ -245,7 +245,6 @@ export function QuickActionsBar({ className }: { className?: string }) {
 			});
 		}
 
-		toast.success("Subtitles added to timeline");
 	}, [editor, subtitleTrackId]);
 
 	// --- Fact Check ---

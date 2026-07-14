@@ -8,10 +8,7 @@ import { useKeyframeSelection } from "../timeline/element/use-keyframe-selection
 import { getElementsAtTime } from "@/lib/timeline";
 import { getElementLocalTime } from "@/lib/animation";
 import { hasMediaId } from "@/lib/timeline/element-utils";
-import {
-	canToggleSourceAudio,
-	isSourceAudioSeparated,
-} from "@/lib/timeline/audio-separation";
+import { canToggleSourceAudio } from "@/lib/timeline/audio-separation";
 import { useAIStore } from "@/stores/ai-store";
 import { useSearchStore } from "@/stores/search-store";
 import { useAssetsPanelStore } from "@/stores/assets-panel-store";
@@ -361,15 +358,8 @@ export function useEditorActions() {
 				editor.command && typeof editor.command.beginTransaction === "function";
 			if (supportsTransaction) editor.command.beginTransaction();
 
-			let didExtract = false;
-			let didRecover = false;
 			for (const { track, element } of eligible) {
 				if (element.type !== "video") continue;
-				if (isSourceAudioSeparated({ element })) {
-					didRecover = true;
-				} else {
-					didExtract = true;
-				}
 				editor.timeline.toggleSourceAudioSeparation({
 					trackId: track.id,
 					elementId: element.id,
@@ -377,14 +367,6 @@ export function useEditorActions() {
 			}
 
 			if (supportsTransaction) editor.command.commitTransaction();
-
-			if (didExtract && !didRecover) {
-				toast.success("Audio separated to new track");
-			} else if (didRecover && !didExtract) {
-				toast.success("Audio recovered to video");
-			} else {
-				toast.success("Audio separation toggled");
-			}
 		},
 		undefined,
 	);
@@ -465,8 +447,6 @@ export function useEditorActions() {
 				},
 				placement: { mode: "auto" },
 			});
-
-			toast.success("Freeze frame added");
 		},
 		undefined,
 	);
@@ -583,7 +563,6 @@ export function useEditorActions() {
 		() => {
 			const time = editor.playback.getCurrentTime();
 			editor.scenes.addMarker({ time, color: "red" });
-			toast.success("Marker added");
 		},
 		undefined,
 	);
