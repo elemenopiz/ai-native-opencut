@@ -17,6 +17,8 @@ import {
 import {
 	ChipGrid,
 	GenerationBottomBar,
+	GenerationCard,
+	TextTabs,
 } from "@/components/studio/generation-bottom-bar";
 import { gateOn402 } from "@/lib/credits/client-gate";
 import { useCreditsStore } from "@/stores/credits-store";
@@ -55,29 +57,15 @@ export function AudioPanel({ className }: { className?: string }) {
 
 	return (
 		<div className={cn("flex flex-col gap-3", className)}>
-			<div className="flex gap-2">
-				{(
-					[
-						{ id: "score", label: "Score" },
-						{ id: "music", label: "Music" },
-						{ id: "voiceover", label: "Voiceover" },
-					] as const
-				).map((m) => (
-					<button
-						key={m.id}
-						type="button"
-						onClick={() => setMode(m.id)}
-						className={cn(
-							"flex-1 px-2 py-1.5 rounded-md text-xs font-medium border transition-colors",
-							mode === m.id
-								? "bg-primary text-primary-foreground border-primary"
-								: "border-border text-muted-foreground hover:border-foreground",
-						)}
-					>
-						{m.label}
-					</button>
-				))}
-			</div>
+			<TextTabs
+				options={[
+					{ value: "score", label: "Score" },
+					{ value: "music", label: "Music" },
+					{ value: "voiceover", label: "Voiceover" },
+				]}
+				value={mode}
+				onChange={setMode}
+			/>
 
 			{mode === "score" && <ScoreMode editor={editor} />}
 			{mode === "music" && <MusicMode editor={editor} />}
@@ -402,33 +390,37 @@ function ScoreMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
 				/>
 			</div>
 
-			<div className="space-y-1.5">
-				<Label className="text-xs">Prompt · optional</Label>
-				<Textarea
-					placeholder="Describe the ambience or sound design (leave blank to let the model match the scene)…"
-					value={prompt}
-					onChange={(e) => setPrompt(e.target.value)}
-					rows={3}
-					className="resize-none text-sm"
-				/>
-			</div>
-
 			{!source && (
 				<p className="text-[10px] text-amber-600 dark:text-amber-500">
 					Attach a source video to generate.
 				</p>
 			)}
 
-			<GenerationBottomBar
-				summary={summary}
-				settingsContent={settingsContent}
-				cost={cost}
-				onSubmit={handleGenerate}
-				submitDisabled={!source || source.status !== "ready" || busy}
-				busy={busy}
-				submitLabel="Generate score"
-				testIdPrefix="audio-gen"
-			/>
+			<GenerationCard>
+				<div className="space-y-1.5 p-3">
+					<Label className="text-xs text-muted-foreground">
+						Prompt · optional
+					</Label>
+					<Textarea
+						placeholder="Describe the ambience or sound design (leave blank to let the model match the scene)…"
+						value={prompt}
+						onChange={(e) => setPrompt(e.target.value)}
+						rows={3}
+						className="resize-none border-0 bg-transparent p-0 text-sm shadow-none focus-visible:ring-0 min-h-16"
+					/>
+				</div>
+
+				<GenerationBottomBar
+					summary={summary}
+					settingsContent={settingsContent}
+					cost={cost}
+					onSubmit={handleGenerate}
+					submitDisabled={!source || source.status !== "ready" || busy}
+					busy={busy}
+					submitLabel="Generate score"
+					testIdPrefix="audio-gen"
+				/>
+			</GenerationCard>
 
 			{lastResult && capturedSource && (
 				<button
@@ -618,48 +610,50 @@ function MusicMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
 
 	return (
 		<div className="flex flex-col gap-3">
-			<div className="space-y-1.5">
-				<Label className="text-xs">Prompt</Label>
-				<Textarea
-					placeholder="Describe the track — genre, mood, instrumentation…"
-					value={prompt}
-					onChange={(e) => setPrompt(e.target.value)}
-					rows={4}
-					className="resize-none text-sm"
-				/>
-			</div>
+			<GenerationCard>
+				<div className="space-y-1.5 p-3">
+					<Label className="text-xs text-muted-foreground">Prompt</Label>
+					<Textarea
+						placeholder="Describe the track — genre, mood, instrumentation…"
+						value={prompt}
+						onChange={(e) => setPrompt(e.target.value)}
+						rows={4}
+						className="resize-none border-0 bg-transparent p-0 text-sm shadow-none focus-visible:ring-0 min-h-20"
+					/>
 
-			{!instrumental && (
-				<div className="space-y-1.5">
-					<button
-						type="button"
-						onClick={() => setShowLyrics((v) => !v)}
-						className="text-[11px] font-medium text-muted-foreground hover:text-foreground"
-					>
-						{showLyrics ? "− Hide lyrics" : "+ Add lyrics"}
-					</button>
-					{showLyrics && (
-						<Textarea
-							placeholder="Optional lyrics to guide the vocals…"
-							value={lyrics}
-							onChange={(e) => setLyrics(e.target.value)}
-							rows={3}
-							className="resize-none text-sm"
-						/>
+					{!instrumental && (
+						<div className="space-y-1.5">
+							<button
+								type="button"
+								onClick={() => setShowLyrics((v) => !v)}
+								className="text-[11px] font-medium text-muted-foreground hover:text-foreground"
+							>
+								{showLyrics ? "− Hide lyrics" : "+ Add lyrics"}
+							</button>
+							{showLyrics && (
+								<Textarea
+									placeholder="Optional lyrics to guide the vocals…"
+									value={lyrics}
+									onChange={(e) => setLyrics(e.target.value)}
+									rows={3}
+									className="resize-none text-sm"
+								/>
+							)}
+						</div>
 					)}
 				</div>
-			)}
 
-			<GenerationBottomBar
-				summary={summary}
-				settingsContent={settingsContent}
-				cost={cost}
-				onSubmit={handleGenerate}
-				submitDisabled={!prompt.trim() || busy}
-				busy={busy}
-				submitLabel="Generate music"
-				testIdPrefix="audio-gen"
-			/>
+				<GenerationBottomBar
+					summary={summary}
+					settingsContent={settingsContent}
+					cost={cost}
+					onSubmit={handleGenerate}
+					submitDisabled={!prompt.trim() || busy}
+					busy={busy}
+					submitLabel="Generate music"
+					testIdPrefix="audio-gen"
+				/>
+			</GenerationCard>
 
 			{resultUrl && (
 				// biome-ignore lint/a11y/useMediaCaption: generated music has no caption track

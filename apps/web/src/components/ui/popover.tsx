@@ -31,4 +31,25 @@ const PopoverContent = React.forwardRef<
 ));
 PopoverContent.displayName = PopoverPrimitive.Content.displayName;
 
-export { Popover, PopoverTrigger, PopoverContent, PopoverAnchor, PopoverClose };
+const PopoverArrow = React.forwardRef<
+	React.ElementRef<typeof PopoverPrimitive.Arrow>,
+	React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Arrow>
+>(({ className, width = 14, height = 7, ...props }, ref) => (
+	<PopoverPrimitive.Arrow
+		ref={ref}
+		width={width}
+		height={height}
+		className={cn("fill-popover", className)}
+		{...props}
+	/>
+));
+PopoverArrow.displayName = PopoverPrimitive.Arrow.displayName;
+
+export {
+	Popover,
+	PopoverTrigger,
+	PopoverContent,
+	PopoverAnchor,
+	PopoverClose,
+	PopoverArrow,
+};
