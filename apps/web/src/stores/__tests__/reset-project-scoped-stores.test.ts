@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { resetProjectScopedStores } from "@/stores/reset-project-scoped-stores";
+import { useAssetsPanelStore } from "@/stores/assets-panel-store";
 import { useBackgroundTasksStore } from "@/stores/background-tasks-store";
 import { useBeatGridStore } from "@/stores/beat-grid-store";
 import { useEngagementStore } from "@/stores/engagement-store";
@@ -7,12 +8,15 @@ import { useFrameChainStore } from "@/stores/frame-chain-store";
 import { useGenerationStatusStore } from "@/stores/generation-status-store";
 import { useOmniReferenceChainStore } from "@/stores/omni-reference-chain-store";
 import { usePenMaskStore } from "@/stores/pen-mask-store";
+import { usePropertiesStore } from "@/stores/properties-store";
 import { useSearchStore } from "@/stores/search-store";
 import { useTakesNotificationStore } from "@/stores/takes-notification-store";
+import { useTimelineStore } from "@/stores/timeline-store";
 import { useTranscriptStore } from "@/stores/transcript-store";
 import { useArrangementHandoffStore } from "@/stores/arrangement-handoff-store";
 import type { EngagementScoreResult } from "@/lib/ai-client";
 import type { Arrangement } from "@/types/arrangement";
+import type { ClipboardItem } from "@/types/timeline";
 
 // Pins the project-switch store-bleed fix (2026-07-14 perf audit, axis 6 §2e):
 // EditorCore is a reused singleton across client-side project switches, so
@@ -65,6 +69,19 @@ function seedProjectScopedState() {
 		.setScore({ score: 82 } as unknown as EngagementScoreResult);
 	useTakesNotificationStore.getState().setGenerating();
 	usePenMaskStore.getState().startDrawing("old-element");
+	useTimelineStore.getState().setClipboard({
+		items: [
+			{
+				trackId: "old-track",
+				trackType: "video",
+				element: { mediaId: "old-media" },
+			} as unknown as ClipboardItem,
+		],
+	});
+	usePropertiesStore
+		.getState()
+		.openClipEffects({ elementId: "old-element", trackId: "old-track" });
+	useAssetsPanelStore.getState().requestRevealMedia("old-media");
 }
 
 describe("resetProjectScopedStores", () => {
@@ -84,6 +101,26 @@ describe("resetProjectScopedStores", () => {
 		expect(useEngagementStore.getState().currentScore).toBeNull();
 		expect(useTakesNotificationStore.getState().status).toBe("idle");
 		expect(usePenMaskStore.getState().drawingElementId).toBeNull();
+		expect(useTimelineStore.getState().clipboard).toBeNull();
+		expect(usePropertiesStore.getState().clipEffectsTarget).toBeNull();
+		expect(useAssetsPanelStore.getState().highlightMediaId).toBeNull();
+	});
+
+	test("clears the element clipboard so a paste after switching projects can't dangle-reference the old project's mediaId", () => {
+		useTimelineStore.getState().setClipboard({
+			items: [
+				{
+					trackId: "old-track",
+					trackType: "video",
+					element: { mediaId: "old-project-media-id" },
+				} as unknown as ClipboardItem,
+			],
+		});
+		expect(useTimelineStore.getState().clipboard).not.toBeNull();
+
+		resetProjectScopedStores();
+
+		expect(useTimelineStore.getState().clipboard).toBeNull();
 	});
 
 	test("keeps user preferences that live next to project state", () => {
