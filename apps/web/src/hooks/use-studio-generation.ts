@@ -57,7 +57,6 @@ export interface UseStudioGenerationReturn {
 	}) => Promise<void>;
 	promoteTo1080p: (takeId: string) => Promise<void>;
 	starTake: (takeId: string, starred: boolean) => Promise<void>;
-	pinToBoard: (takeId: string, notes?: string) => Promise<void>;
 	loadHistory: () => Promise<void>;
 	historyLoaded: boolean;
 	clearError: () => void;
@@ -325,18 +324,6 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 		);
 	}, []);
 
-	const pinToBoard = useCallback(async (takeId: string, notes?: string) => {
-		const res = await apiFetch("/api/studio/board", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ takeId, notes }),
-		});
-		if (!res.ok) {
-			const data = (await res.json()) as { error?: string };
-			throw new Error(data.error ?? "Failed to pin to board");
-		}
-	}, []);
-
 	// Hydrate the Takes grid from persisted generation sets so prior work
 	// survives a reload. Resumes polling for any take still in-flight.
 	const loadHistory = useCallback(async () => {
@@ -419,7 +406,6 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 		generate,
 		promoteTo1080p,
 		starTake,
-		pinToBoard,
 		loadHistory,
 		historyLoaded,
 		clearError,

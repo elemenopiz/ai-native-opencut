@@ -52,9 +52,9 @@ async function errorMessage(res: Response, fallback: string): Promise<string> {
  *
  * Mutating actions (`promoteToAssets`/`dismiss`/`promoteTo1080p`) throw on
  * failure instead of failing silently, matching `useStudioGeneration`'s
- * `pinToBoard`/`promoteTo1080p` convention — callers are expected to catch
- * and surface the error (e.g. a toast) rather than have a draft silently
- * vanish or get corrupted.
+ * `promoteTo1080p` convention — callers are expected to catch and surface
+ * the error (e.g. a toast) rather than have a draft silently vanish or get
+ * corrupted.
  */
 export function useBoardItems({
 	editor,
