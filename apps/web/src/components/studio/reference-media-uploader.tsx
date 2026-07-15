@@ -25,6 +25,7 @@ import { useEditor } from "@/hooks/use-editor";
 import { getDragData } from "@/lib/drag-data";
 import { isAssetRef, normalizeAssetUri } from "@/lib/studio/asset-ref";
 import { uploadReferenceFile } from "@/lib/studio/reference-upload";
+import type { SavedVerifiedAsset } from "@/lib/studio/saved-verified-assets";
 
 /** A single reference attachment for Seedance omni-reference. */
 export interface ReferenceMediaItem {
@@ -92,6 +93,14 @@ interface ReferenceMediaUploaderProps {
 	 *  likeness. Opt-in (default off) so only the Seedance omni-reference
 	 *  surface offers it; existing callers are unaffected. */
 	allowVerifiedAsset?: boolean;
+	/** The owner's saved verified assets, shown as one-click quick-picks in the
+	 *  add dialog (BytePlus has no list API, so the owner pastes each once and
+	 *  the parent persists it). Only meaningful with `allowVerifiedAsset`. */
+	savedAssets?: SavedVerifiedAsset[];
+	/** Persist a newly-pasted verified asset to the owner's shortlist. */
+	onSaveAsset?: (asset: Omit<SavedVerifiedAsset, "id">) => void;
+	/** Drop a saved verified asset from the owner's shortlist. */
+	onRemoveSavedAsset?: (id: string) => void;
 }
 
 /**
@@ -109,6 +118,9 @@ export function ReferenceMediaUploader({
 	className,
 	onHandleClick,
 	allowVerifiedAsset = false,
+	savedAssets,
+	onSaveAsset,
+	onRemoveSavedAsset,
 }: ReferenceMediaUploaderProps) {
 	const imagesOnly = accept === "image";
 	const editor = useEditor();
@@ -116,6 +128,7 @@ export function ReferenceMediaUploader({
 	const [dragging, setDragging] = useState(false);
 	const [assetDialogOpen, setAssetDialogOpen] = useState(false);
 	const [assetUri, setAssetUri] = useState("");
+	const [assetLabel, setAssetLabel] = useState("");
 	const [assetKind, setAssetKind] = useState<"image" | "video">("image");
 
 	const itemsRef = useRef(items);
@@ -291,34 +304,52 @@ export function ReferenceMediaUploader({
 
 	// Attach a verified real-human asset by its BytePlus URI. Unlike a file, an
 	// `asset://` reference is already the value the provider wants, so it skips
-	// upload/normalize entirely and lands in the list as a ready item.
-	const addAssetRef = useCallback(() => {
+	// upload/normalize entirely and lands in the list as a ready item. Returns
+	// false (with a toast) when the per-kind cap is hit, so callers can bail.
+	const addAssetItem = useCallback(
+		(uri: string, kind: "image" | "video", label?: string): boolean => {
+			if (capReached(kind)) {
+				toast.error(
+					kind === "video"
+						? `Max ${MAX_OMNI_VIDEOS} reference videos`
+						: `Max ${MAX_OMNI_IMAGES} reference images`,
+				);
+				return false;
+			}
+			applyChange([
+				...itemsRef.current,
+				{
+					id: crypto.randomUUID(),
+					url: uri,
+					kind,
+					name: label?.trim() || `Verified ${kind}`,
+					status: "ready",
+				},
+			]);
+			return true;
+		},
+		[applyChange, capReached],
+	);
+
+	// Dialog "Add reference" — validate the pasted URI, attach it, and persist
+	// it to the owner's shortlist for one-click reuse next time.
+	const addFromDialog = useCallback(() => {
 		const uri = normalizeAssetUri(assetUri);
 		if (!uri) {
 			toast.error("Enter a BytePlus asset URI, e.g. asset://asset-….");
 			return;
 		}
-		if (capReached(assetKind)) {
-			toast.error(
-				assetKind === "video"
-					? `Max ${MAX_OMNI_VIDEOS} reference videos`
-					: `Max ${MAX_OMNI_IMAGES} reference images`,
-			);
-			return;
-		}
-		applyChange([
-			...itemsRef.current,
-			{
-				id: crypto.randomUUID(),
-				url: uri,
-				kind: assetKind,
-				name: `Verified ${assetKind}`,
-				status: "ready",
-			},
-		]);
+		const label = assetLabel.trim();
+		if (!addAssetItem(uri, assetKind, label)) return;
+		onSaveAsset?.({
+			uri,
+			kind: assetKind,
+			label: label || `Verified ${assetKind}`,
+		});
 		setAssetUri("");
+		setAssetLabel("");
 		setAssetDialogOpen(false);
-	}, [assetUri, assetKind, applyChange, capReached]);
+	}, [assetUri, assetLabel, assetKind, addAssetItem, onSaveAsset]);
 
 	return (
 		<div className={cn("flex flex-wrap gap-2", className)}>
@@ -475,16 +506,73 @@ export function ReferenceMediaUploader({
 								</DialogDescription>
 							</DialogHeader>
 							<div className="space-y-3 py-1">
+								{savedAssets && savedAssets.length > 0 && (
+									<div className="space-y-1.5">
+										<span className="text-[11px] font-medium text-muted-foreground">
+											Your verified assets — click to add
+										</span>
+										<div className="flex flex-col gap-1">
+											{savedAssets.map((a) => (
+												<div
+													key={a.id}
+													className="flex items-center gap-1 rounded-md border border-border px-2 py-1"
+												>
+													<button
+														type="button"
+														onClick={() => {
+															if (addAssetItem(a.uri, a.kind, a.label))
+																setAssetDialogOpen(false);
+														}}
+														title={a.uri}
+														className="flex min-w-0 flex-1 items-center gap-2 text-left"
+													>
+														<HugeiconsIcon
+															icon={CheckmarkBadge01Icon}
+															className="size-3.5 shrink-0 text-foreground/50"
+														/>
+														<span className="truncate text-[12px] font-medium">
+															{a.label}
+														</span>
+														<span className="shrink-0 text-[10px] text-muted-foreground">
+															{a.kind}
+														</span>
+													</button>
+													{onRemoveSavedAsset && (
+														<button
+															type="button"
+															onClick={() => onRemoveSavedAsset(a.id)}
+															aria-label={`Forget ${a.label}`}
+															className="shrink-0 text-muted-foreground hover:text-foreground"
+														>
+															<HugeiconsIcon
+																icon={Cancel01Icon}
+																className="size-3"
+															/>
+														</button>
+													)}
+												</div>
+											))}
+										</div>
+										<span className="text-[11px] text-muted-foreground">
+											Or add a new one:
+										</span>
+									</div>
+								)}
 								<Input
 									value={assetUri}
 									onChange={(e) => setAssetUri(e.target.value)}
 									onKeyDown={(e) => {
 										if (e.key === "Enter") {
 											e.preventDefault();
-											addAssetRef();
+											addFromDialog();
 										}
 									}}
 									placeholder="asset://asset-20260715220651-2f74b"
+								/>
+								<Input
+									value={assetLabel}
+									onChange={(e) => setAssetLabel(e.target.value)}
+									placeholder="Label (optional) — e.g. Zak front"
 								/>
 								<div className="flex gap-2">
 									{(["image", "video"] as const).map((k) => (
@@ -508,7 +596,7 @@ export function ReferenceMediaUploader({
 								<DialogClose asChild>
 									<Button variant="ghost">Cancel</Button>
 								</DialogClose>
-								<Button onClick={addAssetRef}>Add reference</Button>
+								<Button onClick={addFromDialog}>Add reference</Button>
 							</DialogFooter>
 						</DialogContent>
 					</Dialog>
