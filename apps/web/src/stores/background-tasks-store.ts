@@ -77,6 +77,10 @@ export const useBackgroundTasksStore = create<BackgroundTasksState>(
 			// Only toast on the first transition to a terminal state
 			if (wasTerminal) return;
 
+			// Proxy generation runs automatically on every video upload — it's
+			// already visible in the task widget, so a toast per upload is noise.
+			if (existing.type === "proxy-generation") return;
+
 			if (updates.status === "error" && updates.error) {
 				toast.error(`${existing.label} failed`, {
 					description: updates.error,
