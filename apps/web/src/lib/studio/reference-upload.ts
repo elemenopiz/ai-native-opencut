@@ -1,6 +1,7 @@
 import type { EditorCore } from "@/core";
 import { getDragData } from "@/lib/drag-data";
 import { fetchWithTimeout, MEDIA_TIMEOUT_MS } from "@/lib/studio/fetch-timeout";
+import { normalizeReferenceVideoFps } from "@/lib/studio/normalize-reference-video";
 
 /**
  * Shared helpers for attaching reference media in the Generate panel. A
@@ -128,10 +129,15 @@ async function uploadViaServer(file: File): Promise<UploadedReference> {
 export async function uploadReferenceFile(
 	file: File,
 ): Promise<UploadedReference> {
-	const presign = await requestPresignedUpload(file);
+	// BytePlus rejects reference videos over 60fps, and a phone clip labelled
+	// "60fps" often measures ~60.04fps (variable-frame-rate). Normalize before
+	// rehosting so the file the provider pulls is a clean ≤60fps video. No-op
+	// for images and for videos already at or under 60fps.
+	const prepared = await normalizeReferenceVideoFps(file);
+	const presign = await requestPresignedUpload(prepared);
 	if (presign) {
 		try {
-			return await putToPresignedUrl(file, presign);
+			return await putToPresignedUrl(prepared, presign);
 		} catch {
 			// The direct PUT can fail for reasons outside the app's control at
 			// the browser layer (most commonly the R2 bucket's CORS policy not
@@ -142,7 +148,7 @@ export async function uploadReferenceFile(
 			// JSON-parse error, only a real "file too large" / status message.
 		}
 	}
-	return uploadViaServer(file);
+	return uploadViaServer(prepared);
 }
 
 /**
