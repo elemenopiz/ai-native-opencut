@@ -1,7 +1,12 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { useAssetsPanelStore, tabs, TAB_KEYS, type Tab } from "@/stores/assets-panel-store";
+import {
+	useAssetsPanelStore,
+	tabs,
+	TAB_KEYS,
+	type Tab,
+} from "@/stores/assets-panel-store";
 import { useVersionStore } from "@/stores/version-store";
 import { ACTIONS, type TAction } from "@/lib/actions/definitions";
 import { invokeAction } from "@/lib/actions/registry";
@@ -92,7 +97,8 @@ function buildCommands(
 
 	// 3. Editor actions (from ACTIONS registry)
 	for (const [key, def] of Object.entries(ACTIONS)) {
-		const shortcut = (def as { defaultShortcuts?: readonly string[] }).defaultShortcuts?.[0];
+		const shortcut = (def as { defaultShortcuts?: readonly string[] })
+			.defaultShortcuts?.[0];
 		commands.push({
 			id: `action-${key}`,
 			label: def.description,
@@ -118,9 +124,19 @@ function buildCommands(
 		{
 			id: "feature-director",
 			label: "Director",
-			description: "AI orchestrator — storyboard, brainstorm, and direct the reel",
+			description:
+				"AI orchestrator — storyboard, brainstorm, and direct the reel",
 			category: "Features",
-			keywords: ["director", "ai", "studio", "agent", "storyboard", "brainstorm", "generate", "magic"],
+			keywords: [
+				"director",
+				"ai",
+				"studio",
+				"agent",
+				"storyboard",
+				"brainstorm",
+				"generate",
+				"magic",
+			],
 			action: () => setActiveTab("director"),
 		},
 		{
@@ -136,15 +152,24 @@ function buildCommands(
 			label: "Effects, Filters & Adjustment",
 			description: "Visual effects, color grading, and adjustments",
 			category: "Features",
-			keywords: ["effect", "filter", "color", "visual", "grade", "adjustment", "brightness", "contrast"],
+			keywords: [
+				"effect",
+				"filter",
+				"color",
+				"visual",
+				"grade",
+				"adjustment",
+				"brightness",
+				"contrast",
+			],
 			action: () => setActiveTab("visuals"),
 		},
 		{
 			id: "feature-audio",
-			label: "Audio: Sounds, Voiceover & Podcast",
-			description: "Sound effects, AI voiceover, and podcast clips",
+			label: "Audio: Podcast, Enhance & Record",
+			description: "Podcast clip extraction, enhancement, and recording",
 			category: "Features",
-			keywords: ["sound", "voice", "voiceover", "tts", "podcast", "clip", "audio", "music"],
+			keywords: ["podcast", "clip", "audio", "enhance", "record", "beats"],
 			action: () => setActiveTab("audio"),
 		},
 		{
@@ -273,7 +298,11 @@ export function CommandPalette() {
 	// Global keyboard listener for Cmd+Shift+P
 	useEffect(() => {
 		function handleKeyDown(e: KeyboardEvent) {
-			if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "p") {
+			if (
+				(e.metaKey || e.ctrlKey) &&
+				e.shiftKey &&
+				e.key.toLowerCase() === "p"
+			) {
 				e.preventDefault();
 				setOpen((prev) => !prev);
 			}
@@ -285,13 +314,10 @@ export function CommandPalette() {
 		return () => window.removeEventListener("keydown", handleKeyDown);
 	}, [open]);
 
-	const execute = useCallback(
-		(cmd: Command) => {
-			cmd.action();
-			setOpen(false);
-		},
-		[],
-	);
+	const execute = useCallback((cmd: Command) => {
+		cmd.action();
+		setOpen(false);
+	}, []);
 
 	const handleKeyDown = useCallback(
 		(e: React.KeyboardEvent) => {
@@ -346,8 +372,19 @@ export function CommandPalette() {
 							fill="none"
 							className="text-muted-foreground flex-shrink-0"
 						>
-							<circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="1.5" />
-							<path d="M11 11l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+							<circle
+								cx="7"
+								cy="7"
+								r="5"
+								stroke="currentColor"
+								strokeWidth="1.5"
+							/>
+							<path
+								d="M11 11l3 3"
+								stroke="currentColor"
+								strokeWidth="1.5"
+								strokeLinecap="round"
+							/>
 						</svg>
 						<input
 							ref={inputRef}
@@ -365,10 +402,7 @@ export function CommandPalette() {
 					</div>
 
 					{/* Results */}
-					<div
-						ref={listRef}
-						className="max-h-[50vh] overflow-y-auto py-1"
-					>
+					<div ref={listRef} className="max-h-[50vh] overflow-y-auto py-1">
 						{results.length === 0 ? (
 							<div className="px-4 py-6 text-center text-sm text-muted-foreground/60">
 								No results for &quot;{query}&quot;

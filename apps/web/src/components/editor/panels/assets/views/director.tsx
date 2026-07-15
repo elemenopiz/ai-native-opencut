@@ -20,7 +20,10 @@ import {
 	StopIcon,
 } from "@hugeicons/core-free-icons";
 import { aiClient } from "@/lib/ai-client";
-import { isFeatureAvailable } from "@/lib/local-ai/retired-features";
+import {
+	isFeatureAvailable,
+	retiredFeatureMessage,
+} from "@/lib/local-ai/retired-features";
 import { useAIStatus } from "@/hooks/use-ai-status";
 import { useAIStore } from "@/stores/ai-store";
 import { useTranscriptStore } from "@/stores/transcript-store";
@@ -41,6 +44,7 @@ import { summarizeBrief } from "@/lib/director/director-brief";
 import { getUnderstandingCaptions } from "@/lib/director/understanding-lookup";
 import { toast } from "sonner";
 import { TemplatePanel } from "@/components/editor/ai/template-panel";
+import { ComingSoon } from "@/components/editor/panels/assets/views/coming-soon";
 import { BRollSuggestionsPanel } from "@/components/editor/ai/broll-suggestions-panel";
 import { YouTubeReelsPanel } from "@/components/editor/youtube/youtube-reels-panel";
 import { AIDubbingPanel } from "@/components/editor/panels/assets/views/ai-dubbing";
@@ -798,6 +802,10 @@ export function DirectorView() {
 							Script
 						</Button>
 					)}
+					{/* Reel templates call /api/template/generate, a retired-stack-only
+					    route (see lib/local-ai/retired-features.ts) — kept visible with
+					    a "Coming soon" placeholder (see the mode render below) rather
+					    than hidden, so it isn't a dead end. */}
 					<Button
 						variant={mode === "templates" ? "secondary" : "ghost"}
 						size="sm"
@@ -1232,7 +1240,16 @@ export function DirectorView() {
 			)}
 
 			{/* ── Templates Mode ── */}
-			{mode === "templates" && <TemplatePanel className="flex-1 min-h-0" />}
+			{mode === "templates" &&
+				(isFeatureAvailable("templates") ? (
+					<TemplatePanel className="flex-1 min-h-0" />
+				) : (
+					<ComingSoon
+						title="Templates"
+						description={retiredFeatureMessage("templates")}
+						className="flex-1 min-h-0"
+					/>
+				))}
 
 			{/* ── B-Roll Mode ── */}
 			{mode === "broll" && <BRollSuggestionsPanel className="flex-1 min-h-0" />}
