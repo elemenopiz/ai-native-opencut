@@ -26,6 +26,34 @@ export interface ProxyGenerateResult {
 }
 
 /**
+ * Exact message thrown out of the encode core when the caller aborts via the
+ * AbortSignal. It's a plain `Error` (name "Error", NOT "AbortError"), so
+ * callers that want to distinguish a cancellation from a real failure must
+ * match this message — see `isProxyCancelledError`. The worker controller
+ * rejects with this same message on cancel, so the check works for both the
+ * main-thread and off-thread paths.
+ */
+export const PROXY_CANCELLED_MESSAGE = "Proxy generation cancelled";
+
+/**
+ * Whether an error thrown out of the proxy encode path represents a
+ * caller/user cancellation (via the AbortSignal) rather than a real
+ * generation failure.
+ *
+ * The encode core throws `new Error(PROXY_CANCELLED_MESSAGE)` on abort, whose
+ * `.name` is "Error", not "AbortError" — so a bare `name === "AbortError"`
+ * check never matches and is dead. We match the message instead, while still
+ * treating a genuine DOMException "AbortError" as cancellation for forward
+ * compatibility with any abort path that uses `signal.throwIfAborted()`.
+ */
+export function isProxyCancelledError(error: unknown): boolean {
+	if (!(error instanceof Error)) return false;
+	return (
+		error.message === PROXY_CANCELLED_MESSAGE || error.name === "AbortError"
+	);
+}
+
+/**
  * The canvas kinds the encode core can draw into — exactly what mediabunny's
  * `CanvasSource` constructor accepts. Lets the same encode loop run against a
  * DOM `<canvas>` on the main thread or an `OffscreenCanvas` in a worker.
@@ -162,7 +190,7 @@ export async function runProxyEncode(
 			for await (const frame of iterator) {
 				if (signal?.aborted) {
 					await output.cancel();
-					throw new Error("Proxy generation cancelled");
+					throw new Error(PROXY_CANCELLED_MESSAGE);
 				}
 
 				const ctx = canvas.getContext("2d") as ProxyDrawContext | null;

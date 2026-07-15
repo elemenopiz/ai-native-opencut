@@ -66,6 +66,13 @@ mock.module("@/services/proxy", () => ({
 		generateProxyCalls.push(options.file.name);
 		return generateProxyImpl();
 	},
+	// media-manager statically imports this alongside generateProxy; the mock
+	// must re-export it or the ESM binding fails at import time. Mirror the real
+	// cancellation contract rather than stubbing it out.
+	isProxyCancelledError: (error: unknown) =>
+		error instanceof Error &&
+		(error.message === "Proxy generation cancelled" ||
+			error.name === "AbortError"),
 }));
 
 // Import AFTER the mocks so the manager binds the stubs (repo convention).

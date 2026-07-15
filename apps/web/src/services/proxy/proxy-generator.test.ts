@@ -1,6 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import { PROXY_PRESETS, type ProxyResolution } from "@/services/storage/types";
-import { computeProxyDimensions } from "./proxy-generator";
+import {
+	computeProxyDimensions,
+	isProxyCancelledError,
+	PROXY_CANCELLED_MESSAGE,
+} from "./proxy-generator";
 
 const isEven = (n: number) => n % 2 === 0;
 
@@ -79,5 +83,38 @@ describe("computeProxyDimensions", () => {
 				expect(height).toBeGreaterThanOrEqual(2);
 			}
 		}
+	});
+});
+
+describe("isProxyCancelledError", () => {
+	it("matches the exact cancellation Error generateProxy actually throws", () => {
+		// The generator throws a plain Error whose name is "Error", not
+		// "AbortError" — the whole point of the helper is to catch this shape.
+		const thrown = new Error(PROXY_CANCELLED_MESSAGE);
+		expect(thrown.name).toBe("Error");
+		expect(isProxyCancelledError(thrown)).toBe(true);
+	});
+
+	it("treats a genuine DOMException AbortError as cancellation", () => {
+		const abort = new Error("The operation was aborted");
+		abort.name = "AbortError";
+		expect(isProxyCancelledError(abort)).toBe(true);
+	});
+
+	it("does NOT swallow a real generation failure", () => {
+		expect(isProxyCancelledError(new Error("No video track found"))).toBe(
+			false,
+		);
+		expect(
+			isProxyCancelledError(
+				new Error("Video codec not supported for decoding"),
+			),
+		).toBe(false);
+	});
+
+	it("is safe on non-Error values", () => {
+		expect(isProxyCancelledError(undefined)).toBe(false);
+		expect(isProxyCancelledError(null)).toBe(false);
+		expect(isProxyCancelledError("Proxy generation cancelled")).toBe(false);
 	});
 });

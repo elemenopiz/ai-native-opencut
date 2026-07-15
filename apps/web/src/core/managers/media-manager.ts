@@ -10,7 +10,10 @@ import {
 	PROXY_THRESHOLD_HEIGHT,
 	type ProxyResolution,
 } from "@/services/storage/types";
-import { generateProxyOffThread } from "@/services/proxy";
+import {
+	generateProxyOffThread,
+	isProxyCancelledError,
+} from "@/services/proxy";
 import { deleteEmbedding } from "@/services/search/embedding-store";
 import { deleteTranscript } from "@/services/search/asset-transcript-store";
 // Per-project understanding rows die with the asset; the cross-project
@@ -481,7 +484,12 @@ export class MediaManager {
 
 			this.notify();
 		} catch (error) {
-			if ((error as Error).name !== "AbortError") {
+			// A cancellation (RemoveMediaAsset / clearProjectMedia / a superseding
+			// generate aborting the AbortSignal) is expected and silent — the
+			// generator throws a plain `Error("Proxy generation cancelled")` whose
+			// name is "Error", so the old `name !== "AbortError"` guard never
+			// matched and logged every cancellation as a failure.
+			if (!isProxyCancelledError(error)) {
 				console.error("Proxy generation failed:", error);
 			}
 		} finally {

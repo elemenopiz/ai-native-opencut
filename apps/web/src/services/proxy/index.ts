@@ -1,4 +1,9 @@
-export { generateProxy, runProxyEncode } from "./proxy-generator";
+export {
+	generateProxy,
+	isProxyCancelledError,
+	PROXY_CANCELLED_MESSAGE,
+	runProxyEncode,
+} from "./proxy-generator";
 export type {
 	ProxyGenerateOptions,
 	ProxyGenerateResult,
