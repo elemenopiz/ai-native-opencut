@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -8,7 +8,6 @@ import {
 	Image02Icon,
 	AudioWave01Icon,
 	UserMultiple02Icon,
-	StarIcon,
 } from "@hugeicons/core-free-icons";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { PanelView } from "./base-view";
@@ -23,8 +22,6 @@ import {
 	generateMultiframe,
 	type MultiframeBase,
 } from "@/lib/studio/multiframe";
-import { useTakesNotificationStore } from "@/stores/takes-notification-store";
-import { useAssetsPanelStore } from "@/stores/assets-panel-store";
 
 const MEDIA_SEGMENTS = [
 	{
@@ -81,48 +78,25 @@ export function GenerateView() {
 
 	const busy = status === "submitting" || status === "polling";
 
-	// Drive the Takes tab icon (left rail): fill it blue while a generation is
-	// in flight, keep it blue once done so the user knows takes are waiting.
-	const setGenerating = useTakesNotificationStore((s) => s.setGenerating);
-	const setReady = useTakesNotificationStore((s) => s.setReady);
-	const clearTakesNotification = useTakesNotificationStore((s) => s.clear);
-	const setAssetsActiveTab = useAssetsPanelStore((s) => s.setActiveTab);
-	const wasBusy = useRef(false);
-	useEffect(() => {
-		if (busy && !wasBusy.current) setGenerating();
-		else if (!busy && wasBusy.current) {
-			setReady();
-			// The ambient star-glow on the Takes tab (left rail) is easy to miss —
-			// surface a toast that points at the SAME star so the two read as one
-			// signal, with a one-click jump straight there.
-			if (status === "done") {
-				toast.success("Take ready", {
-					description: "View it in Takes.",
-					icon: (
-						<HugeiconsIcon
-							icon={StarIcon}
-							className="size-4 fill-current text-blue-500"
-						/>
-					),
-					action: {
-						label: "View in Takes",
-						onClick: () => {
-							setAssetsActiveTab("starred");
-							clearTakesNotification();
-						},
-					},
-				});
+	// GenerationForm builds the generate params (including batchSize) but has
+	// no reason to know about EditorCore/project id — inject them here so the
+	// hook can route a finished take straight to Assets or to Board.
+	const handleGenerate = useCallback(
+		(params: Omit<Parameters<typeof generate>[0], "editor" | "projectId">) => {
+			let projectId: string | null = null;
+			try {
+				projectId = editor.project.getActive().metadata.id;
+			} catch {
+				projectId = null;
 			}
-		}
-		wasBusy.current = busy;
-	}, [
-		busy,
-		status,
-		setGenerating,
-		setReady,
-		clearTakesNotification,
-		setAssetsActiveTab,
-	]);
+			if (!projectId) {
+				toast.error("No active project to add to.");
+				return Promise.resolve();
+			}
+			return generate({ ...params, editor, projectId });
+		},
+		[editor, generate],
+	);
 
 	// Multiframe: generate N-1 flf2v segments across the keyframes and lay them
 	// end-to-end on the active project's timeline.
@@ -169,7 +143,7 @@ export function GenerateView() {
 
 				<TabsContent value="generate" className="mt-0 space-y-4">
 					<GenerationForm
-						onGenerate={generate}
+						onGenerate={handleGenerate}
 						onGenerateMultiframe={handleGenerateMultiframe}
 						busy={busy}
 					/>
