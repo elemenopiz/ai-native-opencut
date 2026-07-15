@@ -451,7 +451,7 @@ function ScoreMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
 						value={prompt}
 						onChange={(e) => setPrompt(e.target.value)}
 						rows={3}
-						className="resize-none border-0 bg-transparent p-0 text-[14.5px] leading-relaxed shadow-none focus-visible:ring-0 min-h-16"
+						className="resize-none border-0 bg-transparent p-0 text-[14.5px] leading-relaxed shadow-none focus-visible:ring-0 min-h-16 dark:bg-transparent"
 					/>
 				</div>
 
@@ -680,7 +680,7 @@ function MusicMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
 						value={prompt}
 						onChange={(e) => setPrompt(e.target.value)}
 						rows={4}
-						className="resize-none border-0 bg-transparent p-0 text-[14.5px] leading-relaxed shadow-none focus-visible:ring-0 min-h-20"
+						className="resize-none border-0 bg-transparent p-0 text-[14.5px] leading-relaxed shadow-none focus-visible:ring-0 min-h-20 dark:bg-transparent"
 					/>
 				</div>
 
@@ -745,7 +745,7 @@ function MusicMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
  * Voiceover sub-tab lives.
  */
 function VoiceoverRedirect() {
-	const setActiveTab = useAssetsPanelStore((s) => s.setActiveTab);
+	const openAudioSubTab = useAssetsPanelStore((s) => s.openAudioSubTab);
 	return (
 		<div className="space-y-2 rounded-xl bg-foreground/[0.04] p-3">
 			<p className="text-[13px] font-semibold text-foreground">
@@ -758,8 +758,8 @@ function VoiceoverRedirect() {
 			<button
 				type="button"
 				onClick={() => {
-					setActiveTab("audio");
-					toast.info('Opened Audio — pick the "Voiceover" sub-tab.');
+					openAudioSubTab("voiceover");
+					toast.info("Opened the Voiceover pipeline.");
 				}}
 				className="flex h-[30px] items-center rounded-[10px] bg-foreground/[0.14] px-3 text-[12.5px] font-medium text-foreground transition-colors hover:bg-foreground/[0.2]"
 			>

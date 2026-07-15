@@ -53,14 +53,25 @@ function apiVersion(): string {
 }
 
 // As of API version 2024-11-06, `ratio` takes an exact pixel dimension string
-// rather than a "16:9"-style aspect keyword. The enum of accepted values is
-// model-dependent and has shifted release to release — UNVERIFIED: confirm
-// the live enum for whichever `model` id is actually configured before
-// treating "square" as safe on every model.
+// rather than a "16:9"-style aspect keyword. Verified 2026-07-15 against two
+// independent pass-through schemas that mirror Runway's own `ratio` enum for
+// the default `gen4_turbo` model (Segmind's Gen-4 Turbo proxy schema + an
+// independently-scraped Runway API reference; docs.dev.runwayml.com itself is
+// a JS-rendered Redoc page WebFetch can't read directly, so this is
+// corroborated via two agreeing mirrors rather than the raw HTML): gen4_turbo
+// only accepts "1280:720" | "720:1280" | "1104:832" | "832:1104" | "960:960" |
+// "1584:672" — there is NO 1080p (1920:1080) or 480p (832:480) tier. The
+// previous table sent 1920:1080/1080:1920/832:480/480:832/832:832/1080:1080,
+// none of which are in the accepted enum — a 480p or 1080p request would have
+// been rejected by the live API. gen4_turbo genuinely has one quality tier
+// (~720p-class pixel count) with several aspect-ratio variants, not three
+// resolution tiers, so every resolution key below resolves to the same real
+// value per orientation; `capabilities.resolutions` below is trimmed to just
+// "720p" so the UI doesn't offer a 480p/1080p chip Runway would reject.
 const RATIO_TABLE: Record<VideoOrientation, Record<VideoResolution, string>> = {
-	landscape: { "480p": "832:480", "720p": "1280:720", "1080p": "1920:1080" },
-	portrait: { "480p": "480:832", "720p": "720:1280", "1080p": "1080:1920" },
-	square: { "480p": "832:832", "720p": "960:960", "1080p": "1080:1080" },
+	landscape: { "480p": "1280:720", "720p": "1280:720", "1080p": "1280:720" },
+	portrait: { "480p": "720:1280", "720p": "720:1280", "1080p": "720:1280" },
+	square: { "480p": "960:960", "720p": "960:960", "1080p": "960:960" },
 };
 
 function ratioFor(req: BackendRequest): string {
@@ -138,7 +149,10 @@ export const runwayBackend: GenerationBackend = {
 	safetyTier: "partner",
 	requiredEnv: ["RUNWAY_API_KEY"],
 	capabilities: {
-		resolutions: ["480p", "720p", "1080p"],
+		// gen4_turbo has no real resolution tier — only "720p"-class ratios
+		// (see RATIO_TABLE above). Declaring 480p/1080p here would offer chips
+		// the live API rejects.
+		resolutions: ["720p"],
 		orientations: ["landscape", "portrait", "square"],
 		durationRangeSec: { min: 5, max: 10 },
 		// Seed accepted on image_to_video/text_to_video, max 4294967295 per the

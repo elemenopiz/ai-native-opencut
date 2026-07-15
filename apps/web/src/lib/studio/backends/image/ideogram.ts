@@ -39,14 +39,17 @@ interface IdeogramGenerateResponse {
 }
 
 function mapSizeToResolution(size?: ImageSize): string {
-	// UNVERIFIED: exact membership of Ideogram's `resolution` enum — these three
-	// exact WxH pairs are commonly listed among its supported resolutions, but
-	// not confirmed against the live enum at write time.
+	// Verified 2026-07-15 against developer.ideogram.ai's live `resolution` enum
+	// for /v1/ideogram-v3/generate: "1536x1024" and "1024x1536" (our previous
+	// values) are NOT members of the accepted set — the real API would reject
+	// them. The closest valid members at the same exact 3:2 / 2:3 ratio are
+	// "1248x832" (landscape) and "832x1248" (portrait); "1024x1024" was
+	// already correct.
 	switch (size) {
 		case "1536x1024":
-			return "1536x1024";
+			return "1248x832";
 		case "1024x1536":
-			return "1024x1536";
+			return "832x1248";
 		case "1024x1024":
 		default:
 			return "1024x1024";

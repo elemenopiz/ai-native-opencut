@@ -356,24 +356,29 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 			    single hairline-divided card. The placeholder carries the
 			    Prompt/Scene/Character meaning — no separate Label row. */}
 			<GenerationCard>
-				<div className="space-y-1.5 p-4 pb-1">
+				{/* Prompt + its tool row share one section (no hairline between them)
+				    so Enhance reads as part of the composer, not a separate boxed
+				    area. */}
+				<div className="px-4 pb-3 pt-4">
 					<Textarea
 						placeholder={preset.placeholder}
 						value={prompt}
 						onChange={(e) => setPrompt(e.target.value)}
 						rows={4}
-						className="resize-none border-0 bg-transparent p-0 text-[14.5px] leading-relaxed shadow-none focus-visible:ring-0 min-h-24"
+						className="resize-none border-0 bg-transparent p-0 text-[14.5px] leading-relaxed shadow-none focus-visible:ring-0 min-h-24 dark:bg-transparent"
 					/>
-					{error && <p className="text-[11.5px] text-destructive">{error}</p>}
-				</div>
+					{error && (
+						<p className="pt-1 text-[11.5px] text-destructive">{error}</p>
+					)}
 
-				<div className="flex items-center gap-2 px-4 pb-3 pt-1">
-					<EnhancePromptButton
-						mode="image"
-						getPrompt={() => prompt}
-						setPrompt={setPrompt}
-						className="ml-auto"
-					/>
+					<div className="flex items-center gap-2 pt-1">
+						<EnhancePromptButton
+							mode="image"
+							getPrompt={() => prompt}
+							setPrompt={setPrompt}
+							className="ml-auto"
+						/>
+					</div>
 				</div>
 
 				{preset.allowsMultiple && (

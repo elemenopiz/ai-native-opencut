@@ -28,6 +28,15 @@ export const byteplusSeedanceBackend: GenerationBackend = {
 	safetyTier: "partner",
 	requiredEnv: ["BYTEPLUS_API_KEY"],
 	capabilities: {
+		// Re-checked 2026-07-15 (docs.byteplus.com's ModelArk reference is a
+		// JS-rendered page WebFetch can't read directly; cross-referenced via
+		// third-party integration guides quoting the live schema for this exact
+		// model id — dreamina-seedance-2-0 — plus BytePlus's own launch copy):
+		// max resolution 1080p, max duration 15s, min duration 4s all confirmed
+		// unchanged. Seedance 2.0 also exposes a 2k tier at the API level, not
+		// added here — same cost-control precedent as Veo's withheld 4k and
+		// Nano Banana Pro's withheld 4K (VideoResolution only has
+		// 480p/720p/1080p regardless).
 		resolutions: ["480p", "720p", "1080p"],
 		orientations: ["portrait", "landscape", "square"],
 		durationRangeSec: { min: 4, max: 15 },
