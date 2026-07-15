@@ -1,4 +1,5 @@
 import type { CanvasRenderer } from "../canvas-renderer";
+import { getContext2D } from "../canvas-utils";
 import { VisualNode, type VisualNodeParams } from "./visual-node";
 
 export interface ImageNodeParams extends VisualNodeParams {
@@ -47,7 +48,7 @@ export function loadImageSource(
 			const scaledHeight = Math.round(naturalHeight * scale);
 
 			const offscreen = new OffscreenCanvas(scaledWidth, scaledHeight);
-			const ctx = offscreen.getContext("2d");
+			const ctx = getContext2D(offscreen);
 
 			if (ctx) {
 				ctx.drawImage(image, 0, 0, scaledWidth, scaledHeight);

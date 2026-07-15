@@ -1,5 +1,5 @@
 import type { CanvasRenderer } from "../canvas-renderer";
-import { createOffscreenCanvas } from "../canvas-utils";
+import { createOffscreenCanvas, getContext2D } from "../canvas-utils";
 import { getEffect } from "@/lib/effects";
 import type { EffectParamValues } from "@/types/effects";
 import { BaseNode } from "./base-node";
@@ -185,10 +185,7 @@ export class CompositeEffectNode extends BaseNode<CompositeEffectNodeParams> {
 				width: compositeWidth,
 				height: compositeHeight,
 			});
-			this.compositeCtx = this.composite.getContext("2d") as
-				| OffscreenCanvasRenderingContext2D
-				| CanvasRenderingContext2D
-				| null;
+			this.compositeCtx = getContext2D(this.composite);
 		} else {
 			this.compositeCtx?.clearRect(0, 0, compositeWidth, compositeHeight);
 		}

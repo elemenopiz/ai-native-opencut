@@ -1,4 +1,5 @@
 import type { BaseNode } from "./nodes/base-node";
+import { getContext2D } from "./canvas-utils";
 import { perfStats } from "./perf-stats";
 
 export type CanvasRendererParams = {
@@ -86,14 +87,12 @@ export class CanvasRenderer {
 			this.canvas.height = height;
 		}
 
-		const context = this.canvas.getContext("2d");
+		const context = getContext2D(this.canvas);
 		if (!context) {
 			throw new Error("Failed to get canvas context");
 		}
 
-		this.context = context as
-			| OffscreenCanvasRenderingContext2D
-			| CanvasRenderingContext2D;
+		this.context = context;
 
 		// Start loading the watermark logo immediately if needed
 		if (watermark) {
@@ -112,13 +111,11 @@ export class CanvasRenderer {
 			this.canvas.height = height;
 		}
 
-		const context = this.canvas.getContext("2d");
+		const context = getContext2D(this.canvas);
 		if (!context) {
 			throw new Error("Failed to get canvas context");
 		}
-		this.context = context as
-			| OffscreenCanvasRenderingContext2D
-			| CanvasRenderingContext2D;
+		this.context = context;
 	}
 
 	private clear() {
@@ -153,7 +150,7 @@ export class CanvasRenderer {
 	}) {
 		await this.render({ node, time });
 
-		const ctx = targetCanvas.getContext("2d");
+		const ctx = getContext2D(targetCanvas);
 		if (!ctx) {
 			throw new Error("Failed to get target canvas context");
 		}

@@ -1,5 +1,5 @@
 import type { CanvasRenderer } from "../canvas-renderer";
-import { createOffscreenCanvas } from "../canvas-utils";
+import { createOffscreenCanvas, getContext2D } from "../canvas-utils";
 import { BaseNode } from "./base-node";
 import { loadImageSource } from "./image-node";
 import type { Transform } from "@/types/timeline";
@@ -291,10 +291,7 @@ export class TransitionNode extends BaseNode<TransitionNodeParams> {
 			width: renderer.width,
 			height: renderer.height,
 		});
-		const ctx = offscreen.getContext("2d") as
-			| CanvasRenderingContext2D
-			| OffscreenCanvasRenderingContext2D
-			| null;
+		const ctx = getContext2D(offscreen);
 		if (!ctx) return null;
 
 		const animLocalTime = getElementLocalTime({

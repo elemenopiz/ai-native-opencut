@@ -1,5 +1,5 @@
 import type { CanvasRenderer } from "../canvas-renderer";
-import { createOffscreenCanvas } from "../canvas-utils";
+import { createOffscreenCanvas, getContext2D } from "../canvas-utils";
 import { BaseNode } from "./base-node";
 import type { Effect } from "@/types/effects";
 import type { BlendMode, MaskShape } from "@/types/rendering";
@@ -249,10 +249,7 @@ export abstract class VisualNode<
 			});
 			this.elementScratchCanvas = elementCanvas;
 		}
-		const elementCtx = elementCanvas.getContext("2d") as
-			| CanvasRenderingContext2D
-			| OffscreenCanvasRenderingContext2D
-			| null;
+		const elementCtx = getContext2D(elementCanvas);
 		if (!elementCtx) {
 			renderer.context.drawImage(source, x, y, scaledWidth, scaledHeight);
 			renderer.context.restore();
