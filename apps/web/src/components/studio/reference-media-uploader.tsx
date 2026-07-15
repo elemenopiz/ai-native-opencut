@@ -3,11 +3,27 @@
 import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Cancel01Icon, ImageAdd02Icon } from "@hugeicons/core-free-icons";
+import {
+	Cancel01Icon,
+	CheckmarkBadge01Icon,
+	ImageAdd02Icon,
+} from "@hugeicons/core-free-icons";
+import { Button } from "@/components/ui/button";
+import {
+	Dialog,
+	DialogClose,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/utils/ui";
 import { useEditor } from "@/hooks/use-editor";
 import { getDragData } from "@/lib/drag-data";
+import { isAssetRef, normalizeAssetUri } from "@/lib/studio/asset-ref";
 import { uploadReferenceFile } from "@/lib/studio/reference-upload";
 
 /** A single reference attachment for Seedance omni-reference. */
@@ -71,6 +87,11 @@ interface ReferenceMediaUploaderProps {
 	 *  prompt (see generation-form.tsx). Omit to keep the tag a plain,
 	 *  non-interactive label (existing callers unaffected). */
 	onHandleClick?: (id: string) => void;
+	/** Enables the "Add verified asset" control: paste a BytePlus
+	 *  `asset://<asset_id>` URI to reference a consent-verified real-human
+	 *  likeness. Opt-in (default off) so only the Seedance omni-reference
+	 *  surface offers it; existing callers are unaffected. */
+	allowVerifiedAsset?: boolean;
 }
 
 /**
@@ -87,11 +108,15 @@ export function ReferenceMediaUploader({
 	disabled,
 	className,
 	onHandleClick,
+	allowVerifiedAsset = false,
 }: ReferenceMediaUploaderProps) {
 	const imagesOnly = accept === "image";
 	const editor = useEditor();
 	const inputRef = useRef<HTMLInputElement>(null);
 	const [dragging, setDragging] = useState(false);
+	const [assetDialogOpen, setAssetDialogOpen] = useState(false);
+	const [assetUri, setAssetUri] = useState("");
+	const [assetKind, setAssetKind] = useState<"image" | "video">("image");
 
 	const itemsRef = useRef(items);
 	itemsRef.current = items;
@@ -264,6 +289,37 @@ export function ReferenceMediaUploader({
 		[applyChange],
 	);
 
+	// Attach a verified real-human asset by its BytePlus URI. Unlike a file, an
+	// `asset://` reference is already the value the provider wants, so it skips
+	// upload/normalize entirely and lands in the list as a ready item.
+	const addAssetRef = useCallback(() => {
+		const uri = normalizeAssetUri(assetUri);
+		if (!uri) {
+			toast.error("Enter a BytePlus asset URI, e.g. asset://asset-….");
+			return;
+		}
+		if (capReached(assetKind)) {
+			toast.error(
+				assetKind === "video"
+					? `Max ${MAX_OMNI_VIDEOS} reference videos`
+					: `Max ${MAX_OMNI_IMAGES} reference images`,
+			);
+			return;
+		}
+		applyChange([
+			...itemsRef.current,
+			{
+				id: crypto.randomUUID(),
+				url: uri,
+				kind: assetKind,
+				name: `Verified ${assetKind}`,
+				status: "ready",
+			},
+		]);
+		setAssetUri("");
+		setAssetDialogOpen(false);
+	}, [assetUri, assetKind, applyChange, capReached]);
+
 	return (
 		<div className={cn("flex flex-wrap gap-2", className)}>
 			<input
@@ -291,7 +347,19 @@ export function ReferenceMediaUploader({
 							: it.name
 					}
 				>
-					{it.kind === "image" ? (
+					{isAssetRef(it.url) ? (
+						// A verified `asset://` URI isn't browser-fetchable — show a
+						// labeled badge instead of a broken <img>/<video>.
+						<div className="flex h-full w-full flex-col items-center justify-center gap-1 bg-foreground/[0.06] text-muted-foreground">
+							<HugeiconsIcon
+								icon={CheckmarkBadge01Icon}
+								className="size-5 text-foreground/60"
+							/>
+							<span className="px-1 text-center text-[9px] font-medium leading-tight">
+								Verified {it.kind}
+							</span>
+						</div>
+					) : it.kind === "image" ? (
 						// eslint-disable-next-line @next/next/no-img-element
 						<img
 							src={it.url}
@@ -378,6 +446,73 @@ export function ReferenceMediaUploader({
 						className="size-[17px] text-muted-foreground"
 					/>
 				</button>
+			)}
+
+			{!disabled && allowVerifiedAsset && (
+				<>
+					<button
+						type="button"
+						onClick={() => setAssetDialogOpen(true)}
+						title="Add a verified real-human asset by its BytePlus asset:// URI"
+						aria-label="Add verified real-human asset"
+						className="flex h-20 w-[106px] shrink-0 flex-col items-center justify-center gap-1 rounded-xl border-[1.5px] border-dashed border-foreground/[0.18] text-muted-foreground transition-colors hover:border-foreground/30"
+					>
+						<HugeiconsIcon
+							icon={CheckmarkBadge01Icon}
+							className="size-[17px]"
+						/>
+						<span className="text-[9px] font-medium">Verified ID</span>
+					</button>
+
+					<Dialog open={assetDialogOpen} onOpenChange={setAssetDialogOpen}>
+						<DialogContent className="sm:max-w-md">
+							<DialogHeader>
+								<DialogTitle>Add a verified real-human asset</DialogTitle>
+								<DialogDescription>
+									Paste a BytePlus asset URI from ModelArk → My assets →
+									Real-human. It's sent to Seedance as a consent-verified
+									reference, so a real face isn't blocked.
+								</DialogDescription>
+							</DialogHeader>
+							<div className="space-y-3 py-1">
+								<Input
+									value={assetUri}
+									onChange={(e) => setAssetUri(e.target.value)}
+									onKeyDown={(e) => {
+										if (e.key === "Enter") {
+											e.preventDefault();
+											addAssetRef();
+										}
+									}}
+									placeholder="asset://asset-20260715220651-2f74b"
+								/>
+								<div className="flex gap-2">
+									{(["image", "video"] as const).map((k) => (
+										<button
+											key={k}
+											type="button"
+											onClick={() => setAssetKind(k)}
+											className={cn(
+												"rounded-md border px-2.5 py-1 text-[12px] font-medium transition-colors",
+												assetKind === k
+													? "border-foreground/40 bg-foreground/[0.06] text-foreground"
+													: "border-border text-muted-foreground hover:text-foreground",
+											)}
+										>
+											{k === "image" ? "Portrait image" : "Video"}
+										</button>
+									))}
+								</div>
+							</div>
+							<DialogFooter>
+								<DialogClose asChild>
+									<Button variant="ghost">Cancel</Button>
+								</DialogClose>
+								<Button onClick={addAssetRef}>Add reference</Button>
+							</DialogFooter>
+						</DialogContent>
+					</Dialog>
+				</>
 			)}
 		</div>
 	);

@@ -912,6 +912,7 @@ export function GenerationForm({
 								handles={handleMap}
 								disabled={busy}
 								onHandleClick={insertHandleFromThumb}
+								allowVerifiedAsset={supportsOmniRef}
 							/>
 						</>
 					)}
