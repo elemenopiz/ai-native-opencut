@@ -143,3 +143,92 @@ describe("buildScene — export-time proxy fallback (forceProxyAssetIds)", () =>
 		expect(node.params.file.name).toBe("clip-proxy.mp4");
 	});
 });
+
+/**
+ * Display-aware proxy use (opportunity #4 of the FIX-F perf follow-up):
+ * a preview scene must never hand the compositor a proxy that would be
+ * upscaled to fill the canvas backing store — that bakes a second, avoidable
+ * softness on top of the proxy's own downscale. `previewBackingStoreLongEdge`
+ * is the caller-computed backing-store long edge (device pixels); when it
+ * exceeds the asset's recorded proxy dimensions, the scene falls back to the
+ * original per-element even though `useProxy` is true.
+ */
+describe("buildScene — display-aware proxy use (previewBackingStoreLongEdge)", () => {
+	function makeAssetWithProxyInfo(
+		overrides: Partial<MediaAsset> = {},
+	): MediaAsset {
+		return makeAsset({
+			proxy: {
+				resolution: "720p",
+				width: 1280,
+				height: 720,
+				generatedAt: Date.now(),
+				fileSize: 1024,
+			},
+			...overrides,
+		});
+	}
+
+	test("backing store long edge within the proxy's box: keeps using the proxy", () => {
+		const root = buildScene({
+			canvasSize: CANVAS_SIZE,
+			tracks: [makeTrack([makeVideoElement()])],
+			mediaAssets: [makeAssetWithProxyInfo()],
+			duration: 5,
+			background: { type: "color", color: "transparent" },
+			isPreview: true,
+			useProxy: true,
+			previewBackingStoreLongEdge: 960,
+		});
+
+		const node = firstVideoNode(root);
+		expect(node.params.file.name).toBe("clip-proxy.mp4");
+	});
+
+	test("backing store long edge exceeds the proxy's long edge: falls back to the original (no upscale)", () => {
+		const root = buildScene({
+			canvasSize: CANVAS_SIZE,
+			tracks: [makeTrack([makeVideoElement()])],
+			mediaAssets: [makeAssetWithProxyInfo()],
+			duration: 5,
+			background: { type: "color", color: "transparent" },
+			isPreview: true,
+			useProxy: true,
+			previewBackingStoreLongEdge: 1920,
+		});
+
+		const node = firstVideoNode(root);
+		expect(node.params.file.name).toBe("clip-original.mov");
+	});
+
+	test("previewBackingStoreLongEdge omitted: unchanged pre-existing behavior (proxy used, no upscale check)", () => {
+		const root = buildScene({
+			canvasSize: CANVAS_SIZE,
+			tracks: [makeTrack([makeVideoElement()])],
+			mediaAssets: [makeAssetWithProxyInfo()],
+			duration: 5,
+			background: { type: "color", color: "transparent" },
+			isPreview: true,
+			useProxy: true,
+		});
+
+		const node = firstVideoNode(root);
+		expect(node.params.file.name).toBe("clip-proxy.mp4");
+	});
+
+	test("asset has no recorded proxy dimensions: can't second-guess, keeps using the proxy", () => {
+		const root = buildScene({
+			canvasSize: CANVAS_SIZE,
+			tracks: [makeTrack([makeVideoElement()])],
+			mediaAssets: [makeAsset()], // proxyFile/proxyUrl set, but no `proxy` metadata
+			duration: 5,
+			background: { type: "color", color: "transparent" },
+			isPreview: true,
+			useProxy: true,
+			previewBackingStoreLongEdge: 3840,
+		});
+
+		const node = firstVideoNode(root);
+		expect(node.params.file.name).toBe("clip-proxy.mp4");
+	});
+});

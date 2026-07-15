@@ -22,12 +22,22 @@ import { useBackgroundTasksStore } from "@/stores/background-tasks-store";
 
 /**
  * Resolution used for automatic background proxy generation on ingest.
- * Fixed at "720p" rather than exposed as a knob: the "480p" preset has a
- * known odd-dimension crash in generateProxy()'s scale math (853x480 -> AVC
- * encoder rejects odd widths/heights) that is being fixed separately. 720p
- * rounds to even dimensions for every fixture/aspect-ratio tested so far.
+ * Bumped from "720p" to "1080p" (2026-07-15): 720p was soft enough to be
+ * visible on paused/settled frames whenever the preview held onto the proxy
+ * (see the settle-to-full-res fix in scene-builder.ts/preview/index.tsx) and
+ * on any zoomed-in preview of a 4K/2K source. 1080p keeps proxy decode/seek
+ * cheap (still a large win over full 4K) while giving the "would the proxy be
+ * upscaled" guard (`proxyWouldBeUpscaled` in scene-builder.ts) a much bigger
+ * box to work with, so fewer preview frames need to fall back to the
+ * original mid-playback. Not exposed as a knob: the "480p" preset has a known
+ * odd-dimension crash in generateProxy()'s scale math (853x480 -> AVC encoder
+ * rejects odd widths/heights) that is being fixed separately — 1080p (like
+ * 720p) rounds to even dimensions for every fixture/aspect-ratio tested so
+ * far. This only affects NEW proxy generations: existing "720p" proxies are
+ * never auto-regenerated (`scheduleAutoProxyGeneration`/`runAutoProxyGeneration`
+ * are both no-ops once `asset.proxy` is set — see below).
  */
-const AUTO_PROXY_RESOLUTION: ProxyResolution = "720p";
+const AUTO_PROXY_RESOLUTION: ProxyResolution = "1080p";
 
 /**
  * Cheap WebCodecs capability re-check for a passthrough asset's persisted
