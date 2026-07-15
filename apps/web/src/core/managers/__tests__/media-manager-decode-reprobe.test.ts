@@ -47,6 +47,10 @@ mock.module("@/services/storage/service", () => ({
 // retryIncompleteProxyGeneration): stub the real WebCodecs/mediabunny-backed
 // generator with a fast, deterministic fake so tests can observe *whether*
 // generation was kicked off without doing real video decode work.
+// media-manager.ts calls generateProxyOffThread (off-main-thread proxy
+// worker offload, part 3) rather than generateProxy directly — mock that
+// export so the module registry (shared across this test run) satisfies
+// media-manager's actual import.
 const generateProxyCalls: string[] = [];
 let generateProxyImpl: () => Promise<{
 	file: File;
@@ -58,7 +62,7 @@ let generateProxyImpl: () => Promise<{
 	height: 720,
 });
 mock.module("@/services/proxy", () => ({
-	generateProxy: async (options: { file: File }) => {
+	generateProxyOffThread: async (options: { file: File }) => {
 		generateProxyCalls.push(options.file.name);
 		return generateProxyImpl();
 	},

@@ -10,7 +10,7 @@ import {
 	PROXY_THRESHOLD_HEIGHT,
 	type ProxyResolution,
 } from "@/services/storage/types";
-import { generateProxy } from "@/services/proxy";
+import { generateProxyOffThread } from "@/services/proxy";
 import { deleteEmbedding } from "@/services/search/embedding-store";
 import { deleteTranscript } from "@/services/search/asset-transcript-store";
 // Per-project understanding rows die with the asset; the cross-project
@@ -442,7 +442,7 @@ export class MediaManager {
 		this.notify();
 
 		try {
-			const result = await generateProxy({
+			const result = await generateProxyOffThread({
 				file: asset.file,
 				resolution,
 				onProgress,
