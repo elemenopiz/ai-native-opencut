@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
 import { cn } from "@/utils/ui";
 import type { ImageSize, ImageQuality } from "@/lib/studio/image-generator";
 import {
@@ -30,6 +29,7 @@ import {
 	ChipGrid,
 	GenerationBottomBar,
 	GenerationCard,
+	SegmentedControl,
 } from "@/components/studio/generation-bottom-bar";
 import { toast } from "sonner";
 
@@ -131,15 +131,15 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 	// Live, backend-aware credits estimate for the batch about to run.
 	const totalForCost = preset.allowsMultiple ? n : 1;
 	const cost = estimateImageCredits(totalForCost, selectedBackend?.id);
-	const summary = useMemo(() => {
-		const modelLabel = selectedBackend?.label ?? "Auto";
+	const modelLabel = selectedBackend?.label ?? "Auto";
+	const settingsSummary = useMemo(() => {
 		const ratio = SIZES.find((s) => s.value === size)?.ratio ?? size;
 		const qualityLabel =
 			QUALITIES.find((q) => q.value === quality)?.label ?? quality;
-		const parts = [modelLabel, ratio, qualityLabel];
+		const parts = [ratio, qualityLabel];
 		if (preset.allowsMultiple && n > 1) parts.push(`×${n}`);
 		return parts.join(" · ");
-	}, [selectedBackend, size, quality, preset.allowsMultiple, n]);
+	}, [size, quality, preset.allowsMultiple, n]);
 
 	// Push freshly generated stills into the project's Assets so they live
 	// alongside uploaded media — taggable as "AI", draggable back into Generate
@@ -258,29 +258,16 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 	const settingsContent = (
 		<>
 			{backends.length > 1 && (
-				<div className="space-y-1.5">
-					<span className="text-xs font-medium text-muted-foreground">
-						Model
-					</span>
-					<div className="flex flex-wrap gap-1.5">
-						{backends.map((b) => (
-							<button
-								key={b.id}
-								type="button"
-								onClick={() => setBackendId(b.id)}
-								title={`${b.vendor} · ${b.safetyTier}`}
-								className={cn(
-									"rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-colors",
-									selectedBackend?.id === b.id
-										? "border-transparent bg-foreground/15 text-foreground"
-										: "border-border/50 text-muted-foreground hover:border-foreground/40 hover:text-foreground",
-								)}
-							>
-								{b.label}
-							</button>
-						))}
-					</div>
-				</div>
+				<ChipGrid
+					label="Model"
+					options={backends.map((b) => ({
+						value: b.id,
+						label: b.label,
+						title: `${b.vendor} · ${b.safetyTier}`,
+					}))}
+					value={selectedBackend?.id ?? ""}
+					onChange={setBackendId}
+				/>
 			)}
 
 			<ChipGrid
@@ -294,16 +281,19 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 				onChange={(v) => setSettings({ imageSize: v })}
 			/>
 
-			<ChipGrid
-				label="Resolution"
-				variant="solid"
-				options={availableQualities.map((q) => ({
-					value: q.value,
-					label: q.label,
-				}))}
-				value={quality}
-				onChange={(v) => setSettings({ imageQuality: v })}
-			/>
+			<div className="space-y-1.5">
+				<span className="text-[13px] font-semibold text-foreground/70">
+					Resolution
+				</span>
+				<SegmentedControl
+					options={availableQualities.map((q) => ({
+						value: q.value,
+						label: q.label,
+					}))}
+					value={quality}
+					onChange={(v) => setSettings({ imageQuality: v })}
+				/>
+			</div>
 
 			{presetId === "storyboard" && (
 				<ChipGrid
@@ -321,9 +311,8 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 
 	return (
 		<div className={cn("flex flex-col gap-3", className)}>
-			{/* Preset selector — quiet text-chips, same idiom as the popover's
-			    ChipGrid (no bold primary fill). */}
-			<div className="flex flex-wrap gap-1.5">
+			{/* Preset selector — same filled-chip tokens as the popover's ChipGrid. */}
+			<div className="flex flex-wrap gap-[7px]">
 				{IMAGE_PRESET_ORDER.map((id) => (
 					<button
 						key={id}
@@ -331,10 +320,10 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 						onClick={() => selectPreset(id)}
 						title={IMAGE_PRESETS[id].description}
 						className={cn(
-							"rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors",
+							"flex h-[30px] items-center justify-center rounded-[10px] px-3 text-[12.5px] font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/40",
 							presetId === id
-								? "border-transparent bg-foreground/15 text-foreground"
-								: "border-border/50 text-muted-foreground hover:border-foreground/40 hover:text-foreground",
+								? "bg-foreground/[0.16] font-semibold text-foreground"
+								: "bg-foreground/[0.06] text-muted-foreground hover:bg-foreground/[0.09] hover:text-foreground",
 						)}
 					>
 						{IMAGE_PRESETS[id].label}
@@ -347,10 +336,10 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 			{showReferences && (
 				<div className="space-y-1.5">
 					<div className="flex items-center justify-between">
-						<span className="text-xs font-medium text-muted-foreground">
+						<span className="text-[13px] font-semibold text-foreground/70">
 							References
 						</span>
-						<span className="text-[10px] text-muted-foreground">
+						<span className="text-[11.5px] text-muted-foreground">
 							optional · drag, drop, or browse
 						</span>
 					</div>
@@ -364,42 +353,31 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 			)}
 
 			{/* One calm surface: Prompt, Variations, and the bottom bar share a
-			    single hairline-divided card. */}
+			    single hairline-divided card. The placeholder carries the
+			    Prompt/Scene/Character meaning — no separate Label row. */}
 			<GenerationCard>
-				<div className="space-y-1.5 p-3">
-					<Label className="text-xs text-muted-foreground">
-						{presetId === "storyboard"
-							? "Scene"
-							: presetId === "character-sheet"
-								? "Character"
-								: "Prompt"}
-					</Label>
-					<div className="relative">
-						<Textarea
-							placeholder={preset.placeholder}
-							value={prompt}
-							onChange={(e) => setPrompt(e.target.value)}
-							rows={4}
-							className="resize-none border-0 bg-transparent p-0 text-sm shadow-none focus-visible:ring-0 pr-9 min-h-24"
-						/>
-						<div className="absolute right-1.5 top-0">
-							<EnhancePromptButton
-								mode="image"
-								getPrompt={() => prompt}
-								setPrompt={setPrompt}
-							/>
-						</div>
-					</div>
-					{generating && progress && (
-						<p className="text-[10px] text-muted-foreground">
-							Generating {progress.done}/{progress.total}…
-						</p>
-					)}
-					{error && <p className="text-xs text-destructive">{error}</p>}
+				<div className="space-y-1.5 p-4 pb-1">
+					<Textarea
+						placeholder={preset.placeholder}
+						value={prompt}
+						onChange={(e) => setPrompt(e.target.value)}
+						rows={4}
+						className="resize-none border-0 bg-transparent p-0 text-[14.5px] leading-relaxed shadow-none focus-visible:ring-0 min-h-24"
+					/>
+					{error && <p className="text-[11.5px] text-destructive">{error}</p>}
+				</div>
+
+				<div className="flex items-center gap-2 px-4 pb-3 pt-1">
+					<EnhancePromptButton
+						mode="image"
+						getPrompt={() => prompt}
+						setPrompt={setPrompt}
+						className="ml-auto"
+					/>
 				</div>
 
 				{preset.allowsMultiple && (
-					<div className="px-3 py-2">
+					<div className="px-4 py-3">
 						<ChipGrid
 							label="Variations"
 							options={BATCH_OPTIONS.map((count) => ({
@@ -413,8 +391,25 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 					</div>
 				)}
 
+				{generating && progress && (
+					<div className="space-y-1.5 px-4 py-3">
+						<div className="h-[3px] w-full overflow-hidden rounded-full bg-foreground/[0.12]">
+							<div
+								className="h-full rounded-full bg-zinc-900 transition-all duration-300 dark:bg-[#f2efe9]"
+								style={{
+									width: `${Math.round((progress.done / progress.total) * 100)}%`,
+								}}
+							/>
+						</div>
+						<p className="text-[11.5px] tabular-nums text-muted-foreground">
+							Generating {progress.done}/{progress.total}…
+						</p>
+					</div>
+				)}
+
 				<GenerationBottomBar
-					summary={summary}
+					modelLabel={modelLabel}
+					settingsSummary={settingsSummary}
 					settingsContent={settingsContent}
 					cost={cost}
 					onSubmit={handleGenerate}
@@ -450,7 +445,7 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 								e.dataTransfer.effectAllowed = "copy";
 							}}
 							onClick={() => setLightboxIndex(i)}
-							className="relative group rounded overflow-hidden border bg-muted cursor-pointer"
+							className="relative group rounded-xl overflow-hidden border bg-muted cursor-pointer"
 						>
 							<img
 								src={still.imageUrl}
