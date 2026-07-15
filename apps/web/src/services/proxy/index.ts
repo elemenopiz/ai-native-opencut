@@ -5,3 +5,7 @@ export type {
 	ProxyEncodeOptions,
 	ProxyCanvas,
 } from "./proxy-generator";
+export {
+	generateProxyOffThread,
+	isWorkerProxyEncodeSupported,
+} from "./worker/proxy-encoder-controller";
