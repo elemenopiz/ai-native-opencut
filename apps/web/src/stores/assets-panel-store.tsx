@@ -13,7 +13,6 @@ import {
 	Happy01Icon,
 	CrownIcon,
 	Search01Icon,
-	StarIcon,
 	UserGroupIcon,
 	Camera01Icon,
 	GridIcon,
@@ -23,7 +22,6 @@ import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 export const TAB_KEYS = [
 	"media",
 	"director",
-	"starred",
 	"text",
 	"captions",
 	"speakers",
@@ -63,10 +61,6 @@ export const tabs = {
 	director: {
 		icon: createHugeiconsIcon({ icon: SparklesIcon }),
 		label: "Director",
-	},
-	starred: {
-		icon: createHugeiconsIcon({ icon: StarIcon }),
-		label: "Takes",
 	},
 	text: {
 		icon: createHugeiconsIcon({ icon: TextIcon }),

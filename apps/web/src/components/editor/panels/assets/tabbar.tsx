@@ -19,16 +19,10 @@ import {
 	tabs,
 	useAssetsPanelStore,
 } from "@/stores/assets-panel-store";
-import {
-	type TakesNotificationStatus,
-	useTakesNotificationStore,
-} from "@/stores/takes-notification-store";
 
 export function TabBar() {
 	const { activeTab, setActiveTab } = useAssetsPanelStore();
 	const editor = useEditor();
-	const takesStatus = useTakesNotificationStore((s) => s.status);
-	const clearTakesNotification = useTakesNotificationStore((s) => s.clear);
 	const [showTopArrow, setShowTopArrow] = useState(false);
 	const [showBottomArrow, setShowBottomArrow] = useState(false);
 	const [takeDropTarget, setTakeDropTarget] = useState<Tab | null>(null);
@@ -149,10 +143,6 @@ export function TabBar() {
 				).map((tabKey) => {
 					const tab = tabs[tabKey];
 					const acceptsTakeDrop = tabKey === "media";
-					// The "starred" tab is the Takes home — its icon doubles as the
-					// generation notifier (fills blue while generating, stays blue
-					// until opened).
-					const isTakesTab = tabKey === "starred";
 					return (
 						<Tooltip key={tabKey} delayDuration={10}>
 							<TooltipTrigger asChild>
@@ -168,7 +158,6 @@ export function TabBar() {
 									)}
 									onClick={() => {
 										setActiveTab(tabKey);
-										if (isTakesTab) clearTakesNotification();
 									}}
 									onDragOver={
 										acceptsTakeDrop
@@ -188,11 +177,7 @@ export function TabBar() {
 									}
 									onDrop={acceptsTakeDrop ? handleTakeDrop : undefined}
 								>
-									{isTakesTab ? (
-										<TakesTabIcon status={takesStatus} />
-									) : (
-										<tab.icon />
-									)}
+									<tab.icon />
 								</Button>
 							</TooltipTrigger>
 							<TooltipContent
@@ -241,49 +226,5 @@ export function TabBar() {
 				</button>
 			</div>
 		</div>
-	);
-}
-
-// Star path on a 0..20 viewBox.
-const STAR_PATH =
-	"M10 1.6l2.6 5.27 5.82.85-4.21 4.1.99 5.79L10 14.86 4.8 17.61l.99-5.79L1.58 7.72l5.82-.85L10 1.6z";
-
-/**
- * The Takes tab icon. While a generation is in flight ("generating") the blue
- * star breathes — a gentle opacity pulse that signals activity without implying
- * progress (we don't know how long it'll take). When done ("ready") it locks to
- * a solid blue star until the user opens the tab.
- */
-function TakesTabIcon({ status }: { status: TakesNotificationStatus }) {
-	return (
-		<svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
-			<path
-				d={STAR_PATH}
-				stroke="currentColor"
-				strokeWidth="1.4"
-				strokeLinejoin="round"
-			/>
-			{status !== "idle" && (
-				<path
-					d={STAR_PATH}
-					fill="#3b82f6"
-					stroke="#3b82f6"
-					strokeWidth="1.4"
-					strokeLinejoin="round"
-				>
-					{status === "generating" && (
-						<animate
-							attributeName="opacity"
-							values="0.25;1;0.25"
-							keyTimes="0;0.5;1"
-							dur="1.6s"
-							repeatCount="indefinite"
-							calcMode="spline"
-							keySplines="0.4 0 0.6 1;0.4 0 0.6 1"
-						/>
-					)}
-				</path>
-			)}
-		</svg>
 	);
 }

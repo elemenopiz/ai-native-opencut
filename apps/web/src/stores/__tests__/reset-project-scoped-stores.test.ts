@@ -10,7 +10,6 @@ import { useOmniReferenceChainStore } from "@/stores/omni-reference-chain-store"
 import { usePenMaskStore } from "@/stores/pen-mask-store";
 import { usePropertiesStore } from "@/stores/properties-store";
 import { useSearchStore } from "@/stores/search-store";
-import { useTakesNotificationStore } from "@/stores/takes-notification-store";
 import { useTimelineStore } from "@/stores/timeline-store";
 import { useTranscriptStore } from "@/stores/transcript-store";
 import { useArrangementHandoffStore } from "@/stores/arrangement-handoff-store";
@@ -67,7 +66,6 @@ function seedProjectScopedState() {
 	useEngagementStore
 		.getState()
 		.setScore({ score: 82 } as unknown as EngagementScoreResult);
-	useTakesNotificationStore.getState().setGenerating();
 	usePenMaskStore.getState().startDrawing("old-element");
 	useTimelineStore.getState().setClipboard({
 		items: [
@@ -99,7 +97,6 @@ describe("resetProjectScopedStores", () => {
 		expect(useBackgroundTasksStore.getState().tasks).toHaveLength(0);
 		expect(useSearchStore.getState().pendingFindSimilarMediaId).toBeNull();
 		expect(useEngagementStore.getState().currentScore).toBeNull();
-		expect(useTakesNotificationStore.getState().status).toBe("idle");
 		expect(usePenMaskStore.getState().drawingElementId).toBeNull();
 		expect(useTimelineStore.getState().clipboard).toBeNull();
 		expect(usePropertiesStore.getState().clipEffectsTarget).toBeNull();

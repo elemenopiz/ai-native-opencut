@@ -16,7 +16,6 @@ import { AudioCombinedView } from "./views/audio-combined";
 import { ElementsCombinedView } from "./views/elements-combined";
 import { VisualsCombinedView } from "./views/visuals-combined";
 import { BrandKitView } from "./views/brand-kit";
-import { StarredTakesView } from "./views/starred-takes";
 import { VisualSearchView } from "./views/visual-search";
 import { MulticamPanel } from "./views/multicam";
 import { TemplateGalleryPanel } from "./views/template-gallery";
@@ -39,7 +38,6 @@ export function AssetsPanel() {
 		// "What the AI sees": the Understanding Pass surfaced + role corrections.
 		insights: <InsightsView />,
 		director: <DirectorView />,
-		starred: <StarredTakesView />,
 		text: <TextView />,
 		captions: <Captions />,
 		speakers: <SpeakerCaptionsPanel />,
