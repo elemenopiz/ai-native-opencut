@@ -3,35 +3,73 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Coins01Icon } from "@hugeicons/core-free-icons";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+	Video02Icon,
+	Image02Icon,
+	AudioWave01Icon,
+	UserMultiple02Icon,
+} from "@hugeicons/core-free-icons";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { PanelView } from "./base-view";
 import { GenerationForm } from "@/components/studio/generation-form";
 import { ImagePanel } from "@/components/studio/image-panel";
 import { AudioPanel } from "@/components/studio/audio-panel";
 import { PersonaManager } from "@/components/studio/persona-manager";
-import { Button } from "@/components/ui/button";
+import { SegmentedControl } from "@/components/studio/generation-bottom-bar";
 import { useStudioGeneration } from "@/hooks/use-studio-generation";
-import { useSlotGeneration } from "@/hooks/use-slot-generation";
 import { useEditor } from "@/hooks/use-editor";
 import {
 	generateMultiframe,
 	type MultiframeBase,
 } from "@/lib/studio/multiframe";
-import { estimateBatchCost, needsApproval } from "@/lib/studio/cost";
-import { CostApprovalDialog } from "@/components/studio/cost-approval-dialog";
-import { useStudioSettingsStore } from "@/stores/studio-settings-store";
 import { useTakesNotificationStore } from "@/stores/takes-notification-store";
-import { cn } from "@/utils/ui";
-import { TakeReview } from "@/components/editor/take-review";
-import type { GenerationSpec } from "@/types/timeline";
+
+const MEDIA_SEGMENTS = [
+	{
+		value: "generate",
+		label: (
+			<span className="flex items-center gap-1.5">
+				<HugeiconsIcon icon={Video02Icon} className="size-[13.5px]" />
+				Video
+			</span>
+		),
+	},
+	{
+		value: "image",
+		label: (
+			<span className="flex items-center gap-1.5">
+				<HugeiconsIcon icon={Image02Icon} className="size-[13.5px]" />
+				Image
+			</span>
+		),
+	},
+	{
+		value: "audio",
+		label: (
+			<span className="flex items-center gap-1.5">
+				<HugeiconsIcon icon={AudioWave01Icon} className="size-[13.5px]" />
+				Audio
+			</span>
+		),
+	},
+	{
+		value: "personas",
+		label: (
+			<span className="flex items-center gap-1.5">
+				<HugeiconsIcon icon={UserMultiple02Icon} className="size-[13.5px]" />
+				Personas
+			</span>
+		),
+	},
+] satisfies { value: string; label: React.ReactNode }[];
 
 /**
  * The single, consolidated AI generation surface — lives inside the editor so
  * generation and the timeline share one screen (no `/studio` route, no alt-tab).
  * Reuses the feature-rich studio pipeline (personas, seed-lock, GPT Image,
  * camera presets, live cost estimate) and drops finished takes straight onto the
- * current project's timeline.
+ * current project's timeline. Batch/slot generation (storyboard "generate all")
+ * lives with the Director now — this panel is single-shot generation only.
  */
 export function GenerateView() {
 	const { status, error, generate, clearError } = useStudioGeneration();
@@ -41,96 +79,16 @@ export function GenerateView() {
 
 	const busy = status === "submitting" || status === "polling";
 
-	// Slots are created via the Director's storyboard (humans) or the
-	// director-api `reserveSlot`/`storyboard` verbs (AI). This panel just
-	// renders + batch-generates whatever slots already exist on the timeline.
-
-	// ── Batch generation (Phase 4) ────────────────────────────────────────────
-	const { generateAllSlots } = useSlotGeneration();
-	const [alternatives, setAlternatives] = useState(1);
-	const [batchBusy, setBatchBusy] = useState(false);
-	const [reviewOpen, setReviewOpen] = useState(false);
-	const [slots, setSlots] = useState<
-		{ elementId: string; spec: GenerationSpec; hasPrompt: boolean }[]
-	>([]);
-
-	// Track generative slots on the timeline so the batch bar stays in sync.
-	useEffect(() => {
-		const refresh = () => {
-			const out: {
-				elementId: string;
-				spec: GenerationSpec;
-				hasPrompt: boolean;
-			}[] = [];
-			for (const track of editor.timeline.getTracks()) {
-				for (const el of track.elements) {
-					if ((el.type === "video" || el.type === "image") && el.generation) {
-						out.push({
-							elementId: el.id,
-							spec: el.generation,
-							hasPrompt: !!el.generation.prompt?.trim(),
-						});
-					}
-				}
-			}
-			setSlots(out);
-		};
-		refresh();
-		return editor.timeline.subscribe(refresh);
-	}, [editor]);
-
-	const promptedSlots = slots.filter((s) => s.hasPrompt);
-	// `alternatives` takes per slot share a single per-shot still, so the still is
-	// counted once per slot (inside estimateSpecCost) while the video cost scales
-	// with the alternatives count.
-	const batchCost = estimateBatchCost(
-		promptedSlots.map((s) => s.spec),
-		alternatives,
-	);
-
-	// Cost-preview approval gate (concept: cost-preview gate). A batch above the
-	// user's threshold confirms before spending; anything cheaper runs straight.
-	const approvalThresholdCredits = useStudioSettingsStore(
-		(s) => s.approvalThresholdCredits,
-	);
-	const [approvalOpen, setApprovalOpen] = useState(false);
-
-	const runBatchNow = useCallback(async () => {
-		setBatchBusy(true);
-		try {
-			const r = await generateAllSlots({ alternatives });
-			if (r.slots === 0) {
-				toast.error("No slots with prompts to generate.");
-			} else {
-				toast.success(
-					`Generated ${r.ok} take${r.ok === 1 ? "" : "s"} across ${r.slots} slot${r.slots === 1 ? "" : "s"}${r.failed ? ` (${r.failed} failed)` : ""}.`,
-				);
-			}
-		} finally {
-			setBatchBusy(false);
-		}
-	}, [alternatives, generateAllSlots]);
-
-	const runBatch = useCallback(() => {
-		if (needsApproval(batchCost, approvalThresholdCredits)) {
-			setApprovalOpen(true);
-			return;
-		}
-		void runBatchNow();
-	}, [batchCost, approvalThresholdCredits, runBatchNow]);
-
-	// Drive the Takes tab icon (left rail): fill it blue while a generation is in
-	// flight, keep it blue once done so the user knows takes are waiting there.
-	// Covers both single-shot (`busy`) and batch (`batchBusy`) generation.
+	// Drive the Takes tab icon (left rail): fill it blue while a generation is
+	// in flight, keep it blue once done so the user knows takes are waiting.
 	const setGenerating = useTakesNotificationStore((s) => s.setGenerating);
 	const setReady = useTakesNotificationStore((s) => s.setReady);
-	const anyBusy = busy || batchBusy;
 	const wasBusy = useRef(false);
 	useEffect(() => {
-		if (anyBusy && !wasBusy.current) setGenerating();
-		else if (!anyBusy && wasBusy.current) setReady();
-		wasBusy.current = anyBusy;
-	}, [anyBusy, setGenerating, setReady]);
+		if (busy && !wasBusy.current) setGenerating();
+		else if (!busy && wasBusy.current) setReady();
+		wasBusy.current = busy;
+	}, [busy, setGenerating, setReady]);
 
 	// Multiframe: generate N-1 flf2v segments across the keyframes and lay them
 	// end-to-end on the active project's timeline.
@@ -167,92 +125,15 @@ export function GenerateView() {
 
 	return (
 		<PanelView title="Generate" hideHeader>
-			<Tabs value={section} onValueChange={setSection} className="space-y-3">
-				<TabsList className="w-full grid grid-cols-4 h-8">
-					<TabsTrigger value="generate" className="text-xs">
-						Video
-					</TabsTrigger>
-					<TabsTrigger value="image" className="text-xs">
-						Image
-					</TabsTrigger>
-					<TabsTrigger value="audio" className="text-xs">
-						Audio
-					</TabsTrigger>
-					<TabsTrigger value="personas" className="text-xs">
-						Personas
-					</TabsTrigger>
-				</TabsList>
+			<Tabs value={section} onValueChange={setSection} className="space-y-4">
+				<SegmentedControl
+					value={section}
+					onChange={setSection}
+					testIdPrefix="generate-media-tab"
+					options={MEDIA_SEGMENTS}
+				/>
 
-				<TabsContent value="generate" className="mt-0 space-y-3">
-					{/* Batch bar — storyboard then generate the whole reel in one go */}
-					{slots.length > 0 && (
-						<div className="rounded-md border border-border bg-muted/40 p-2.5 space-y-2">
-							<div className="flex items-center justify-between">
-								<span className="text-xs font-medium">
-									{slots.length} slot{slots.length === 1 ? "" : "s"} reserved
-									{promptedSlots.length < slots.length && (
-										<span className="font-normal text-muted-foreground">
-											{" "}
-											· {promptedSlots.length} ready
-										</span>
-									)}
-								</span>
-								{promptedSlots.length > 0 && (
-									<span className="flex items-center gap-1 text-xs font-semibold tabular-nums">
-										<HugeiconsIcon icon={Coins01Icon} className="size-3" />
-										{batchCost.low === batchCost.high
-											? batchCost.high
-											: `${batchCost.low}–${batchCost.high}`}
-									</span>
-								)}
-							</div>
-							<div className="flex items-center gap-2">
-								<span className="text-[10px] text-muted-foreground">
-									Alternatives
-								</span>
-								<div className="flex gap-1">
-									{[1, 2, 3, 4].map((n) => (
-										<button
-											key={n}
-											type="button"
-											onClick={() => setAlternatives(n)}
-											className={cn(
-												"size-6 rounded border text-[11px] transition-colors",
-												alternatives === n
-													? "border-primary bg-primary text-primary-foreground"
-													: "border-border text-muted-foreground hover:border-foreground",
-											)}
-										>
-											{n}
-										</button>
-									))}
-								</div>
-								<Button
-									size="sm"
-									variant="outline"
-									className="ml-auto h-7 text-xs"
-									onClick={() => setReviewOpen(true)}
-								>
-									Review
-								</Button>
-								<Button
-									size="sm"
-									className="h-7 text-xs"
-									disabled={batchBusy || promptedSlots.length === 0}
-									onClick={runBatch}
-								>
-									{batchBusy ? "Generating…" : "Generate all"}
-								</Button>
-							</div>
-							{promptedSlots.length === 0 && (
-								<p className="text-[10px] text-muted-foreground">
-									Select a slot on the timeline and add a prompt to enable batch
-									generation.
-								</p>
-							)}
-						</div>
-					)}
-
+				<TabsContent value="generate" className="mt-0 space-y-4">
 					<GenerationForm
 						onGenerate={generate}
 						onGenerateMultiframe={handleGenerateMultiframe}
@@ -274,29 +155,19 @@ export function GenerateView() {
 			</Tabs>
 
 			{error && (
-				<div className="mt-3 rounded-md bg-destructive/10 px-3 py-2">
-					<p className="text-xs text-destructive">{error}</p>
+				<div className="mt-4 flex items-center gap-3">
+					<p className="min-w-0 flex-1 text-[11.5px] text-destructive">
+						{error}
+					</p>
 					<button
+						type="button"
 						onClick={clearError}
-						className="text-xs text-muted-foreground underline mt-1"
+						className="shrink-0 text-[11.5px] text-muted-foreground hover:text-foreground"
 					>
 						Dismiss
 					</button>
 				</div>
 			)}
-
-			<TakeReview open={reviewOpen} onOpenChange={setReviewOpen} />
-
-			<CostApprovalDialog
-				open={approvalOpen}
-				onOpenChange={setApprovalOpen}
-				estimate={batchCost}
-				clips={batchCost.clips}
-				onApprove={() => {
-					setApprovalOpen(false);
-					void runBatchNow();
-				}}
-			/>
 		</PanelView>
 	);
 }

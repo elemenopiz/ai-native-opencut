@@ -1,8 +1,10 @@
 "use client";
 
-import { ImagePlus } from "lucide-react";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Cancel01Icon, ImageAdd02Icon } from "@hugeicons/core-free-icons";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
+import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/utils/ui";
 import { useEditor } from "@/hooks/use-editor";
 import {
@@ -11,6 +13,8 @@ import {
 } from "@/lib/studio/reference-upload";
 
 interface FrameSlotProps {
+	/** Accessible name, also used as the fallback data/aria label. Rendered
+	 *  visually above the slot unless `hideLabel` is set. */
 	label: string;
 	hint?: string;
 	value: string | null;
@@ -20,14 +24,19 @@ interface FrameSlotProps {
 	 *  fill its flex parent. Default true; pass false for a caller (e.g. a
 	 *  narrow grid column) that needs the slot to fill its own container. */
 	fixedWidth?: boolean;
+	/** Hide the visual label row (caller renders its own labels row above a
+	 *  group of slots instead) while keeping `label` for aria/testids.
+	 *  Default false — existing callers keep today's visual behavior until
+	 *  they opt in. */
+	hideLabel?: boolean;
 }
 
 /**
  * A single image-frame slot — drag from Assets, drop a file, or click to browse.
  * Used for the First and Last frames, and each multiframe keyframe. Images
- * only (a frame is a still). Palmier styling: a labeled header above a fixed
- * ~150px-wide 16:9 rounded-lg thumbnail, with a small circular ✕ badge on a
- * filled frame and a dashed border + add-image glyph on an empty one.
+ * only (a frame is a still). Palmier styling: an aspect-[16/10] rounded-xl
+ * dashed-border thumbnail, with an 18px circular ✕ badge on a filled frame
+ * and a centered add-image glyph + hint on an empty one.
  */
 export function FrameSlot({
 	label,
@@ -36,6 +45,7 @@ export function FrameSlot({
 	onChange,
 	disabled,
 	fixedWidth = true,
+	hideLabel = false,
 }: FrameSlotProps) {
 	const editor = useEditor();
 	const inputRef = useRef<HTMLInputElement>(null);
@@ -84,7 +94,11 @@ export function FrameSlot({
 				fixedWidth ? "w-[150px] shrink-0" : "flex-1",
 			)}
 		>
-			<span className="text-xs font-medium text-muted-foreground">{label}</span>
+			{!hideLabel && (
+				<span className="text-[13px] font-semibold text-foreground/70">
+					{label}
+				</span>
+			)}
 			<input
 				ref={inputRef}
 				type="file"
@@ -101,15 +115,15 @@ export function FrameSlot({
 					<img
 						src={value}
 						alt={label}
-						className="aspect-video w-full rounded-lg border border-border/60 object-cover"
+						className="aspect-[16/10] w-full rounded-xl object-cover"
 					/>
 					<button
 						type="button"
 						onClick={() => onChange(null)}
-						className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full border border-border/60 bg-background text-[11px] leading-none text-foreground shadow-sm"
+						className="absolute right-1.5 top-1.5 flex size-[18px] items-center justify-center rounded-full bg-black/70 text-white/80"
 						aria-label={`Remove ${label}`}
 					>
-						×
+						<HugeiconsIcon icon={Cancel01Icon} className="size-[11px]" />
 					</button>
 				</div>
 			) : (
@@ -124,19 +138,26 @@ export function FrameSlot({
 					onDragLeave={() => setDragOver(false)}
 					onDrop={onDrop}
 					className={cn(
-						"flex aspect-video w-full flex-col items-center justify-center gap-1 rounded-lg border border-dashed px-2 text-center transition-colors",
+						"flex aspect-[16/10] w-full flex-col items-center justify-center gap-1 rounded-xl border-[1.5px] border-dashed px-2 text-center transition-colors",
 						dragOver
-							? "border-foreground/60 bg-foreground/5"
-							: "border-border/60 hover:border-foreground/40",
+							? "border-foreground/40 bg-foreground/[0.04]"
+							: "border-foreground/[0.18] hover:border-foreground/30",
 						disabled && "cursor-not-allowed opacity-50",
 					)}
 				>
-					<ImagePlus className="size-4 text-muted-foreground" />
-					<span className="text-[10px] font-medium text-muted-foreground">
-						{uploading ? "Adding…" : "Drag / drop / click"}
+					{uploading ? (
+						<Spinner className="size-4 text-muted-foreground" />
+					) : (
+						<HugeiconsIcon
+							icon={ImageAdd02Icon}
+							className="size-[17px] text-muted-foreground"
+						/>
+					)}
+					<span className="text-[11.5px] text-muted-foreground">
+						{uploading ? "Adding…" : "drag, drop, or click"}
 					</span>
 					{hint && (
-						<span className="text-[9px] text-muted-foreground">{hint}</span>
+						<span className="text-[11.5px] text-muted-foreground">{hint}</span>
 					)}
 				</button>
 			)}

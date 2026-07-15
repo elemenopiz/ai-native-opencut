@@ -2,6 +2,9 @@
 
 import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Cancel01Icon, ImageAdd02Icon } from "@hugeicons/core-free-icons";
+import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/utils/ui";
 import { useEditor } from "@/hooks/use-editor";
 import { getDragData } from "@/lib/drag-data";
@@ -14,6 +17,37 @@ export interface ReferenceMediaItem {
 	name: string;
 	status: "uploading" | "ready" | "error";
 	error?: string;
+	/** Best-effort duration in seconds for `kind === "video"`, probed
+	 *  client-side from the local blob URL at attach time (before upload
+	 *  completes). Powers the video form's "Match @VideoN" duration chip. */
+	durationSec?: number;
+}
+
+/** Reads a video's duration from a local (blob or remote) URL without
+ *  uploading or transcoding — best-effort, resolves `undefined` on error
+ *  instead of throwing so a probe failure never blocks the attach flow. */
+function probeVideoDuration(url: string): Promise<number | undefined> {
+	return new Promise((resolve) => {
+		const video = document.createElement("video");
+		video.preload = "metadata";
+		video.muted = true;
+		const cleanup = () => {
+			video.removeEventListener("loadedmetadata", onLoaded);
+			video.removeEventListener("error", onError);
+		};
+		const onLoaded = () => {
+			const d = video.duration;
+			cleanup();
+			resolve(Number.isFinite(d) && d > 0 ? d : undefined);
+		};
+		const onError = () => {
+			cleanup();
+			resolve(undefined);
+		};
+		video.addEventListener("loadedmetadata", onLoaded);
+		video.addEventListener("error", onError);
+		video.src = url;
+	});
 }
 
 // Seedance 2.0 omni-reference caps (BytePlus ModelArk): up to 9 reference
@@ -93,6 +127,19 @@ export function ReferenceMediaUploader({
 				...itemsRef.current,
 				{ id, url: localUrl, kind, name: file.name, status: "uploading" },
 			]);
+
+			// Non-blocking: probe duration off the local blob so it's available
+			// immediately, well before the upload round-trip finishes.
+			if (kind === "video") {
+				void probeVideoDuration(localUrl).then((durationSec) => {
+					if (durationSec === undefined) return;
+					applyChange(
+						itemsRef.current.map((it) =>
+							it.id === id ? { ...it, durationSec } : it,
+						),
+					);
+				});
+			}
 
 			try {
 				const form = new FormData();
@@ -217,7 +264,7 @@ export function ReferenceMediaUploader({
 	);
 
 	return (
-		<div className={cn("space-y-2", className)}>
+		<div className={cn("flex flex-wrap gap-2", className)}>
 			<input
 				ref={inputRef}
 				type="file"
@@ -230,100 +277,93 @@ export function ReferenceMediaUploader({
 				}}
 			/>
 
-			<button
-				type="button"
-				disabled={disabled}
-				onClick={() => inputRef.current?.click()}
-				onDragOver={(e) => {
-					e.preventDefault();
-					setDragging(true);
-				}}
-				onDragLeave={() => setDragging(false)}
-				onDrop={handleDrop}
-				className={cn(
-					"w-full rounded-lg border border-dashed px-3 py-4 text-center transition-colors",
-					dragging
-						? "border-primary bg-primary/5"
-						: "border-border hover:border-foreground/50",
-					disabled && "opacity-50 cursor-not-allowed",
-				)}
-			>
-				<p className="text-xs font-medium">
-					{imagesOnly
-						? "Drag from Assets, or drop images here"
-						: "Drag from Assets, or drop images / videos here"}
-				</p>
-				<p className="text-[10px] text-muted-foreground mt-0.5">
-					click to browse · keeps subject, style &amp; scene consistent
-				</p>
-				<p className="text-[10px] text-muted-foreground mt-0.5">
-					{imagesOnly
-						? `up to ${MAX_OMNI_IMAGES} images`
-						: `up to ${MAX_OMNI_IMAGES} images (${imageCount}/${MAX_OMNI_IMAGES}) · ${MAX_OMNI_VIDEOS} videos (${videoCount}/${MAX_OMNI_VIDEOS})`}
-				</p>
-			</button>
-
-			{items.length > 0 && (
-				<div className="grid grid-cols-4 gap-2">
-					{items.map((it) => (
-						<div
-							key={it.id}
+			{items.map((it) => (
+				<div
+					key={it.id}
+					className={cn(
+						"group relative h-20 w-[106px] shrink-0 overflow-hidden rounded-xl bg-foreground/[0.06]",
+						it.status === "error" && "ring-1 ring-destructive",
+					)}
+					title={
+						it.error
+							? `${it.name}: ${it.error} — remove and re-add to retry`
+							: it.name
+					}
+				>
+					{it.kind === "image" ? (
+						// eslint-disable-next-line @next/next/no-img-element
+						<img
+							src={it.url}
+							alt={it.name}
 							className={cn(
-								"group relative aspect-square overflow-hidden rounded-md border bg-muted",
-								it.status === "error" && "border-destructive",
+								"h-full w-full object-cover",
+								it.status === "uploading" && "opacity-60",
 							)}
-							title={it.error ? `${it.name}: ${it.error}` : it.name}
-						>
-							{it.kind === "image" ? (
-								// eslint-disable-next-line @next/next/no-img-element
-								<img
-									src={it.url}
-									alt={it.name}
-									className="h-full w-full object-cover"
-								/>
-							) : (
-								<video
-									src={it.url}
-									className="h-full w-full object-cover"
-									muted
-									playsInline
-								/>
+						/>
+					) : (
+						<video
+							src={it.url}
+							className={cn(
+								"h-full w-full object-cover",
+								it.status === "uploading" && "opacity-60",
 							)}
+							muted
+							playsInline
+						/>
+					)}
 
-							{/* Kind badge */}
-							<span className="absolute left-1 top-1 rounded bg-black/60 px-1 text-[8px] font-medium uppercase text-white">
-								{it.kind}
-							</span>
-
-							{/* @mention handle — what you type in the prompt */}
-							{handles?.[it.id] && it.status === "ready" && (
-								<span className="absolute inset-x-0 bottom-0 bg-black/70 px-1 py-0.5 text-center font-mono text-[9px] font-medium text-white">
-									{handles[it.id]}
-								</span>
-							)}
-
-							{it.status === "uploading" && (
-								<div className="absolute inset-0 flex items-center justify-center bg-black/40">
-									<span className="text-[9px] text-white">Uploading…</span>
-								</div>
-							)}
-							{it.status === "error" && (
-								<div className="absolute inset-0 flex items-center justify-center bg-destructive/40">
-									<span className="text-[9px] text-white">Failed</span>
-								</div>
-							)}
-
-							<button
-								type="button"
-								onClick={() => remove(it.id)}
-								className="absolute right-0.5 top-0.5 hidden size-4 items-center justify-center rounded-full bg-black/70 text-[10px] leading-none text-white group-hover:flex"
-								aria-label={`Remove ${it.name}`}
-							>
-								×
-							</button>
+					{it.status === "uploading" && (
+						<div className="absolute inset-0 flex items-center justify-center">
+							<Spinner className="size-4 text-white" />
 						</div>
-					))}
+					)}
+
+					{/* @mention handle — what you type in the prompt */}
+					{handles?.[it.id] && it.status === "ready" && (
+						<span className="absolute bottom-1 left-1 rounded bg-black/65 px-1 py-0.5 font-mono text-[9px] font-medium text-white">
+							{handles[it.id]}
+						</span>
+					)}
+
+					<button
+						type="button"
+						onClick={() => remove(it.id)}
+						className="absolute right-1.5 top-1.5 flex size-[18px] items-center justify-center rounded-full bg-black/70 text-white/80 opacity-0 transition-opacity group-hover:opacity-100"
+						aria-label={`Remove ${it.name}`}
+					>
+						<HugeiconsIcon icon={Cancel01Icon} className="size-[11px]" />
+					</button>
 				</div>
+			))}
+
+			{!disabled && (
+				<button
+					type="button"
+					onClick={() => inputRef.current?.click()}
+					onDragOver={(e) => {
+						e.preventDefault();
+						setDragging(true);
+					}}
+					onDragLeave={() => setDragging(false)}
+					onDrop={handleDrop}
+					title={
+						imagesOnly
+							? `Add reference images (${imageCount}/${MAX_OMNI_IMAGES})`
+							: `Add reference media — up to ${MAX_OMNI_IMAGES} images (${imageCount}/${MAX_OMNI_IMAGES}) · ${MAX_OMNI_VIDEOS} videos (${videoCount}/${MAX_OMNI_VIDEOS})`
+					}
+					aria-label="Add reference media"
+					className={cn(
+						"flex h-20 w-[106px] shrink-0 items-center justify-center rounded-xl border-[1.5px] border-dashed transition-colors",
+						dragging
+							? "border-foreground/40 bg-foreground/[0.04]"
+							: "border-foreground/[0.18] hover:border-foreground/30",
+					)}
+				>
+					<HugeiconsIcon
+						icon={ImageAdd02Icon}
+						className="size-[17px] text-muted-foreground"
+					/>
+				</button>
 			)}
 		</div>
 	);
