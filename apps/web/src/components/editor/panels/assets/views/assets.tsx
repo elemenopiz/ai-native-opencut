@@ -41,7 +41,6 @@ import {
 	useAssetsPanelStore,
 } from "@/stores/assets-panel-store";
 import { useSearchStore } from "@/stores/search-store";
-import { useFrameChainStore } from "@/stores/frame-chain-store";
 import type { MediaAsset } from "@/types/assets";
 import {
 	extractAndAddFrame,
@@ -51,8 +50,6 @@ import {
 	type FrameDecodeSource,
 } from "@/lib/media/frame-extraction";
 import type { DerivedFrom, DerivedFrameLabel } from "@/services/storage/types";
-import { dataUrlToFile } from "@/lib/media/data-url";
-import { uploadReferenceFile } from "@/lib/studio/reference-upload";
 import { cn } from "@/utils/ui";
 import {
 	CloudUploadIcon,
@@ -420,9 +417,6 @@ function MediaItemWithContextMenu({
 	const setActiveTab = useAssetsPanelStore((s) => s.setActiveTab);
 	const requestRevealMedia = useAssetsPanelStore((s) => s.requestRevealMedia);
 	const editor = useEditor();
-	const setPendingFirstFrame = useFrameChainStore(
-		(s) => s.setPendingFirstFrame,
-	);
 	const canExtractFrame = item.type === "video" && (!!item.file || !!item.url);
 
 	async function handleExtractFrame(kind: "first" | "last") {
@@ -440,7 +434,6 @@ function MediaItemWithContextMenu({
 			videoUrl: item.url,
 			name: item.name,
 		};
-		const toastId = toast.loading("Extracting frame…");
 		// Library assets are the FULL source (no trim), so a synthetic full-span
 		// element gives the right first/last source time. A LAST-frame extraction
 		// needs the real duration: some containers report none at import (the
@@ -458,7 +451,6 @@ function MediaItemWithContextMenu({
 			if (!durationSec) {
 				toast.error(
 					`Couldn't determine the duration of "${item.name}" — can't locate its last frame.`,
-					{ id: toastId },
 				);
 				return;
 			}
@@ -478,47 +470,12 @@ function MediaItemWithContextMenu({
 				timeSec,
 				label,
 			});
-			toast.success(`Added "${result.name}" to your library.`, {
-				id: toastId,
-				action: {
-					label:
-						kind === "first" ? "Use in Generate" : "Use as next first frame",
-					onClick: () => {
-						void (async () => {
-							const uploadingId = toast.loading(
-								"Preparing frame for Generate…",
-							);
-							try {
-								const file = dataUrlToFile(result.dataUrl, result.name);
-								const { url } = await uploadReferenceFile(file);
-								setPendingFirstFrame({ url, label: result.name });
-								// Neutral on purpose: whether the frame can seed the next
-								// generation depends on the model selected IN the form (First/Last
-								// support) — the form surfaces an inline warning when it can't.
-								toast.success("Frame sent to Generate.", {
-									id: uploadingId,
-								});
-							} catch (err) {
-								toast.error(
-									err instanceof Error
-										? err.message
-										: "Couldn't prepare the frame.",
-									{ id: uploadingId },
-								);
-							}
-						})();
-					},
-				},
-				// Secondary: reveal + flash-highlight the new frame in the library.
-				cancel: {
-					label: "Reveal",
-					onClick: () => requestRevealMedia(result.mediaId),
-				},
-			});
+			// Silent on success: the new frame appears directly in the library
+			// grid (with its FF/LF badge), so a confirmation toast is redundant.
+			requestRevealMedia(result.mediaId);
 		} catch (err) {
 			toast.error(
 				err instanceof Error ? err.message : "Couldn't extract the frame.",
-				{ id: toastId },
 			);
 		}
 	}
@@ -1130,24 +1087,24 @@ function frameLabelText(label: DerivedFrom["label"]): string {
 			: "Frame";
 }
 
+/** Short badge text for a derived-frame provenance ("FF" / "LF" / "FR"). */
+function frameBadgeText(label: DerivedFrom["label"]): string {
+	return label === "first frame" ? "FF" : label === "last frame" ? "LF" : "FR";
+}
+
 /**
- * Edge pill on an extracted still's thumbnail. Its position MIRRORS where the
- * frame sits in the source clip: a first-frame extract pins bottom-LEFT, a
- * last/playhead extract pins bottom-RIGHT. Matches the {@link MediaDurationBadge}
- * chrome (bg-black/70, white, rounded, text-xs). Extracted frames are images, so
- * this never collides with the video duration badge.
+ * Compact provenance badge on an extracted still's thumbnail, top-right —
+ * mirrors the {@link MediaTypeBadge} chrome (rounded, uppercase, text-[9px])
+ * so it reads as a type tag rather than a caption. Extracted frames aren't
+ * AI-sourced, so this never collides with {@link AiBadge}.
  */
 function FrameEdgePill({ derivedFrom }: { derivedFrom: DerivedFrom }) {
-	const isFirst = derivedFrom.label === "first frame";
 	return (
 		<div
-			className={cn(
-				"absolute bottom-1 flex items-center gap-0.5 rounded bg-black/70 px-1 text-xs leading-5 text-white",
-				isFirst ? "left-1" : "right-1",
-			)}
+			className="absolute right-1 top-1 rounded bg-black/70 px-1 py-0.5 text-[9px] font-medium uppercase leading-none text-white"
+			title={frameLabelText(derivedFrom.label)}
 		>
-			<HugeiconsIcon icon={ImageCropIcon} className="size-3" />
-			{frameLabelText(derivedFrom.label)}
+			{frameBadgeText(derivedFrom.label)}
 		</div>
 	);
 }
