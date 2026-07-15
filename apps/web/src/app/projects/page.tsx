@@ -11,6 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useEditor } from "@/hooks/use-editor";
+import { storageService } from "@/services/storage/service";
 import { useProjectsStore } from "./store";
 import type {
 	TProjectMetadata,
@@ -567,6 +568,33 @@ function ProjectItem({
 	const isMultiSelect = selectedProjectCount > 1;
 	const isGridView = viewMode === "grid";
 
+	const [thumbnailErrored, setThumbnailErrored] = useState(false);
+	const [assetThumbnail, setAssetThumbnail] = useState<string | null>(null);
+	const needsAssetFallback = !project.thumbnail || thumbnailErrored;
+
+	useEffect(() => {
+		if (!needsAssetFallback || assetThumbnail) return;
+		let cancelled = false;
+
+		storageService
+			.loadMediaAssetsMetadata({ projectId: project.id })
+			.then((assets) => {
+				if (cancelled) return;
+				const withThumbnail = assets.find((asset) => asset.thumbnailUrl);
+				if (withThumbnail?.thumbnailUrl) {
+					setAssetThumbnail(withThumbnail.thumbnailUrl);
+				}
+			})
+			.catch(() => {});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [needsAssetFallback, assetThumbnail, project.id]);
+
+	const displayThumbnail =
+		project.thumbnail && !thumbnailErrored ? project.thumbnail : assetThumbnail;
+
 	const handleShare = () => setIsShareDialogOpen(true);
 	const handleRename = () => setIsRenameDialogOpen(true);
 	const handleDuplicate = async () => {
@@ -597,12 +625,13 @@ function ProjectItem({
 		<Card className="bg-background overflow-hidden border-none p-0">
 			<div className="bg-muted relative aspect-video">
 				<div className="absolute inset-0">
-					{project.thumbnail ? (
+					{displayThumbnail ? (
 						<Image
-							src={project.thumbnail}
+							src={displayThumbnail}
 							alt="Project thumbnail"
 							fill
 							className="object-cover"
+							onError={() => setThumbnailErrored(true)}
 						/>
 					) : (
 						<div className="flex size-full items-center justify-center">
@@ -633,12 +662,13 @@ function ProjectItem({
 	const listRowContent = (
 		<div className="flex items-center gap-3 flex-1 min-w-0">
 			<div className="bg-muted relative size-10 rounded overflow-hidden shrink-0">
-				{project.thumbnail ? (
+				{displayThumbnail ? (
 					<Image
-						src={project.thumbnail}
+						src={displayThumbnail}
 						alt="Project thumbnail"
 						fill
 						className="object-cover"
+						onError={() => setThumbnailErrored(true)}
 					/>
 				) : (
 					<div className="flex size-full items-center justify-center">

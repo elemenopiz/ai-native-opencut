@@ -475,6 +475,29 @@ class StorageService {
 		return mediaItems;
 	}
 
+	/**
+	 * Metadata only — skips the mediaAssetsAdapter blob reads that
+	 * loadAllMediaAssets does, so it's cheap to call for projects that aren't
+	 * the active editor project (e.g. the projects list falling back to an
+	 * asset thumbnail when metadata.thumbnail is missing/broken).
+	 */
+	async loadMediaAssetsMetadata({
+		projectId,
+	}: {
+		projectId: string;
+	}): Promise<MediaAssetData[]> {
+		const { mediaMetadataAdapter } = this.getProjectMediaAdapters({
+			projectId,
+		});
+
+		const mediaIds = await mediaMetadataAdapter.list();
+		const items = await Promise.all(
+			mediaIds.map((id) => mediaMetadataAdapter.get(id)),
+		);
+
+		return items.filter((item): item is MediaAssetData => item !== null);
+	}
+
 	async deleteMediaAsset({
 		projectId,
 		id,
