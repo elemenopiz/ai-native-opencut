@@ -12,9 +12,9 @@ import {
 } from "@hugeicons/core-free-icons";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { PanelView } from "./base-view";
-import { ComingSoon } from "./coming-soon";
 import { GenerationForm } from "@/components/studio/generation-form";
 import { ImagePanel } from "@/components/studio/image-panel";
+import { AudioPanel } from "@/components/studio/audio-panel";
 import { PersonaManager } from "@/components/studio/persona-manager";
 import { SegmentedControl } from "@/components/studio/generation-bottom-bar";
 import { useStudioGeneration } from "@/hooks/use-studio-generation";
@@ -179,15 +179,8 @@ export function GenerateView() {
 					<ImagePanel />
 				</TabsContent>
 
-				{/* Text-to-music / video-to-audio generation is gated OFF for this
-				    beta — neither ElevenLabs Music nor fal MMAudio has a funded
-				    key (see lib/studio/backends/audio/index.ts). Kept as a tab
-				    (rather than removed) so it isn't a dead end. */}
 				<TabsContent value="audio" className="mt-0">
-					<ComingSoon
-						title="Audio"
-						description="Music and sound generation aren't available in this beta."
-					/>
+					<AudioPanel />
 				</TabsContent>
 
 				<TabsContent value="personas" className="mt-0">

@@ -2,10 +2,7 @@
 
 import { useEffect } from "react";
 import { Separator } from "@/components/ui/separator";
-import {
-	FEATURE_PROJECT_TEMPLATES,
-	FEATURE_UNDERSTANDING_PASS,
-} from "@/lib/feature-flags";
+import { FEATURE_UNDERSTANDING_PASS } from "@/lib/feature-flags";
 import { type Tab, useAssetsPanelStore } from "@/stores/assets-panel-store";
 import { TabBar } from "./tabbar";
 import { DirectorView } from "./views/director";
@@ -23,7 +20,6 @@ import { StarredTakesView } from "./views/starred-takes";
 import { VisualSearchView } from "./views/visual-search";
 import { MulticamPanel } from "./views/multicam";
 import { TemplateGalleryPanel } from "./views/template-gallery";
-import { ComingSoon } from "./views/coming-soon";
 
 export function AssetsPanel() {
 	const { activeTab, setActiveTab } = useAssetsPanelStore();
@@ -55,16 +51,7 @@ export function AssetsPanel() {
 		multicam: <MulticamPanel className="h-full" />,
 		// Searchable project-template gallery. Distinct from the Director's
 		// "Templates" mode (TemplatePanel), which applies AI reel templates.
-		// Gated OFF for the beta — applying a template today just resizes the
-		// canvas and adds empty tracks (see FEATURE_PROJECT_TEMPLATES).
-		templates: FEATURE_PROJECT_TEMPLATES ? (
-			<TemplateGalleryPanel className="h-full" />
-		) : (
-			<ComingSoon
-				title="Templates"
-				description="Project templates aren't available in this beta."
-			/>
-		),
+		templates: <TemplateGalleryPanel className="h-full" />,
 		search: <VisualSearchView />,
 		brandkit: <BrandKitView />,
 		settings: <SettingsView />,

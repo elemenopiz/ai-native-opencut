@@ -1,19 +1,27 @@
 /**
  * Image backend registration barrel.
  *
- * Only Google-backed adapters are registered for the beta — the only image
- * provider key currently funded. OpenAI GPT Image, BFL Flux, and Ideogram are
- * real, complete adapters (see their file headers) but are kept out of the
- * registry entirely so they can never be selected, regardless of whether a
- * stray unfunded key exists in the env. Re-add their `registerBackend` calls
- * once a provider is actually funded.
+ * Every image adapter is registered here. Gemini Flash Image (Nano Banana) is
+ * the live default; the partner adapters below are real, complete code that
+ * stays inert until their provider keys are set (`isAvailable() === false`).
+ * To add one: create `./<provider>.ts` implementing `GenerationBackend`,
+ * import it, and call `registerBackend` — no other file changes.
  */
 
 import { registerBackend } from "@/lib/studio/backends/registry";
+import { openaiGptImageBackend } from "@/lib/studio/backends/image/openai-gpt-image";
+import { bflFluxBackend } from "@/lib/studio/backends/image/bfl-flux";
+import { ideogramBackend } from "@/lib/studio/backends/image/ideogram";
 import { googleImagenBackend } from "@/lib/studio/backends/image/google-imagen";
 import { googleNanoBananaBackend } from "@/lib/studio/backends/image/google-nano-banana";
 
 export function registerImageBackends(): void {
 	registerBackend(googleNanoBananaBackend);
+
+	// ── Additional image backends (env-gated, real API contracts) ──────────────
+	// Each is real, complete code that stays inert until its provider key is set.
+	registerBackend(openaiGptImageBackend);
+	registerBackend(bflFluxBackend);
+	registerBackend(ideogramBackend);
 	registerBackend(googleImagenBackend);
 }

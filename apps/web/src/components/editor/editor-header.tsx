@@ -336,7 +336,7 @@ function FeaturesDialog({
 	const features = [
 		{
 			name: "Director",
-			desc: "AI orchestrator — storyboard the reel, brainstorm, scripts",
+			desc: "AI orchestrator — storyboard the reel, brainstorm, scripts, templates",
 			tab: "director" as const,
 			shortcut: "Ctrl+K",
 		},
@@ -362,7 +362,7 @@ function FeaturesDialog({
 		},
 		{
 			name: "Audio",
-			desc: "Podcast clip extraction, enhancement, recording, and beat detection",
+			desc: "Sound effects, AI voiceover, and podcast clip extraction",
 			tab: "audio" as const,
 		},
 		{
