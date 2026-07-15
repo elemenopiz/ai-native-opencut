@@ -26,6 +26,41 @@ export interface ProxyGenerateResult {
 }
 
 /**
+ * The canvas kinds the encode core can draw into — exactly what mediabunny's
+ * `CanvasSource` constructor accepts. Lets the same encode loop run against a
+ * DOM `<canvas>` on the main thread or an `OffscreenCanvas` in a worker.
+ */
+export type ProxyCanvas = HTMLCanvasElement | OffscreenCanvas;
+
+export interface ProxyEncodeOptions extends ProxyGenerateOptions {
+	/**
+	 * Creates the scratch canvas the encode loop draws each decoded frame
+	 * into. Called once with the computed proxy dimensions. On the main
+	 * thread this is `document.createElement("canvas")`; in a worker it is
+	 * `new OffscreenCanvas(width, height)`.
+	 */
+	createCanvas: (width: number, height: number) => ProxyCanvas;
+}
+
+/**
+ * Minimal structural view of a 2D context shared by
+ * `CanvasRenderingContext2D` and `OffscreenCanvasRenderingContext2D`.
+ * TypeScript cannot call overloaded methods (`getContext`, `drawImage`)
+ * through a union of the two canvas/context types, so the encode loop goes
+ * through this common surface instead — runtime behavior is identical.
+ */
+interface ProxyDrawContext {
+	clearRect(x: number, y: number, w: number, h: number): void;
+	drawImage(
+		image: CanvasImageSource,
+		dx: number,
+		dy: number,
+		dw: number,
+		dh: number,
+	): void;
+}
+
+/**
  * Fit a source into a preset's box and snap each axis to an even number.
  *
  * The AVC (H.264) WebCodecs encoder rejects odd dimensions ("both width and
@@ -53,10 +88,21 @@ export function computeProxyDimensions(
 	};
 }
 
-export async function generateProxy(
-	options: ProxyGenerateOptions,
+/**
+ * Canvas-agnostic encode core: probes the source's video track, decodes every
+ * frame via mediabunny's `CanvasSink`, draws each frame into the injected
+ * canvas, and re-encodes to an H.264 MP4 via WebCodecs (`CanvasSource`).
+ *
+ * The canvas is injected (rather than created here) so the identical encode
+ * logic can run on the main thread against a DOM `<canvas>` or inside a Web
+ * Worker against an `OffscreenCanvas`. Main-thread callers should use
+ * {@link generateProxy}; a worker calls this directly with an
+ * `OffscreenCanvas` factory.
+ */
+export async function runProxyEncode(
+	options: ProxyEncodeOptions,
 ): Promise<ProxyGenerateResult> {
-	const { file, resolution, onProgress, signal } = options;
+	const { file, resolution, onProgress, signal, createCanvas } = options;
 	const preset = PROXY_PRESETS[resolution];
 
 	const input = new Input({
@@ -87,7 +133,7 @@ export async function generateProxy(
 		const fps = Math.min(stats.averagePacketRate ?? 30, 30);
 		const frameCount = Math.ceil(duration * fps);
 
-		const canvas = document.createElement("canvas");
+		const canvas = createCanvas(proxyWidth, proxyHeight);
 		canvas.width = proxyWidth;
 		canvas.height = proxyHeight;
 
@@ -119,7 +165,7 @@ export async function generateProxy(
 					throw new Error("Proxy generation cancelled");
 				}
 
-				const ctx = canvas.getContext("2d");
+				const ctx = canvas.getContext("2d") as ProxyDrawContext | null;
 				if (ctx) {
 					ctx.clearRect(0, 0, proxyWidth, proxyHeight);
 					ctx.drawImage(frame.canvas, 0, 0, proxyWidth, proxyHeight);
@@ -156,4 +202,13 @@ export async function generateProxy(
 	} finally {
 		input.dispose();
 	}
+}
+
+export async function generateProxy(
+	options: ProxyGenerateOptions,
+): Promise<ProxyGenerateResult> {
+	return runProxyEncode({
+		...options,
+		createCanvas: () => document.createElement("canvas"),
+	});
 }
