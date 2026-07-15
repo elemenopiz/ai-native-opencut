@@ -18,12 +18,8 @@ import type { CostRange } from "@/lib/studio/cost";
 import { formatCostRange } from "@/lib/studio/cost";
 
 interface GenerationBottomBarProps {
-	/** @deprecated pass `modelLabel` (+ optional `settingsSummary`) instead —
-	 *  kept for back-compat with callers not yet migrated to the two-part
-	 *  label. Ignored once `modelLabel` is set. */
-	summary?: string;
 	/** Bright model name on the trigger, e.g. "Seedance 2". */
-	modelLabel?: string;
+	modelLabel: string;
 	/** Muted settings recap next to the model label, e.g.
 	 *  "1080p · 5s · 16:9". */
 	settingsSummary?: string;
@@ -52,7 +48,6 @@ interface GenerationBottomBarProps {
  * hairline divider above it.
  */
 export function GenerationBottomBar({
-	summary,
 	modelLabel,
 	settingsSummary,
 	settingsContent,
@@ -84,22 +79,16 @@ export function GenerationBottomBar({
 							icon={ArrowDown01Icon}
 							className="size-2.5 shrink-0 text-muted-foreground"
 						/>
-						{modelLabel ? (
-							<span className="flex min-w-0 flex-1 items-baseline gap-1.5">
-								<span className="shrink-0 truncate text-[13px] font-semibold text-foreground">
-									{modelLabel}
+						<span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+							<span className="shrink-0 truncate text-[13px] font-semibold text-foreground">
+								{modelLabel}
+							</span>
+							{settingsSummary && (
+								<span className="truncate text-[12.5px] text-muted-foreground">
+									{settingsSummary}
 								</span>
-								{settingsSummary && (
-									<span className="truncate text-[12.5px] text-muted-foreground">
-										{settingsSummary}
-									</span>
-								)}
-							</span>
-						) : (
-							<span className="truncate text-[12.5px] font-medium text-muted-foreground">
-								{summary}
-							</span>
-						)}
+							)}
+						</span>
 					</button>
 				</PopoverTrigger>
 				<PopoverContent
@@ -165,7 +154,6 @@ export function ChipGrid<T extends string | number>({
 	hint,
 	testIdPrefix,
 	columns,
-	variant: _variant,
 }: {
 	label: string;
 	options: { value: T; label: string; title?: string }[];
@@ -175,10 +163,6 @@ export function ChipGrid<T extends string | number>({
 	testIdPrefix?: string;
 	/** Fixed column count — renders a centered grid instead of flex-wrap. */
 	columns?: number;
-	/** @deprecated no longer affects styling (Resolution now uses
-	 *  {@link SegmentedControl}). Accepted-but-ignored for Phase A back-compat
-	 *  with existing callers; remove once every caller drops it. */
-	variant?: "default" | "solid";
 }) {
 	return (
 		<div className="space-y-1.5">
