@@ -83,6 +83,31 @@ function getVisibleSortedElements({ track }: { track: TimelineTrack }) {
 		});
 }
 
+/**
+ * Preview-only guard against upscaling a proxy: the long edge (in device
+ * pixels) of the canvas the proxy would actually be painted into. When this
+ * exceeds the proxy's own long edge, decoding the proxy would hand the
+ * compositor fewer source pixels than the destination needs — an upscale
+ * baked in on top of the proxy's own downscale, doubly soft. Undefined means
+ * "unknown, don't second-guess useProxy" (e.g. non-preview scenes, or callers
+ * that haven't wired the backing-store size through yet).
+ */
+function proxyWouldBeUpscaled({
+	mediaAsset,
+	previewBackingStoreLongEdge,
+}: {
+	mediaAsset: MediaAsset;
+	previewBackingStoreLongEdge?: number;
+}): boolean {
+	if (previewBackingStoreLongEdge === undefined) return false;
+	if (!mediaAsset.proxy) return false;
+	const proxyLongEdge = Math.max(
+		mediaAsset.proxy.width,
+		mediaAsset.proxy.height,
+	);
+	return previewBackingStoreLongEdge > proxyLongEdge;
+}
+
 function buildTrackNodes({
 	tracks,
 	mediaMap,
@@ -90,6 +115,7 @@ function buildTrackNodes({
 	isPreview,
 	useProxy,
 	forceProxyAssetIds,
+	previewBackingStoreLongEdge,
 }: {
 	tracks: TimelineTrack[];
 	mediaMap: Map<string, MediaAsset>;
@@ -105,6 +131,16 @@ function buildTrackNodes({
 	 * means byte-identical behavior to before this fallback existed.
 	 */
 	forceProxyAssetIds?: Set<string>;
+	/**
+	 * Preview-only: the long edge (device pixels) of the canvas backing store
+	 * the scene will actually be painted into right now (accounts for zoom,
+	 * display size, devicePixelRatio, and playback-quality scaling — see
+	 * `getPlaybackRenderScale`). When a per-element proxy would be upscaled to
+	 * fill that backing store, this scene decodes the original instead — never
+	 * display upscaled proxy pixels. Cheap, per-element arithmetic; see
+	 * `proxyWouldBeUpscaled`.
+	 */
+	previewBackingStoreLongEdge?: number;
 }): BaseNode[] {
 	const nodes: BaseNode[] = [];
 
@@ -147,7 +183,11 @@ function buildTrackNodes({
 					(useProxy &&
 						isPreview &&
 						mediaAsset.proxyFile &&
-						mediaAsset.proxyUrl) ||
+						mediaAsset.proxyUrl &&
+						!proxyWouldBeUpscaled({
+							mediaAsset,
+							previewBackingStoreLongEdge,
+						})) ||
 					(!isPreview &&
 						forceProxyAssetIds?.has(mediaAsset.id) &&
 						mediaAsset.proxyFile &&
@@ -265,6 +305,12 @@ export type BuildSceneParams = {
 	 * itself stays free of.
 	 */
 	forceProxyAssetIds?: Set<string>;
+	/**
+	 * Preview-only: see `buildTrackNodes`'s param of the same name. Omitted (or
+	 * for non-preview scenes) preserves prior behavior — proxy use is decided
+	 * purely by `useProxy` + asset availability, with no upscale guard.
+	 */
+	previewBackingStoreLongEdge?: number;
 };
 
 export function buildScene({
@@ -276,6 +322,7 @@ export function buildScene({
 	isPreview,
 	useProxy,
 	forceProxyAssetIds,
+	previewBackingStoreLongEdge,
 }: BuildSceneParams) {
 	const rootNode = new RootNode({ duration });
 	const mediaMap = new Map(mediaAssets.map((m) => [m.id, m]));
@@ -305,6 +352,7 @@ export function buildScene({
 				isPreview,
 				useProxy,
 				forceProxyAssetIds,
+				previewBackingStoreLongEdge,
 			}),
 		);
 		allNodes.push(

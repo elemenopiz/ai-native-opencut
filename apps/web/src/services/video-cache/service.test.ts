@@ -545,6 +545,52 @@ describe("VideoCache sink tiers", () => {
 		expect(cache.getStats().totalSinks).toBe(1);
 	});
 
+	/**
+	 * Regression for the FIX-F "proxy-quality-settle" bug: scene-builder.ts
+	 * swaps a preview element between an asset's ORIGINAL file and its PROXY
+	 * file at the SAME tier ("preview") — proxy while playing/scrubbing,
+	 * original once the playhead settles (see preview/index.tsx's
+	 * `useIsPlaybackSettled`). Before this fix, `ensureSink` only rebuilt a
+	 * cached sink when the capped tier's `previewMaxSize` changed, so a
+	 * same-tier file swap silently kept decoding the STALE file forever —
+	 * the settle rebuild changed the scene graph but never reached the
+	 * actual decoded pixels.
+	 */
+	it("rebuilds the sink when the file changes at the same tier/cap (proxy <-> original swap)", async () => {
+		const cache = new VideoCache();
+		const proxyFile = new File(["proxy"], "clip-proxy.mp4");
+
+		await cache.getFrameAt({
+			mediaId: "m7b",
+			file: proxyFile,
+			time: 0,
+			tier: "preview",
+			previewMaxSize: 1920,
+		});
+		await cache.getFrameAt({
+			mediaId: "m7b",
+			file,
+			time: 0,
+			tier: "preview",
+			previewMaxSize: 1920,
+		});
+
+		expect(sinkConstructions).toHaveLength(2);
+		expect(disposeCalls).toBe(1);
+		expect(cache.getStats().totalSinks).toBe(1);
+
+		// Same file again: must NOT rebuild (the whole point of the cache).
+		await cache.getFrameAt({
+			mediaId: "m7b",
+			file,
+			time: 0,
+			tier: "preview",
+			previewMaxSize: 1920,
+		});
+		expect(sinkConstructions).toHaveLength(2);
+		expect(disposeCalls).toBe(1);
+	});
+
 	it("clearVideo disposes both tiers", async () => {
 		const cache = new VideoCache();
 

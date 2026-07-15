@@ -9,6 +9,7 @@ import {
 	useState,
 } from "react";
 import useDeepCompareEffect from "use-deep-compare-effect";
+import type { EditorCore } from "@/core";
 import { useEditor } from "@/hooks/use-editor";
 import { useRafLoop } from "@/hooks/use-raf-loop";
 import { useContainerSize } from "@/hooks/use-container-size";
@@ -52,6 +53,103 @@ function usePreviewSize() {
 		width: activeProject?.settings.canvasSize.width,
 		height: activeProject?.settings.canvasSize.height,
 	};
+}
+
+/** Debounce window between playback/scrub stopping and the preview scene
+ *  rebuilding onto the full-res original. Long enough that a quick play-pause
+ *  tap or a scrub-handle release-then-grab doesn't thrash a full scene
+ *  rebuild; short enough that a held-still frame sharpens up promptly. */
+const PLAYBACK_SETTLE_DELAY_MS = 250;
+
+/**
+ * True once playback AND scrubbing have both been idle for
+ * `PLAYBACK_SETTLE_DELAY_MS`. Drives the preview scene's `useProxy`: while
+ * playing or actively scrubbing the scene keeps decoding the (cheap) proxy,
+ * but once the playhead settles the scene rebuilds onto the ORIGINAL asset so
+ * the held frame is pixel-sharp (see the regression this fixes: proxies were
+ * being used for paused frames too, softening the "resting" preview).
+ * Starts settled — a freshly-mounted, paused editor should show a sharp frame
+ * immediately, with no wait. Debounced (not flipped synchronously on pause)
+ * so this never fires the settle rebuild while still moving.
+ */
+function useIsPlaybackSettled({ editor }: { editor: EditorCore }): boolean {
+	const [settled, setSettled] = useState(
+		() => !editor.playback.getIsPlaying() && !editor.playback.getIsScrubbing(),
+	);
+
+	useEffect(() => {
+		let timer: ReturnType<typeof setTimeout> | null = null;
+		const clearTimer = () => {
+			if (timer !== null) {
+				clearTimeout(timer);
+				timer = null;
+			}
+		};
+		const evaluate = () => {
+			clearTimer();
+			const active =
+				editor.playback.getIsPlaying() || editor.playback.getIsScrubbing();
+			if (active) {
+				setSettled(false);
+			} else {
+				timer = setTimeout(() => {
+					setSettled(true);
+				}, PLAYBACK_SETTLE_DELAY_MS);
+			}
+		};
+		// Discrete playback events (play/pause/seek/scrub) all call notify(),
+		// which this subscription rides — see PlaybackManager.subscribe.
+		evaluate();
+		const unsubscribe = editor.playback.subscribe(evaluate);
+		return () => {
+			clearTimer();
+			unsubscribe();
+		};
+	}, [editor.playback]);
+
+	return settled;
+}
+
+/**
+ * Cheap estimate of the preview canvas's actual backing-store long edge
+ * (device pixels) right now — mirrors `PreviewCanvas`'s own `renderSize`
+ * computation (see `getPlaybackRenderScale`) using the same reactive inputs
+ * from `usePreviewStore` (zoom/fitScale/playbackQuality set by that
+ * component) plus devicePixelRatio. Used only to decide whether a proxy would
+ * be upscaled to fill the canvas (scene-builder.ts's
+ * `previewBackingStoreLongEdge` / `proxyWouldBeUpscaled`) — an approximation
+ * is fine here since a false negative just means one extra frame decoded from
+ * the proxy before the next recompute, never a correctness issue.
+ */
+function usePreviewBackingStoreLongEdge({
+	nativeWidth,
+	nativeHeight,
+}: {
+	nativeWidth?: number;
+	nativeHeight?: number;
+}): number | undefined {
+	// Individual selectors (not a destructured whole-store read): this hook
+	// feeds RenderTreeController, whose effect drives a scene rebuild, so it
+	// should only re-run for the specific fields the estimate depends on —
+	// not every unrelated preview-store change (guides, overlays, pan…).
+	const zoom = usePreviewStore((state) => state.zoom);
+	const fitScale = usePreviewStore((state) => state.fitScale);
+	const playbackQuality = usePreviewStore((state) => state.playbackQuality);
+
+	return useMemo(() => {
+		if (!nativeWidth || !nativeHeight || !fitScale) return undefined;
+		const devicePixelRatio =
+			typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
+		const scale = getPlaybackRenderScale({
+			quality: playbackQuality,
+			nativeWidth,
+			nativeHeight,
+			displayWidth: fitScale * nativeWidth,
+			zoom,
+			devicePixelRatio,
+		});
+		return Math.round(Math.max(nativeWidth, nativeHeight) * scale);
+	}, [nativeWidth, nativeHeight, zoom, fitScale, playbackQuality]);
 }
 
 export function PreviewPanel() {
@@ -139,6 +237,11 @@ function RenderTreeController() {
 	const activeProject = editor.project.getActive();
 
 	const { width, height } = usePreviewSize();
+	const settled = useIsPlaybackSettled({ editor });
+	const previewBackingStoreLongEdge = usePreviewBackingStoreLongEdge({
+		nativeWidth: width,
+		nativeHeight: height,
+	});
 
 	useDeepCompareEffect(() => {
 		if (!activeProject) return;
@@ -155,8 +258,18 @@ function RenderTreeController() {
 			// in the background on ingest, or manually generated), preview/scrub
 			// should use it automatically. Export always builds with isPreview
 			// unset, so it never reads this and always decodes full-res
-			// originals regardless of this setting.
-			useProxy: activeProject.settings.proxyEditing ?? true,
+			// originals regardless of this setting. Gated on `!settled` on top of
+			// that: playing/scrubbing keeps the proxy, but once the playhead has
+			// been idle for PLAYBACK_SETTLE_DELAY_MS the scene rebuilds onto the
+			// original so the held/paused frame is pixel-sharp (see
+			// useIsPlaybackSettled — this is the fix for proxies staying in use on
+			// paused frames).
+			useProxy: (activeProject.settings.proxyEditing ?? true) && !settled,
+			// Never display an upscaled proxy: if the canvas backing store would
+			// need more pixels than the proxy has (zoomed-in preview, high DPR),
+			// scene-builder falls back to the original per-element even while
+			// !settled (playing). See proxyWouldBeUpscaled.
+			previewBackingStoreLongEdge,
 		});
 
 		editor.renderer.setRenderTree({ renderTree });
@@ -167,6 +280,8 @@ function RenderTreeController() {
 		activeProject?.settings.proxyEditing,
 		width,
 		height,
+		settled,
+		previewBackingStoreLongEdge,
 	]);
 
 	return null;

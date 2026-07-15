@@ -48,6 +48,18 @@ interface VideoSinkData {
 	chain: Promise<unknown>;
 	/** Long-edge decode cap the sink was created with (preview/export tiers only). */
 	maxSize: number | null;
+	/**
+	 * The File this sink was built from. A given (mediaId, tier) key does NOT
+	 * uniquely determine which file backs it: scene-builder can swap a preview
+	 * element between an asset's original and its proxy at the SAME tier
+	 * ("preview") depending on playback/settle state (see
+	 * scene-builder.ts/preview's `useIsPlaybackSettled`) or export's
+	 * `forceProxyAssetIds` fallback. Without this, `ensureSink` would see an
+	 * already-cached sink for the key and keep serving frames decoded from the
+	 * OLD file even after the caller asked for a different one — silently
+	 * undoing a settle-to-original (or fallback-to-proxy) scene rebuild.
+	 */
+	file: File;
 }
 
 /**
@@ -538,11 +550,19 @@ export class VideoCache {
 			// The preview/export cap follows the project's canvas size, which can
 			// change mid-session (frame preset switch) — rebuild the sink at the
 			// new cap instead of serving stale-resolution frames forever.
-			if (
+			const capChanged =
 				isCappedTier(tier) &&
 				previewMaxSize !== undefined &&
-				existing.maxSize !== previewMaxSize
-			) {
+				existing.maxSize !== previewMaxSize;
+			// The same (mediaId, tier) key can legitimately point at a different
+			// File over time — a preview scene swapping between an asset's
+			// original and its proxy at the same "preview" tier (settle-to-
+			// original / display-aware upscale guard), or an export scene's
+			// forceProxyAssetIds fallback. Reference equality is enough: File
+			// objects for an asset's original/proxy are created once and held
+			// for the asset's lifetime, never mutated in place.
+			const fileChanged = existing.file !== file;
+			if (capChanged || fileChanged) {
 				this.disposeSink({ key });
 			} else {
 				return;
@@ -662,6 +682,7 @@ export class VideoCache {
 				warmPromise: null,
 				chain: Promise.resolve(),
 				maxSize: isCappedTier(tier) ? (previewMaxSize ?? null) : null,
+				file,
 			});
 		} catch (error) {
 			// Free the Input's resources — we're not keeping it (no sink gets
