@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
 import { cn } from "@/utils/ui";
 import { useEditor } from "@/hooks/use-editor";
 import { useBackends } from "@/hooks/use-backends";
@@ -34,6 +33,45 @@ import type { VideoElement } from "@/types/timeline";
 const SCORE_MAX_DURATION_SEC = 30;
 const SCORE_DURATION_OPTIONS = [4, 8, 15, 20, 30];
 const MUSIC_DURATION_OPTIONS = [15, 30, 60, 120];
+
+/** Local progress-strip driver — no `lib/studio/generation-eta.ts` dependency
+ *  (that module is Phase B's, not guaranteed to exist yet). Fixed ~45s ETA
+ *  for MMAudio V2's typical turnaround; eases toward a 92% cap while polling
+ *  so the strip never visually completes before the job actually has, then
+ *  the caller snaps it to 100% once `busy` flips false. */
+const SCORE_ETA_MS = 45_000;
+
+/** Drives a `[0, 1]` progress fraction while `busy` is true: grows linearly
+ *  toward 90% by `etaMs`, capped at 92% if the job overruns; snaps to 100%
+ *  the moment `busy` flips false, then reports `visible: false` after a
+ *  short fade-out delay so the caller can unmount the strip. */
+function useEtaProgress(busy: boolean, etaMs: number) {
+	const [pct, setPct] = useState(0);
+	const [visible, setVisible] = useState(false);
+	const wasBusyRef = useRef(false);
+
+	useEffect(() => {
+		if (busy) {
+			wasBusyRef.current = true;
+			setVisible(true);
+			setPct(0);
+			const start = Date.now();
+			const interval = setInterval(() => {
+				const elapsed = Date.now() - start;
+				setPct(Math.min(0.92, (elapsed / etaMs) * 0.9));
+			}, 250);
+			return () => clearInterval(interval);
+		}
+		if (wasBusyRef.current) {
+			wasBusyRef.current = false;
+			setPct(1);
+			const timer = setTimeout(() => setVisible(false), 600);
+			return () => clearTimeout(timer);
+		}
+	}, [busy, etaMs]);
+
+	return { pct, visible };
+}
 
 type AudioMode = "score" | "music" | "voiceover";
 
@@ -190,10 +228,12 @@ function ScoreMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
 	}, []);
 
 	const cost = estimateAudioCredits(duration, "fal-mmaudio");
-	const summary = useMemo(() => {
-		const parts = ["MMAudio V2", `${duration}s`];
-		return parts.join(" · ");
-	}, [duration]);
+	const modelLabel = "MMAudio V2";
+	const settingsSummary = `${duration}s`;
+	const { pct: progressPct, visible: showProgress } = useEtaProgress(
+		busy,
+		SCORE_ETA_MS,
+	);
 
 	async function handleGenerate() {
 		if (!source || source.status !== "ready") return;
@@ -378,8 +418,10 @@ function ScoreMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
 		<div className="flex flex-col gap-3">
 			<div className="space-y-1.5">
 				<div className="flex items-center justify-between">
-					<Label className="text-xs">Source video</Label>
-					<span className="text-[10px] text-muted-foreground">
+					<span className="text-[13px] font-semibold text-foreground/70">
+						Source video
+					</span>
+					<span className="text-[11.5px] text-muted-foreground">
 						required · drag, drop, or browse
 					</span>
 				</div>
@@ -391,27 +433,45 @@ function ScoreMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
 			</div>
 
 			{!source && (
-				<p className="text-[10px] text-amber-600 dark:text-amber-500">
+				<p className="text-[11.5px] text-muted-foreground">
 					Attach a source video to generate.
 				</p>
 			)}
 
 			<GenerationCard>
-				<div className="space-y-1.5 p-3">
-					<Label className="text-xs text-muted-foreground">
-						Prompt · optional
-					</Label>
+				<div className="space-y-1.5 p-4 pb-1">
+					<span className="text-[13px] font-semibold text-foreground/70">
+						Prompt{" "}
+						<span className="font-normal text-muted-foreground">
+							· optional
+						</span>
+					</span>
 					<Textarea
 						placeholder="Describe the ambience or sound design (leave blank to let the model match the scene)…"
 						value={prompt}
 						onChange={(e) => setPrompt(e.target.value)}
 						rows={3}
-						className="resize-none border-0 bg-transparent p-0 text-sm shadow-none focus-visible:ring-0 min-h-16"
+						className="resize-none border-0 bg-transparent p-0 text-[14.5px] leading-relaxed shadow-none focus-visible:ring-0 min-h-16"
 					/>
 				</div>
 
+				{showProgress && (
+					<div className="space-y-1.5 px-4 py-3">
+						<div className="h-[3px] w-full overflow-hidden rounded-full bg-foreground/[0.12]">
+							<div
+								className="h-full rounded-full bg-zinc-900 transition-all duration-300 dark:bg-[#f2efe9]"
+								style={{ width: `${Math.round(progressPct * 100)}%` }}
+							/>
+						</div>
+						<p className="text-[11.5px] tabular-nums text-muted-foreground">
+							Generating score · {Math.round(progressPct * 100)}%
+						</p>
+					</div>
+				)}
+
 				<GenerationBottomBar
-					summary={summary}
+					modelLabel={modelLabel}
+					settingsSummary={settingsSummary}
 					settingsContent={settingsContent}
 					cost={cost}
 					onSubmit={handleGenerate}
@@ -426,7 +486,7 @@ function ScoreMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
 				<button
 					type="button"
 					onClick={placeOnTimeline}
-					className="rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-left text-xs font-medium text-primary hover:bg-primary/10"
+					className="rounded-[10px] bg-foreground/[0.14] px-3 py-2 text-left text-[12.5px] font-medium text-foreground transition-colors hover:bg-foreground/[0.2]"
 				>
 					Place on timeline at that span
 				</button>
@@ -512,9 +572,9 @@ function MusicMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
 	const [resultUrl, setResultUrl] = useState<string | null>(null);
 
 	const cost = estimateAudioCredits(duration, "elevenlabs-music");
-	const summary = useMemo(
-		() =>
-			`ElevenLabs Music · ${duration}s${instrumental ? " · instrumental" : ""}`,
+	const modelLabel = "ElevenLabs Music";
+	const settingsSummary = useMemo(
+		() => `${duration}s${instrumental ? " · instrumental" : ""}`,
 		[duration, instrumental],
 	);
 
@@ -611,40 +671,51 @@ function MusicMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
 	return (
 		<div className="flex flex-col gap-3">
 			<GenerationCard>
-				<div className="space-y-1.5 p-3">
-					<Label className="text-xs text-muted-foreground">Prompt</Label>
+				<div className="space-y-1.5 p-4 pb-1">
+					<span className="text-[13px] font-semibold text-foreground/70">
+						Prompt
+					</span>
 					<Textarea
 						placeholder="Describe the track — genre, mood, instrumentation…"
 						value={prompt}
 						onChange={(e) => setPrompt(e.target.value)}
 						rows={4}
-						className="resize-none border-0 bg-transparent p-0 text-sm shadow-none focus-visible:ring-0 min-h-20"
+						className="resize-none border-0 bg-transparent p-0 text-[14.5px] leading-relaxed shadow-none focus-visible:ring-0 min-h-20"
 					/>
-
-					{!instrumental && (
-						<div className="space-y-1.5">
-							<button
-								type="button"
-								onClick={() => setShowLyrics((v) => !v)}
-								className="text-[11px] font-medium text-muted-foreground hover:text-foreground"
-							>
-								{showLyrics ? "− Hide lyrics" : "+ Add lyrics"}
-							</button>
-							{showLyrics && (
-								<Textarea
-									placeholder="Optional lyrics to guide the vocals…"
-									value={lyrics}
-									onChange={(e) => setLyrics(e.target.value)}
-									rows={3}
-									className="resize-none text-sm"
-								/>
-							)}
-						</div>
-					)}
 				</div>
 
+				{!instrumental && (
+					<div className="flex items-center gap-2 px-4 pb-3 pt-1">
+						<button
+							type="button"
+							onClick={() => setShowLyrics((v) => !v)}
+							className={cn(
+								"flex h-[30px] items-center rounded-[10px] px-3 text-[12.5px] font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/40",
+								showLyrics
+									? "bg-foreground/[0.16] font-semibold text-foreground"
+									: "bg-foreground/[0.06] text-muted-foreground hover:bg-foreground/[0.09] hover:text-foreground",
+							)}
+						>
+							+ Lyrics
+						</button>
+					</div>
+				)}
+
+				{!instrumental && showLyrics && (
+					<div className="px-4 pb-3">
+						<Textarea
+							placeholder="Optional lyrics to guide the vocals…"
+							value={lyrics}
+							onChange={(e) => setLyrics(e.target.value)}
+							rows={3}
+							className="resize-none text-[14.5px] leading-relaxed"
+						/>
+					</div>
+				)}
+
 				<GenerationBottomBar
-					summary={summary}
+					modelLabel={modelLabel}
+					settingsSummary={settingsSummary}
 					settingsContent={settingsContent}
 					cost={cost}
 					onSubmit={handleGenerate}
@@ -676,9 +747,11 @@ function MusicMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
 function VoiceoverRedirect() {
 	const setActiveTab = useAssetsPanelStore((s) => s.setActiveTab);
 	return (
-		<div className="rounded-md border border-border bg-muted/40 p-3 space-y-2">
-			<p className="text-xs font-medium">Full voiceover pipeline</p>
-			<p className="text-[11px] text-muted-foreground">
+		<div className="space-y-2 rounded-xl bg-foreground/[0.04] p-3">
+			<p className="text-[13px] font-semibold text-foreground">
+				Full voiceover pipeline
+			</p>
+			<p className="text-[11.5px] text-muted-foreground">
 				Script, language, voice cloning, and per-segment takes live in the
 				Assets panel's Audio tab — the same pipeline the Director uses.
 			</p>
@@ -688,7 +761,7 @@ function VoiceoverRedirect() {
 					setActiveTab("audio");
 					toast.info('Opened Audio — pick the "Voiceover" sub-tab.');
 				}}
-				className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+				className="flex h-[30px] items-center rounded-[10px] bg-foreground/[0.14] px-3 text-[12.5px] font-medium text-foreground transition-colors hover:bg-foreground/[0.2]"
 			>
 				Open Voiceover
 			</button>
