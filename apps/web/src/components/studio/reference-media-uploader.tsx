@@ -65,6 +65,11 @@ interface ReferenceMediaUploaderProps {
 	accept?: "all" | "image";
 	disabled?: boolean;
 	className?: string;
+	/** When provided, the on-thumb @handle tag becomes clickable and calls
+	 *  back with that item's id — the caller inserts its handle into the
+	 *  prompt (see generation-form.tsx). Omit to keep the tag a plain,
+	 *  non-interactive label (existing callers unaffected). */
+	onHandleClick?: (id: string) => void;
 }
 
 /**
@@ -80,6 +85,7 @@ export function ReferenceMediaUploader({
 	accept = "all",
 	disabled,
 	className,
+	onHandleClick,
 }: ReferenceMediaUploaderProps) {
 	const imagesOnly = accept === "image";
 	const editor = useEditor();
@@ -318,12 +324,25 @@ export function ReferenceMediaUploader({
 						</div>
 					)}
 
-					{/* @mention handle — what you type in the prompt */}
-					{handles?.[it.id] && it.status === "ready" && (
-						<span className="absolute bottom-1 left-1 rounded bg-black/65 px-1 py-0.5 font-mono text-[9px] font-medium text-white">
-							{handles[it.id]}
-						</span>
-					)}
+					{/* @mention handle — what you type in the prompt. Clickable when
+					    `onHandleClick` is wired (video tab): inserts the handle into
+					    the prompt directly from the thumb, no separate helper row. */}
+					{handles?.[it.id] &&
+						it.status === "ready" &&
+						(onHandleClick ? (
+							<button
+								type="button"
+								onClick={() => onHandleClick(it.id)}
+								title={`Insert ${handles[it.id]} into the prompt`}
+								className="absolute bottom-1 left-1 rounded bg-black/65 px-1 py-0.5 font-mono text-[9px] font-medium text-white transition-colors hover:bg-black/80"
+							>
+								{handles[it.id]}
+							</button>
+						) : (
+							<span className="absolute bottom-1 left-1 rounded bg-black/65 px-1 py-0.5 font-mono text-[9px] font-medium text-white">
+								{handles[it.id]}
+							</span>
+						))}
 
 					<button
 						type="button"
