@@ -15,6 +15,10 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { useEditor } from "@/hooks/use-editor";
 import { cn } from "@/utils/ui";
+import {
+	computeSpeedAdjustedDuration,
+	getRightNeighborStart,
+} from "@/lib/timeline/speed-utils";
 import { SpeedCurveEditor } from "./speed-curve-editor";
 
 export function VideoProperties({
@@ -63,12 +67,34 @@ function SpeedSection({
 	const isReversed = element.reversed ?? false;
 
 	const handleSpeedChange = (rate: number) => {
+		const track = editor.timeline.getTracks().find((t) => t.id === trackId);
+		const fps = editor.project.getActive().settings.fps;
+
+		const rightNeighborStart = track
+			? getRightNeighborStart({
+					elements: track.elements,
+					elementId: element.id,
+					startTime: element.startTime,
+				})
+			: null;
+
+		const newDuration = computeSpeedAdjustedDuration({
+			duration: element.duration,
+			oldRate: currentRate,
+			newRate: rate,
+			minDuration: 1 / fps,
+			maxDuration:
+				rightNeighborStart != null
+					? rightNeighborStart - element.startTime
+					: null,
+		});
+
 		editor.timeline.updateElements({
 			updates: [
 				{
 					trackId,
 					elementId: element.id,
-					updates: { playbackRate: rate },
+					updates: { playbackRate: rate, duration: newDuration },
 				},
 			],
 		});

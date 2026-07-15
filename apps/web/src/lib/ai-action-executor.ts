@@ -1,5 +1,9 @@
 import type { EditorAction, EditorActionType } from "@/types/ai";
 import { useTranscriptStore } from "@/stores/transcript-store";
+import {
+	computeSpeedAdjustedDuration,
+	getRightNeighborStart,
+} from "@/lib/timeline/speed-utils";
 
 function getTranscriptStore() {
 	return useTranscriptStore.getState();
@@ -203,6 +207,7 @@ export function executeAction(action: EditorAction): void {
 			try {
 				const editor = getEditorCore();
 				const speed = (action.params.speed as number) ?? 1;
+				const fps = editor.project.getActive().settings.fps;
 				const tracks = editor.timeline.getTracks();
 				const updates: Array<{
 					trackId: string;
@@ -212,10 +217,26 @@ export function executeAction(action: EditorAction): void {
 				for (const track of tracks) {
 					for (const el of track.elements) {
 						if (el.type === "video") {
+							const oldRate = el.playbackRate ?? 1.0;
+							const rightNeighborStart = getRightNeighborStart({
+								elements: track.elements,
+								elementId: el.id,
+								startTime: el.startTime,
+							});
+							const newDuration = computeSpeedAdjustedDuration({
+								duration: el.duration,
+								oldRate,
+								newRate: speed,
+								minDuration: 1 / fps,
+								maxDuration:
+									rightNeighborStart != null
+										? rightNeighborStart - el.startTime
+										: null,
+							});
 							updates.push({
 								trackId: track.id,
 								elementId: el.id,
-								updates: { playbackRate: speed },
+								updates: { playbackRate: speed, duration: newDuration },
 							});
 						}
 					}
