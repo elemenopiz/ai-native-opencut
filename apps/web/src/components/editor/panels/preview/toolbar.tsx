@@ -12,14 +12,13 @@ import {
 	HandGripIcon,
 	PauseIcon,
 	PlayIcon,
-	SearchAddIcon,
-	SearchMinusIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Separator } from "@/components/ui/separator";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
+	DropdownMenuItem,
 	DropdownMenuLabel,
 	DropdownMenuRadioGroup,
 	DropdownMenuRadioItem,
@@ -29,7 +28,7 @@ import {
 import { usePreviewStore, type PlaybackQuality } from "@/stores/preview-store";
 import { AIToolbar } from "@/components/editor/ai/ai-toolbar";
 
-const ZOOM_STEP = 1.25;
+const ZOOM_PRESETS = [25, 50, 75, 100, 150, 200];
 
 export function PreviewToolbar({
 	isFullscreen,
@@ -78,7 +77,6 @@ export function PreviewToolbar({
 
 			<div className="justify-self-end flex items-center gap-2.5">
 				<AIToolbar />
-				<Separator orientation="vertical" className="h-4" />
 				<PlaybackQualityPicker />
 				<Separator orientation="vertical" className="h-4" />
 				<PreviewZoomControls />
@@ -196,19 +194,20 @@ function PlaybackQualityPicker() {
 }
 
 function PreviewZoomControls() {
-	const {
-		zoom,
-		panMode,
-		fitScale,
-		setZoom,
-		setZoomAndPan,
-		togglePanMode,
-		resetView,
-	} = usePreviewStore();
+	const { zoom, panMode, fitScale, setZoomAndPan, togglePanMode, resetView } =
+		usePreviewStore();
 	const zoomPercent = Math.round(zoom * (fitScale || 1) * 100);
+	const isAtFit = zoom === 1;
+
+	const setZoomPercent = (percent: number) => {
+		setZoomAndPan({
+			zoom: fitScale > 0 ? percent / 100 / fitScale : percent / 100,
+			pan: { x: 0, y: 0 },
+		});
+	};
 
 	return (
-		<div className="flex items-center gap-0.5">
+		<div className="flex items-center gap-1">
 			<Button
 				variant={panMode ? "secondary" : "text"}
 				size="icon"
@@ -218,47 +217,30 @@ function PreviewZoomControls() {
 			>
 				<HugeiconsIcon icon={HandGripIcon} className="size-4" />
 			</Button>
-			<Button
-				variant="text"
-				size="icon"
-				className="size-7"
-				onClick={() => setZoom({ zoom: zoom / ZOOM_STEP })}
-				title="Zoom out"
-			>
-				<HugeiconsIcon icon={SearchMinusIcon} className="size-4" />
-			</Button>
-			<Button
-				variant="text"
-				size="sm"
-				className="h-7 w-12 px-1 font-mono text-xs"
-				onClick={resetView}
-				title="Zoom to fit"
-			>
-				{zoomPercent}%
-			</Button>
-			<Button
-				variant="text"
-				size="icon"
-				className="size-7"
-				onClick={() => setZoom({ zoom: zoom * ZOOM_STEP })}
-				title="Zoom in"
-			>
-				<HugeiconsIcon icon={SearchAddIcon} className="size-4" />
-			</Button>
-			<Button
-				variant="text"
-				size="sm"
-				className="h-7 px-1 font-mono text-xs"
-				onClick={() =>
-					setZoomAndPan({
-						zoom: fitScale > 0 ? 1 / fitScale : 1,
-						pan: { x: 0, y: 0 },
-					})
-				}
-				title="Zoom to 100%"
-			>
-				1:1
-			</Button>
+			<DropdownMenu>
+				<DropdownMenuTrigger asChild>
+					<Button
+						variant="text"
+						size="sm"
+						className="h-7 w-12 px-1 font-mono text-xs"
+						title="Zoom (scroll on canvas for fine control)"
+					>
+						{isAtFit ? "Fit" : `${zoomPercent}%`}
+					</Button>
+				</DropdownMenuTrigger>
+				<DropdownMenuContent align="end">
+					<DropdownMenuItem onSelect={resetView}>Zoom to fit</DropdownMenuItem>
+					<DropdownMenuSeparator />
+					{ZOOM_PRESETS.map((preset) => (
+						<DropdownMenuItem
+							key={preset}
+							onSelect={() => setZoomPercent(preset)}
+						>
+							{preset}%
+						</DropdownMenuItem>
+					))}
+				</DropdownMenuContent>
+			</DropdownMenu>
 		</div>
 	);
 }

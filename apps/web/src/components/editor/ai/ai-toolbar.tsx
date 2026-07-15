@@ -9,6 +9,7 @@ import { useAIStore } from "@/stores/ai-store";
 import { useEditor } from "@/hooks/use-editor";
 import { useAssetsPanelStore } from "@/stores/assets-panel-store";
 import { addItemsToProjectMedia } from "@/lib/studio/add-to-editor";
+import { Separator } from "@/components/ui/separator";
 import { AIToolbarButtons } from "./ai-toolbar-buttons";
 import { BackgroundRemovalDialog } from "./background-removal-dialog";
 
@@ -148,6 +149,7 @@ export function AIToolbar({ className }: { className?: string }) {
 				onTranscribe={() => setActiveTab("captions")}
 				onAddSubtitles={() => setActiveTab("captions")}
 			/>
+			<Separator orientation="vertical" className="h-4" />
 			<BackgroundRemovalDialog
 				isOpen={isBgOpen}
 				onOpenChange={setIsBgOpen}
