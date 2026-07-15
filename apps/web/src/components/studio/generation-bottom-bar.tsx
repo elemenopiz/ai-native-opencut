@@ -18,9 +18,15 @@ import type { CostRange } from "@/lib/studio/cost";
 import { formatCostRange } from "@/lib/studio/cost";
 
 interface GenerationBottomBarProps {
-	/** Compact summary shown on the model/settings trigger, e.g.
-	 *  "Seedance 2 · 1080p · 5s · 16:9". */
-	summary: string;
+	/** @deprecated pass `modelLabel` (+ optional `settingsSummary`) instead —
+	 *  kept for back-compat with callers not yet migrated to the two-part
+	 *  label. Ignored once `modelLabel` is set. */
+	summary?: string;
+	/** Bright model name on the trigger, e.g. "Seedance 2". */
+	modelLabel?: string;
+	/** Muted settings recap next to the model label, e.g.
+	 *  "1080p · 5s · 16:9". */
+	settingsSummary?: string;
 	/** Chip grids / model list / toggles rendered inside the settings popover. */
 	settingsContent: React.ReactNode;
 	/** Live, resolution/backend-aware credits estimate — updates as settings change. */
@@ -38,15 +44,17 @@ interface GenerationBottomBarProps {
 
 /**
  * The Palmier-pattern bottom bar shared by every generation surface: a single
- * trigger (chevron + a plain-language settings summary) opens one popover
- * holding every secondary control as chip grids and a live credits chip, plus
- * one circular submit arrow — the panel's single high-contrast element.
- * Renders bare (no border/background of its own) — callers nest it as the
- * last section inside a {@link GenerationCard}, which supplies the hairline
- * divider above it.
+ * trigger (chevron + model name + a plain-language settings recap) opens one
+ * popover holding every secondary control as chip grids and a live credits
+ * chip, plus one circular submit arrow — the panel's single high-contrast
+ * element. Renders bare (no border/background of its own) — callers nest it
+ * as the last section inside a {@link GenerationCard}, which supplies the
+ * hairline divider above it.
  */
 export function GenerationBottomBar({
 	summary,
+	modelLabel,
+	settingsSummary,
 	settingsContent,
 	cost,
 	onSubmit,
@@ -57,7 +65,12 @@ export function GenerationBottomBar({
 	testIdPrefix,
 }: GenerationBottomBarProps) {
 	return (
-		<div className={cn("flex items-center gap-2 px-3 py-2", className)}>
+		<div
+			className={cn(
+				"flex min-h-[58px] items-center gap-2 pl-4 pr-3",
+				className,
+			)}
+		>
 			<Popover>
 				<PopoverTrigger asChild>
 					<button
@@ -65,13 +78,28 @@ export function GenerationBottomBar({
 						data-testid={
 							testIdPrefix ? `${testIdPrefix}-settings-trigger` : undefined
 						}
-						className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-1 text-left text-xs font-medium text-foreground/80 transition-colors hover:text-foreground"
+						className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-1 text-left transition-colors"
 					>
 						<HugeiconsIcon
 							icon={ArrowDown01Icon}
-							className="size-3.5 shrink-0 text-muted-foreground"
+							className="size-2.5 shrink-0 text-muted-foreground"
 						/>
-						<span className="truncate">{summary}</span>
+						{modelLabel ? (
+							<span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+								<span className="shrink-0 truncate text-[13px] font-semibold text-foreground">
+									{modelLabel}
+								</span>
+								{settingsSummary && (
+									<span className="truncate text-[12.5px] text-muted-foreground">
+										{settingsSummary}
+									</span>
+								)}
+							</span>
+						) : (
+							<span className="truncate text-[12.5px] font-medium text-muted-foreground">
+								{summary}
+							</span>
+						)}
 					</button>
 				</PopoverTrigger>
 				<PopoverContent
@@ -79,7 +107,7 @@ export function GenerationBottomBar({
 					side="top"
 					sideOffset={10}
 					collisionPadding={12}
-					className="w-[19rem] space-y-3 rounded-2xl p-4"
+					className="w-80 space-y-[17px] rounded-[18px] border-foreground/[0.12] bg-popover/95 p-[18px] shadow-xl backdrop-blur-xl"
 				>
 					{settingsContent}
 					<PopoverArrow />
@@ -87,11 +115,18 @@ export function GenerationBottomBar({
 			</Popover>
 
 			<span
-				className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-lg border border-border/50 px-2 py-1 text-xs font-medium tabular-nums text-muted-foreground"
+				className="flex shrink-0 items-center gap-1.5 whitespace-nowrap"
 				title="Estimated credits for this generation"
 			>
-				<HugeiconsIcon icon={Coins01Icon} className="size-3.5" />
-				{formatCostRange(cost)}
+				<span className="flex size-[15px] items-center justify-center rounded-full bg-foreground/[0.14]">
+					<HugeiconsIcon
+						icon={Coins01Icon}
+						className="size-[9px] text-foreground/70"
+					/>
+				</span>
+				<span className="text-[12.5px] font-semibold tabular-nums text-foreground/80">
+					{formatCostRange(cost)}
+				</span>
 			</span>
 
 			<button
@@ -102,10 +137,10 @@ export function GenerationBottomBar({
 				onClick={onSubmit}
 				disabled={submitDisabled}
 				className={cn(
-					"flex size-8 shrink-0 items-center justify-center rounded-full transition-colors",
+					"flex size-[38px] shrink-0 items-center justify-center rounded-full transition-colors",
 					submitDisabled
-						? "bg-muted text-muted-foreground cursor-not-allowed"
-						: "bg-foreground text-background hover:bg-foreground/90",
+						? "bg-foreground/[0.08] text-muted-foreground cursor-not-allowed"
+						: "bg-zinc-900 text-zinc-50 hover:opacity-90 dark:bg-[#ede9e1] dark:text-[#1a1a18]",
 				)}
 			>
 				{busy ? (
@@ -118,11 +153,10 @@ export function GenerationBottomBar({
 	);
 }
 
-/** A row of equal-width chip buttons — the shared visual for Duration /
- *  Aspect Ratio / Resolution / Size / Quality / Batch inside the popover.
- *  `variant="solid"` selects with a high-contrast fill (foreground/background,
- *  i.e. near-white-on-black in dark mode) — reserved for Resolution per the
- *  design spec; every other chip grid uses the quieter neutral fill. */
+/** A row of filled chip buttons — the shared visual for Duration / Aspect
+ *  Ratio / Size / Quality / Batch inside the popover. Pass `columns` to lay
+ *  options out as a fixed-column, centered grid instead of flex-wrap (e.g.
+ *  Duration uses 5); omit it for the default wrapping row. */
 export function ChipGrid<T extends string | number>({
 	label,
 	options,
@@ -130,7 +164,8 @@ export function ChipGrid<T extends string | number>({
 	onChange,
 	hint,
 	testIdPrefix,
-	variant = "default",
+	columns,
+	variant: _variant,
 }: {
 	label: string;
 	options: { value: T; label: string; title?: string }[];
@@ -138,19 +173,31 @@ export function ChipGrid<T extends string | number>({
 	onChange: (v: T) => void;
 	hint?: string;
 	testIdPrefix?: string;
+	/** Fixed column count — renders a centered grid instead of flex-wrap. */
+	columns?: number;
+	/** @deprecated no longer affects styling (Resolution now uses
+	 *  {@link SegmentedControl}). Accepted-but-ignored for Phase A back-compat
+	 *  with existing callers; remove once every caller drops it. */
 	variant?: "default" | "solid";
 }) {
 	return (
 		<div className="space-y-1.5">
 			<div className="flex items-center justify-between">
-				<span className="text-xs font-medium text-muted-foreground">
+				<span className="text-[13px] font-semibold text-foreground/70">
 					{label}
 				</span>
 				{hint && (
-					<span className="text-[10px] text-muted-foreground">{hint}</span>
+					<span className="text-[11.5px] text-muted-foreground">{hint}</span>
 				)}
 			</div>
-			<div className="flex flex-wrap gap-1.5">
+			<div
+				className={columns ? "grid gap-[7px]" : "flex flex-wrap gap-[7px]"}
+				style={
+					columns
+						? { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }
+						: undefined
+				}
+			>
 				{options.map((opt) => {
 					const active = value === opt.value;
 					return (
@@ -165,12 +212,11 @@ export function ChipGrid<T extends string | number>({
 							}
 							onClick={() => onChange(opt.value)}
 							className={cn(
-								"rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-colors",
+								"flex h-[30px] items-center justify-center rounded-[10px] px-3 text-[12.5px] font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/40",
+								columns && "w-full",
 								active
-									? variant === "solid"
-										? "border-transparent bg-foreground text-background"
-										: "border-transparent bg-foreground/15 text-foreground"
-									: "border-border/50 text-muted-foreground hover:border-foreground/40 hover:text-foreground",
+									? "bg-foreground/[0.16] font-semibold text-foreground"
+									: "bg-foreground/[0.06] text-muted-foreground hover:bg-foreground/[0.09] hover:text-foreground",
 							)}
 						>
 							{opt.label}
@@ -178,6 +224,62 @@ export function ChipGrid<T extends string | number>({
 					);
 				})}
 			</div>
+		</div>
+	);
+}
+
+/** A connected, single-select control for a small closed set of options
+ *  (Resolution for video/image) — an alternative to {@link ChipGrid} when the
+ *  options should read as one contiguous switch rather than independent
+ *  chips. The selected segment gets the cream high-contrast fill; adjacent
+ *  unselected segments get a 1px hairline separator (skipped next to the
+ *  selected segment, which supplies its own visual edge). */
+export function SegmentedControl<T extends string | number>({
+	options,
+	value,
+	onChange,
+	testIdPrefix,
+	className,
+}: {
+	options: { value: T; label: React.ReactNode; title?: string }[];
+	value: T;
+	onChange: (v: T) => void;
+	testIdPrefix?: string;
+	className?: string;
+}) {
+	return (
+		<div
+			className={cn(
+				"flex rounded-[11px] bg-foreground/[0.05] p-[3px]",
+				className,
+			)}
+		>
+			{options.map((opt, i) => {
+				const active = value === opt.value;
+				const prevActive = i > 0 && options[i - 1].value === value;
+				const showSeparator = i > 0 && !active && !prevActive;
+				return (
+					<button
+						key={String(opt.value)}
+						type="button"
+						title={opt.title}
+						data-testid={
+							testIdPrefix ? `${testIdPrefix}-${String(opt.value)}` : undefined
+						}
+						onClick={() => onChange(opt.value)}
+						className={cn(
+							"relative flex h-[30px] flex-1 items-center justify-center rounded-lg text-[12.5px] font-semibold transition-colors duration-150",
+							active
+								? "bg-zinc-900 text-zinc-50 dark:bg-[#f2efe9] dark:text-[#171717]"
+								: "text-muted-foreground hover:text-foreground",
+							showSeparator &&
+								"before:absolute before:left-0 before:h-4 before:w-px before:bg-foreground/[0.12]",
+						)}
+					>
+						{opt.label}
+					</button>
+				);
+			})}
 		</div>
 	);
 }
@@ -203,7 +305,7 @@ export function TextTabs<T extends string>({
 	return (
 		<div
 			className={cn(
-				"flex items-center gap-4 border-b border-border/60",
+				"flex items-center gap-[22px] border-b border-foreground/[0.08]",
 				className,
 			)}
 		>
@@ -219,10 +321,10 @@ export function TextTabs<T extends string>({
 						}
 						onClick={() => onChange(opt.value)}
 						className={cn(
-							"relative -mb-px pb-2 text-sm font-medium transition-colors",
+							"relative -mb-px pb-2 text-sm font-semibold transition-colors",
 							active
 								? "text-foreground after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-full after:bg-foreground"
-								: "text-muted-foreground hover:text-foreground",
+								: "text-foreground/45 hover:text-foreground/80",
 						)}
 					>
 						{opt.label}
@@ -250,7 +352,7 @@ export function GenerationCard({
 	return (
 		<div
 			className={cn(
-				"divide-y divide-border/60 overflow-hidden rounded-2xl border border-border/60",
+				"divide-y divide-foreground/[0.08] overflow-hidden rounded-2xl border border-foreground/[0.09] bg-foreground/[0.035] transition-colors focus-within:border-foreground/[0.16]",
 				className,
 			)}
 		>
