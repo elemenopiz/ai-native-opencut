@@ -65,7 +65,9 @@ export async function getBucketUsageBytes(force = false): Promise<number> {
 		}
 		const truncated = /<IsTruncated>true<\/IsTruncated>/.test(xml);
 		token = truncated
-			? xml.match(/<NextContinuationToken>([^<]+)<\/NextContinuationToken>/)?.[1]
+			? xml.match(
+					/<NextContinuationToken>([^<]+)<\/NextContinuationToken>/,
+				)?.[1]
 			: undefined;
 	} while (token);
 
@@ -141,7 +143,9 @@ export async function uploadMedia(
 	});
 
 	if (!response.ok) {
-		throw new Error(`R2 upload failed: ${response.status} ${response.statusText}`);
+		throw new Error(
+			`R2 upload failed: ${response.status} ${response.statusText}`,
+		);
 	}
 
 	// Keep the cached usage roughly current so back-to-back uploads in the same
@@ -173,22 +177,58 @@ export function isCloudStorageConfigured(): boolean {
 	);
 }
 
+/** Sign a request for an arbitrary key with a query-string (presigned URL)
+ *  SigV4 signature. Shared by the GET/PUT presign helpers below — the
+ *  signing shape only differs by HTTP method. SigV4 caps expiry at 7 days. */
+async function presignKey(
+	key: string,
+	method: "GET" | "PUT",
+	expiresInSeconds: number,
+): Promise<string> {
+	const client = getR2Client();
+	const url = new URL(getR2Url(key));
+	url.searchParams.set("X-Amz-Expires", String(expiresInSeconds));
+	const signed = await client.sign(url.toString(), {
+		method,
+		aws: { signQuery: true },
+	});
+	return signed.url;
+}
+
 /**
  * Produce a time-limited, publicly fetchable GET URL for a stored object.
  * Used when no public bucket domain is configured. SigV4 caps expiry at 7 days.
  */
-export async function presignGetUrl(
+export function presignGetUrl(
 	hash: string,
 	expiresInSeconds: number,
 ): Promise<string> {
-	const client = getR2Client();
-	const url = new URL(getR2Url(`media/${hash}`));
-	url.searchParams.set("X-Amz-Expires", String(expiresInSeconds));
-	const signed = await client.sign(url.toString(), {
-		method: "GET",
-		aws: { signQuery: true },
-	});
-	return signed.url;
+	return presignKey(`media/${hash}`, "GET", expiresInSeconds);
+}
+
+/** Same as {@link presignGetUrl}, but for an arbitrary object key rather than
+ *  a content hash under `media/` — used for keys that aren't content-addressed
+ *  (e.g. the `refs/{ownerId}/{id}` keys `presignDirectUpload` mints, since we
+ *  don't have the bytes to hash before the client has uploaded them). */
+export function presignGetUrlForKey(
+	key: string,
+	expiresInSeconds: number,
+): Promise<string> {
+	return presignKey(key, "GET", expiresInSeconds);
+}
+
+/**
+ * Produce a time-limited presigned PUT URL for a NEW object key. The browser
+ * uploads bytes directly to this URL — the file body never transits our own
+ * server, so it isn't bound by the platform's serverless function body-size
+ * cap (the reason large reference-video uploads used to fail; see
+ * `presignDirectUpload` in `lib/studio/media-storage.ts`).
+ */
+export function presignPutUrl(
+	key: string,
+	expiresInSeconds: number,
+): Promise<string> {
+	return presignKey(key, "PUT", expiresInSeconds);
 }
 
 /**

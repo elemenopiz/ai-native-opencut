@@ -1,17 +1,28 @@
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
-import { canRehost, rehostToR2 } from "@/lib/studio/media-storage";
+import {
+	canRehost,
+	rehostToR2,
+	MAX_REFERENCE_IMAGE_BYTES,
+	MAX_REFERENCE_VIDEO_BYTES,
+} from "@/lib/studio/media-storage";
 import { auth } from "@/lib/auth/server";
 import { enforceRateLimit } from "@/lib/rate-limit";
 
 /**
- * Upload reference media for Seedance omni-reference. Accepts a single file
- * (image or video) as multipart/form-data under the `file` field, persists it
- * to R2, and returns a publicly-fetchable URL that BytePlus can pull from.
+ * Legacy buffered upload for reference media (Seedance omni-reference).
+ * Accepts a single file (image or video) as multipart/form-data under the
+ * `file` field, buffers the whole body in this route, persists it to R2, and
+ * returns a publicly-fetchable URL that BytePlus can pull from.
  *
- * Dev fallback: with no cloud storage configured, small images are returned as
- * base64 data URLs (ModelArk accepts inline base64 in `image_url.url`). Videos
- * require R2 — base64 data URLs are too large to be fetched reliably.
+ * The platform (Vercel) caps a serverless function's request body at ~4.5 MB
+ * — well under a real phone video — so this route only ever sees videos small
+ * enough to have squeaked under that cap; anything bigger is rejected by the
+ * platform itself with a plain-text 413 before this handler runs. `/api/
+ * studio/upload-url` (presigned direct-to-R2 PUT, bypassing this cap entirely)
+ * is the primary path now; this route is the fallback for when cloud storage
+ * isn't configured (local dev), where it still serves its original purpose —
+ * small images as inline base64 data URLs.
  */
 
 // Keep inline data-URL fallback to small images only.
@@ -19,11 +30,6 @@ const MAX_INLINE_IMAGE_BYTES = 8 * 1024 * 1024; // 8 MB
 
 export const maxDuration = 60;
 
-// The whole file is buffered in memory before rehosting — cap by kind so one
-// request can't balloon the process. Reference stills don't need more than
-// 20 MB; reference videos are short clips, 100 MB matches the sounds proxy.
-const MAX_REFERENCE_IMAGE_BYTES = 20 * 1024 * 1024; // 20 MB
-const MAX_REFERENCE_VIDEO_BYTES = 100 * 1024 * 1024; // 100 MB
 /** Slack for multipart boundary/header overhead in the content-length pre-check. */
 const MULTIPART_OVERHEAD_BYTES = 64 * 1024;
 

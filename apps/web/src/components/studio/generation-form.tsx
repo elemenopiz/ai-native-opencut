@@ -1024,99 +1024,104 @@ export function GenerationForm({
 			{/* One calm surface: Prompt, tool row, Variations, the progress strip,
 			    and the bottom bar all live inside a single hairline-divided card. */}
 			<GenerationCard>
-				<div className="relative px-4 pb-1 pt-4">
-					<Textarea
-						ref={promptRef}
-						placeholder={promptPlaceholder}
-						value={prompt}
-						onChange={(e) => {
-							setPrompt(e.target.value);
-							refreshMention(e.target);
-						}}
-						onClick={(e) => refreshMention(e.currentTarget)}
-						onKeyUp={(e) => refreshMention(e.currentTarget)}
-						onKeyDown={handlePromptKeyDown}
-						onBlur={() => setMention(null)}
-						className="min-h-28 resize-none border-0 bg-transparent p-0 text-[14.5px] leading-relaxed shadow-none focus-visible:ring-0"
-					/>
+				{/* Prompt + its tool row share one section (no hairline between them)
+				    so Camera/Enhance read as part of the composer, not a separate
+				    boxed area. */}
+				<div className="px-4 pb-3 pt-4">
+					<div className="relative pb-1">
+						<Textarea
+							ref={promptRef}
+							placeholder={promptPlaceholder}
+							value={prompt}
+							onChange={(e) => {
+								setPrompt(e.target.value);
+								refreshMention(e.target);
+							}}
+							onClick={(e) => refreshMention(e.currentTarget)}
+							onKeyUp={(e) => refreshMention(e.currentTarget)}
+							onKeyDown={handlePromptKeyDown}
+							onBlur={() => setMention(null)}
+							className="min-h-28 resize-none border-0 bg-transparent p-0 text-[14.5px] leading-relaxed shadow-none focus-visible:ring-0 dark:bg-transparent"
+						/>
 
-					{mention && mentionMatches.length > 0 && (
-						<div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-xl border border-foreground/[0.12] bg-popover shadow-lg">
-							{mentionMatches.map((h, i) => (
-								<button
-									key={h.id}
-									type="button"
-									// onMouseDown (not onClick) so the textarea doesn't blur first.
-									onMouseDown={(e) => {
-										e.preventDefault();
-										insertMention(h.handle);
-									}}
-									onMouseEnter={() => setMentionHi(i)}
-									className={cn(
-										"flex w-full items-center gap-2 px-2 py-1.5 text-left text-[12.5px]",
-										i === mentionHi ? "bg-accent" : "hover:bg-accent/50",
-									)}
-								>
-									{h.kind === "image" ? (
-										// eslint-disable-next-line @next/next/no-img-element
-										<img
-											src={h.url}
-											alt=""
-											className="size-7 shrink-0 rounded object-cover"
-										/>
-									) : (
-										<video
-											src={h.url}
-											className="size-7 shrink-0 rounded object-cover"
-											muted
-										/>
-									)}
-									<span className="font-medium">{h.handle}</span>
-									<span className="truncate text-[11.5px] text-muted-foreground">
-										{h.name}
-									</span>
-								</button>
-							))}
-						</div>
-					)}
-				</div>
+						{mention && mentionMatches.length > 0 && (
+							<div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-xl border border-foreground/[0.12] bg-popover shadow-lg">
+								{mentionMatches.map((h, i) => (
+									<button
+										key={h.id}
+										type="button"
+										// onMouseDown (not onClick) so the textarea doesn't blur first.
+										onMouseDown={(e) => {
+											e.preventDefault();
+											insertMention(h.handle);
+										}}
+										onMouseEnter={() => setMentionHi(i)}
+										className={cn(
+											"flex w-full items-center gap-2 px-2 py-1.5 text-left text-[12.5px]",
+											i === mentionHi ? "bg-accent" : "hover:bg-accent/50",
+										)}
+									>
+										{h.kind === "image" ? (
+											// eslint-disable-next-line @next/next/no-img-element
+											<img
+												src={h.url}
+												alt=""
+												className="size-7 shrink-0 rounded object-cover"
+											/>
+										) : (
+											<video
+												src={h.url}
+												className="size-7 shrink-0 rounded object-cover"
+												muted
+											/>
+										)}
+										<span className="font-medium">{h.handle}</span>
+										<span className="truncate text-[11.5px] text-muted-foreground">
+											{h.name}
+										</span>
+									</button>
+								))}
+							</div>
+						)}
+					</div>
 
-				{/* Tool row — camera motion (opens its own popover) + Enhance. */}
-				<div className="flex items-center gap-2 px-4 pb-3 pt-1">
-					<CameraPresetPicker
-						value={cameraPreset}
-						onChange={(v) => setSettings({ cameraPreset: v })}
-					/>
-					<EnhancePromptButton
-						mode="video"
-						getPrompt={() => prompt}
-						setPrompt={setPrompt}
-						className="ml-auto"
-						getContext={() => {
-							// Ground the rewrite in what each @handle actually points at, so
-							// the model has a reason to keep — not just permission to keep —
-							// the literal token (see enhance-prompt/route.ts's HARD RULE).
-							// The route's schema caps assetNotes at 10 entries × 500 chars and
-							// 400s the whole request past that — and attachments are uncapped
-							// here — so stay inside the contract instead of silently breaking
-							// Enhance for prolific attachers (handles 11+ lose grounding only;
-							// the client-side restore backstop still covers them).
-							const assetNotes = referenceHandles.length
-								? referenceHandles
-										.slice(0, 10)
-										.map(
-											(h) =>
-												`${h.handle} = attached reference ${h.kind} ("${h.name.slice(0, 200)}")`,
-										)
-								: undefined;
-							const persona = activePersona
-								? `${activePersona.name}: ${activePersona.descriptor}`
-								: undefined;
-							return assetNotes || persona
-								? { assetNotes, persona }
-								: undefined;
-						}}
-					/>
+					{/* Tool row — camera motion (opens its own popover) + Enhance. */}
+					<div className="flex items-center gap-2 pt-1">
+						<CameraPresetPicker
+							value={cameraPreset}
+							onChange={(v) => setSettings({ cameraPreset: v })}
+						/>
+						<EnhancePromptButton
+							mode="video"
+							getPrompt={() => prompt}
+							setPrompt={setPrompt}
+							className="ml-auto"
+							getContext={() => {
+								// Ground the rewrite in what each @handle actually points at, so
+								// the model has a reason to keep — not just permission to keep —
+								// the literal token (see enhance-prompt/route.ts's HARD RULE).
+								// The route's schema caps assetNotes at 10 entries × 500 chars and
+								// 400s the whole request past that — and attachments are uncapped
+								// here — so stay inside the contract instead of silently breaking
+								// Enhance for prolific attachers (handles 11+ lose grounding only;
+								// the client-side restore backstop still covers them).
+								const assetNotes = referenceHandles.length
+									? referenceHandles
+											.slice(0, 10)
+											.map(
+												(h) =>
+													`${h.handle} = attached reference ${h.kind} ("${h.name.slice(0, 200)}")`,
+											)
+									: undefined;
+								const persona = activePersona
+									? `${activePersona.name}: ${activePersona.descriptor}`
+									: undefined;
+								return assetNotes || persona
+									? { assetNotes, persona }
+									: undefined;
+							}}
+						/>
+					</div>
 				</div>
 
 				{/* Variations — multiframe's segment count is derived from its

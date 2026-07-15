@@ -33,6 +33,8 @@ mock.module("@/lib/studio/media-storage", () => ({
 		state.rehosted += 1;
 		return "https://r2.example/ref/abc";
 	},
+	MAX_REFERENCE_IMAGE_BYTES: MAX_IMAGE_BYTES,
+	MAX_REFERENCE_VIDEO_BYTES: MAX_VIDEO_BYTES,
 }));
 
 const { POST: uploadPOST } = await import("../route");

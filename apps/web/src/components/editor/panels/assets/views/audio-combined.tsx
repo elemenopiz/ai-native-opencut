@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { useAssetsPanelStore } from "@/stores/assets-panel-store";
 import { SubTabView } from "./sub-tab-view";
 import { SoundsView } from "./sounds";
 import { VoiceoverView } from "./voiceover";
@@ -14,8 +16,27 @@ import { BeatDetectionPanel } from "./beat-detection";
 // SPOKEN by cloud TTS) that was already hidden behind a retired-feature
 // gate and has been deleted outright, not just unmounted.
 export function AudioCombinedView() {
+	const pending = useAssetsPanelStore((s) => s.pendingAudioSubTab);
+	const clearPending = useAssetsPanelStore((s) => s.clearPendingAudioSubTab);
+
+	// Deep-link target for SubTabView's sub-tab (e.g. "Open Voiceover" from the
+	// Generate panel's Audio tab — see `openAudioSubTab`). Captured into local
+	// state rather than read from the store directly, so consuming the request
+	// (`clearPending`) doesn't unmount/reset SubTabView a second time. The
+	// `key` only changes when a NEW request arrives, forcing SubTabView to
+	// remount and honor `defaultTab` even if the Audio tab (and this
+	// component) was already mounted.
+	const [applied, setApplied] = useState(pending);
+	useEffect(() => {
+		if (!pending) return;
+		setApplied(pending);
+		clearPending();
+	}, [pending, clearPending]);
+
 	return (
 		<SubTabView
+			key={applied?.token ?? "default"}
+			defaultTab={applied?.subTab}
 			tabs={[
 				{ key: "sounds", label: "Sounds", content: <SoundsView /> },
 				{ key: "voiceover", label: "Voiceover", content: <VoiceoverView /> },

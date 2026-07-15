@@ -129,6 +129,13 @@ interface AssetsPanelStore {
 	requestRevealMedia: (mediaId: string) => void;
 	clearHighlight: () => void;
 
+	/** A deep link into the Audio tab's sub-tab bar (see `AudioCombinedView` /
+	 *  `SubTabView`) — `token` changes on every request so the consumer can
+	 *  force a remount even when the Audio tab is already active. */
+	pendingAudioSubTab: { subTab: string; token: number } | null;
+	openAudioSubTab: (subTab: string) => void;
+	clearPendingAudioSubTab: () => void;
+
 	/* Media */
 	mediaViewMode: MediaViewMode;
 	setMediaViewMode: (mode: MediaViewMode) => void;
@@ -148,6 +155,13 @@ export const useAssetsPanelStore = create<AssetsPanelStore>()(
 			requestRevealMedia: (mediaId) =>
 				set({ activeTab: "media", highlightMediaId: mediaId }),
 			clearHighlight: () => set({ highlightMediaId: null }),
+			pendingAudioSubTab: null,
+			openAudioSubTab: (subTab) =>
+				set({
+					activeTab: "audio",
+					pendingAudioSubTab: { subTab, token: Date.now() },
+				}),
+			clearPendingAudioSubTab: () => set({ pendingAudioSubTab: null }),
 			mediaViewMode: "grid",
 			setMediaViewMode: (mode) => set({ mediaViewMode: mode }),
 			mediaSortBy: "name",

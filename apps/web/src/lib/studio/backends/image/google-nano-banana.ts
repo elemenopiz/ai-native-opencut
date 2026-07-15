@@ -93,7 +93,7 @@ async function fetchAsInlineData(
 
 export const googleNanoBananaBackend: GenerationBackend = {
 	id: "google-nano-banana",
-	label: "Nano Banana Pro (Gemini 3 Pro Image)",
+	label: "Nano Banana Pro",
 	vendor: "Google",
 	modality: "image",
 	safetyTier: "partner", // GA per Google's "now ready for production" announcement

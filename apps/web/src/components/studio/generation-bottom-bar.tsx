@@ -15,7 +15,7 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/utils/ui";
 import type { CostRange } from "@/lib/studio/cost";
-import { formatCostRange } from "@/lib/studio/cost";
+import { formatCostNumber } from "@/lib/studio/cost";
 
 interface GenerationBottomBarProps {
 	/** Bright model name on the trigger, e.g. "Seedance 2". */
@@ -114,7 +114,7 @@ export function GenerationBottomBar({
 					/>
 				</span>
 				<span className="text-[12.5px] font-semibold tabular-nums text-foreground/80">
-					{formatCostRange(cost)}
+					{formatCostNumber(cost)}
 				</span>
 			</span>
 

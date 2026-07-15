@@ -132,11 +132,23 @@ export function needsApproval(
 	return estimate.high >= threshold;
 }
 
-/** Render an estimate as a compact "N cr" or "low–high cr" string. */
+/** Render an estimate as a compact "N cr" or "low–high cr" string — for
+ *  standalone text (Director chat messages) with no adjacent credits icon or
+ *  label to carry the unit. */
 export function formatCostRange(estimate: CostRange): string {
 	return estimate.low === estimate.high
 		? `${estimate.low} cr`
 		: `${estimate.low}–${estimate.high} cr`;
+}
+
+/** Render an estimate as a bare "N" or "low–high" number, no unit — for UI
+ *  surfaces that already pair the number with a credits icon/label (the
+ *  bottom bar's coin chip, the approval dialog), where a repeated "cr" reads
+ *  as noise. */
+export function formatCostNumber(estimate: CostRange): string {
+	return estimate.low === estimate.high
+		? `${estimate.low}`
+		: `${estimate.low}–${estimate.high}`;
 }
 
 // ─── Audio cost (voiceover TTS + music bed) ──────────────────────────────────

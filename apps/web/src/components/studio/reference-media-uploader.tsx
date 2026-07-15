@@ -8,6 +8,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/utils/ui";
 import { useEditor } from "@/hooks/use-editor";
 import { getDragData } from "@/lib/drag-data";
+import { uploadReferenceFile } from "@/lib/studio/reference-upload";
 
 /** A single reference attachment for Seedance omni-reference. */
 export interface ReferenceMediaItem {
@@ -148,19 +149,13 @@ export function ReferenceMediaUploader({
 			}
 
 			try {
-				const form = new FormData();
-				form.append("file", file);
-				const res = await fetch("/api/studio/upload", {
-					method: "POST",
-					body: form,
-				});
-				const data = (await res.json()) as { url?: string; error?: string };
-				if (!res.ok || !data.url) {
-					throw new Error(data.error ?? "Upload failed");
-				}
+				// Presigned direct-to-R2 when cloud storage is configured (large
+				// videos never transit our server), buffered-through-server
+				// fallback otherwise — see reference-upload.ts's module docstring.
+				const { url } = await uploadReferenceFile(file);
 				applyChange(
 					itemsRef.current.map((it) =>
-						it.id === id ? { ...it, url: data.url!, status: "ready" } : it,
+						it.id === id ? { ...it, url, status: "ready" } : it,
 					),
 				);
 				// Server URL is now in use; release the optimistic preview blob.

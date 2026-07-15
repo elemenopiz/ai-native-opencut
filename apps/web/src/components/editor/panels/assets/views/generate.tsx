@@ -8,6 +8,7 @@ import {
 	Image02Icon,
 	AudioWave01Icon,
 	UserMultiple02Icon,
+	StarIcon,
 } from "@hugeicons/core-free-icons";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { PanelView } from "./base-view";
@@ -23,6 +24,7 @@ import {
 	type MultiframeBase,
 } from "@/lib/studio/multiframe";
 import { useTakesNotificationStore } from "@/stores/takes-notification-store";
+import { useAssetsPanelStore } from "@/stores/assets-panel-store";
 
 const MEDIA_SEGMENTS = [
 	{
@@ -83,12 +85,44 @@ export function GenerateView() {
 	// in flight, keep it blue once done so the user knows takes are waiting.
 	const setGenerating = useTakesNotificationStore((s) => s.setGenerating);
 	const setReady = useTakesNotificationStore((s) => s.setReady);
+	const clearTakesNotification = useTakesNotificationStore((s) => s.clear);
+	const setAssetsActiveTab = useAssetsPanelStore((s) => s.setActiveTab);
 	const wasBusy = useRef(false);
 	useEffect(() => {
 		if (busy && !wasBusy.current) setGenerating();
-		else if (!busy && wasBusy.current) setReady();
+		else if (!busy && wasBusy.current) {
+			setReady();
+			// The ambient star-glow on the Takes tab (left rail) is easy to miss —
+			// surface a toast that points at the SAME star so the two read as one
+			// signal, with a one-click jump straight there.
+			if (status === "done") {
+				toast.success("Take ready", {
+					description: "View it in Takes.",
+					icon: (
+						<HugeiconsIcon
+							icon={StarIcon}
+							className="size-4 fill-current text-blue-500"
+						/>
+					),
+					action: {
+						label: "View in Takes",
+						onClick: () => {
+							setAssetsActiveTab("starred");
+							clearTakesNotification();
+						},
+					},
+				});
+			}
+		}
 		wasBusy.current = busy;
-	}, [busy, setGenerating, setReady]);
+	}, [
+		busy,
+		status,
+		setGenerating,
+		setReady,
+		clearTakesNotification,
+		setAssetsActiveTab,
+	]);
 
 	// Multiframe: generate N-1 flf2v segments across the keyframes and lay them
 	// end-to-end on the active project's timeline.
