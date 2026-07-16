@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import type { EditorCore } from "@/core";
 import { apiFetch } from "@/lib/auth/unauthorized";
 import { addItemsToProjectMedia } from "@/lib/studio/add-to-editor";
@@ -82,10 +82,6 @@ export function useBoardItems({
 			setLoading(false);
 		}
 	}, []);
-
-	useEffect(() => {
-		void refetch();
-	}, [refetch]);
 
 	// Promote a draft to Assets, then drop it from the pending queue.
 	const promoteToAssets = useCallback(
