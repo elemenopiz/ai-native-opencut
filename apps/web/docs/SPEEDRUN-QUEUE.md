@@ -18,6 +18,7 @@
 | G4 | Provider spend caps on dashboards (BytePlus $25 pool, Gemini, Kimi, fal if upscale lands) | Courtesy-credit chunks make runaway spend possible | gated(user) |
 | G5 | Rotate the Vercel token used during B2 | Standing hygiene item from the deploy | gated(user) |
 | G6 | Commit untracked docs: `apps/web/docs/compliance/`, `docs/plans/2026-07-15-hevc-cross-browser-decode-design.md`; gitignore `.playwright-mcp/` artifacts | Work product sitting untracked in the shared checkout | done(2026-07-17, L0 mission control) |
+| G7 | **C4 UI taste-gate** — review `apps/web/docs/design/2026-07-17-ui-direction-phase-a.md` (+11 screenshots in `docs/design/assets/`): pick direction A/B/C, answer the 6-question set in §7 (export CTA, accent policy, icon rail, mechanical-batch pre-approval, tasks popover). Phase B implementation is blocked on this | Wave-1 C4-A merged @c5864ac4; recommendation = A "Instrument-Grade Minimal" | gated(user) |
 
 ## 1 · Integration sweep (built work parked on branches — decide merge/kill, then delete)
 
@@ -52,6 +53,11 @@ and any orphaned worktrees → confirm landed, then delete. `open`
 | BUG4 | Onboarding tour arrow-key nav unresponsive (buttons/dots work) | onboarding merge note | open |
 | BUG5 | Two duplicate voiceover UIs — reconcile into one | gen-UI packet flag | open |
 | BUG6 | Dual LUT systems (`lut` inline picker vs registry `lut-3d`, intensity 100-vs-1 scale ambiguity) | poach-wave note | open (product call) |
+| BUG7 | Command palette doesn't open on Cmd/Ctrl+K under headless Chromium — hands-on repro needed (focus-dependent or real binding bug?) | C4-A capture pass | open |
+| BUG8 | Export-popover × anon-signup-tooltip z-order collision | C4-A shot 08 | open |
+| BUG9 | Background-tasks toast/popover occludes timeline clips (and overlaps Export dialog watermark section) | C4-A shots 03/04/08 | open |
+| BUG10 | Text-preset labels render doubled truncation fragments ("Body Text…ext") | C4-A shot 10 | open |
+| BUG11 | `EditableProjectName` has no keyboard path into edit mode (`editor-header.tsx:449-523`) | C4-A a11y finding | open |
 
 (Perf-audit B1 text-node crash and B3 mounted-loadProject crash: branches show 0-ahead ⇒
 landed — **confirm in git log, then strike.**)
@@ -103,7 +109,7 @@ multicam, Palmier delta items not yet integrated (see branch row), CapCut poach 
 | C1 · Ship the parked inventory | launching | `campaign/ship-parked-inventory` | queue §1 branches (merge-shaped, broad); money branch = prep-only; upscale = verify-then-gate | 2026-07-17 L0 |
 | C7 · Bug purge wave 1 | launching | `campaign/bug-purge-w1` | golden-path browser hunt + queue §2 repros; surgical non-hot-file fixes only | 2026-07-17 L0 |
 | C12 · Test depth | launching | `campaign/test-depth` | tests only (`*.test.ts`, `*.e2e.ts`, e2e harness, CI yaml) | 2026-07-17 L0 |
-| C4 · UI excellence — phase A | launching | `campaign/ui-direction-phase-a` | design-only: read `components/editor/**`, write docs + screenshots only | 2026-07-17 L0 |
+| C4 · UI excellence — phase A | **done — merged @c5864ac4**; phase B gated on user taste-gate (G7) | `campaign/ui-direction-phase-a` | design-only (delivered: direction doc + 11 shots) | 2026-07-17 L0 |
 
 ## In-flight (claim before dispatching — session · items · owned files)
 
@@ -114,3 +120,5 @@ multicam, Palmier delta items not yet integrated (see branch row), CapCut poach 
 ## Done log (move rows here with sha + verification tier)
 
 - 2026-07-17: Queue seeded (prompt-suite v2 revamp session).
+- 2026-07-17: G6 untracked docs committed + `.playwright-mcp/` gitignored @3c7e41c8 (L0, docs-only).
+- 2026-07-17: C4 phase A UI direction pass merged @c5864ac4 (tier: merged — docs+screenshots only, no product code). Deliverable: `docs/design/2026-07-17-ui-direction-phase-a.md`; recommendation = direction A "Instrument-Grade Minimal"; phase B blocked on G7 taste-gate. Found BUG7–BUG11.
