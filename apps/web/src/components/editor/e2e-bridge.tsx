@@ -59,6 +59,21 @@ export interface E2EBridge {
 	/** Unblocks the in-flight stubbed render. Lets the test observe the
 	 *  "export kicked off / isExporting" window before letting it complete. */
 	releaseExport: () => void;
+	/** True when `renderer.exportProject` is still swapped for the
+	 *  deterministic stub (i.e. `NEXT_PUBLIC_E2E_STUB_EXPORT` was NOT set to
+	 *  `"0"` at build time). A real-export spec must read this first and
+	 *  self-skip when it's true — driving the stub through the real-export
+	 *  flow would just hang on `releaseExport()` never being called. */
+	stubExport: boolean;
+	/** Only meaningful when `stubExport` is false. The export button's own
+	 *  success handler clears `editor.project.getExportState().result`
+	 *  synchronously right after a successful export (see
+	 *  `export-button.tsx`'s `handleExport`), so that store field is too
+	 *  racy for a test to read. This returns the most recently completed
+	 *  *real* `exportProject` call's result (buffer included) instead —
+	 *  captured directly at the renderer seam, before the UI gets a chance
+	 *  to consume and clear it. Null before any real export has completed. */
+	getLastExportResult: () => ExportResult | null;
 	/** The REAL pitch-preserving stretch seam (shared by preview + export), so
 	 *  the audible-correctness e2e can render through the genuine WASM worklet
 	 *  and assert dominant frequency is preserved across a speed change. */
@@ -98,6 +113,7 @@ export function E2EBridge() {
 
 		const exportCalls: Array<{ options: ExportOptions }> = [];
 		let releaseExport = () => {};
+		let lastExportResult: ExportResult | null = null;
 
 		// Swap the real (canvas + ffmpeg) encoder for a deterministic stub so the
 		// export flow is CI-runnable. project.export() still runs for real: it
@@ -128,6 +144,16 @@ export function E2EBridge() {
 				});
 				return { success: true, buffer: new ArrayBuffer(1024) };
 			};
+		} else {
+			// Real-export builds: don't touch behavior, just tap the resolved
+			// result so a test can read it after the UI's own success handler
+			// has already cleared `project.getExportState().result` (see
+			// `getLastExportResult` doc above).
+			renderer.exportProject = async (args) => {
+				const result = await realExportProject(args);
+				lastExportResult = result;
+				return result;
+			};
 		}
 
 		window.__BYORN_E2E__ = {
@@ -136,6 +162,8 @@ export function E2EBridge() {
 			generateIntoSlot,
 			exportCalls,
 			releaseExport: () => releaseExport(),
+			stubExport: E2E_STUB_EXPORT,
+			getLastExportResult: () => lastExportResult,
 			stretchAudioBufferSegment,
 			perf: perfStats,
 			projectScopedStores: {
@@ -149,10 +177,8 @@ export function E2EBridge() {
 		window.__byornPerf = perfStats;
 
 		return () => {
-			if (E2E_STUB_EXPORT) {
-				renderer.exportProject =
-					realExportProject as typeof renderer.exportProject;
-			}
+			renderer.exportProject =
+				realExportProject as typeof renderer.exportProject;
 			delete window.__BYORN_E2E__;
 			delete window.__byornPerf;
 		};
