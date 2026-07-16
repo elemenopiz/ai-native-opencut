@@ -104,6 +104,8 @@ multicam, Palmier delta items not yet integrated (see branch row), CapCut poach 
 | C3 | Collab security pass — REQUIRED before un-hiding collab (ADR-003) | open |
 | C4 | `services/` (9 Python dirs) resume-or-delete decision (ADR-004 said delete-last) | gated(user) |
 | C5 | 8420 health-poll leak (verify-lane finding) — re-confirmed 2026-07-17 by bug-purge-w1: 3–4 `ERR_CONNECTION_REFUSED` bursts every ~20–60s all session, no backoff/circuit-breaker | open |
+| C6 | auth-flow e2e permanently self-skips in CI — better-auth rate limiter hits unreachable Upstash before any DB touch; real auth CI coverage needs a redis-compatible CI service or a test seam (NOT a Postgres service — determination documented in bun-ci.yml) | open |
+| C7 | happy-path.e2e.ts flake in CI will worsen until the BUG12 fix lands (longer suites widen the anon-401 race window) — expect it, don't chase it; goes green as a BUG12 side effect | open (watch) |
 
 ## 7 · Campaign roster (Mission Control — see `.claude/fable-mission-control.md`)
 
@@ -111,7 +113,7 @@ multicam, Palmier delta items not yet integrated (see branch row), CapCut poach 
 |---|---|---|---|---|
 | C1 · Ship the parked inventory | launching | `campaign/ship-parked-inventory` | queue §1 branches (merge-shaped, broad); money branch = prep-only; upscale = verify-then-gate | 2026-07-17 L0 |
 | C7 · Bug purge wave 1 | **done — merged** (BUG1 fixed-prior, BUG2 repro'd→C5, BUG3 fixed, BUG4 obsolete; filed BUG12–14); wave 2 relaunchable | `campaign/bug-purge-w1` | golden-path browser hunt + queue §2 repros | 2026-07-17 L0 |
-| C12 · Test depth | launching | `campaign/test-depth` | tests only (`*.test.ts`, `*.e2e.ts`, e2e harness, CI yaml) | 2026-07-17 L0 |
+| C12 · Test depth | **done — merged @0ebedaf6** (real-export e2e + takes/board invariants + CI; zero new flakes) | `campaign/test-depth` | tests only | 2026-07-17 L0 |
 | C13 · Fix anon 401 redirect race (BUG12) | live (user-directed) | `campaign/fix-401-redirect` | client auth-signal plumbing: unauthorized.ts, session-expired-listener.tsx, use-studio-generation.ts + new e2e spec | 2026-07-17 L0 |
 | C4 · UI excellence — phase A | **done — merged @c5864ac4**; phase B gated on user taste-gate (G7) | `campaign/ui-direction-phase-a` | design-only (delivered: direction doc + 11 shots) | 2026-07-17 L0 |
 
@@ -126,4 +128,5 @@ multicam, Palmier delta items not yet integrated (see branch row), CapCut poach 
 - 2026-07-17: Queue seeded (prompt-suite v2 revamp session).
 - 2026-07-17: G6 untracked docs committed + `.playwright-mcp/` gitignored @3c7e41c8 (L0, docs-only).
 - 2026-07-17: C4 phase A UI direction pass merged @c5864ac4 (tier: merged — docs+screenshots only, no product code). Deliverable: `docs/design/2026-07-17-ui-direction-phase-a.md`; recommendation = direction A "Instrument-Grade Minimal"; phase B blocked on G7 taste-gate. Found BUG7–BUG11.
+- 2026-07-17: C12 test-depth merged @0ebedaf6 (tier: merged; specs verified green on the campaign tip — real-export e2e 2/2 deterministic w/ ffprobe h264/aac 1.600s exact, takes/board 7/7 x4 runs, +10 unit tests, zero new failures vs baseline). CI: ffmpeg + real-export steps; auth-flow e2e blocked on reachable Upstash (not Postgres) — new row below. Bridge additions E2E-gated only, diff reviewed by L0.
 - 2026-07-17: C7 bug-purge wave 1 merged (campaign tip f5999ce9). BUG1 done (fixed-prior @20066e26, 9/9 regression tests); BUG2 reproduced 3/3 + mechanism traced (re-seek storm in VideoCache), fix → C5; BUG3 fixed (tier: merged+unit-tested); BUG4 obsolete. Golden-path real export PASS frame-exact (47.09s vs 47.0s). Filed BUG12–14, re-confirmed C5 chore (8420 poll). Battery: typecheck 0, lint == baseline, build 0, tests == baseline +5 green.
