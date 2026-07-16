@@ -36,3 +36,11 @@ Dictated contract (A and C must both honor): scripts `build:e2e:real` =
 ## Status log
 
 - 2026-07-17: branch created, log committed, workers A/B/C dispatched in parallel.
+- 2026-07-17 (later): all three workers returned green; diffs reviewed; merged A @d6047ad0,
+  B @70fde9bb, C @ba099662. Integration seam fixed by L1: real-export config's CI html
+  reporter now writes `playwright-report-real-export/` to match bun-ci.yml's artifact paths
+  (default dir would have overwritten the smoke report). Next: full battery + double e2e.
+- Worker findings to file as queue rows: (1) anonymous editor session — `/api/studio/sets`
+  401 triggers apiFetch's global unauthorized redirect to /signup mid-editing (race observed
+  in real-export spec, mocked around); (2) auth-flow e2e in CI is blocked by unreachable
+  Upstash rate-limit store before Postgres even matters (bun-ci.yml comment documents it).

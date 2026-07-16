@@ -31,8 +31,18 @@ export default defineConfig({
 	// stubbed suite — give it real headroom.
 	timeout: 240_000,
 	expect: { timeout: 30_000 },
+	// Distinct HTML report dir: the stub suite's config writes the default
+	// `playwright-report/`, and CI runs this suite second — the default dir
+	// would silently overwrite the smoke suite's report before the artifact
+	// upload (which collects both paths — see bun-ci.yml).
 	reporter: process.env.CI
-		? [["list"], ["html", { open: "never" }]]
+		? [
+				["list"],
+				[
+					"html",
+					{ open: "never", outputFolder: "playwright-report-real-export" },
+				],
+			]
 		: [["list"]],
 	use: {
 		baseURL: BASE_URL,
