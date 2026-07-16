@@ -119,3 +119,36 @@ DO NOT MERGE without user gate (contains migration 0012).
   backends index/register-all/types/cost, env/web.ts. Small, mechanical.
 - Recommended sequence on approval: worker rebases + clamp fix → battery →
   user applies migration → FAL_KEY funded → verify one real upscale.
+
+## Final battery + verification (2026-07-17)
+
+Campaign branch battery (worktree, off main @3c7e41c8 + palmier merge):
+- `bun run typecheck` — exit 0.
+- `bun run lint` — 347 errors / 225 warnings == main baseline exactly (no worse).
+- `bun run build` — exit 0, BUILD_ID minted.
+- `bun test` — 1846 pass / 14 fail; all 14 triaged pre-existing or order-dependent
+  (isolation + main-baseline evidence in Dispositions section). Zero merge-caused.
+- e2e suite NOT run (budget; requires a second full `build:e2e`). Remainder item.
+
+Browser verification (tier: **verified locally**, smoke depth) — worktree dev
+server on :3105, real Chromium:
+- Editor loads a fresh project with the merge applied; zero console errors.
+- VU meter canvas mounted in the timeline toolbar (aria-label "Timeline VU
+  meter — click the red strip to clear a clip indicator").
+- E2E bridge exposes BOTH union-merged seams live: `scrubPlayer` (branch) and
+  `projectScopedStores` (main) — the conflict resolution verified at runtime.
+- Grain-scheduling on real audio + chroma visual spot-check not re-driven
+  (verified 07-14 on the branch pre-merge; B3 hands-on covers chroma).
+- Gotchas hit + handled: react-scan overlay intercepts clicks (disable via
+  `window.reactScan({enabled:false})` + reload), MobileGate on navigate.
+
+## Remainder (explicit, for L0)
+
+1. e2e suite run (`build:e2e` + `test:e2e`) on the campaign branch before it
+   merges to main — export path touched (commitExport gate).
+2. Scrub-audio real-WAV re-drive post-merge (optional; pre-merge verified).
+3. Queue rows discovered: (a) route-protection test red on main —
+   `studio/upload-url/route.ts` session-gated but missing from SWEEP table;
+   (b) polar/webhook signature tests red on main (2 tests, pre-existing);
+   (c) optional: port reportFromException + render-guard unit test from
+   claude/admiring-goodall-623ae4 before killing it.
