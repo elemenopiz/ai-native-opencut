@@ -17,8 +17,10 @@ import { useEditor } from "@/hooks/use-editor";
 import { EnhancePromptButton } from "@/components/editor/ai/enhance-prompt-button";
 import { addItemsToProjectMedia } from "@/lib/studio/add-to-editor";
 import { gateOn402 } from "@/lib/credits/client-gate";
+import { apiFetch } from "@/lib/auth/unauthorized";
 import { useCreditsStore } from "@/stores/credits-store";
 import { useBackends } from "@/hooks/use-backends";
+import { useBoardStore } from "@/stores/board-store";
 import { DEFAULT_BACKEND_ID } from "@/lib/studio/backends/registry";
 import { estimateImageCredits } from "@/lib/credits/estimate";
 import {
@@ -170,6 +172,30 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 		}
 	}
 
+	// Multi-image batches don't land in Assets automatically — they're parked
+	// in Board so the user can star a winner (a lone image skips this and
+	// keeps going straight to Assets, unchanged from before). Unlike Assets,
+	// there's no in-panel fallback if this fails, so a failed pin throws —
+	// the caller awaits this and surfaces the error instead of silently
+	// dropping the images.
+	async function importStillsToBoard(images: GeneratedStill[]) {
+		const results = await Promise.all(
+			images.map((img) =>
+				apiFetch("/api/studio/board", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ imageStillId: img.id }),
+				}),
+			),
+		);
+		const failed = results.filter((res) => !res.ok).length;
+		if (failed > 0) {
+			throw new Error(
+				`${failed} image${failed === 1 ? "" : "s"} failed to save to Board`,
+			);
+		}
+	}
+
 	function selectPreset(id: ImagePresetId) {
 		setPresetId(id);
 		setSettings({ imageSize: IMAGE_PRESETS[id].recommendedSize });
@@ -234,13 +260,30 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 						setProgress({ done: received, total });
 						// Paid image settled server-side — refresh the header balance pill.
 						void useCreditsStore.getState().refresh();
-						// Drop them into Assets as they arrive (fire-and-forget).
-						void importStillsToAssets(data.images);
+						// A lone image goes straight to Assets, as before. A batch (2+)
+						// is held in Board instead — nothing is auto-saved until the
+						// user stars a winner there.
+						if (total === 1) {
+							void importStillsToAssets(data.images);
+						} else {
+							await importStillsToBoard(data.images);
+						}
 					} catch (err) {
 						setError(err instanceof Error ? err.message : "Generation failed");
 					}
 				}),
 			);
+			if (total > 1 && received > 0) {
+				toast.success(
+					`${received} image${received === 1 ? "" : "s"} ready — pick your favorite`,
+					{
+						action: {
+							label: "Open Board",
+							onClick: () => useBoardStore.getState().setOpen(true),
+						},
+					},
+				);
+			}
 		} finally {
 			setGenerating(false);
 			setProgress(null);

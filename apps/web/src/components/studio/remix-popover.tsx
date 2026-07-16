@@ -44,9 +44,9 @@
  *     path in `director-api.ts`'s `remix` verb.
  *
  * WIRING TODO (separate reviewed pass — do not wire here):
- *  2. Optionally `components/studio/take-card.tsx` (studio panel takes):
- *     same pattern in the hover action overlay, enqueueing via
- *     `use-studio-generation`'s submit path with the built spec.
+ *  2. Optionally a studio take hover-card action overlay, if one is ever
+ *     reintroduced: same pattern, enqueueing via `use-studio-generation`'s
+ *     submit path with the built spec.
  */
 
 import { useState } from "react";

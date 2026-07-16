@@ -7,7 +7,7 @@
  * state bleeds into the newly-opened one: a beat grid pinned to the old
  * project's element ids, live generation poll intervals for the old project's
  * jobs, a pending frame/omni-reference chain that would seed the NEW project's
- * next generation, stale background tasks / search requests / notifications,
+ * next generation, stale background tasks / search requests,
  * or a copied clip on the element clipboard that still points at the old
  * project's mediaId (paste inserts it verbatim — see
  * lib/commands/timeline/clipboard/paste.ts — producing a dangling,
@@ -42,7 +42,6 @@ import { useOmniReferenceChainStore } from "@/stores/omni-reference-chain-store"
 import { usePenMaskStore } from "@/stores/pen-mask-store";
 import { usePropertiesStore } from "@/stores/properties-store";
 import { useSearchStore } from "@/stores/search-store";
-import { useTakesNotificationStore } from "@/stores/takes-notification-store";
 import { useTimelineStore } from "@/stores/timeline-store";
 import { useTranscriptStore } from "@/stores/transcript-store";
 import { useYouTubeReelsStore } from "@/stores/youtube-reels-store";
@@ -60,7 +59,6 @@ export function resetProjectScopedStores(): void {
 	useEngagementStore.getState().clear();
 	// Stops the YouTube-reels job poll timer too.
 	useYouTubeReelsStore.getState().reset();
-	useTakesNotificationStore.getState().clear();
 	usePenMaskStore.getState().reset();
 	// The element clipboard holds full elements (incl. mediaId) copied from
 	// whichever project was open at copy time; pasting after a project switch

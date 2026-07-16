@@ -36,8 +36,7 @@ import { useStudioSettingsStore } from "@/stores/studio-settings-store";
 import { useFrameChainStore } from "@/stores/frame-chain-store";
 import { useOmniReferenceChainStore } from "@/stores/omni-reference-chain-store";
 import { usePersonaStore } from "@/stores/persona-store";
-import { useAssetsPanelStore } from "@/stores/assets-panel-store";
-import { useTakesNotificationStore } from "@/stores/takes-notification-store";
+import { useBoardStore } from "@/stores/board-store";
 import { EnhancePromptButton } from "@/components/editor/ai/enhance-prompt-button";
 import {
 	ChipGrid,
@@ -70,7 +69,8 @@ interface GenerationFormProps {
 		 *  `JSON.stringify`s whatever params it's given, so this rides along
 		 *  without any hook-signature change. */
 		model?: string;
-	}) => void;
+		batchSize: number;
+	}) => Promise<void>;
 	onGenerateMultiframe?: (
 		keyframes: string[],
 		base: MultiframeBase,
@@ -629,11 +629,8 @@ export function GenerationForm({
 		? Math.max(0, readyKeyframes.length - 1)
 		: count;
 
-	const setAssetsActiveTab = useAssetsPanelStore((s) => s.setActiveTab);
-	const clearTakesNotification = useTakesNotificationStore((s) => s.clear);
-	function viewInTakes() {
-		setAssetsActiveTab("starred");
-		clearTakesNotification();
+	function openBoard() {
+		useBoardStore.getState().setOpen(true);
 	}
 
 	async function handleGenerate() {
@@ -750,8 +747,30 @@ export function GenerationForm({
 		};
 
 		// Fire `count` variations at once. With no locked seed each picks its own
-		// random seed server-side, so you get distinct takes.
-		for (let i = 0; i < count; i++) onGenerate(params);
+		// random seed server-side, so you get distinct takes. `batchSize` rides
+		// along on every request so the hook can auto-route the result: straight
+		// to Assets for a lone take, held in Board for a batch to pick from.
+		const batchSize = count;
+		const results = await Promise.allSettled(
+			Array.from({ length: batchSize }, () =>
+				onGenerate({ ...params, batchSize }),
+			),
+		);
+		const succeeded = results.filter((r) => r.status === "fulfilled").length;
+		if (succeeded === 0) return;
+		if (batchSize === 1) {
+			toast.success("Added to Assets.");
+		} else {
+			toast.success(
+				`${succeeded} take${succeeded === 1 ? "" : "s"} ready — pick your favorite`,
+				{
+					action: {
+						label: "Open Board",
+						onClick: () => useBoardStore.getState().setOpen(true),
+					},
+				},
+			);
+		}
 	}
 
 	// ── Settings popover content — model / duration / aspect / resolution /
@@ -1190,10 +1209,10 @@ export function GenerationForm({
 							</span>
 							<button
 								type="button"
-								onClick={viewInTakes}
+								onClick={openBoard}
 								className="font-semibold text-foreground/80 transition-colors hover:text-foreground"
 							>
-								View in Takes →
+								Open Board →
 							</button>
 						</div>
 					</div>
