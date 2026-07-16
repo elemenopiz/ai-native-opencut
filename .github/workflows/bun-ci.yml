@@ -72,6 +72,17 @@ jobs:
     name: E2E happy path
     runs-on: ubuntu-latest
 
+    # No `services: postgres:` here despite DATABASE_URL below pointing at one:
+    # apps/web/e2e/auth-flow.e2e.ts (the only spec that would exercise a real
+    # DB) self-skips today regardless of Postgres availability. Its own header
+    # comment explains why -- better-auth's rate limiter reads/writes through
+    # Upstash Redis (see UPSTASH_REDIS_REST_URL/TOKEN placeholders below), and
+    # that customStorage call runs on every /api/auth/* POST before the
+    # request ever touches the database, so an unreachable Upstash endpoint
+    # 500s the request first. A beforeAll health probe in that spec detects
+    # the 500 and skips the whole suite. Standing up a Postgres service
+    # container + migration step alone would not unblock real coverage here;
+    # that also needs a reachable rate-limit store, which is a separate fix.
     env:
       DATABASE_URL: "postgresql://opencut:opencut@localhost:5432/opencut"
       BETTER_AUTH_SECRET: "supersecret"
@@ -111,6 +122,9 @@ jobs:
         working-directory: apps/web
         run: bunx playwright install --with-deps chromium
 
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
       - name: Build (with E2E test seam)
         working-directory: apps/web
         run: bun run build:e2e
@@ -119,11 +133,23 @@ jobs:
         working-directory: apps/web
         run: bun run test:e2e
 
+      # Runs after the happy-path smoke, never before: this build overwrites
+      # .next, so the stub-export suite above must fully finish first.
+      - name: Build (real-export seam)
+        working-directory: apps/web
+        run: bun run build:e2e:real
+
+      - name: Run golden-path real-export e2e
+        working-directory: apps/web
+        run: bun run test:e2e:real
+
       - name: Upload Playwright report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
-          path: apps/web/playwright-report/
+          path: |
+            apps/web/playwright-report/
+            apps/web/playwright-report-real-export/
           retention-days: 7
           if-no-files-found: ignore
