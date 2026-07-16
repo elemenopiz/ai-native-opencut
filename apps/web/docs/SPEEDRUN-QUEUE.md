@@ -46,12 +46,15 @@ and any orphaned worktrees → confirm landed, then delete. `open`
 
 | # | Bug | Evidence | Status |
 |---|---|---|---|
-| BUG1 | `generateProxy()` 480p odd-dimension crash (853×480 rejected by AVC encoder — scale math doesn't round to even) | perf audit B2; verify whether the proxy-worker-offload merge (@20066e26) fixed it | open |
-| BUG2 | fps60 playback wedge — one `getFrameAt` stalled 81s (N=1), decode-scheduler starvation under over-demand | perf audit B4; needs repro attempt | open |
-| BUG3 | Sign-in rate limit shows the same generic toast as a bad password | auth sweep papercut | open |
-| BUG4 | Onboarding tour arrow-key nav unresponsive (buttons/dots work) | onboarding merge note | open |
+| BUG1 | `generateProxy()` 480p odd-dimension crash (853×480 rejected by AVC encoder — scale math doesn't round to even) | perf audit B2; verify whether the proxy-worker-offload merge (@20066e26) fixed it | done(20066e26, merged) — verified by bug-purge-w1: `computeProxyDimensions` floors to even, regression tests cover 853×480 exactly, 9/9 pass |
+| BUG2 | **fps60 decode-starvation wedge: REPRODUCED 3/3 (was N=1)** — 4×1080p60 layers @ project fps 60 starve `VideoCache`: prefetch ring (cap 4) drains → playhead outruns the 2.0s `SEQUENTIAL_WINDOW` → every `getFrameAt` escalates to a fully-awaited `seekToTime` keyframe re-seek on the render path → self-sustaining re-seek storm (renders in flight 3–15s+; one 12s hard wedge with playhead running and 0 frames; original 81s = same loop on heavier fixture). Self-recovers when decode catches up; 1-layer control clean (0.2ms avgDecode). Files: `services/video-cache/service.ts` (`getFrameAt`/`seekToTime`), `services/renderer/nodes/video-node.ts`. Fix candidates: don't await `seekToTime` under `tolerateStale` (serve stale + background re-seek), scale ring/window with fps×layers, or subsume under worker-compositor (P1). Repro script + JSON evidence in bug-purge-w1 scratchpad (`bug2-repro.js`, `result-fps60-*.json`) | perf audit B4 → characterized by bug-purge-w1 2026-07-17; **fix owner: C5 only** | open(C5) |
+| BUG3 | Sign-in rate limit shows the same generic toast as a bad password | auth sweep papercut; fixed on `campaign/bug-purge-w1` (429 → distinct "Too many attempts" toast, unit-tested; copy-only, no auth logic) | in-flight(bug-purge-w1) |
+| BUG4 | Onboarding tour arrow-key nav unresponsive (buttons/dots work) | onboarding merge note — OBSOLETE: the first-run onboarding overlay was deleted @184d1989; surviving collab-only `shared-project-onboarding.tsx` has no keyboard nav at all → fold into C3 collab pre-unhide checklist | done(184d1989, obsolete) |
 | BUG5 | Two duplicate voiceover UIs — reconcile into one | gen-UI packet flag | open |
 | BUG6 | Dual LUT systems (`lut` inline picker vs registry `lut-3d`, intensity 100-vs-1 scale ambiguity) | poach-wave note | open (product call) |
+| BUG7 | **Any client-side API 401 hard-redirects the editor to /signup, destroying session state** — `byorn:unauthorized` (fired by e.g. `/api/studio/board`, `/api/credits/balance` background polls) → `SessionExpiredListener` redirects unconditionally. Killed two automated editor sessions mid-run (bug-purge-w1); a single stray 401 from a background poll while a user has unsaved editor state does the same. Files: `src/lib/auth/unauthorized.ts`, `src/components/auth/session-expired-listener.tsx`. Also breaks E2E-build benches (the `proxy.ts` E2E bypass covers middleware only, not this client path) — harness workaround: Playwright-route non-auth `/api/**` to 200s. Fix is auth-adjacent → route to C6/C10, not a drive-by | bug-purge-w1 hunt 2026-07-17 (W2+W3 both hit it) | open |
+| BUG8 | `DeleteElementsCommand.execute` throws raw `TypeError` on malformed input (`{elementIds}` instead of `{elements}`) — destructures without a guard; not reachable from UI (defensive gap, matters for MCP/Director callers). File: `src/lib/commands/timeline/element/delete-elements.ts` | bug-purge-w1 hunt 2026-07-17 | open (low) |
+| BUG9 | **Timeline mutations during heavy-media import leave the main thread unresponsive 10–30s** (asset drag-insert, text-preset add after a 4K HEVC import) — mutation lands in store state but UI/automation stalls; correlates with proxy/thumbnail generation + Understanding-Pass ONNX work competing for main thread. Reproduced 3×. Confirms "main thread is the wall" specifically on interactive edit actions, not just playback. Needs a flame-graph profile; **fix owner: C5** | bug-purge-w1 hunt 2026-07-17 | open(C5) |
 
 (Perf-audit B1 text-node crash and B3 mounted-loadProject crash: branches show 0-ahead ⇒
 landed — **confirm in git log, then strike.**)
@@ -94,7 +97,7 @@ multicam, Palmier delta items not yet integrated (see branch row), CapCut poach 
 | C2 | `ownerId` NOT-NULL flip #13 + drop parent-set fallback (after prod backfill verified) | open (migration ⇒ gated) |
 | C3 | Collab security pass — REQUIRED before un-hiding collab (ADR-003) | open |
 | C4 | `services/` (9 Python dirs) resume-or-delete decision (ADR-004 said delete-last) | gated(user) |
-| C5 | 8420 health-poll leak (verify-lane finding) | open |
+| C5 | 8420 health-poll leak (verify-lane finding) — re-confirmed 2026-07-17 by bug-purge-w1: 3–4 `ERR_CONNECTION_REFUSED` bursts every ~20–60s all session, no backoff/circuit-breaker | open |
 
 ## 7 · Campaign roster (Mission Control — see `.claude/fable-mission-control.md`)
 
