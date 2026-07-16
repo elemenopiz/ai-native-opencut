@@ -335,7 +335,11 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 	// survives a reload. Resumes polling for any take still in-flight.
 	const loadHistory = useCallback(async () => {
 		try {
-			const res = await apiFetch("/api/studio/sets");
+			// Background hydration on mount: an anonymous 401 here is normal, not
+			// an error worth evicting the editor for — see unauthorized.ts.
+			const res = await apiFetch("/api/studio/sets", undefined, {
+				on401: "silent",
+			});
 			if (!res.ok) return;
 
 			const data = (await res.json()) as {

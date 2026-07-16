@@ -6,8 +6,10 @@ import { UNAUTHORIZED_EVENT } from "@/lib/auth/unauthorized";
 
 /**
  * Mounted once in the root layout. Listens for the global `byorn:unauthorized`
- * event that {@link handleUnauthorized} dispatches on any 401 and sends the user
- * to `/signup` (closed beta: a 401 almost always means "never had an account",
+ * event that {@link handleUnauthorized} dispatches on a prompt-mode 401 (not a
+ * silent one — background hydration calls opt into "silent" precisely so they
+ * never reach this listener, see unauthorized.ts) and sends the user to
+ * `/signup` (closed beta: a 401 almost always means "never had an account",
  * not "session expired" — existing users are one click away via the form's
  * Sign-in link), preserving the current location (path + query) as the
  * post-auth return path. Skips the redirect when already on an auth page so a
