@@ -69,7 +69,11 @@ export function useBoardItems({
 	const refetch = useCallback(async () => {
 		setLoading(true);
 		try {
-			const res = await apiFetch("/api/studio/board");
+			// Background hydration on mount: an anonymous 401 here is normal, not
+			// an error worth evicting the editor for — see unauthorized.ts.
+			const res = await apiFetch("/api/studio/board", undefined, {
+				on401: "silent",
+			});
 			if (!res.ok) return;
 			const data = (await res.json()) as { items: BoardItem[] };
 			setItems(data.items);
