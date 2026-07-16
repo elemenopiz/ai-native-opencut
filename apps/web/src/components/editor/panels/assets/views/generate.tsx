@@ -100,7 +100,10 @@ export function GenerateView() {
 			}
 			if (!projectId) {
 				toast.error("No active project to add to.");
-				return Promise.resolve();
+				// Reject (not resolve) so the batch caller's Promise.allSettled
+				// counts this as a failure — otherwise it reads as "fulfilled" and
+				// the success toast fires alongside this error.
+				return Promise.reject(new Error("No active project"));
 			}
 			return generate({ ...params, editor, projectId });
 		},
