@@ -1,5 +1,6 @@
 import { describe, expect, it, mock } from "bun:test";
 import type { EditorCore } from "@/core";
+import { CommandManager } from "@/core/managers/commands";
 import type {
 	EmbeddingStatus,
 	MediaEmbedding,
@@ -69,13 +70,7 @@ function makeEditor(): EditorCore {
 			getTotalDuration: () => 0,
 			getTracks: () => [],
 		},
-		command: {
-			beginTransaction: () => {},
-			commitTransaction: () => {},
-			rollbackTransaction: () => {},
-			canUndo: () => false,
-			canRedo: () => false,
-		},
+		command: new CommandManager(),
 		media: {
 			getAssetById: () => undefined,
 			getAssets: () => [
@@ -172,13 +167,7 @@ function makeDuplicateEditor(): EditorCore {
 			getTotalDuration: () => 0,
 			getTracks: () => [],
 		},
-		command: {
-			beginTransaction: () => {},
-			commitTransaction: () => {},
-			rollbackTransaction: () => {},
-			canUndo: () => false,
-			canRedo: () => false,
-		},
+		command: new CommandManager(),
 		media: {
 			getAssetById: () => undefined,
 			getAssets: () => [

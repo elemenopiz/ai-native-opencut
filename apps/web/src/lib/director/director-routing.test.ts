@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { EditorCore } from "@/core";
+import { CommandManager } from "@/core/managers/commands";
 import type { GenerationSpec, Take } from "@/types/timeline";
 import type {
 	BackendCatalogEntry,
@@ -99,13 +100,7 @@ function makeEditor(slots: { id: string; generation: GenerationSpec }[]) {
 				if (el) el.activeTakeId = takeId;
 			},
 		},
-		command: {
-			canUndo: () => false,
-			canRedo: () => false,
-			beginTransaction: () => {},
-			commitTransaction: () => {},
-			rollbackTransaction: () => {},
-		},
+		command: new CommandManager(),
 	} as unknown as EditorCore;
 
 	return { editor, elements };

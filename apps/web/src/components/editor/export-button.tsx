@@ -17,7 +17,8 @@ import { cn } from "@/utils/ui";
 import {
 	getExportMimeType,
 	getExportFileExtension,
-	downloadBuffer,
+	commitExport,
+	createExportJobId,
 } from "@/lib/export";
 import { exportCapcutDraft } from "@/lib/export/capcut-export";
 import {
@@ -153,6 +154,7 @@ function ExportPopover({
 	const handleExport = async () => {
 		if (!activeProject) return;
 
+		const jobId = createExportJobId();
 		const result = await editor.project.export({
 			options: {
 				format,
@@ -163,18 +165,22 @@ function ExportPopover({
 			},
 		});
 
-		if (result.cancelled) {
+		// Same staged-handoff gate the Director/MCP `export` verb uses — see
+		// commitExport's doc in lib/export.ts. Only a fully-succeeded,
+		// non-cancelled buffer ever reaches the browser download.
+		const outcome = commitExport({
+			result,
+			jobId,
+			filename: `${activeProject.metadata.name}${getExportFileExtension({ format })}`,
+			mimeType: getExportMimeType({ format }),
+		});
+
+		if (outcome.status === "failed" && outcome.reason === "cancelled") {
 			editor.project.clearExportState();
 			return;
 		}
 
-		if (result.success && result.buffer) {
-			downloadBuffer({
-				buffer: result.buffer,
-				filename: `${activeProject.metadata.name}${getExportFileExtension({ format })}`,
-				mimeType: getExportMimeType({ format }),
-			});
-
+		if (outcome.status === "completed") {
 			// Non-blocking quality-degradation notice: a clip's original video
 			// codec couldn't be decoded by this browser, so its H.264 proxy was
 			// used for export instead. Matches the CapCut-draft-export precedent

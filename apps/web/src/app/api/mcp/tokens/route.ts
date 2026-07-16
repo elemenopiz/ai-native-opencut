@@ -75,6 +75,7 @@ export async function POST(request: NextRequest) {
 			userId: session.user.id,
 			projectId: row.projectId,
 			event: "token_created",
+			source: "mcp",
 			meta: { scopes, hasLabel: Boolean(parsed.data.label) },
 		});
 

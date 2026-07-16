@@ -18,8 +18,13 @@
  *     → the awaited promise resolves with the untouched `DirectorResult`.
  *
  * If NO tab is registered for the project, `relayToolCall` rejects with a
- * {@link BridgeError} (`code: "no-tab"`) that the MCP layer surfaces verbatim
- * ("no live editor connected — open the project in a browser tab").
+ * {@link BridgeError} (`code: "no-tab"`) carrying {@link BridgeErrorDetails} —
+ * the bound project, plus (only when knowable) the project another live tab
+ * for the SAME user is currently on. The MCP layer (`build-mcp-server.ts`)
+ * turns this into a structured refusal, worded differently for a mutating
+ * verb ("project-mismatch" — refuse, this verb requires the bound project's
+ * own live editor) vs. a read verb ("bridge-unavailable" — no mutation risk,
+ * just nothing to serve the read from). See that file's `bridgeRefusalFor`.
  *
  * DEPLOYMENT CAVEAT (honest limits): the registry and pending-call maps are
  * in-memory, cached on `globalThis` so they survive Next.js dev HMR. This
@@ -49,12 +54,30 @@ export type BridgeErrorCode =
 	| "timeout" // tab never answered within the deadline
 	| "tab-disconnected"; // tab's SSE stream closed while the call was in flight
 
+/**
+ * What the server legitimately knows about a "no-tab" refusal — the project
+ * the MCP session is bound to, and (only when a live tab for the SAME user is
+ * connected under a different project) which project that is. Never carries
+ * another user's state — see {@link EditorBridge.findActiveProjectForUser}.
+ */
+export interface BridgeErrorDetails {
+	boundProjectId: string;
+	activeProjectId?: string;
+}
+
 export class BridgeError extends Error {
 	readonly code: BridgeErrorCode;
-	constructor(code: BridgeErrorCode, message: string) {
+	/** Present on "no-tab" errors — see {@link BridgeErrorDetails}. */
+	readonly details?: BridgeErrorDetails;
+	constructor(
+		code: BridgeErrorCode,
+		message: string,
+		details?: BridgeErrorDetails,
+	) {
 		super(message);
 		this.name = "BridgeError";
 		this.code = code;
+		this.details = details;
 	}
 }
 
@@ -148,6 +171,32 @@ class EditorBridge {
 	}
 
 	/**
+	 * If a live tab is registered for a DIFFERENT project than `excludeProjectId`
+	 * but under the SAME user (or the dev wildcard — mirrors the permissiveness
+	 * `relayToolCall` already applies to answering calls), return that project's
+	 * id. This is the one piece of cross-project state the server is allowed to
+	 * surface in a refusal: never another user's tabs, and never more than "a
+	 * project this same user currently has open." Picks the most-recently
+	 * connected match when more than one exists.
+	 */
+	private findActiveProjectForUser(
+		userId: string,
+		excludeProjectId: string,
+	): string | undefined {
+		let best: RegisteredTab | undefined;
+		for (const tab of this.tabs.values()) {
+			if (tab.projectId === excludeProjectId) continue;
+			const sameUser =
+				tab.userId === userId ||
+				tab.userId === DEV_WILDCARD_USER ||
+				userId === DEV_WILDCARD_USER;
+			if (!sameUser) continue;
+			if (!best || tab.connectedAt > best.connectedAt) best = tab;
+		}
+		return best?.projectId;
+	}
+
+	/**
 	 * Relay one tool call to the project's registered tab and await its
 	 * `DirectorResult`. Rejects with a {@link BridgeError} when there is no
 	 * tab, the tab belongs to another user, the deadline passes, or the tab
@@ -162,10 +211,18 @@ class EditorBridge {
 	}): Promise<DirectorResult<unknown>> {
 		const tab = this.tabs.get(input.projectId);
 		if (!tab) {
+			const activeProjectId = this.findActiveProjectForUser(
+				input.userId,
+				input.projectId,
+			);
+			const activeNote = activeProjectId
+				? ` The editor is currently connected to a different project ("${activeProjectId}").`
+				: "";
 			return Promise.reject(
 				new BridgeError(
 					"no-tab",
-					`No live editor connected for project "${input.projectId}" — open the project in a browser tab (the editor registers itself as the executor) and retry.`,
+					`No live editor connected for project "${input.projectId}" — open the project in a browser tab (the editor registers itself as the executor) and retry.${activeNote}`,
+					{ boundProjectId: input.projectId, activeProjectId },
 				),
 			);
 		}

@@ -3,6 +3,7 @@
 import { useTimelineStore } from "@/stores/timeline-store";
 import { useActionHandler } from "@/hooks/actions/use-action-handler";
 import { useEditor } from "../use-editor";
+import { useScrubAudio } from "@/hooks/audio/use-scrub-audio";
 import { useElementSelection } from "../timeline/element/use-element-selection";
 import { useKeyframeSelection } from "../timeline/element/use-keyframe-selection";
 import { getElementsAtTime } from "@/lib/timeline";
@@ -24,6 +25,7 @@ import { useVersionStore } from "@/stores/version-store";
 export function useEditorActions() {
 	const editor = useEditor();
 	const activeProject = editor.project.getActive();
+	const scrubAudio = useScrubAudio();
 	const { selectedElements, setElementSelection } = useElementSelection();
 	const { selectedKeyframes, clearKeyframeSelection } = useKeyframeSelection();
 	const clipboard = useTimelineStore((s) => s.clipboard);
@@ -85,12 +87,14 @@ export function useEditorActions() {
 		"frame-step-forward",
 		() => {
 			const fps = activeProject.settings.fps;
-			editor.playback.seek({
-				time: Math.min(
-					editor.timeline.getTotalDuration(),
-					editor.playback.getCurrentTime() + 1 / fps,
-				),
-			});
+			const nextTime = Math.min(
+				editor.timeline.getTotalDuration(),
+				editor.playback.getCurrentTime() + 1 / fps,
+			);
+			editor.playback.seek({ time: nextTime });
+			// Single-frame step: one audible grain at the landed frame (§4.2,
+			// palmier-delta-refresh-2026-07-14.md).
+			scrubAudio.onFrameStep(nextTime, "forward");
 		},
 		undefined,
 	);
@@ -99,9 +103,9 @@ export function useEditorActions() {
 		"frame-step-backward",
 		() => {
 			const fps = activeProject.settings.fps;
-			editor.playback.seek({
-				time: Math.max(0, editor.playback.getCurrentTime() - 1 / fps),
-			});
+			const nextTime = Math.max(0, editor.playback.getCurrentTime() - 1 / fps);
+			editor.playback.seek({ time: nextTime });
+			scrubAudio.onFrameStep(nextTime, "reverse");
 		},
 		undefined,
 	);

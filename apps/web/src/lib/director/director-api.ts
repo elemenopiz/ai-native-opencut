@@ -173,12 +173,14 @@ import { getAllEffects } from "@/lib/effects";
 import type { EffectParamValues } from "@/types/effects";
 import { DEFAULT_EXPORT_OPTIONS } from "@/constants/export-constants";
 import {
-	downloadBuffer,
+	commitExport,
+	createExportJobId,
 	getExportFileExtension,
 	getExportMimeType,
 } from "@/lib/export";
 import type {
 	ExportFormat,
+	ExportJobStatus,
 	ExportOptions,
 	ExportQuality,
 } from "@/types/export";
@@ -854,6 +856,33 @@ export function createDirectorApi(
 		if (!result.ok) return result;
 		result.delta = diffReel(before, captureReel());
 		return result;
+	}
+
+	/**
+	 * Wrap a SYNCHRONOUS cluster of mutations (no `await` inside `fn`) in one
+	 * origin-tagged, named undo entry — the atomicity half of agent-scoped
+	 * undo (poach: palmier-mcp-schema-spec.md §"Agent-scoped undo"; A2). Only
+	 * ever call this around code with no `await` inside: the top-level verb
+	 * choke point (see `withAgentOrigin` near the bottom of this file) never
+	 * holds a transaction open across a real `await` — doing so would risk
+	 * sweeping an unrelated concurrent command (e.g. a manual user edit made
+	 * while a generation network call is in flight) into the agent's batch,
+	 * corrupting both its origin and its atomicity. `withAgentBatch` nests
+	 * safely whether or not that outer transaction is still open (it always
+	 * is, before a verb's first real await; it never is, after) — either way
+	 * the resulting entry inherits the calling verb's name/origin from
+	 * whichever ambient context is active, so no name is passed here.
+	 */
+	function withAgentBatch<T>(fn: () => T): T {
+		editor.command.beginTransaction();
+		try {
+			const result = fn();
+			editor.command.commitTransaction();
+			return result;
+		} catch (error) {
+			editor.command.rollbackTransaction();
+			throw error;
+		}
 	}
 
 	// ---- READ -------------------------------------------------------------
@@ -2120,12 +2149,16 @@ export function createDirectorApi(
 				};
 			}
 
-			// Success ⇒ commit the ready take and (maybe) auto-select it.
+			// Success ⇒ commit the ready take and (maybe) auto-select it. Batched
+			// as ONE undo entry — these two mutations always land back-to-back
+			// with no `await` between them.
 			if (result.status === "ready" && result.mediaId) {
-				editor.timeline.updateTake({ elementId, takeId, patch: result });
-				if (!activeTakeIdOf(elementId)) {
-					editor.timeline.selectTake({ elementId, takeId });
-				}
+				withAgentBatch(() => {
+					editor.timeline.updateTake({ elementId, takeId, patch: result });
+					if (!activeTakeIdOf(elementId)) {
+						editor.timeline.selectTake({ elementId, takeId });
+					}
+				});
 				return { takeId, status: "ready", rephrased: rephrases > 0, attempts };
 			}
 
@@ -2205,17 +2238,20 @@ export function createDirectorApi(
 		// the UI/agent can observe them, and report that nothing was rendered.
 		if (!executor) {
 			const takeIds: string[] = [];
-			for (let i = 0; i < count; i++) {
-				const take: Take = {
-					id: generateUUID(),
-					status: "queued",
-					spec: { ...takeSpec },
-					seed: takeSpec.seed,
-					createdAt: Date.now(),
-				};
-				editor.timeline.addTakeToElement({ elementId: slotId, take });
-				takeIds.push(take.id);
-			}
+			// One undo entry for the whole placeholder batch, not one per take.
+			withAgentBatch(() => {
+				for (let i = 0; i < count; i++) {
+					const take: Take = {
+						id: generateUUID(),
+						status: "queued",
+						spec: { ...takeSpec },
+						seed: takeSpec.seed,
+						createdAt: Date.now(),
+					};
+					editor.timeline.addTakeToElement({ elementId: slotId, take });
+					takeIds.push(take.id);
+				}
+			});
 			return ok(
 				`Queued ${count} take(s) for slot "${slotId}" (no generation executor configured — takes remain queued).`,
 				{ slotId, takeIds },
@@ -2617,17 +2653,20 @@ export function createDirectorApi(
 		// observable, but nothing renders (mirrors runTakesForSlot's no-executor path).
 		if (!executor) {
 			const takeIds: string[] = [];
-			for (const backendId of ids) {
-				const take: Take = {
-					id: generateUUID(),
-					status: "queued",
-					spec: { ...baseSpec, model: backendId },
-					seed: baseSpec.seed,
-					createdAt: Date.now(),
-				};
-				editor.timeline.addTakeToElement({ elementId: input.slotId, take });
-				takeIds.push(take.id);
-			}
+			// One undo entry for the whole placeholder batch, not one per take.
+			withAgentBatch(() => {
+				for (const backendId of ids) {
+					const take: Take = {
+						id: generateUUID(),
+						status: "queued",
+						spec: { ...baseSpec, model: backendId },
+						seed: baseSpec.seed,
+						createdAt: Date.now(),
+					};
+					editor.timeline.addTakeToElement({ elementId: input.slotId, take });
+					takeIds.push(take.id);
+				}
+			});
 			return withDelta(
 				before,
 				ok(
@@ -2821,9 +2860,21 @@ export function createDirectorApi(
 			seed: spec.seed,
 			createdAt: Date.now(),
 		};
-		editor.timeline.addTakeToElement({
-			elementId: input.slotId,
-			take: newTake,
+		// One undo entry for "queue the take" (+ the immediate "generating"
+		// transition, when there's an executor to run it) — both always land
+		// with no `await` between them.
+		withAgentBatch(() => {
+			editor.timeline.addTakeToElement({
+				elementId: input.slotId,
+				take: newTake,
+			});
+			if (executor) {
+				editor.timeline.updateTake({
+					elementId: input.slotId,
+					takeId: newTake.id,
+					patch: { status: "generating" },
+				});
+			}
 		});
 
 		if (!executor) {
@@ -2835,12 +2886,6 @@ export function createDirectorApi(
 				),
 			);
 		}
-
-		editor.timeline.updateTake({
-			elementId: input.slotId,
-			takeId: newTake.id,
-			patch: { status: "generating" },
-		});
 
 		let result: Pick<
 			Take,
@@ -2858,18 +2903,21 @@ export function createDirectorApi(
 				error: error instanceof Error ? error.message : String(error),
 			};
 		}
-		editor.timeline.updateTake({
-			elementId: input.slotId,
-			takeId: newTake.id,
-			patch: result,
-		});
-
-		if (result.status === "ready" && !located.element.activeTakeId) {
-			editor.timeline.selectTake({
+		// One undo entry for the result landing (+ auto-select, when it
+		// applies) — again always adjacent with no `await` between them.
+		withAgentBatch(() => {
+			editor.timeline.updateTake({
 				elementId: input.slotId,
 				takeId: newTake.id,
+				patch: result,
 			});
-		}
+			if (result.status === "ready" && !located.element.activeTakeId) {
+				editor.timeline.selectTake({
+					elementId: input.slotId,
+					takeId: newTake.id,
+				});
+			}
+		});
 
 		return withDelta(
 			before,
@@ -4239,18 +4287,47 @@ export function createDirectorApi(
 
 	// ---- LIFECYCLE --------------------------------------------------------
 
+	/** Trailer appended to a successful undo/redo — the ids/times the agent
+	 * was holding from before this call may no longer describe the reel. */
+	const STALE_STATE_NOTE =
+		" Note: any slot/take ids or times you were tracking before this call may now be stale — call getReel before referencing them again.";
+
+	/**
+	 * Agent-scoped undo (poach: palmier-mcp-schema-spec.md §"Agent-scoped
+	 * undo"; A2). Refuses when the top of the undo stack wasn't made by the
+	 * agent — i.e. the human has edited since the agent's last change — so
+	 * the Director can never blow away a manual edit it didn't make.
+	 */
 	function undo(): DirectorResult {
+		const topOrigin = editor.command.peekUndoOrigin();
+		if (topOrigin === undefined) return fail("Nothing to undo.");
+		if (topOrigin !== "agent") {
+			return fail(
+				"Can't undo — the most recent edit is the user's; their edits are theirs to undo.",
+			);
+		}
 		const before = captureReel();
-		if (!editor.command.canUndo()) return fail("Nothing to undo.");
+		const name = editor.command.peekUndoName();
 		editor.command.undo();
-		return withDelta(before, ok("Undid last action."));
+		return withDelta(
+			before,
+			ok(`Undid "${name ?? "last action"}".${STALE_STATE_NOTE}`),
+		);
 	}
 
+	/** Mirror of {@link undo}: refuses to redo an edit that wasn't the
+	 * agent's own (e.g. the human undid their own edit via the UI). */
 	function redo(): DirectorResult {
+		const topOrigin = editor.command.peekRedoOrigin();
+		if (topOrigin === undefined) return fail("Nothing to redo.");
+		if (topOrigin !== "agent") {
+			return fail(
+				"Can't redo — the most recently undone edit is the user's; their edits are theirs to redo.",
+			);
+		}
 		const before = captureReel();
-		if (!editor.command.canRedo()) return fail("Nothing to redo.");
 		editor.command.redo();
-		return withDelta(before, ok("Redid last action."));
+		return withDelta(before, ok(`Redid last action.${STALE_STATE_NOTE}`));
 	}
 
 	/**
@@ -4266,6 +4343,18 @@ export function createDirectorApi(
 	 * agent and the MCP editor-bridge live. In a headless/Node unit test pass
 	 * `download: false` and stub `editor.project.export`. This is NOT a fake: it
 	 * calls the real export path, which simply requires a browser to execute.
+	 *
+	 * JOBID CONTRACT (poach: palmier-delta-refresh-2026-07-14.md §4.4, idea
+	 * only — clean-room, no palmier-pro source consulted): a stable `jobId` is
+	 * minted per invocation and returned in `data` alongside `status`, which
+	 * is typed as the full future {@link ExportJobStatus} lifecycle even
+	 * though only `"completed"`/`"failed"` are ever emitted today (export is
+	 * still single-shot and synchronous — no queue, no `manage_exports`, no
+	 * "queued"/"preparing"/"rendering" state exists yet). The point is that a
+	 * FIFO `ExportQueue` can start emitting the rest of that enum later
+	 * without breaking this response shape. Handoff to the browser download
+	 * is gated through {@link commitExport} — see its doc for the write-path
+	 * audit (in-memory buffer, no durable intermediate to stage on disk).
 	 */
 	async function exportReel(input?: {
 		format?: ExportFormat;
@@ -4276,10 +4365,12 @@ export function createDirectorApi(
 		download?: boolean;
 	}): Promise<
 		DirectorResult<{
-			format: ExportFormat;
-			bytes: number;
-			durationSeconds: number;
-			downloaded: boolean;
+			jobId: string;
+			status: ExportJobStatus;
+			format?: ExportFormat;
+			bytes?: number;
+			durationSeconds?: number;
+			downloaded?: boolean;
 		}>
 	> {
 		const project = editor.project.getActiveOrNull();
@@ -4292,6 +4383,8 @@ export function createDirectorApi(
 			);
 		}
 
+		const jobId = createExportJobId();
+
 		const options: ExportOptions = {
 			format: input?.format ?? DEFAULT_EXPORT_OPTIONS.format,
 			quality: input?.quality ?? DEFAULT_EXPORT_OPTIONS.quality,
@@ -4302,23 +4395,27 @@ export function createDirectorApi(
 
 		const result = await editor.project.export({ options });
 
-		if (result.cancelled) return fail("Export was cancelled.");
-		if (!result.success || !result.buffer) {
-			return fail(`Export failed: ${result.error ?? "unknown error"}.`);
+		const outcome = commitExport({
+			result,
+			jobId,
+			filename: `${project.metadata.name}${getExportFileExtension({ format: options.format })}`,
+			mimeType: getExportMimeType({ format: options.format }),
+			download: input?.download ?? true,
+		});
+
+		if (outcome.status === "failed") {
+			const message =
+				outcome.reason === "cancelled"
+					? outcome.message
+					: `Export failed: ${outcome.message}.`;
+			return {
+				ok: false,
+				message,
+				data: { jobId, status: "failed" },
+			};
 		}
 
-		const shouldDownload = input?.download ?? true;
-		let downloaded = false;
-		if (shouldDownload) {
-			downloadBuffer({
-				buffer: result.buffer,
-				filename: `${project.metadata.name}${getExportFileExtension({ format: options.format })}`,
-				mimeType: getExportMimeType({ format: options.format }),
-			});
-			downloaded = true;
-		}
-
-		const megabytes = result.buffer.byteLength / (1024 * 1024);
+		const megabytes = outcome.bytes / (1024 * 1024);
 		// SOFT final-cut gate (Flow D #3): the Director should get the human's
 		// final-cut sign-off before finalizing. We never hard-block (a manual UI
 		// Export IS the human's approval); we just note a missing approval so the
@@ -4336,19 +4433,99 @@ export function createDirectorApi(
 		return ok(
 			`Exported "${project.metadata.name}" — ${options.format.toUpperCase()}, ` +
 				`${megabytes.toFixed(1)} MB, ${durationSeconds.toFixed(1)}s` +
-				(downloaded ? " (downloaded)." : ".") +
+				(outcome.downloaded ? " (downloaded)." : ".") +
 				finalCutNote +
 				degradationNote,
 			{
+				jobId,
+				status: "completed",
 				format: options.format,
-				bytes: result.buffer.byteLength,
+				bytes: outcome.bytes,
 				durationSeconds,
-				downloaded,
+				downloaded: outcome.downloaded,
 			},
 		);
 	}
 
-	return {
+	/**
+	 * Director/MCP verb choke point (A2, poach: palmier-mcp-schema-spec.md
+	 * §"Agent-scoped undo"). Wraps EVERY verb below so a single call becomes
+	 * exactly one origin-`"agent"`, verb-named undo entry — no per-verb
+	 * changes needed. An external MCP call relays through this SAME
+	 * `DirectorApi` (never `editor.command`/`editor.timeline` directly), so
+	 * it inherits `"agent"` for free; the manual UI drives the managers
+	 * directly and never calls through here, so its edits keep
+	 * `CommandManager`'s `"user"` default untouched.
+	 *
+	 * For a SYNCHRONOUS verb this brackets the whole call in a transaction —
+	 * safe, because nothing yields to the event loop, so no concurrent
+	 * command can land in the shared buffer.
+	 * `storyboard`/`acceptProposal`/`reorder`'s own explicit
+	 * begin/commit nests inside this one for free (see
+	 * `CommandManager.beginTransaction`'s frame-stack doc) — no changes
+	 * needed there either.
+	 *
+	 * For an ASYNC verb, holding a transaction open across a real `await`
+	 * would risk sweeping an unrelated concurrent command (e.g. a manual user
+	 * edit made while a generation network call is in flight) into the
+	 * agent's batch — corrupting both its origin AND its atomicity (a
+	 * rollback would silently discard the user's already-executed edit from
+	 * undo history). So instead: commit whatever ran before the verb's first
+	 * real `await` (often nothing; occasionally a whole synchronous
+	 * "no executor" placeholder loop — see `runTakesForSlot`/`compareTake`),
+	 * then fall back to `pushOrigin` for the rest of the call — every
+	 * subsequent mutation still lands tagged `"agent"`, just as its own entry
+	 * unless the verb explicitly batches a post-await cluster with
+	 * `withAgentBatch` (see `remix`, `runTakeWithRecovery`'s ready branch).
+	 * Residual gap, documented rather than silently accepted: a `generate`
+	 * call that retries/rephrases still produces multiple *correctly agent-
+	 * tagged* history entries (queued → generating → ready are genuinely
+	 * separated by network awaits) rather than collapsing to one.
+	 */
+	function withAgentOrigin<F extends (...args: never[]) => unknown>(
+		name: string,
+		fn: F,
+	): F {
+		const wrapped = (...args: Parameters<F>): ReturnType<F> => {
+			editor.command.beginTransaction({ origin: "agent", name });
+			let result: ReturnType<F>;
+			try {
+				result = fn(...args) as ReturnType<F>;
+			} catch (error) {
+				editor.command.rollbackTransaction();
+				throw error;
+			}
+			if (result instanceof Promise) {
+				editor.command.commitTransaction();
+				const popOrigin = editor.command.pushOrigin("agent", name);
+				return result.finally(popOrigin) as ReturnType<F>;
+			}
+			editor.command.commitTransaction();
+			return result;
+		};
+		return wrapped as F;
+	}
+
+	/** Apply {@link withAgentOrigin} to every verb except lifecycle (`undo`/
+	 * `redo` act ON history — they refuse/tag by inspecting it, they don't
+	 * create new entries, so wrapping them would be a meaningless no-op at
+	 * best). */
+	function wrapVerbs<T extends Record<string, unknown>>(api: T): T {
+		const wrapped = { ...api };
+		for (const key of Object.keys(api) as (keyof T & string)[]) {
+			if (key === "undo" || key === "redo") continue;
+			const value = api[key];
+			if (typeof value === "function") {
+				(wrapped as Record<string, unknown>)[key] = withAgentOrigin(
+					key,
+					value as (...args: never[]) => unknown,
+				);
+			}
+		}
+		return wrapped;
+	}
+
+	return wrapVerbs({
 		// read
 		getReel,
 		getSlot,
@@ -4422,7 +4599,7 @@ export function createDirectorApi(
 		undo,
 		redo,
 		export: exportReel,
-	};
+	});
 }
 
 export type DirectorApi = ReturnType<typeof createDirectorApi>;
