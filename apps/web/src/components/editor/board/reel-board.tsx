@@ -129,10 +129,7 @@ function DraftCard({
 	onDismiss: () => void;
 	onPromote?: () => void;
 }) {
-	const url =
-		item.kind === "take"
-			? (item.take?.thumbnailUrl ?? item.take?.videoUrl)
-			: item.image?.imageUrl;
+	const url = item.kind === "take" ? item.take?.videoUrl : item.image?.imageUrl;
 	const isFailed = item.kind === "take" && item.take?.status === "error";
 	const isPending =
 		item.kind === "take" &&
@@ -147,6 +144,7 @@ function DraftCard({
 				item.kind === "take" ? (
 					<video
 						src={url}
+						poster={item.take?.thumbnailUrl ?? undefined}
 						className="size-full object-cover"
 						muted
 						loop

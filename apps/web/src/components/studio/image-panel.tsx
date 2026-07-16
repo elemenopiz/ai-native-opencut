@@ -146,18 +146,24 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 	// Push freshly generated stills into the project's Assets so they live
 	// alongside uploaded media — taggable as "AI", draggable back into Generate
 	// as a reference. Best-effort: the stills grid here still works regardless.
-	async function importStillsToAssets(images: GeneratedStill[]) {
-		if (images.length === 0) return;
+	// Returns per-item counts so callers (e.g. the Board-pin fallback below)
+	// can tell how many actually landed. `silent` skips the built-in toast for
+	// callers that want to compose their own message from the outcome instead.
+	async function importStillsToAssets(
+		images: GeneratedStill[],
+		opts?: { silent?: boolean },
+	): Promise<{ added: number; failed: number }> {
+		if (images.length === 0) return { added: 0, failed: 0 };
 		let projectId: string | null = null;
 		try {
 			projectId = editor.project.getActive().metadata.id;
 		} catch {
 			projectId = null;
 		}
-		if (!projectId) return;
+		if (!projectId) return { added: 0, failed: images.length };
 
 		const baseName = prompt.trim().slice(0, 32) || "AI image";
-		const { added } = await addItemsToProjectMedia({
+		const { added, failed } = await addItemsToProjectMedia({
 			editor,
 			projectId,
 			source: "ai",
@@ -167,33 +173,60 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 				kind: "image" as const,
 			})),
 		});
-		if (added > 0) {
+		if (added > 0 && !opts?.silent) {
 			toast.success(`Added ${added} image${added === 1 ? "" : "s"} to Assets.`);
 		}
+		return { added, failed };
+	}
+
+	interface BoardImportResult {
+		/** Landed in Board — the happy path, ready for the user to pick a winner. */
+		boarded: number;
+		/** Board pin failed but the (already-billed) image was saved to Assets
+		 *  instead, so it's still retrievable. */
+		fallenBack: number;
+		/** Board pin AND the Assets fallback both failed — genuinely lost. */
+		failed: number;
 	}
 
 	// Multi-image batches don't land in Assets automatically — they're parked
 	// in Board so the user can star a winner (a lone image skips this and
-	// keeps going straight to Assets, unchanged from before). Unlike Assets,
-	// there's no in-panel fallback if this fails, so a failed pin throws —
-	// the caller awaits this and surfaces the error instead of silently
-	// dropping the images.
-	async function importStillsToBoard(images: GeneratedStill[]) {
-		const results = await Promise.all(
-			images.map((img) =>
-				apiFetch("/api/studio/board", {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ imageStillId: img.id }),
-				}),
-			),
+	// keeps going straight to Assets, unchanged from before). A failed pin no
+	// longer just throws and drops the paid image: it falls back to Assets so
+	// it's saved *somewhere*. The caller composes its messaging from the
+	// returned counts instead of assuming every image reached Board.
+	async function importStillsToBoard(
+		images: GeneratedStill[],
+	): Promise<BoardImportResult> {
+		const failedPins: GeneratedStill[] = [];
+		await Promise.all(
+			images.map(async (img) => {
+				try {
+					const res = await apiFetch("/api/studio/board", {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({ imageStillId: img.id }),
+					});
+					if (!res.ok) failedPins.push(img);
+				} catch {
+					failedPins.push(img);
+				}
+			}),
 		);
-		const failed = results.filter((res) => !res.ok).length;
-		if (failed > 0) {
-			throw new Error(
-				`${failed} image${failed === 1 ? "" : "s"} failed to save to Board`,
-			);
+
+		const boarded = images.length - failedPins.length;
+		if (failedPins.length === 0) {
+			return { boarded, fallenBack: 0, failed: 0 };
 		}
+
+		// Save the images whose Board pin failed to Assets instead of losing
+		// them — one batched call so this only ever produces a single Assets
+		// toast (silenced here; handleGenerate composes the combined message).
+		const { added: fallenBack, failed } = await importStillsToAssets(
+			failedPins,
+			{ silent: true },
+		);
+		return { boarded, fallenBack, failed };
 	}
 
 	function selectPreset(id: ImagePresetId) {
@@ -225,6 +258,12 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 		}
 
 		let received = 0;
+		// Accumulated across chunks so the post-Promise.all messaging reflects
+		// where the batch's images actually ended up, not just how many the
+		// backend returned (see importStillsToBoard's per-image outcome).
+		let boarded = 0;
+		let fallenBack = 0;
+		let boardFailed = 0;
 		try {
 			await Promise.all(
 				chunks.map(async (chunkN) => {
@@ -262,27 +301,50 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 						void useCreditsStore.getState().refresh();
 						// A lone image goes straight to Assets, as before. A batch (2+)
 						// is held in Board instead — nothing is auto-saved until the
-						// user stars a winner there.
+						// user stars a winner there, unless the pin itself fails, in
+						// which case importStillsToBoard falls back to Assets so the
+						// paid image is never just dropped.
 						if (total === 1) {
 							void importStillsToAssets(data.images);
 						} else {
-							await importStillsToBoard(data.images);
+							const outcome = await importStillsToBoard(data.images);
+							boarded += outcome.boarded;
+							fallenBack += outcome.fallenBack;
+							boardFailed += outcome.failed;
 						}
 					} catch (err) {
 						setError(err instanceof Error ? err.message : "Generation failed");
 					}
 				}),
 			);
-			if (total > 1 && received > 0) {
-				toast.success(
-					`${received} image${received === 1 ? "" : "s"} ready — pick your favorite`,
-					{
-						action: {
-							label: "Open Board",
-							onClick: () => useBoardStore.getState().setOpen(true),
+			if (total > 1) {
+				// Only point the user at Board for the images that actually made
+				// it there — never claim a Board-ready count that includes
+				// images that fell back to Assets or failed outright.
+				if (boarded > 0) {
+					toast.success(
+						`${boarded} image${boarded === 1 ? "" : "s"} ready — pick your favorite`,
+						{
+							action: {
+								label: "Open Board",
+								onClick: () => useBoardStore.getState().setOpen(true),
+							},
 						},
-					},
-				);
+					);
+				}
+				if (fallenBack > 0) {
+					toast.success(
+						`${fallenBack} image${fallenBack === 1 ? "" : "s"} saved to Assets — Board wasn't available`,
+					);
+				}
+				// Genuinely unrecoverable only when BOTH the Board pin and the
+				// Assets fallback failed for an image — surface that inline
+				// rather than via a toast the user might miss.
+				if (boardFailed > 0) {
+					setError(
+						`${boardFailed} image${boardFailed === 1 ? "" : "s"} failed to save — try generating again`,
+					);
+				}
 			}
 		} finally {
 			setGenerating(false);
