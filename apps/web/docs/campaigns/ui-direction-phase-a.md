@@ -30,10 +30,18 @@
 
 | Worker | Scope | Status |
 |---|---|---|
-| A | tokens/primitives inventory | — |
-| B | editor-surface usage audit | — |
-| C | screenshot visual critique | — |
+| A | tokens/primitives inventory | done — report synthesized into direction doc §1/§3 |
+| B | editor-surface usage audit | done — report synthesized into §2/§4/§6 |
+| C | screenshot visual critique | done — report synthesized into §2/§4/§5 |
 
 ## State notes
 
-(updated as the campaign runs — crash-survival state)
+- Capture done via standalone headless Chromium script (repo Playwright) against a
+  worktree dev server on :3111 — NOT the shared Playwright MCP (a sibling session grabbed
+  that browser mid-capture; scripted capture is the collision-free recipe).
+- 11 screenshots committed under `docs/design/assets/`; shot 09 (command palette) dropped —
+  Cmd/Ctrl+K did not open under headless Chromium (possible real bug, queued in doc §2).
+- Board captured in its designed empty state; populating Board needs the authed Generate
+  panel flow (bridge lands takes on slots) — phase-B verify item.
+- Deliverable: `apps/web/docs/design/2026-07-17-ui-direction-phase-a.md` — ends at the
+  user taste-gate (6 questions). DESIGN-ONLY: zero product-code changes on this branch.
