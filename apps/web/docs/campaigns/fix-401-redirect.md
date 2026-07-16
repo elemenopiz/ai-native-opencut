@@ -66,3 +66,21 @@ existing e2e/harness files. `happy-path.e2e.ts` must go green as a side effect, 
 ## Status log
 
 - 2026-07-17: branch cut, recon done, log committed. Spawning W1+W2.
+- 2026-07-17: COMPLETE. W2 spec merged @31bd71b3 (red on unfixed base: redirect to
+  /signup reproduced inside the 20s soak). W1 fix merged @35c08ff6 (additive
+  `opts?: { on401 }`, pure `shouldPromptFor401` helper, 10 unit tests; default path
+  byte-for-byte for all other callers). Main @eab311a5 merged in (C12 harness).
+  Evidence on campaign tip:
+  - anon-editor-stability.e2e.ts GREEN (20.7s soak, ≥1 real 401 observed, no redirect)
+  - happy-path.e2e.ts 5×5 green, unedited; full default e2e suite 11 pass / 0 fail /
+    5 skip (real-export self-skips under stub build, auth-flow skips w/o Upstash)
+  - battery: typecheck 0 · lint 347E/225W == baseline · build green · build:e2e green ·
+    root bun test 1380 pass / 44 fail / 31 errors == pre-existing baseline (names
+    unrelated to territory; +20 new passes)
+  - browser-verified locally (worktree server, port 3211): anon editor with REAL
+    `GET /api/studio/sets → 401` survived minutes, zero toast/redirect, bridge alive;
+    then user-initiated Generate → `POST /api/studio/generate → 401` → redirect to
+    `/signup?redirect=%2Feditor%2F<id>` (prompt path / real-expiry surface intact)
+  - follow-up filed: BUG15 (generation-status-store resume-poll still prompt-mode;
+    stores/* was off-limits here)
+  Verification tier: **verified locally**. Awaiting L0 merge to main.
