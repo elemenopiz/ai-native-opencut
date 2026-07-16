@@ -42,5 +42,24 @@ Dictated contract (A and C must both honor): scripts `build:e2e:real` =
   (default dir would have overwritten the smoke report). Next: full battery + double e2e.
 - Worker findings to file as queue rows: (1) anonymous editor session — `/api/studio/sets`
   401 triggers apiFetch's global unauthorized redirect to /signup mid-editing (race observed
-  in real-export spec, mocked around); (2) auth-flow e2e in CI is blocked by unreachable
-  Upstash rate-limit store before Postgres even matters (bun-ci.yml comment documents it).
+  in real-export spec, mocked around) — ALREADY FILED as BUG12 per L0, don't double-file;
+  (2) auth-flow e2e in CI is blocked by unreachable Upstash rate-limit store before Postgres
+  even matters (bun-ci.yml comment documents it) — new row candidate.
+- 2026-07-17 battery (final, tip @7db02a86 + this log commit):
+  typecheck OK · lint: 0 issues in touched files (347 pre-existing repo-wide, no-worse) ·
+  root `bun test`: 1365 pass / 44 fail vs main baseline 1355 pass / 44 fail — +10 new passes,
+  zero new failures (the 44 are pre-existing env-dependent suites: health-route redis,
+  proxy-encoder WebCodecs; verified identical on clean main) ·
+  stub e2e ×4: takes-board-routing 7/7 green EVERY run; happy-path passed run 1, failed runs
+  2–4 on the KNOWN pre-existing BUG12 bridge-unmount race (signature verified:
+  `__BYORN_E2E__` undefined mid-test; being fixed by a separate campaign) ·
+  real-export e2e ×2: green both runs, deterministic — ffprobe: h264 video (1.600000s exactly
+  = post-trim/split timeline), aac audio present, format duration 1.671837s, 19,675 bytes ·
+  GitNexus detect_changes (compare vs main): risk LOW, 0 affected processes, changed symbols
+  = globalSetup/draw + E2EBridge only (auth-form entries are inverse-diff noise — main moved).
+- Flake note for CI: happy-path's BUG12 flake rate appears HIGHER with the longer suite
+  (busier server widens the 401-redirect race window). CI has retries=1 which may mask it;
+  once the BUG12 product fix lands the flake should disappear. Do not mock around it in
+  happy-path — it is currently the only repro signal.
+- Territory handoff flag: any campaign fixing BUG12 may want to touch happy-path.e2e.ts /
+  e2e-bridge.tsx — coordinate with this branch to avoid conflicts.
