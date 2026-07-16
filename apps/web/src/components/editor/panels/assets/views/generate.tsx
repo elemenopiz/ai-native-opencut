@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -71,12 +71,21 @@ const MEDIA_SEGMENTS = [
  * lives with the Director now — this panel is single-shot generation only.
  */
 export function GenerateView() {
-	const { status, error, generate, clearError } = useStudioGeneration();
+	const { status, error, generate, clearError, loadHistory } =
+		useStudioGeneration();
 
 	const editor = useEditor();
 	const [section, setSection] = useState("generate");
 
 	const busy = status === "submitting" || status === "polling";
+
+	// Resume polling for any generation that was still in-flight when the page
+	// was last closed/reloaded — otherwise an orphaned take never completes and
+	// never surfaces anywhere (see use-studio-generation.ts's loadHistory for
+	// the Board-routing side of this fix).
+	useEffect(() => {
+		void loadHistory();
+	}, [loadHistory]);
 
 	// GenerationForm builds the generate params (including batchSize) but has
 	// no reason to know about EditorCore/project id — inject them here so the

@@ -13,6 +13,13 @@ import { apiFetch } from "@/lib/auth/unauthorized";
 import type { EditorCore } from "@/core";
 import { addItemsToProjectMedia } from "@/lib/studio/add-to-editor";
 
+// Module-level (not per-hook-instance) so a takeId's resume is deduped across
+// GenerateView remounts — e.g. the user tabs away and back while a resumed
+// poll (up to DEFAULT_TIMEOUT_MS) is still in flight. Resets on a full page
+// reload, which is fine: a fresh reload is exactly the scenario this resume
+// path handles, so a genuinely-new resume attempt there is correct, not a dup.
+const resumingTakeIds = new Set<string>();
+
 export type GenerationStatus =
 	| "idle"
 	| "submitting"
@@ -382,10 +389,37 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 			});
 			setHistoryLoaded(true);
 
-			// Resume polling for takes that were mid-generation when last closed.
+			// Resume polling for takes that were mid-generation when last closed
+			// (e.g. the page reloaded mid-poll). We don't know the original
+			// batchSize here — it was never persisted, just an ephemeral param on
+			// the original request — so route any that finish to Board rather than
+			// guessing: Board is always a safe, reviewable landing spot, whereas
+			// silently auto-adding to Assets could surprise the user with an asset
+			// they don't remember asking for.
 			for (const take of loaded) {
-				if (take.status === "polling" && take.jobId) {
-					void pollJobToCompletion(take.takeId, take.jobId);
+				if (
+					take.status === "polling" &&
+					take.jobId &&
+					!resumingTakeIds.has(take.takeId)
+				) {
+					const { takeId, jobId } = take;
+					resumingTakeIds.add(takeId);
+					void pollJobToCompletion(takeId, jobId)
+						.then((outcome) => {
+							if (outcome.status === "done" && outcome.videoUrl) {
+								void apiFetch("/api/studio/board", {
+									method: "POST",
+									headers: { "Content-Type": "application/json" },
+									body: JSON.stringify({ takeId }),
+								});
+							}
+						})
+						.catch(() => {
+							// Best-effort recovery path; nothing more to do if it fails.
+						})
+						.finally(() => {
+							resumingTakeIds.delete(takeId);
+						});
 				}
 			}
 		} catch {
