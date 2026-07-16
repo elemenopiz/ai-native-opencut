@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { signIn, signUp } from "@/lib/auth/client";
+import { authErrorToastContent } from "@/components/auth/auth-form-errors";
 import { SIGNUP_GRANT_CREDITS } from "@/lib/credits/signup-grant";
 import { Button } from "@/components/ui/button";
 import {
@@ -46,13 +47,11 @@ export function AuthForm({
 				: await signIn.email({ email, password });
 
 			if (error) {
-				toast.error(
-					isSignup ? "Failed to create account" : "Failed to sign in",
-					{
-						description:
-							error.message ?? "Please check your details and try again",
-					},
+				const { title, description } = authErrorToastContent(
+					isSignup ? "signup" : "signin",
+					error,
 				);
+				toast.error(title, { description });
 				return;
 			}
 
