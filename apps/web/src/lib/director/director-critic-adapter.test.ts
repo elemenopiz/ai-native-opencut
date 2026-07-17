@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { beforeEach, describe, expect, it } from "bun:test";
 import type { EditorCore } from "@/core";
 import { CommandManager } from "@/core/managers/commands";
 import type { DirectorBrief } from "@/types/project";
@@ -9,6 +9,13 @@ import {
 	createVisionTakeCritic,
 	type VisionRelay,
 } from "./take-critic-adapter";
+import { clearVerdictMemory, recordVerdict } from "./vision-critic";
+
+// The verdict-memory ledger is module-scoped (in-memory, per session by
+// design) so it persists across tests in this file unless cleared.
+beforeEach(() => {
+	clearVerdictMemory();
+});
 
 /**
  * End-to-end coverage of the REAL vision-critic adapter driving `compareTake`'s
@@ -245,5 +252,75 @@ describe("compareTake × real vision-critic adapter", () => {
 
 		expect(res.data?.autoPicked).toBe(false);
 		expect(elements[0].activeTakeId).toBeUndefined();
+	});
+});
+
+describe("compareTake × verdict-memory feed-forward", () => {
+	it("SECOND ATTEMPT SEES FIRST FAILURE: a recorded verdict for this prompt rides into the pick prompt", async () => {
+		const spec = baseSpec({ prompt: "a red convertible on a coastal road" });
+		// A prior single-take review already failed this exact prompt once —
+		// recorded directly here to stand in for `agent.ts` calling
+		// `recordVerdict` after `reviewTake`'s critic verdict (the one-line wire
+		// this seam is built for; see vision-critic.ts).
+		recordVerdict({
+			promptKey: spec.prompt,
+			verdict: {
+				verdict: "reroll-with-delta",
+				reason: "wrong subject entirely",
+				failureAxes: ["prompt-mismatch"],
+			},
+		});
+
+		const { editor } = makeEditor([{ id: "s1", generation: spec }]);
+		const relayCalls: { content: unknown[] }[] = [];
+		const relay: VisionRelay = async ({ content }) => {
+			relayCalls.push({ content });
+			return '{"winner":"A","reason":"closer to the intent"}';
+		};
+		const critic = createVisionTakeCritic({
+			relay,
+			extractFrames: async () => [FRAME, FRAME],
+		});
+		const director = createDirectorApi(editor, {
+			executor: readyExecutor(),
+			critic,
+		});
+
+		await director.compareTake({
+			slotId: "s1",
+			backendIds: ["backend-a", "backend-b"],
+		});
+
+		expect(relayCalls).toHaveLength(1);
+		const introText = (relayCalls[0].content[0] as { text: string }).text;
+		expect(introText).toContain("PRIOR ATTEMPTS ON THIS PROMPT");
+		expect(introText).toContain("wrong subject entirely");
+		expect(introText).toContain("prompt-mismatch");
+	});
+
+	it("carries no history line for a prompt that has never been reviewed before", async () => {
+		const spec = baseSpec({ prompt: "a fresh unreviewed prompt" });
+		const { editor } = makeEditor([{ id: "s1", generation: spec }]);
+		const relayCalls: { content: unknown[] }[] = [];
+		const relay: VisionRelay = async ({ content }) => {
+			relayCalls.push({ content });
+			return '{"winner":"A"}';
+		};
+		const critic = createVisionTakeCritic({
+			relay,
+			extractFrames: async () => [FRAME, FRAME],
+		});
+		const director = createDirectorApi(editor, {
+			executor: readyExecutor(),
+			critic,
+		});
+
+		await director.compareTake({
+			slotId: "s1",
+			backendIds: ["backend-a", "backend-b"],
+		});
+
+		const introText = (relayCalls[0].content[0] as { text: string }).text;
+		expect(introText).not.toContain("PRIOR ATTEMPTS");
 	});
 });

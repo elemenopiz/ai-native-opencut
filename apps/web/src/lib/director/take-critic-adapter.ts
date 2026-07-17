@@ -34,6 +34,7 @@ import {
 	parsePick,
 	pickLabel,
 	PICK_SYSTEM_PROMPT,
+	recentVerdictsFor,
 } from "./vision-critic";
 
 /**
@@ -102,11 +103,18 @@ export function createVisionTakeCritic(deps: {
 			});
 
 			// 4. Ask the model — any relay failure degrades to "no confident pick".
+			// Feed-forward: fold in any recorded failure history for this exact
+			// prompt (see `recordVerdict`/`recentVerdictsFor` in vision-critic.ts) so
+			// a repeated A/B pick on a prompt that's failed single-take review
+			// before carries "previously failed because X" context. A synchronous,
+			// in-memory lookup — no new model call, and a no-op until some caller
+			// starts recording verdicts.
+			const history = recentVerdictsFor(input.prompt);
 			let text: string;
 			try {
 				text = await relay({
 					system: PICK_SYSTEM_PROMPT,
-					content: buildPickUserBlocks(input.prompt, candidates),
+					content: buildPickUserBlocks(input.prompt, candidates, history),
 				});
 			} catch {
 				return null;

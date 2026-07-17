@@ -1,16 +1,28 @@
-import { describe, expect, it } from "bun:test";
+import { beforeEach, describe, expect, it } from "bun:test";
 import {
 	buildCriticSystemPrompt,
 	buildCriticUserBlocks,
 	buildPickUserBlocks,
+	classifyFailureAxes,
+	clearVerdictMemory,
 	dataUrlToImageBlock,
+	normalizePromptKey,
 	parsePick,
 	parseVerdict,
 	pickLabel,
+	recentVerdictsFor,
+	recordVerdict,
 	wantsAutoReview,
 } from "./vision-critic";
 
 const IMG = "data:image/jpeg;base64,AAAA";
+
+// The verdict-memory ledger is module-scoped (in-memory, per session by
+// design — see vision-critic.ts) so it persists across tests in this file
+// unless cleared. Every test starts from an empty ledger.
+beforeEach(() => {
+	clearVerdictMemory();
+});
 
 describe("parseVerdict", () => {
 	it("parses a pass verdict", () => {
@@ -29,6 +41,7 @@ describe("parseVerdict", () => {
 			verdict: "reroll-with-delta",
 			reason: "wrong subject",
 			revisedPrompt: "a red convertible on a coastal road at sunset",
+			failureAxes: ["prompt-mismatch"],
 		});
 	});
 
@@ -99,6 +112,7 @@ describe("parseVerdict", () => {
 			reason: "morphs",
 			revisedPrompt: "a steady portrait, consistent face",
 			temporalIssue: "face identity drifts between frames",
+			failureAxes: ["identity-drift", "motion-artifact"],
 		});
 	});
 
@@ -139,6 +153,7 @@ describe("parseVerdict", () => {
 			verdict: "remix-for-continuity",
 			reason: "outfit changed",
 			revisedPrompt: "match the teal jacket of the previous shot",
+			failureAxes: ["continuity-break"],
 		});
 	});
 
@@ -159,6 +174,61 @@ describe("parseVerdict", () => {
 			parseVerdict('{"verdict":"remix-for-continuity","reason":"drifted"}')
 				.verdict,
 		).toBe("pass");
+	});
+});
+
+describe("classifyFailureAxes", () => {
+	it("returns no axes for a pass verdict", () => {
+		expect(
+			classifyFailureAxes({ verdict: "pass", reason: "on brief" }),
+		).toEqual([]);
+	});
+
+	it("always includes continuity-break for remix-for-continuity", () => {
+		expect(
+			classifyFailureAxes({
+				verdict: "remix-for-continuity",
+				reason: "recast the lead",
+			}),
+		).toContain("continuity-break");
+	});
+
+	it("detects exposure/color issues from the reason text", () => {
+		expect(
+			classifyFailureAxes({
+				verdict: "remix-with-anchor",
+				reason: "the shot is badly overexposed and washed out",
+			}),
+		).toEqual(["exposure-color"]);
+	});
+
+	it("detects motion artifacts from the temporalIssue", () => {
+		expect(
+			classifyFailureAxes({
+				verdict: "reroll-with-delta",
+				reason: "unusable",
+				temporalIssue: "left hand warps mid-shot",
+			}),
+		).toContain("motion-artifact");
+	});
+
+	it("falls back to prompt-mismatch when no keyword matches and there's no temporal issue", () => {
+		expect(
+			classifyFailureAxes({
+				verdict: "remix-with-anchor",
+				reason: "an extra finger on the left hand",
+			}),
+		).toEqual(["prompt-mismatch"]);
+	});
+
+	it("falls back to motion-artifact when a temporal issue is flagged but unclassifiable", () => {
+		expect(
+			classifyFailureAxes({
+				verdict: "reroll-with-delta",
+				reason: "",
+				temporalIssue: "something is off across the frames",
+			}),
+		).toEqual(["motion-artifact"]);
 	});
 });
 
@@ -217,6 +287,133 @@ describe("buildCriticUserBlocks", () => {
 		expect(intro).not.toContain("PREVIOUS shot");
 		expect(intro).not.toContain("STYLE BIBLE");
 		expect(blocks.filter((b) => b.type === "image")).toHaveLength(1);
+	});
+
+	// ── feed-forward: a second review of a previously-failed prompt ──────────
+	it("carries no PRIOR ATTEMPTS line when nothing has been recorded for this prompt", () => {
+		const blocks = buildCriticUserBlocks("a lone astronaut on a red dune", [
+			frame(1),
+		]);
+		const intro = (blocks[0] as { text: string }).text;
+		expect(intro).not.toContain("PRIOR ATTEMPTS");
+	});
+
+	it("SECOND ATTEMPT SEES FIRST FAILURE: surfaces a recorded verdict for the same prompt", () => {
+		const prompt = "a lone astronaut on a red dune";
+		recordVerdict({
+			promptKey: prompt,
+			verdict: {
+				verdict: "reroll-with-delta",
+				reason: "wrong subject entirely",
+				failureAxes: ["prompt-mismatch"],
+			},
+			slotId: "slot1",
+		});
+
+		const blocks = buildCriticUserBlocks(prompt, [frame(1)]);
+		const intro = (blocks[0] as { text: string }).text;
+		expect(intro).toContain("PRIOR ATTEMPTS ON THIS PROMPT");
+		expect(intro).toContain("wrong subject entirely");
+		expect(intro).toContain("prompt-mismatch");
+	});
+
+	it("matches the prior prompt case/whitespace-insensitively", () => {
+		recordVerdict({
+			promptKey: "  A Lone Astronaut ON a Red Dune  ",
+			verdict: { verdict: "remix-with-anchor", reason: "extra finger" },
+		});
+		const blocks = buildCriticUserBlocks("a lone astronaut on a red dune", [
+			frame(1),
+		]);
+		expect((blocks[0] as { text: string }).text).toContain("extra finger");
+	});
+
+	it("never surfaces a PASS verdict as a prior failure", () => {
+		recordVerdict({
+			promptKey: "a calm lake at dawn",
+			verdict: { verdict: "pass", reason: "on brief" },
+		});
+		const blocks = buildCriticUserBlocks("a calm lake at dawn", [frame(1)]);
+		expect((blocks[0] as { text: string }).text).not.toContain(
+			"PRIOR ATTEMPTS",
+		);
+	});
+});
+
+describe("verdict memory: recordVerdict / recentVerdictsFor", () => {
+	it("returns an empty string when nothing is recorded", () => {
+		expect(recentVerdictsFor("never seen this prompt")).toBe("");
+	});
+
+	it("is a no-op for a blank promptKey", () => {
+		recordVerdict({
+			promptKey: "   ",
+			verdict: { verdict: "reroll-with-delta", reason: "x" },
+		});
+		expect(recentVerdictsFor("   ")).toBe("");
+	});
+
+	it("formats verdict + failure axes + reason compactly", () => {
+		recordVerdict({
+			promptKey: "a red convertible",
+			verdict: {
+				verdict: "remix-with-anchor",
+				reason: "extra finger on left hand",
+				failureAxes: ["prompt-mismatch"],
+			},
+		});
+		expect(recentVerdictsFor("a red convertible")).toBe(
+			"remix-with-anchor [prompt-mismatch]: extra finger on left hand",
+		);
+	});
+
+	it("returns the most recent failures first, bounded by limit", () => {
+		const key = "a busy street market";
+		recordVerdict({
+			promptKey: key,
+			verdict: { verdict: "reroll-with-delta", reason: "first failure" },
+		});
+		recordVerdict({
+			promptKey: key,
+			verdict: { verdict: "remix-with-anchor", reason: "second failure" },
+		});
+		recordVerdict({
+			promptKey: key,
+			verdict: { verdict: "remix-with-anchor", reason: "third failure" },
+		});
+		const history = recentVerdictsFor(key, { limit: 2 });
+		expect(history).toContain("third failure");
+		expect(history).toContain("second failure");
+		expect(history).not.toContain("first failure");
+	});
+
+	it("falls back to a takeId/slotId match when the prompt key has no history", () => {
+		recordVerdict({
+			promptKey: "some other prompt entirely",
+			verdict: { verdict: "reroll-with-delta", reason: "wrong scene" },
+			takeId: "take-42",
+		});
+		expect(recentVerdictsFor("take-42")).toContain("wrong scene");
+	});
+
+	it("clearVerdictMemory wipes all recorded history", () => {
+		recordVerdict({
+			promptKey: "a red convertible",
+			verdict: { verdict: "reroll-with-delta", reason: "bad" },
+		});
+		clearVerdictMemory();
+		expect(recentVerdictsFor("a red convertible")).toBe("");
+	});
+});
+
+describe("normalizePromptKey", () => {
+	it("trims, lower-cases, and collapses whitespace", () => {
+		expect(normalizePromptKey("  A Red   Car  ")).toBe("a red car");
+	});
+
+	it("caps length so a runaway prompt can't grow the key unbounded", () => {
+		const long = "x".repeat(500);
+		expect(normalizePromptKey(long).length).toBe(200);
 	});
 });
 
@@ -290,6 +487,26 @@ describe("buildPickUserBlocks", () => {
 			.join("\n");
 		expect(text).not.toContain("Candidate A");
 		expect(text).toContain("Candidate B");
+	});
+
+	it("omits the PRIOR ATTEMPTS line when no history is passed (unchanged output)", () => {
+		const blocks = buildPickUserBlocks("a red kite", [
+			{ label: "A", frames: [IMG] },
+		]);
+		expect((blocks[0] as { text: string }).text).not.toContain(
+			"PRIOR ATTEMPTS",
+		);
+	});
+
+	it("folds a supplied history string into the intro when present", () => {
+		const blocks = buildPickUserBlocks(
+			"a red kite",
+			[{ label: "A", frames: [IMG] }],
+			"reroll-with-delta [prompt-mismatch]: wrong subject entirely",
+		);
+		const intro = (blocks[0] as { text: string }).text;
+		expect(intro).toContain("PRIOR ATTEMPTS ON THIS PROMPT");
+		expect(intro).toContain("wrong subject entirely");
 	});
 });
 
