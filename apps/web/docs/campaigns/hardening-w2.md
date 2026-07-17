@@ -54,3 +54,14 @@ packet to L0. L0 reads the BUG24 diff before any merge to main.
 ## Log
 
 - 2026-07-17: campaign branch cut @2a1307a0; log committed; W1+W2 dispatched.
+- 2026-07-17: both workers returned. W1 @03a316c1, W2 @105bc7ec. Read both diffs (match
+  specified semantics), merged both to campaign (no conflicts): @684312e8, @043e2436.
+- 2026-07-17: battery green. typecheck exit 0; build exit 0; route-protection sweep 59/59
+  (media/[hash] stays session-swept, beta-gate stays PUBLIC); BUG24 test 5/5, BUG26 test
+  6/6, VC suites 44/44. Full `bun run test` = 2070 pass / 10 fail — ALL 10 are the
+  documented order-dependent `mock.module` process-global leak from files I didn't touch
+  (proxy-encoder-controller passes 15/15 in isolation and 26/26 alongside both new test
+  files; the failing set fluctuated proxy↔tts/audio across runs = flake signature, not a
+  regression). Lint no-worse: added one scoped `biome-ignore noThenProperty` on the fake
+  query thenable (@3ac9b532) to keep the biome count flat vs main. Campaign tip @3ac9b532.
+  DONE — ready for L0 review + merge to main.
