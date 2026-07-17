@@ -50,7 +50,28 @@ If ANY golden-path regression: ship flag-OFF + findings (a flip is cheap to redo
 
 ## Merge log
 
-(worker branches → campaign, with review notes — filled as they return)
+- @18e2a31f `task/bug15-silent-poll` (b9800dfc) — BUG15 DONE. Reviewed: correct 3-arg
+  `apiFetch(url, undefined, { on401: "silent" })` mirroring use-board-items.ts L75;
+  terminal-4xx poll-stop branch untouched; +81-line regression test file. typecheck 0,
+  tests 4/4 (in the 9/9 combined run). Tier: merged+unit-tested.
+- @1b25ed1e `task/bug14-profile` (26acf6d9) — BUG14 PARTIAL. Profile verdict: ~70% of
+  stall = main-thread 4K decode of un-proxied original (VideoCache/CanvasSink preview
+  path) → architectural, folded into P1's case. Mitigation merged: `shouldDeferIndexing`
+  guard in `use-embedding-indexer.ts` (CLIP frame-sampling skips assets with an active
+  proxy job; retried via MediaManager.notify on proxy finish; ~807ms→0 in after-profile).
+  Reviewed: additive, uses real `MediaManager.isProxyGenerating` (media-manager.ts:419),
+  honest scoping comments. Evidence: `docs/perf/bug14-import-stall-profile-2026-07-17.md`
+  + cpuprofiles + repro harness (e2e + playwright config). Tier: merged+unit-tested
+  (profile evidence browser-derived).
+- @c0c7dc7b `task/bug16-hdr-tonemap` (f3c2a8be) — BUG16 FILED (architectural). No product
+  code. Mechanism: PQ→SDR flattening happens inside mediabunny CanvasSink drawImage onto
+  an srgb 2d context, upstream of scene-exporter; CanvasRenderer shared with preview
+  (impact CRITICAL/125) ⇒ no contained export-only fix. Evidence + PQ reference imagery +
+  scoped proposal: `docs/perf/bug16-hdr/finding-2026-07-17.md`. One empirical step
+  (live-Chrome frame diff) blocked by machine contention — documented honestly in the doc.
+
+Post-merge check @c0c7dc7b: `bun run typecheck` exit 0; new unit tests 9/9. Full battery
+deferred to final tip (machine contended — battery will run serially).
 
 ## Evidence
 
