@@ -193,7 +193,13 @@ export async function POST(req: Request) {
 						refId: stillChargeId,
 						idempotencyKey: `${stillChargeId}:release`,
 					}).catch(() => {});
-					throw err;
+					const detail =
+						err instanceof Error
+							? err.message
+							: "reference still render failed";
+					throw new Error(
+						`Reference still render failed (${detail}). Not charged — the still's credit hold was released.`,
+					);
 				}
 
 				const stillActualCost = costFor(still.backendId, "image", {
@@ -366,7 +372,7 @@ export async function POST(req: Request) {
 		try {
 			result = await route.backend.submit(normalized.request);
 			if (result.status === "failed") {
-				throw new Error(result.error ?? "Generation failed");
+				throw new Error(result.error ?? "provider dispatch failed");
 			}
 
 			// Persist the take (its id doubles as the credit-hold charge id;
@@ -399,7 +405,10 @@ export async function POST(req: Request) {
 				refId: takeId,
 				idempotencyKey: `${takeId}:release`,
 			}).catch(() => {});
-			throw err;
+			const detail = err instanceof Error ? err.message : "generation failed";
+			throw new Error(
+				`Generation failed (${detail}). Not charged — the credit hold was released.`,
+			);
 		}
 
 		const provenance: Provenance = {
