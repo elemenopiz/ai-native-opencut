@@ -48,13 +48,13 @@ order-dependence baseline), and browser-verifies every fix.
 
 | # | Surface × scenario | Owner | Result | Evidence |
 |---|---|---|---|---|
-| M1 | Multi-file upload (many at once) | W-UP | | |
-| M2 | Mixed-type batch upload (video+image+audio+junk) | W-UP | | |
-| M3 | Upload during another upload | W-UP | | |
-| M4 | Same file uploaded twice (dupe UX) | W-UP | | |
-| M5 | Unsupported file type → error copy + recovery | W-UP | | |
-| M6 | Corrupt/truncated media file → error copy + recovery | W-UP | | |
-| M7 | Delete (non-audio) → re-upload same file | W-UP | | |
+| M1 | Multi-file upload (many at once) | W-UP | PARTIAL (host loadavg ~18, 1 FPS HUD — contention artifact, matches known import-stall; re-verify on quiet host only) | w-up/FINDINGS.md, m1 shot |
+| M2 | Mixed-type batch upload (video+image+audio+junk) | W-UP | PASS (junk .txt skipped w/ clear toast) | w-up/m2 shot |
+| M3 | Upload during another upload | W-UP | PASS (6/6 across overlapping batches) | w-up/m3 shot |
+| M4 | Same file uploaded twice (dupe UX) | W-UP | FAIL → BUG56 | w-up/m4 shot |
+| M5 | Unsupported file type → error copy + recovery | W-UP | PASS (clear toast, panel recovers) | w-up/m5 shots |
+| M6 | Corrupt/truncated media file → error copy + recovery | W-UP | PARTIAL → BUG55 (error shown but phantom asset added) | w-up/m6 shot |
+| M7 | Delete (non-audio) → re-upload same file | W-UP | PASS | w-up/m7 shots ×4 |
 | M8 | Rename asset (incl. edge names) | W-DRAG | | |
 | M9 | Thumbnails while proxy generating | W-PROXY | | |
 | M10 | Failed proxy state + recovery | W-PROXY | | |
@@ -80,10 +80,27 @@ order-dependence baseline), and browser-verifies every fix.
   already-extensioned → file saved without a real media extension; (b) synchronous
   `URL.revokeObjectURL` immediately after `a.click()` is a known race on very large
   files in some engines (Chrome tolerant). Neither confirmed in-browser yet.
+- 2026-07-18: W-UP returned (branch `task/c26-hunt-upload` @d818beae, read-only as
+  briefed); evidence merged to campaign @78105ee5. Matrix M2/M3/M5/M7 PASS, M4 FAIL,
+  M6 PARTIAL, M1 PARTIAL/inconclusive (host contention — quiet-host re-verify only).
+  L1 verified BUG55's code path in `processing.ts` directly. BUG55+BUG56 allocated,
+  queue §2 rows added on this branch.
 
 ## Findings ledger (BUG55–69 allocations)
 
-(none yet)
+- **BUG55 (P2, = W-UP-F1):** corrupt/unreadable video is toasted as unreadable but STILL
+  pushed into the library as a phantom video asset (no duration/dims/thumb) —
+  `lib/media/processing.ts` `processMediaAssets()` `decision === "unsupported"` arm
+  (~L327) doesn't skip; falls through to the unconditional `processedAssets.push`
+  (~L378). L1 verified the code path directly. Repro + evidence: w-up/FINDINGS.md.
+  → fix-forward (W-FIX): skip-on-no-readable-track (the `!probe.parseable ||
+  !probe.videoCodec` case only; keep known-codec-undecodable behavior unchanged).
+- **BUG56 (P3, = W-UP-F2):** zero duplicate detection on the manual upload path —
+  `findDuplicateAssets` (director-api.ts:1446) is Director-briefing-only; `processFiles`
+  (assets.tsx) + `AddMediaAssetCommand` mint blind duplicates, no toast/badge/prompt.
+  Repro + evidence: w-up/FINDINGS.md. → fix-forward (W-FIX): informational dupe toast in
+  `processFiles` (name+size match against existing assets); NO touch to
+  AddMediaAssetCommand (media-store commands = C25 territory).
 
 ## Close-out
 
