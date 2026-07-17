@@ -1,0 +1,97 @@
+{
+  "steps": [
+    {
+      "name": "editor ready (flag ON)",
+      "ok": true,
+      "detail": {
+        "projectId": "gp-flagon-1784254111600"
+      }
+    },
+    {
+      "name": "worker compositor mounted (__byornPerfWorker present)",
+      "ok": true
+    },
+    {
+      "name": "import initiated via real UI",
+      "ok": true
+    },
+    {
+      "name": "asset ingested",
+      "ok": true,
+      "detail": {
+        "id": "034f984c-1a4f-4ee5-94d5-c66513b34b7e",
+        "name": "fixture-1080p30-h264.mp4",
+        "duration": 20
+      }
+    },
+    {
+      "name": "placed on timeline (BRIDGE fallback — UI drag paths did not take)",
+      "ok": true
+    },
+    {
+      "name": "playback advances",
+      "ok": true,
+      "detail": {
+        "t0": 0,
+        "t1": 14.299400000095364,
+        "spaceWorked": true
+      }
+    },
+    {
+      "name": "worker compositor rendered frames during playback",
+      "ok": true,
+      "detail": {
+        "framesDelta": 241,
+        "renderErrors": 0,
+        "fps": 10.801390565668832
+      }
+    },
+    {
+      "name": "preview canvas visibly painted",
+      "ok": false,
+      "detail": {
+        "pngBytes": 1908
+      }
+    },
+    {
+      "name": "trim via real edge-drag",
+      "ok": false,
+      "detail": {
+        "durBefore": 10,
+        "durAfter": 10
+      }
+    },
+    {
+      "name": "trim (BRIDGE fallback)",
+      "ok": false,
+      "detail": {
+        "durBefore": 10,
+        "durAfter2": 10
+      }
+    },
+    {
+      "name": "preview still rendering after trim",
+      "ok": true,
+      "detail": {
+        "framesBeforeReplay": 248,
+        "framesAfterReplay": 327
+      }
+    },
+    {
+      "name": "scopes-panel probe: transferred canvas readable via drawImage (informational)",
+      "ok": true,
+      "detail": {
+        "ok": true,
+        "nonZeroPixels": 2304,
+        "totalPixels": 2304
+      }
+    }
+  ],
+  "pass": false,
+  "scopesProbe": {
+    "ok": true,
+    "nonZeroPixels": 2304,
+    "totalPixels": 2304
+  },
+  "pageErrors": []
+}

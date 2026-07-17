@@ -1,0 +1,76 @@
+[fixe:off] fixture server on :8890
+[fixe:off] navigating to /editor/fixe-base-off-1784250051311
+[page:error] Failed to load project: Error: Project with id fixe-base-off-1784250051311 not found
+    at tM.loadProject (http://localhost:3115/_next/static/chunks/0eead8642892cc56.js:2:16454)
+    at async http://localhost:3115/_next/static/chunks/5ded39d47bf0c1c9.js:178:92430
+[fixe:off] editor ready
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: the server responded with a status of 401 (Unauthorized)
+[fixe:off] added clip-a.mp4 (20.0s)
+[page:warning] Unable to determine content-length from response headers. Will expand buffer when needed.
+[page:warning] Unable to determine content-length from response headers. Will expand buffer when needed.
+[page:warning] Unable to determine content-length from response headers. Will expand buffer when needed.
+[page:warning] Unable to determine content-length from response headers. Will expand buffer when needed.
+[page:warning] Unable to determine content-length from response headers. Will expand buffer when needed.
+[page:warning] Unable to determine content-length from response headers. Will expand buffer when needed.
+[fixe:off] added clip-b.mp4 (20.0s)
+[fixe:off] added clip-c.mp4 (20.0s)
+[fixe:off] added clip-d.mp4 (20.0s)
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:warning] Unable to determine content-length from response headers. Will expand buffer when needed.
+[page:warning] Unable to determine content-length from response headers. Will expand buffer when needed.
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:warning] Unable to determine content-length from response headers. Will expand buffer when needed.
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[fixe:off] added gopro (24.0s)
+[page:warning] Unable to add response to browser cache: QuotaExceededError: Quota exceeded..
+[fixe:off] added audio (180.0s)
+[fixe:off] build result: {"totalClips":7,"tracks":6,"assetCount":6}
+[page:error] Failed to load resource: the server responded with a status of 401 (Unauthorized)
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[fixe:off] rAF probe: {"rafPerSec":43,"visibility":"visible"}
+[fixe:off] COLD playback 10s...
+[fixe:off] cold main stats: {"enabled":true,"fps":10.24852677552828,"avgFrameMs":58.57999997138977,"p95FrameMs":275.59999990463257,"avgDecodeMs":26.260000038146973,"avgEffectMs":18.159999990463255,"avgBlitMs":2.300000047683716,"windowSize":5,"framesRendered":5,"framesSkipped":6,"longFrames":1,"veryLongFrames":1,"renderErrors":0}
+[fixe:off] cold worker stats: null
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[fixe:off] WARM playback 10s...
+[page:warning] Unable to add response to browser cache: QuotaExceededError: Quota exceeded..
+[page:error] [0;93m2026-07-17 10:04:13.847299 [W:onnxruntime:, session_state.cc:1280 VerifyEachNodeIsAssignedToAnEp] Some nodes were not assigned to the preferred execution providers which may or may not have an negative impact on performance. e.g. ORT explicitly assigns shape related ops to CPU to improve perf
+[page:error] [0;93m2026-07-17 10:04:14.539399 [W:onnxruntime:, session_state.cc:1282 VerifyEachNodeIsAssignedToAnEp] Rerunning with verbose output on a non-minimal build will show node assignments.[m
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[fixe:off] main perfStats: {
+  "enabled": true,
+  "fps": 1.6515276630883566,
+  "avgFrameMs": 5951.949999928474,
+  "p95FrameMs": 11311.599999904633,
+  "avgDecodeMs": 5090.300000071526,
+  "avgEffectMs": 557.3500000238419,
+  "avgBlitMs": 1.9499999284744263,
+  "windowSize": 2,
+  "framesRendered": 2,
+  "framesSkipped": 36,
+  "longFrames": 2,
+  "veryLongFrames": 2,
+  "renderErrors": 0,
+  "warmThroughputFps": 0.05426819341184132
+}
+[fixe:off] worker perfStats: null
+[fixe:off] wrote result-base-off.json
