@@ -49,6 +49,9 @@ export function RecordButton() {
 					<Button
 						variant={state.isRecording ? "secondary" : "text"}
 						size="icon"
+						aria-label={
+							state.isRecording ? "Stop recording" : "Record voiceover"
+						}
 						onClick={handleClick}
 						className={cn(
 							"rounded-sm",
