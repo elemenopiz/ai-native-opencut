@@ -45,6 +45,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { useBeatGridStore } from "@/stores/beat-grid-store";
 import { AudioToolsMenu } from "./audio-tools-menu";
 import { TimelineVuMeter } from "./timeline-vu-meter";
+import { RecordButton } from "./record-button";
 
 export function TimelineToolbar({
 	zoomLevel,
@@ -258,6 +259,7 @@ function ToolbarRightSection({
 		<div className="flex items-center gap-1">
 			<TooltipProvider delayDuration={500}>
 				<AudioToolsMenu />
+				<RecordButton />
 
 				<ToolbarButton
 					icon={<HugeiconsIcon icon={MusicNote01Icon} />}

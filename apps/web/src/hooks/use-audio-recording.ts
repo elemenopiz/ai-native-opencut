@@ -222,12 +222,6 @@ export function useAudioRecording() {
 				},
 			});
 
-			const tracks = editor.timeline.getTracks();
-			const audioTracks = tracks.filter((t) => t.type === "audio");
-			const targetTrack =
-				audioTracks[audioTracks.length - 1] || tracks[tracks.length - 1];
-			if (!targetTrack) return;
-
 			const playheadTime = editor.playback.getCurrentTime();
 
 			const element = buildUploadAudioElement({
@@ -239,7 +233,7 @@ export function useAudioRecording() {
 
 			editor.timeline.insertElement({
 				element,
-				placement: { mode: "explicit", trackId: targetTrack.id },
+				placement: { mode: "auto", trackType: "audio" },
 			});
 		},
 		[editor],
