@@ -1,0 +1,951 @@
+{
+  "scenario": "stacked",
+  "layerCount": 4,
+  "rafProbe": {
+    "rafPerSec": 61,
+    "visibility": "visible"
+  },
+  "finalStats": {
+    "enabled": true,
+    "fps": 45.92644050958276,
+    "avgFrameMs": 0.21250000198682148,
+    "p95FrameMs": 0.40000009536743164,
+    "avgDecodeMs": 0.0716666340827942,
+    "avgEffectMs": 0,
+    "avgBlitMs": 0.060833342870076496,
+    "windowSize": 120,
+    "framesRendered": 1075,
+    "framesSkipped": 7,
+    "longFrames": 7,
+    "veryLongFrames": 5,
+    "renderErrors": 0
+  },
+  "warmElapsedMs": 30545,
+  "episodes": [
+    {
+      "startMs": 25258,
+      "endMs": 30333,
+      "lengthMs": 5075
+    }
+  ],
+  "maxEpisodeMs": 5075,
+  "pollLog": [
+    {
+      "tMs": 554,
+      "stats": {
+        "enabled": true,
+        "fps": 57.210495182844795,
+        "avgFrameMs": 1.9799999793370564,
+        "p95FrameMs": 9.100000143051147,
+        "avgDecodeMs": 6.043333387374878,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.020000004768371583,
+        "windowSize": 30,
+        "framesRendered": 30,
+        "framesSkipped": 0,
+        "longFrames": 0,
+        "veryLongFrames": 0,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 6190,
+      "stats": {
+        "enabled": true,
+        "fps": 16.38448935071406,
+        "avgFrameMs": 29.612195110902555,
+        "p95FrameMs": 42.30000019073486,
+        "avgDecodeMs": 109.45853659874055,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.035365863544184986,
+        "windowSize": 82,
+        "framesRendered": 82,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 6940,
+      "stats": {
+        "enabled": true,
+        "fps": 18.46965699208443,
+        "avgFrameMs": 20.062499998013177,
+        "p95FrameMs": 28.899999856948853,
+        "avgDecodeMs": 73.8783333281676,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.05500001112620036,
+        "windowSize": 120,
+        "framesRendered": 142,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 7450,
+      "stats": {
+        "enabled": true,
+        "fps": 17.652905312439145,
+        "avgFrameMs": 19.504999993244805,
+        "p95FrameMs": 12.900000095367432,
+        "avgDecodeMs": 72.03083332777024,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.058333343267440795,
+        "windowSize": 120,
+        "framesRendered": 158,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 7958,
+      "stats": {
+        "enabled": true,
+        "fps": 36.786299423556315,
+        "avgFrameMs": 0.24499999086062113,
+        "p95FrameMs": 0.5,
+        "avgDecodeMs": 0.0866666555404663,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.055000009139378865,
+        "windowSize": 120,
+        "framesRendered": 187,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 8467,
+      "stats": {
+        "enabled": true,
+        "fps": 37.04856787048568,
+        "avgFrameMs": 0.2058333198229472,
+        "p95FrameMs": 0.40000009536743164,
+        "avgDecodeMs": 0.07499998211860656,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.048333340883255006,
+        "windowSize": 120,
+        "framesRendered": 218,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 8973,
+      "stats": {
+        "enabled": true,
+        "fps": 43.874202706961654,
+        "avgFrameMs": 0.1833333194255829,
+        "p95FrameMs": 0.3000001907348633,
+        "avgDecodeMs": 0.07666666309038798,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.04166666467984517,
+        "windowSize": 120,
+        "framesRendered": 248,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 9483,
+      "stats": {
+        "enabled": true,
+        "fps": 54.027058926846166,
+        "avgFrameMs": 0.16916666428248087,
+        "p95FrameMs": 0.3000001907348633,
+        "avgDecodeMs": 0.06416666507720947,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.03916666507720947,
+        "windowSize": 120,
+        "framesRendered": 273,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 10005,
+      "stats": {
+        "enabled": true,
+        "fps": 57.69417240642982,
+        "avgFrameMs": 0.1741666615009308,
+        "p95FrameMs": 0.2999999523162842,
+        "avgDecodeMs": 0.07000000675519308,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.03749999403953552,
+        "windowSize": 120,
+        "framesRendered": 305,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 10511,
+      "stats": {
+        "enabled": true,
+        "fps": 57.641075320900946,
+        "avgFrameMs": 0.17916666269302367,
+        "p95FrameMs": 0.2999999523162842,
+        "avgDecodeMs": 0.0641666849454244,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.03833332459131877,
+        "windowSize": 120,
+        "framesRendered": 335,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 11021,
+      "stats": {
+        "enabled": true,
+        "fps": 57.574144858597926,
+        "avgFrameMs": 0.17833333015441893,
+        "p95FrameMs": 0.2999999523162842,
+        "avgDecodeMs": 0.051666673024495444,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.03833333055178324,
+        "windowSize": 120,
+        "framesRendered": 366,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 11530,
+      "stats": {
+        "enabled": true,
+        "fps": 57.57693052193995,
+        "avgFrameMs": 0.17916665275891622,
+        "p95FrameMs": 0.2999999523162842,
+        "avgDecodeMs": 0.05333334008852641,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.03750000397364298,
+        "windowSize": 120,
+        "framesRendered": 391,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 12049,
+      "stats": {
+        "enabled": true,
+        "fps": 57.69976726544512,
+        "avgFrameMs": 0.16249998609224955,
+        "p95FrameMs": 0.2999999523162842,
+        "avgDecodeMs": 0.04000000158945719,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.03333333730697632,
+        "windowSize": 120,
+        "framesRendered": 423,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 12553,
+      "stats": {
+        "enabled": true,
+        "fps": 57.585289136220666,
+        "avgFrameMs": 0.16416664719581603,
+        "p95FrameMs": 0.2999999523162842,
+        "avgDecodeMs": 0.04166667461395264,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.0375,
+        "windowSize": 120,
+        "framesRendered": 453,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 13083,
+      "stats": {
+        "enabled": true,
+        "fps": 57.63270050501169,
+        "avgFrameMs": 0.15499998331069947,
+        "p95FrameMs": 0.2999999523162842,
+        "avgDecodeMs": 0.04500000874201457,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.03083333174387614,
+        "windowSize": 120,
+        "framesRendered": 483,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 13620,
+      "stats": {
+        "enabled": true,
+        "fps": 55.82660911616342,
+        "avgFrameMs": 0.15999999046325683,
+        "p95FrameMs": 0.2999999523162842,
+        "avgDecodeMs": 0.0408333420753479,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.034999998410542806,
+        "windowSize": 120,
+        "framesRendered": 507,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 14208,
+      "stats": {
+        "enabled": true,
+        "fps": 54.91716276466966,
+        "avgFrameMs": 0.18749998410542806,
+        "p95FrameMs": 0.3000001907348633,
+        "avgDecodeMs": 0.05083334445953369,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.04166666070620219,
+        "windowSize": 120,
+        "framesRendered": 541,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 14801,
+      "stats": {
+        "enabled": true,
+        "fps": 54.89436294981897,
+        "avgFrameMs": 0.2066666583220164,
+        "p95FrameMs": 0.39999985694885254,
+        "avgDecodeMs": 0.06000001033147176,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.04166666467984517,
+        "windowSize": 120,
+        "framesRendered": 576,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 15352,
+      "stats": {
+        "enabled": true,
+        "fps": 50.447242361785804,
+        "avgFrameMs": 0.21916666030883789,
+        "p95FrameMs": 0.39999985694885254,
+        "avgDecodeMs": 0.06250001788139344,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.045833329359690346,
+        "windowSize": 120,
+        "framesRendered": 598,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 15889,
+      "stats": {
+        "enabled": true,
+        "fps": 42.73197357154468,
+        "avgFrameMs": 0.2208333214124044,
+        "p95FrameMs": 0.40000009536743164,
+        "avgDecodeMs": 0.06250001788139344,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.04833333293596904,
+        "windowSize": 120,
+        "framesRendered": 605,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 16409,
+      "stats": {
+        "enabled": true,
+        "fps": 42.95253564338567,
+        "avgFrameMs": 0.2158333202203115,
+        "p95FrameMs": 0.39999985694885254,
+        "avgDecodeMs": 0.06833334763844807,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.04583333134651184,
+        "windowSize": 120,
+        "framesRendered": 628,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 16913,
+      "stats": {
+        "enabled": true,
+        "fps": 40.322580644509785,
+        "avgFrameMs": 0.20333332618077596,
+        "p95FrameMs": 0.39999985694885254,
+        "avgDecodeMs": 0.05916668176651001,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.04333333571751912,
+        "windowSize": 120,
+        "framesRendered": 647,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 17416,
+      "stats": {
+        "enabled": true,
+        "fps": 39.69974979149291,
+        "avgFrameMs": 0.20166666309038797,
+        "p95FrameMs": 0.39999985694885254,
+        "avgDecodeMs": 0.055833357572555545,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.044166670242945356,
+        "windowSize": 120,
+        "framesRendered": 673,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 17924,
+      "stats": {
+        "enabled": true,
+        "fps": 39.43792669060745,
+        "avgFrameMs": 0.18083333373069763,
+        "p95FrameMs": 0.3000001907348633,
+        "avgDecodeMs": 0.04666667977968852,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.04583333730697632,
+        "windowSize": 120,
+        "framesRendered": 702,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 18432,
+      "stats": {
+        "enabled": true,
+        "fps": 50.53722342446605,
+        "avgFrameMs": 0.1850000003973643,
+        "p95FrameMs": 0.3000001907348633,
+        "avgDecodeMs": 0.04416666428248087,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.04416667222976685,
+        "windowSize": 120,
+        "framesRendered": 733,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 18940,
+      "stats": {
+        "enabled": true,
+        "fps": 57.129140662506,
+        "avgFrameMs": 0.19333332975705464,
+        "p95FrameMs": 0.3000001907348633,
+        "avgDecodeMs": 0.05083333253860474,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.04833333492279053,
+        "windowSize": 120,
+        "framesRendered": 763,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 19475,
+      "stats": {
+        "enabled": true,
+        "fps": 50.917804113095784,
+        "avgFrameMs": 0.19166666467984517,
+        "p95FrameMs": 0.3000001907348633,
+        "avgDecodeMs": 0.05333333015441895,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.0475000003973643,
+        "windowSize": 120,
+        "framesRendered": 780,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 19987,
+      "stats": {
+        "enabled": true,
+        "fps": 51.27763174798763,
+        "avgFrameMs": 0.20500000119209288,
+        "p95FrameMs": 0.3000001907348633,
+        "avgDecodeMs": 0.05749999086062114,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.05250000556310018,
+        "windowSize": 120,
+        "framesRendered": 807,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 20523,
+      "stats": {
+        "enabled": true,
+        "fps": 51.33514515881819,
+        "avgFrameMs": 0.21583332816759745,
+        "p95FrameMs": 0.39999985694885254,
+        "avgDecodeMs": 0.04999999602635701,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.055000009139378865,
+        "windowSize": 120,
+        "framesRendered": 837,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 21038,
+      "stats": {
+        "enabled": true,
+        "fps": 50.61245321948518,
+        "avgFrameMs": 0.21666667064030964,
+        "p95FrameMs": 0.40000009536743164,
+        "avgDecodeMs": 0.04583333730697632,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.06000000437100728,
+        "windowSize": 120,
+        "framesRendered": 867,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 21568,
+      "stats": {
+        "enabled": true,
+        "fps": 48.577376820706064,
+        "avgFrameMs": 0.21833333174387615,
+        "p95FrameMs": 0.40000009536743164,
+        "avgDecodeMs": 0.03333333929379781,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.06583333611488343,
+        "windowSize": 120,
+        "framesRendered": 892,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 22084,
+      "stats": {
+        "enabled": true,
+        "fps": 54.76048041607218,
+        "avgFrameMs": 0.21083332697550455,
+        "p95FrameMs": 0.40000009536743164,
+        "avgDecodeMs": 0.034166671832402545,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.06166666547457377,
+        "windowSize": 120,
+        "framesRendered": 922,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 22595,
+      "stats": {
+        "enabled": true,
+        "fps": 55.39779340127701,
+        "avgFrameMs": 0.22000001072883607,
+        "p95FrameMs": 0.40000009536743164,
+        "avgDecodeMs": 0.04000001152356466,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.061666669448216756,
+        "windowSize": 120,
+        "framesRendered": 952,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 23103,
+      "stats": {
+        "enabled": true,
+        "fps": 56.270096464291264,
+        "avgFrameMs": 0.22250001827875773,
+        "p95FrameMs": 0.40000009536743164,
+        "avgDecodeMs": 0.050000001986821495,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.06166667540868123,
+        "windowSize": 120,
+        "framesRendered": 983,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 23609,
+      "stats": {
+        "enabled": true,
+        "fps": 54.92223196445337,
+        "avgFrameMs": 0.2166666885217031,
+        "p95FrameMs": 0.40000009536743164,
+        "avgDecodeMs": 0.057499998807907106,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.05083334644635518,
+        "windowSize": 120,
+        "framesRendered": 1003,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 24128,
+      "stats": {
+        "enabled": true,
+        "fps": 54.91969725060863,
+        "avgFrameMs": 0.21333334644635518,
+        "p95FrameMs": 0.40000009536743164,
+        "avgDecodeMs": 0.06249998410542806,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.047500012318293254,
+        "windowSize": 120,
+        "framesRendered": 1034,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 24640,
+      "stats": {
+        "enabled": true,
+        "fps": 55.44166977017922,
+        "avgFrameMs": 0.21250000596046448,
+        "p95FrameMs": 0.40000009536743164,
+        "avgDecodeMs": 0.07083330949147543,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.05500001112620036,
+        "windowSize": 120,
+        "framesRendered": 1065,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": true
+    },
+    {
+      "tMs": 25258,
+      "stats": {
+        "enabled": true,
+        "fps": 45.92644050958276,
+        "avgFrameMs": 0.21250000198682148,
+        "p95FrameMs": 0.40000009536743164,
+        "avgDecodeMs": 0.0716666340827942,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.060833342870076496,
+        "windowSize": 120,
+        "framesRendered": 1075,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": false
+    },
+    {
+      "tMs": 25773,
+      "stats": {
+        "enabled": true,
+        "fps": 45.92644050958276,
+        "avgFrameMs": 0.21250000198682148,
+        "p95FrameMs": 0.40000009536743164,
+        "avgDecodeMs": 0.0716666340827942,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.060833342870076496,
+        "windowSize": 120,
+        "framesRendered": 1075,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": false
+    },
+    {
+      "tMs": 26279,
+      "stats": {
+        "enabled": true,
+        "fps": 45.92644050958276,
+        "avgFrameMs": 0.21250000198682148,
+        "p95FrameMs": 0.40000009536743164,
+        "avgDecodeMs": 0.0716666340827942,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.060833342870076496,
+        "windowSize": 120,
+        "framesRendered": 1075,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": false
+    },
+    {
+      "tMs": 26786,
+      "stats": {
+        "enabled": true,
+        "fps": 45.92644050958276,
+        "avgFrameMs": 0.21250000198682148,
+        "p95FrameMs": 0.40000009536743164,
+        "avgDecodeMs": 0.0716666340827942,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.060833342870076496,
+        "windowSize": 120,
+        "framesRendered": 1075,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": false
+    },
+    {
+      "tMs": 27298,
+      "stats": {
+        "enabled": true,
+        "fps": 45.92644050958276,
+        "avgFrameMs": 0.21250000198682148,
+        "p95FrameMs": 0.40000009536743164,
+        "avgDecodeMs": 0.0716666340827942,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.060833342870076496,
+        "windowSize": 120,
+        "framesRendered": 1075,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": false
+    },
+    {
+      "tMs": 27807,
+      "stats": {
+        "enabled": true,
+        "fps": 45.92644050958276,
+        "avgFrameMs": 0.21250000198682148,
+        "p95FrameMs": 0.40000009536743164,
+        "avgDecodeMs": 0.0716666340827942,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.060833342870076496,
+        "windowSize": 120,
+        "framesRendered": 1075,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": false
+    },
+    {
+      "tMs": 28315,
+      "stats": {
+        "enabled": true,
+        "fps": 45.92644050958276,
+        "avgFrameMs": 0.21250000198682148,
+        "p95FrameMs": 0.40000009536743164,
+        "avgDecodeMs": 0.0716666340827942,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.060833342870076496,
+        "windowSize": 120,
+        "framesRendered": 1075,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": false
+    },
+    {
+      "tMs": 28819,
+      "stats": {
+        "enabled": true,
+        "fps": 45.92644050958276,
+        "avgFrameMs": 0.21250000198682148,
+        "p95FrameMs": 0.40000009536743164,
+        "avgDecodeMs": 0.0716666340827942,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.060833342870076496,
+        "windowSize": 120,
+        "framesRendered": 1075,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": false
+    },
+    {
+      "tMs": 29323,
+      "stats": {
+        "enabled": true,
+        "fps": 45.92644050958276,
+        "avgFrameMs": 0.21250000198682148,
+        "p95FrameMs": 0.40000009536743164,
+        "avgDecodeMs": 0.0716666340827942,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.060833342870076496,
+        "windowSize": 120,
+        "framesRendered": 1075,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": false
+    },
+    {
+      "tMs": 29826,
+      "stats": {
+        "enabled": true,
+        "fps": 45.92644050958276,
+        "avgFrameMs": 0.21250000198682148,
+        "p95FrameMs": 0.40000009536743164,
+        "avgDecodeMs": 0.0716666340827942,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.060833342870076496,
+        "windowSize": 120,
+        "framesRendered": 1075,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": false
+    },
+    {
+      "tMs": 30333,
+      "stats": {
+        "enabled": true,
+        "fps": 45.92644050958276,
+        "avgFrameMs": 0.21250000198682148,
+        "p95FrameMs": 0.40000009536743164,
+        "avgDecodeMs": 0.0716666340827942,
+        "avgEffectMs": 0,
+        "avgBlitMs": 0.060833342870076496,
+        "windowSize": 120,
+        "framesRendered": 1075,
+        "framesSkipped": 7,
+        "longFrames": 7,
+        "veryLongFrames": 5,
+        "renderErrors": 0
+      },
+      "isPlaying": false
+    }
+  ],
+  "buildResult": {
+    "totalClips": 4,
+    "tracks": 5,
+    "assetCount": 4
+  }
+}
