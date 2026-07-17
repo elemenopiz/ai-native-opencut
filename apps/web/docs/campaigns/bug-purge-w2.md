@@ -122,3 +122,34 @@ silently for anon; worth a look in a future wave (queued as a new row).
   failure mode when resuming worktree-isolated workers.
 - The 8420 health-poll leak (queue chore C5) re-confirmed AGAIN: continuous
   `ERR_CONNECTION_REFUSED` bursts in console during every headless session.
+- W4 (hunt) also worked in this worktree (its assigned worktree had a stale base) but
+  isolated its commits via a throwaway `git worktree add` and restored all shared state —
+  clean handoff, branch `hunt/fixtures-w2` merged @3ea7ae4b.
+
+### Part 2 — fresh-fixture hunt (W4): golden path HOLDS; 3 new queue rows
+
+All 5 fixtures minted fresh (ffmpeg commands recorded in W4's spec/report), driven through
+import → timeline edit → REAL export in **real Chrome** (`channel: "chrome"` — Playwright's
+bundled Chromium has no H.264/HEVC WebCodecs decode; load-bearing recipe now in
+`playwright.fixtures-w2.config.ts`), ffprobe-validated:
+
+- **Portrait 9:16 1080×1920**: import → trim → real export **exactly 1080×1920**, no
+  letterbox/rotate/squash. PASS (the named watch item).
+- **10-bit HDR HEVC (bt2020/PQ)**: imports and edits without crash; export loses HDR with
+  no tonemap → **BUG16** (open, C5/renderer territory).
+- **Tiny 2s clip + alpha PNG overlay**: composites correctly (canvas pixel readback at
+  opaque core exact-matches source rgba); auto second track created. PASS.
+- **Audio-only M4A**: lands on an auto-created audio track, exports — but emits a blank
+  1080p video stream → **BUG17** (low).
+- **BUG12-class regression watch**: `anon-editor-stability.e2e.ts` PASSED unmodified
+  (real background 401s observed, no /signup eviction). Fix holds.
+- Also filed: **BUG18** (console.error on expected first-load path), **BUG19** (anon
+  Generate composer absent in dev — needs repro). No provider credits spent.
+
+### Battery on campaign tip
+
+typecheck 0 · lint 346 errors/225 warnings (== baseline; per-file A/B by workers = no new)
+· build exit 0 · `bun test`: fail set **identical** to main @423efd82 (44 pre-existing
+fails = generateProxyOffThread + redis-health, filed as chore C8), campaign adds 13 tests
+all green · e2e suite: **11 passed / 0 failed / 9 skipped** incl. happy-path (stable
+post-BUG12, as predicted) and anon-editor-stability (20.7s soak, green).
