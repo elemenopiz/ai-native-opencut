@@ -46,6 +46,26 @@ interface VideoSinkData {
 	 * how callers schedule their fetches.
 	 */
 	chain: Promise<unknown>;
+	/**
+	 * Non-null while a background re-seek (see `scheduleBackgroundSeek`) is
+	 * running for this sink. BUG2 fix: a `tolerateStale` request that lands
+	 * outside the sequential window while this is set serves the current
+	 * stale frame WITHOUT joining the sink's exclusive `chain` — that bypass
+	 * is what keeps every later render-loop frame non-blocking during a slow
+	 * re-seek instead of piling up behind it (previously: the playhead
+	 * outrunning SEQUENTIAL_WINDOW_SECONDS made EVERY following stale request
+	 * pay its own multi-second awaited seekToTime, which only let the
+	 * playhead fall further behind — a self-sustaining re-seek storm).
+	 */
+	backgroundSeekPromise: Promise<void> | null;
+	/**
+	 * The freshest `time` requested while a background re-seek was already
+	 * running. Coalesces stacked out-of-window requests into a single
+	 * follow-up seek once the current one lands, instead of one seek per
+	 * request — the guard that stops re-seeks from stacking under sustained
+	 * decode pressure.
+	 */
+	pendingBackgroundSeekTime: number | null;
 	/** Long-edge decode cap the sink was created with (preview/export tiers only). */
 	maxSize: number | null;
 	/**
@@ -169,6 +189,22 @@ export class VideoCache {
 		const sinkData = this.sinks.get(sinkKey({ mediaId, tier }));
 		if (!sinkData) return null;
 
+		// A background re-seek is already chasing an earlier out-of-window
+		// request for this sink. Deliberately bypass the exclusive `chain`
+		// here rather than queueing behind it — joining the chain would block
+		// this (and every following) tolerateStale call until that seek
+		// lands, reproducing the exact storm this fix removes. Reading
+		// currentFrame without synchronization is safe: it's a single
+		// JS-visible reference that seekToTime only reassigns once its new
+		// frame is fully decoded, so this always observes either the old
+		// stale frame or the freshly seeked one, never a torn value. Only
+		// tolerateStale callers take this path — export/snapshot must still
+		// queue on the chain and observe the seek's result exactly.
+		if (tolerateStale && sinkData.backgroundSeekPromise) {
+			this.scheduleBackgroundSeek({ sinkData, time });
+			return sinkData.currentFrame;
+		}
+
 		return this.runExclusive({
 			sinkData,
 			task: () => this.getFrameAtExclusive({ sinkData, time, tolerateStale }),
@@ -268,9 +304,87 @@ export class VideoCache {
 			}
 		}
 
-		// Genuine seek (outside the sequential window, or the iterator died):
-		// a keyframe re-seek is unavoidable, await it as before.
+		if (!inWindow && tolerateStale) {
+			// Genuine seek, but a realtime consumer: escalating to a fully
+			// AWAITED seekToTime here was BUG2 — once the playhead outran
+			// SEQUENTIAL_WINDOW_SECONDS, every following stale request paid
+			// this same multi-second await, which only let the playhead fall
+			// further behind, guaranteeing the NEXT request missed the window
+			// too (self-sustaining re-seek storm under N stacked decode-heavy
+			// layers; observed 12s+ wedges with 0 frames rendered). Serve the
+			// sink's current stale frame synchronously instead, and let
+			// exactly one background re-seek per sink catch the decoder up
+			// asynchronously.
+			this.scheduleBackgroundSeek({ sinkData, time });
+			return sinkData.currentFrame;
+		}
+
+		// Genuine seek (outside the sequential window with no stale frame to
+		// serve, the sequential window with a dead iterator, or exact/export
+		// mode): a keyframe re-seek is unavoidable, await it as before.
 		return this.seekToTime({ sinkData, time });
+	}
+
+	/**
+	 * Kick off (or retarget) a background re-seek for `sinkData`, coalesced so
+	 * at most one runs at a time per sink. Runs on the sink's exclusive
+	 * `chain` — same serialization seekToTime always required — so it can
+	 * never interleave its iterator/ring mutations with a concurrently
+	 * awaited (non-tolerateStale) getFrameAt or warm call; those calls queue
+	 * on the chain behind it and observe its result normally. tolerateStale
+	 * callers instead bypass the chain entirely while this is in flight (see
+	 * getFrameAt), which is what keeps them non-blocking.
+	 */
+	private scheduleBackgroundSeek({
+		sinkData,
+		time,
+	}: {
+		sinkData: VideoSinkData;
+		time: number;
+	}): void {
+		if (sinkData.backgroundSeekPromise) {
+			// Already chasing an earlier request; retarget to the freshest
+			// time instead of stacking a second concurrent seek — stacking
+			// escalations is exactly the storm this exists to prevent.
+			sinkData.pendingBackgroundSeekTime = time;
+			return;
+		}
+
+		sinkData.backgroundSeekPromise = this.runBackgroundSeek({
+			sinkData,
+			time,
+		});
+	}
+
+	private runBackgroundSeek({
+		sinkData,
+		time,
+	}: {
+		sinkData: VideoSinkData;
+		time: number;
+	}): Promise<void> {
+		return this.runExclusive({
+			sinkData,
+			task: () => this.seekToTime({ sinkData, time }),
+		})
+			.then(
+				() => undefined,
+				(error) => {
+					console.warn("Background re-seek failed:", error);
+				},
+			)
+			.then(() => {
+				const nextTime = sinkData.pendingBackgroundSeekTime;
+				sinkData.pendingBackgroundSeekTime = null;
+				sinkData.backgroundSeekPromise = null;
+				if (nextTime !== null) {
+					// A newer request landed while this seek was running —
+					// chase it with exactly one more background seek so the
+					// sink keeps converging on the current playhead instead
+					// of freezing at whatever position this seek targeted.
+					this.scheduleBackgroundSeek({ sinkData, time: nextTime });
+				}
+			});
 	}
 
 	/** Serve currentFrame if it exactly covers `time`, topping up the ring. */
@@ -681,6 +795,8 @@ export class VideoCache {
 				fillCancelled: false,
 				warmPromise: null,
 				chain: Promise.resolve(),
+				backgroundSeekPromise: null,
+				pendingBackgroundSeekTime: null,
 				maxSize: isCappedTier(tier) ? (previewMaxSize ?? null) : null,
 				file,
 			});

@@ -332,6 +332,149 @@ describe("VideoCache drop policy (tolerateStale)", () => {
 	});
 });
 
+/**
+ * BUG2 regression tests: the fps60 re-seek storm. Under sustained decode
+ * pressure (e.g. 4 stacked 1080p60 layers), the playhead can outrun
+ * SEQUENTIAL_WINDOW_SECONDS repeatedly. Escalating that to a fully AWAITED
+ * seekToTime on the render path used to be self-sustaining: every stale
+ * request paid its own multi-second seek, which only let the playhead fall
+ * further behind, guaranteeing the NEXT request missed the window too. The
+ * fix serves the stale frame synchronously and chases the playhead with a
+ * single coalesced background re-seek per sink instead.
+ */
+describe("VideoCache re-seek storm fix (BUG2)", () => {
+	it("tolerateStale outside-window returns the stale frame synchronously and schedules exactly one background seek", async () => {
+		const cache = new VideoCache();
+
+		await cache.getFrameAt({ mediaId: "m1", file, time: 0 });
+		await flush();
+		expect(seekCalls).toEqual([0]);
+
+		// Gate the re-seek's decode so we can prove the stale return does NOT
+		// wait on it — this used to be `await this.seekToTime(...)` directly
+		// on the render path.
+		const release = gateFrame(150 * FRAME); // 5.0s
+
+		const stale = await cache.getFrameAt({
+			mediaId: "m1",
+			file,
+			time: 5.0,
+			tolerateStale: true,
+		});
+
+		// Resolved WITHOUT releasing the gate: must be an OLD stale frame, not
+		// the fresh one at 5.0 — proves this call never awaited the seek. The
+		// initial getFrameAt's own background ring-fill (drained by
+		// consumeRing before the window check) already advances currentFrame
+		// to the newest pre-decoded frame at or before `time`, i.e. the last
+		// ring frame from the first request's prefetch.
+		expect(stale?.timestamp).toBeCloseTo(PREFETCH_RING_CAPACITY * FRAME, 5);
+		// Exactly one background re-seek was kicked off for the request. The
+		// chained task adopts through a few extra microtask ticks beyond the
+		// `await` above (it's queued on the sink's exclusive chain, not run
+		// inline), so let them drain before asserting it fired.
+		await flush();
+		expect(seekCalls).toEqual([0, 5.0]);
+
+		release();
+		slowFrame = null;
+		await flush();
+		await flush();
+
+		// Once the background seek lands, a later request observes the fresh
+		// decoder position — no SECOND re-seek was needed to get there.
+		const fresh = await cache.getFrameAt({
+			mediaId: "m1",
+			file,
+			time: 5.05,
+			tolerateStale: true,
+		});
+		expect(fresh?.timestamp).not.toBeCloseTo(PREFETCH_RING_CAPACITY * FRAME, 5);
+		expect(seekCalls).toEqual([0, 5.0]);
+	});
+
+	it("coalesces multiple out-of-window requests into exactly one follow-up background seek, chasing the freshest time", async () => {
+		const cache = new VideoCache();
+
+		await cache.getFrameAt({ mediaId: "m3", file, time: 0 });
+		await flush();
+
+		const release = gateFrame(150 * FRAME); // 5.0s
+		await cache.getFrameAt({
+			mediaId: "m3",
+			file,
+			time: 5.0,
+			tolerateStale: true,
+		});
+		await flush();
+		expect(seekCalls).toEqual([0, 5.0]);
+
+		// Three more out-of-window requests land while the first re-seek is
+		// still gated (simulating the playhead continuing to advance every
+		// render-loop frame during a slow seek). None may start their own
+		// seek — under the old behavior each of these would have been its
+		// own awaited seekToTime, stacking into the storm.
+		await cache.getFrameAt({
+			mediaId: "m3",
+			file,
+			time: 5.5,
+			tolerateStale: true,
+		});
+		await cache.getFrameAt({
+			mediaId: "m3",
+			file,
+			time: 6.0,
+			tolerateStale: true,
+		});
+		const staleLatest = await cache.getFrameAt({
+			mediaId: "m3",
+			file,
+			time: 6.5,
+			tolerateStale: true,
+		});
+		// All three bypassed the chain and re-served the same stale frame —
+		// no new seek was started for any of them.
+		expect(staleLatest?.timestamp).toBeCloseTo(
+			PREFETCH_RING_CAPACITY * FRAME,
+			5,
+		);
+		expect(seekCalls).toEqual([0, 5.0]);
+
+		release();
+		slowFrame = null;
+		await flush();
+		await flush();
+
+		// Exactly ONE follow-up seek landed, targeting the freshest requested
+		// time (6.5) — not one seek per stacked request.
+		expect(seekCalls).toEqual([0, 5.0, 6.5]);
+	});
+
+	it("non-tolerateStale (export/snapshot) still awaits the escalated seek, unchanged", async () => {
+		const cache = new VideoCache();
+
+		await cache.getFrameAt({ mediaId: "m2", file, time: 0 });
+		await flush();
+
+		const release = gateFrame(150 * FRAME); // 5.0s
+		const pending = cache.getFrameAt({ mediaId: "m2", file, time: 5.0 });
+
+		let resolved = false;
+		pending.then(() => {
+			resolved = true;
+		});
+		await flush();
+		// Must NOT have resolved yet — exact mode still awaits the keyframe
+		// re-seek exactly as before this fix.
+		expect(resolved).toBe(false);
+
+		release();
+		const frame = await pending;
+		expect(frame?.timestamp).toBeCloseTo(5.0, 5);
+		expect(seekCalls).toEqual([0, 5.0]);
+	});
+});
+
 describe("VideoCache same-media serialization", () => {
 	it("runs concurrent getFrameAt calls for one mediaId strictly one at a time", async () => {
 		const cache = new VideoCache();

@@ -3,6 +3,7 @@ import {
 	useGenerationStatusStore,
 	waitForJobTerminal,
 } from "@/stores/generation-status-store";
+import { UNAUTHORIZED_EVENT } from "@/lib/auth/unauthorized";
 
 /**
  * Regression coverage for the shared poll-dedup store that backs
@@ -172,5 +173,85 @@ describe("waitForJobTerminal", () => {
 		await Promise.resolve();
 
 		expect(pollFnInvoked).toBe(true);
+	});
+});
+
+/**
+ * BUG15: `createJobStatusPollFn` is the last background-poll `apiFetch` call
+ * site that hadn't been converted to `on401: "silent"` (BUG12's fix). An
+ * anon/expired session with a persisted in-flight job would otherwise get
+ * hard-redirected to /signup by this poll — the same failure mode BUG12
+ * fixed for hydration calls, just reached via the poll interval instead of
+ * mount. Mirrors the FakeWindow idiom from
+ * `apps/web/src/lib/auth/__tests__/unauthorized.test.ts`: this repo's
+ * `bun test` has no DOM registrator, so `window` is stubbed with just the
+ * `dispatchEvent`/`addEventListener` surface `unauthorized.ts` touches, and
+ * restored exactly afterward so this file doesn't leak `window` to tests
+ * that run later in the same `bun test` process.
+ */
+describe("createJobStatusPollFn — BUG15: a poll 401 must not evict the editor", () => {
+	const hadWindow = "window" in globalThis;
+	const originalWindow = (globalThis as Record<string, unknown>).window;
+
+	class FakeWindow {
+		dispatched: CustomEvent[] = [];
+		addEventListener(): void {}
+		removeEventListener(): void {}
+		dispatchEvent(event: Event): boolean {
+			this.dispatched.push(event as CustomEvent);
+			return true;
+		}
+	}
+	let fakeWindow: FakeWindow;
+
+	beforeEach(() => {
+		fakeWindow = new FakeWindow();
+		(globalThis as Record<string, unknown>).window = fakeWindow;
+	});
+
+	afterEach(() => {
+		if (hadWindow) {
+			(globalThis as Record<string, unknown>).window = originalWindow;
+		} else {
+			delete (globalThis as Record<string, unknown>).window;
+		}
+	});
+
+	test("a 401 poll response never dispatches byorn:unauthorized, and still marks the job failed + stops the poll", async () => {
+		const fetchStub = installPollFetch(() => jsonResponse(null, 401));
+
+		const outcome = await waitForJobTerminal("job-401");
+
+		// (a) silent mode: no redirect/unauthorized event fired — this is the
+		// regression BUG15 fixes (previously "prompt" mode here would evict an
+		// anon/expired-session user out of the editor on the next poll tick).
+		expect(fakeWindow.dispatched).toHaveLength(0);
+		expect(
+			fakeWindow.dispatched.some((e) => e.type === UNAUTHORIZED_EVENT),
+		).toBe(false);
+
+		// (b) the pre-existing terminal-4xx handling is preserved unchanged: a
+		// silent 401 still flows into the same branch a "prompt" 401 would,
+		// marking the job failed with the 401-specific message.
+		expect(outcome).not.toBe("timeout");
+		if (outcome === "timeout") return;
+		expect(outcome.status).toBe("failed");
+		expect(outcome.error).toBe("You no longer have access to this generation.");
+
+		// ...and the poll interval was actually torn down (mirrors the
+		// "startPolling no-ops for an already-resolved job" assertion above):
+		// a fresh startPolling call for this now-terminal jobId must not
+		// re-invoke pollFn or fire another fetch — if `setStatus` hadn't
+		// called `stopPolling`, the dedup-by-jobId interval would still be
+		// live and silently swallow this call for a different reason, so the
+		// call count staying flat is what actually proves the poll stopped.
+		let pollFnInvoked = false;
+		useGenerationStatusStore.getState().startPolling("job-401", async () => {
+			pollFnInvoked = true;
+		});
+		await Promise.resolve();
+
+		expect(pollFnInvoked).toBe(false);
+		expect(fetchStub.calls()).toBe(1);
 	});
 });

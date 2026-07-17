@@ -1,0 +1,29 @@
+[
+  {
+    "black": 0,
+    "magenta": 0,
+    "other": 576,
+    "total": 576,
+    "width": 1920,
+    "height": 1080,
+    "cls": "block border"
+  },
+  {
+    "black": 576,
+    "magenta": 0,
+    "other": 0,
+    "total": 576,
+    "width": 1920,
+    "height": 1080,
+    "cls": "pointer-events-none absolute inset-0 block"
+  },
+  {
+    "black": 0,
+    "magenta": 484,
+    "other": 92,
+    "total": 576,
+    "width": 44,
+    "height": 26,
+    "cls": "cursor-pointer rounded-sm"
+  }
+]

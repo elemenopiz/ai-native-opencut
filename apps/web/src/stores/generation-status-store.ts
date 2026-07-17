@@ -149,7 +149,14 @@ function terminalPollError(status: number): string {
 export function createJobStatusPollFn(jobId: string): () => Promise<void> {
 	return async () => {
 		try {
-			const res = await apiFetch(`/api/studio/generate/${jobId}`);
+			// Background resume-poll (e.g. an anon/expired session with a
+			// persisted in-flight job on mount) must never redirect the editor —
+			// see unauthorized.ts's mode breakdown. A 401 here still flows into
+			// the terminal-4xx branch below like any other error status; only the
+			// toast/redirect side effect is suppressed. (BUG12/BUG15)
+			const res = await apiFetch(`/api/studio/generate/${jobId}`, undefined, {
+				on401: "silent",
+			});
 			if (!res.ok) {
 				// 4xx is a permanent client/permission error — terminate the poll so
 				// the spinner resolves to an error. 5xx / other codes stay transient.

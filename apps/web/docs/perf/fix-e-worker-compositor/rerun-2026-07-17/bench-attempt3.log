@@ -1,0 +1,49 @@
+[fixe:off] fixture server on :8890
+[fixe:off] navigating to /editor/fixe-base-off-1784249793875
+[page:error] Failed to load project: Error: Project with id fixe-base-off-1784249793875 not found
+    at tM.loadProject (http://localhost:3115/_next/static/chunks/0eead8642892cc56.js:2:16454)
+    at async http://localhost:3115/_next/static/chunks/5ded39d47bf0c1c9.js:178:92430
+[fixe:off] editor ready
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: the server responded with a status of 401 (Unauthorized)
+[fixe:off] added clip-a.mp4 (20.0s)
+[fixe:off] added clip-b.mp4 (20.0s)
+[page:warning] Unable to determine content-length from response headers. Will expand buffer when needed.
+[page:warning] Unable to determine content-length from response headers. Will expand buffer when needed.
+[page:warning] Unable to determine content-length from response headers. Will expand buffer when needed.
+[page:warning] Unable to determine content-length from response headers. Will expand buffer when needed.
+[page:warning] Unable to determine content-length from response headers. Will expand buffer when needed.
+[page:warning] Unable to determine content-length from response headers. Will expand buffer when needed.
+[page:warning] Unable to determine content-length from response headers. Will expand buffer when needed.
+[page:warning] Unable to determine content-length from response headers. Will expand buffer when needed.
+[fixe:off] added clip-c.mp4 (20.0s)
+[page:warning] Unable to determine content-length from response headers. Will expand buffer when needed.
+[fixe:off] added clip-d.mp4 (20.0s)
+[fixe:off] added gopro (24.0s)
+[fixe:off] added audio (180.0s)
+[fixe:off] build result: {"totalClips":7,"tracks":6,"assetCount":6}
+[page:error] Failed to load resource: the server responded with a status of 401 (Unauthorized)
+[fixe:off] rAF probe: {"rafPerSec":1,"visibility":"visible"}
+[fixe:off] rAF THROTTLED — numbers would be invalid
+[fixe:off] COLD playback 10s...
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[page:error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[fixe:off] FAILED page.waitForTimeout: Target page, context or browser has been closed
+    at waitWithFocus (/private/tmp/claude-501/-Users-zsha-Documents-ai-native-opencut/ada6718e-31b3-48f8-beaf-a62c82a8253e/scratchpad/bench.js:55:14)
+    at async main (/private/tmp/claude-501/-Users-zsha-Documents-ai-native-opencut/ada6718e-31b3-48f8-beaf-a62c82a8253e/scratchpad/bench.js:401:2) {
+  log: []
+}
