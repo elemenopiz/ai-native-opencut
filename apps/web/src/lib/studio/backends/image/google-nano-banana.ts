@@ -23,6 +23,7 @@
 import { webEnv } from "@byorn/env/web";
 import { nanoid } from "nanoid";
 import { fetchWithTimeout, MEDIA_TIMEOUT_MS } from "@/lib/studio/fetch-timeout";
+import { fetchReferenceMediaSafely } from "@/lib/studio/reference-fetch";
 import { costFor } from "@/lib/credits/cost-table";
 import type {
 	BackendRequest,
@@ -82,13 +83,16 @@ async function fetchAsInlineData(
 	url: string,
 ): Promise<{ mimeType: string; base64: string }> {
 	// Reference image download — media bytes, so the longer budget applies.
-	const res = await fetchWithTimeout(url, { timeoutMs: MEDIA_TIMEOUT_MS });
-	if (!res.ok) {
-		throw new Error(`Failed to fetch reference image (${res.status})`);
-	}
-	const buf = await res.arrayBuffer();
-	const mimeType = res.headers.get("content-type") ?? "image/png";
-	return { mimeType, base64: Buffer.from(buf).toString("base64") };
+	// Goes through the shared SSRF guard: this URL is caller-supplied
+	// (`referenceImageUrl`/`referenceImages[]`), so the target host must be
+	// validated as public and the connection pinned before we fetch it.
+	const { contentType, arrayBuffer } = await fetchReferenceMediaSafely(url, {
+		timeoutMs: MEDIA_TIMEOUT_MS,
+	});
+	return {
+		mimeType: contentType || "image/png",
+		base64: Buffer.from(arrayBuffer).toString("base64"),
+	};
 }
 
 export const googleNanoBananaBackend: GenerationBackend = {
