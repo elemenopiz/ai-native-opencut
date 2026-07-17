@@ -351,6 +351,12 @@ export interface AudioClipSource {
 	playbackRate: number;
 	/** True when the element has a keyframed (variable) speed curve — see CollectedAudioElement.hasVariableRate. */
 	hasVariableRate: boolean;
+	/** The element's animation channels (transform/opacity/volume/…), carried
+	 *  through so the playback mix graph (`AudioManager.connectClipNode`) can
+	 *  honor a `volume` keyframe channel via WebAudio gain automation, the same
+	 *  channel the properties UI reads via `resolveVolumeAtTime`. Absent ⇒ no
+	 *  animations on the element, playback falls back to the static `volume`. */
+	animations?: ElementAnimations;
 }
 
 async function fetchLibraryAudioSource({
@@ -413,6 +419,7 @@ async function fetchLibraryAudioClip({
 			volume: element.volume ?? 1,
 			playbackRate,
 			hasVariableRate,
+			animations: element.animations,
 		};
 	} catch (error) {
 		console.warn("Failed to fetch library audio:", error);
@@ -460,6 +467,7 @@ function collectMediaAudioClip({
 		volume: vol,
 		playbackRate,
 		hasVariableRate,
+		animations: element.animations,
 	};
 }
 
