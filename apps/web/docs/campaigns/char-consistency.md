@@ -90,10 +90,40 @@ persona w/ stored seed + single-shot + no explicit seed ⇒ thread `seed`+locked
 |---|---|---|---|
 | W-recon | wired-vs-orphaned gap map | (read-only) | done — gap map above |
 | W1 | consistency fold + persona-seed rule | task/c2-consistency-fold @799bf08c | merged @7b148090 — diff reviewed, 23 tests; rehydration gap = already covered by editor-provider's `hydrateDirectorStateFromBible`, bible-fallback kept for pre-hydration/headless callers; folded prompt goes wire-only (display name stays clean) |
-| W2 | Generate-panel consistency UX | task/c2-consistency-ux | in flight (stalled once, resumed by L0) |
+| W2 | Generate-panel consistency UX | task/c2-consistency-ux @db829bbf | merged @2c2e97ae — diff reviewed; one defect bounced+fixed (StyleBible chip fallback read `styleBible` while the fold reads `consistencyContext` — chip could claim a fold that never happens; now both read the same source); browser-verified by worker (8 shots) + orchestrator (hint→Personas jump, empty-state copy, live on :3157) |
 | W3 | Aleph real-face route seam | task/c2-realface-route-seam @b4a74a4c | merged @a9e2f39e — diff reviewed, inert-by-default proven (env unset ⇒ unchanged routing), manual pin still wins, 10 new tests; wave-2 wiring = set `realFaceReference` from persona photo-provenance |
 | W4 | persona-consistency e2e + screenshots | task/c2-verify-e2e | pending W1+W2 |
 
+## Battery (campaign tip 2c2e97ae, 2026-07-17)
+
+- typecheck: exit 0
+- lint: biome 345 errors / 225 warnings vs main baseline 347e/225w — no worse (better)
+- build: exit 0
+- unit (root `bun test`): 1529 pass / 47 fail / 34 errors — fail set **byte-identical
+  to main @1f9e9164** (A/B in a detached temp worktree, `diff` of sorted fail lists
+  empty; main: 1500 pass, same 47/34). Net campaign delta: +29 passing, 0 new fails.
+- targeted: consistency-fold + router suites 42/42.
+
 ## Verification evidence
 
-(pending)
+- Orchestrator live check (dev :3157, campaign tip): no-persona hint renders in
+  composer; clicking it opens the Personas segment; empty-state explainer copy
+  confirmed; StyleBible chip correctly absent with no context. (React-scan overlay
+  pollutes manual screenshots — clean evidence comes from W4's Playwright run.)
+- W4 e2e walkthrough (3-generation chain + cross-project reuse, mocked providers):
+  see `e2e/persona-consistency.e2e.ts` + `docs/campaigns/assets/c2-walkthrough-*.png`.
+
+## Wave-2 queue (filed)
+
+1. Derive a ConsistencyContext from a probe-set `styleBible` at hydration
+   (`hydrateDirectorStateFromBible`) so probe-only projects fold too — today they
+   neither fold nor show the chip (correct-but-invisible).
+2. Board: "generate again with this character" affordance on board items.
+3. Aleph wave-2: set `realFaceReference` from persona photo-provenance (needs a
+   provenance bit on personas — watch for schema gate) + a UI badge when the interim
+   route fires; env contract `REAL_FACE_VIDEO_BACKEND=runway` (process.env, server).
+4. Known limitation (accepted): StyleBible chip is a passive readout — an
+   out-of-band Director `setConsistencyContext` repaints it on the next editor
+   event, not instantly.
+5. BUG19 counter-evidence: composer + textarea rendered fine for anon in an
+   E2E-flag dev session on this tip — repro likely build/env-specific.

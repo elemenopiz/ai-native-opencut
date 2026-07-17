@@ -93,7 +93,10 @@ landed — **confirm in git log, then strike.**)
 
 | # | Item | Why / source | Status |
 |---|---|---|---|
-| F1 | **Character-consistency deepening** — persona/seed-lock UX polish + Runway Aleph interim route for real-face VFX (BytePlus verified-asset partner access is the blocked long pole — asset:// picker already shipped) | Moat #1; Higgsfield's #1 captured gap | open |
+| F1 | **Character-consistency deepening** — persona/seed-lock UX polish + Runway Aleph interim route for real-face VFX (BytePlus verified-asset partner access is the blocked long pole — asset:// picker already shipped) | Moat #1; Higgsfield's #1 captured gap | wave-1 done on `campaign/char-consistency` (C2): StyleBible fold closed on manual+rerun paths, persona-seed single-shot threading, consistency strip UI, Aleph seam env-flagged inert. Wave-2 rows: F1a–F1c below |
+| F1a | Derive ConsistencyContext from probe-set `styleBible` at hydration (`project-bible.ts` `hydrateDirectorStateFromBible`) — probe-only projects currently neither fold nor show the chip | C2 wave-1 find (chip truthfulness fix exposed it) | open |
+| F1b | Board "generate again with this character" affordance (`components/editor/board/reel-board.tsx`) — chain a board item's persona+seed into a new generation | C2 deferred for territory leanness | open |
+| F1c | Aleph wave-2: set `RouteInput.realFaceReference` from persona photo-provenance (may need a provenance bit on personas — schema ⇒ gated) + UI badge when interim route fires; env contract `REAL_FACE_VIDEO_BACKEND=runway` (server process.env, read in `backends/router.ts`) | seam landed inert in C2; wiring is the remaining half | open |
 | F2 | **MCP surface expansion** — finish deferred Redis pub/sub relay, widen the tool catalog, reliability hardening | Moat #2; Palmier's MCP reliability is cracking publicly | open |
 | F3 | Director context gaps Tier 2/4 + beat-grid/LUFS audio grounding | Director context-gap audit (3/4 fixes landed; this is the tail) | open |
 | F4 | Upscale (video+image) — verify the 4 fal APIs, then gated merge (see branch row above) | Built 2026-07-14, never verified | open |
@@ -135,6 +138,7 @@ multicam, Palmier delta items not yet integrated (see branch row), CapCut poach 
 | C7 · Bug purge wave 2 | **done — merged @0ab8fc0b** (BUG7 artifact-closed, BUG10/11/13 fixed, BUG8 documented, filed BUG16-19; wave 3 relaunchable) | `campaign/bug-purge-w2` | C4-A bug crop + fresh-fixture hunt | 2026-07-17 L0 |
 | C13 · Fix anon 401 redirect race (BUG12) | **done — merged @3cd3acd4** (user-approved; BUG15 follow-up filed for stores/* owner) | `campaign/fix-401-redirect` | client auth-signal plumbing: unauthorized.ts, session-expired-listener.tsx, use-studio-generation.ts + new e2e spec | 2026-07-17 L0 |
 | C4 · UI excellence — phase A | **done — merged @c5864ac4**; phase B gated on user taste-gate (G7) | `campaign/ui-direction-phase-a` | design-only (delivered: direction doc + 11 shots) | 2026-07-17 L0 |
+| C2 · Character-consistency moat | **complete — awaiting L0 merge gate** (fold gap closed, persona-seed threading, consistency UI strip, Aleph seam; battery green, fail set == main; e2e walkthrough + screenshots on branch) | `campaign/char-consistency` | studio generation UI + hooks + lib/studio (+ additive backends/router seam); log: `docs/campaigns/char-consistency.md` | 2026-07-17 C2 |
 
 ## In-flight (claim before dispatching — session · items · owned files)
 
