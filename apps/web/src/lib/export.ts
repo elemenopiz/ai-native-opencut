@@ -1,6 +1,6 @@
 import { EXPORT_MIME_TYPES } from "@/constants/export-constants";
 import type {
-	ExportFormat,
+	ExportContainerFormat,
 	ExportJobStatus,
 	ExportResult,
 } from "@/types/export";
@@ -8,7 +8,7 @@ import type {
 export function getExportMimeType({
 	format,
 }: {
-	format: ExportFormat;
+	format: ExportContainerFormat;
 }): string {
 	return EXPORT_MIME_TYPES[format];
 }
@@ -16,7 +16,7 @@ export function getExportMimeType({
 export function getExportFileExtension({
 	format,
 }: {
-	format: ExportFormat;
+	format: ExportContainerFormat;
 }): string {
 	return `.${format}`;
 }

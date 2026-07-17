@@ -9,6 +9,7 @@ export const DEFAULT_EXPORT_OPTIONS = {
 export const EXPORT_MIME_TYPES = {
 	webm: "video/webm",
 	mp4: "video/mp4",
+	gif: "image/gif",
 } as const;
 
 // ---------------------------------------------------------------------------

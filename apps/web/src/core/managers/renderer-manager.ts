@@ -155,8 +155,13 @@ export class RendererManager {
 			// outputSize === canvasSize, which SceneExporter treats as a no-op.
 			const outputSize = dimensions ?? canvasSize;
 
+			// GIF is a silent animated image — it has no audio track, so never
+			// spend time building the timeline mixdown for it regardless of the
+			// includeAudio flag.
+			const withAudio = includeAudio && format !== "gif";
+
 			let audioBuffer: AudioBuffer | null = null;
-			if (includeAudio) {
+			if (withAudio) {
 				onProgress?.({ progress: 0.05 });
 				audioBuffer = await createTimelineAudioBuffer({
 					tracks,
@@ -181,15 +186,13 @@ export class RendererManager {
 				format,
 				watermark: includeWatermark ?? true,
 				quality,
-				shouldIncludeAudio: !!includeAudio,
+				shouldIncludeAudio: withAudio,
 				audioBuffer: audioBuffer || undefined,
 				outputSize,
 			});
 
 			exporter.on("progress", (progress) => {
-				const adjustedProgress = includeAudio
-					? 0.05 + progress * 0.95
-					: progress;
+				const adjustedProgress = withAudio ? 0.05 + progress * 0.95 : progress;
 				onProgress?.({ progress: adjustedProgress });
 			});
 

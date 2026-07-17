@@ -38,9 +38,9 @@ import {
 import { BatchExportPanel } from "@/components/editor/panels/assets/views/batch-export";
 import { toast } from "sonner";
 import {
-	EXPORT_FORMAT_VALUES,
+	EXPORT_CONTAINER_VALUES,
 	EXPORT_QUALITY_VALUES,
-	type ExportFormat,
+	type ExportContainerFormat,
 	type ExportQuality,
 } from "@/types/export";
 import {
@@ -55,8 +55,8 @@ import {
 	EXPORT_PRESETS,
 } from "@/constants/export-constants";
 
-function isExportFormat(value: string): value is ExportFormat {
-	return EXPORT_FORMAT_VALUES.some((formatValue) => formatValue === value);
+function isExportFormat(value: string): value is ExportContainerFormat {
+	return EXPORT_CONTAINER_VALUES.some((formatValue) => formatValue === value);
 }
 
 function isExportQuality(value: string): value is ExportQuality {
@@ -126,7 +126,7 @@ function ExportPopover({
 		result: exportResult,
 	} = editor.project.getExportState();
 	const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
-	const [format, setFormat] = useState<ExportFormat>(
+	const [format, setFormat] = useState<ExportContainerFormat>(
 		DEFAULT_EXPORT_OPTIONS.format,
 	);
 	const [quality, setQuality] = useState<ExportQuality>(
@@ -329,6 +329,12 @@ function ExportPopover({
 														WebM (VP9) - Smaller file size
 													</Label>
 												</div>
+												<div className="flex items-center space-x-2">
+													<RadioGroupItem value="gif" id="gif" />
+													<Label htmlFor="gif">
+														GIF - Animated image, no audio
+													</Label>
+												</div>
 											</RadioGroup>
 										</SectionContent>
 									</Section>
@@ -376,13 +382,18 @@ function ExportPopover({
 											<div className="flex items-center space-x-2">
 												<Checkbox
 													id="include-audio"
-													checked={shouldIncludeAudio}
+													checked={
+														format === "gif" ? false : shouldIncludeAudio
+													}
+													disabled={format === "gif"}
 													onCheckedChange={(checked) =>
 														setShouldIncludeAudio(!!checked)
 													}
 												/>
 												<Label htmlFor="include-audio">
-													Include audio in export
+													{format === "gif"
+														? "Audio not available for GIF"
+														: "Include audio in export"}
 												</Label>
 											</div>
 										</SectionContent>

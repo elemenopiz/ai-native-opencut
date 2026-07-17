@@ -10,8 +10,21 @@ export const EXPORT_FORMAT_VALUES = ["mp4", "webm"] as const;
 export type ExportFormat = (typeof EXPORT_FORMAT_VALUES)[number];
 export type ExportQuality = (typeof EXPORT_QUALITY_VALUES)[number];
 
+/**
+ * Container formats the export dialog can produce, a superset of
+ * {@link ExportFormat}. GIF is a dialog-only, animated-image output (no audio,
+ * encoded by our own clean-room `lib/export/gif` encoder rather than
+ * mediabunny). It is intentionally NOT in {@link EXPORT_FORMAT_VALUES}: that
+ * narrower enum backs the Director/MCP `export` verb schema and the
+ * reference-video encoder in `lib/media/clip-reference.ts`, neither of which
+ * should offer GIF. Only the interactive dialog and the render/mime boundary
+ * widen to this type.
+ */
+export const EXPORT_CONTAINER_VALUES = ["mp4", "webm", "gif"] as const;
+export type ExportContainerFormat = (typeof EXPORT_CONTAINER_VALUES)[number];
+
 export interface ExportOptions {
-	format: ExportFormat;
+	format: ExportContainerFormat;
 	quality: ExportQuality;
 	fps?: number;
 	includeAudio?: boolean;
