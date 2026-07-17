@@ -23,14 +23,36 @@ export interface SavedVerifiedAsset {
 
 const STORAGE_KEY = "byorn.verified-assets.v1";
 
-/** Append an asset, de-duplicated by URI (re-saving the same asset is a no-op). */
+/** Auto-generated label (no user input) — safe to regenerate on a kind change. */
+const AUTO_LABEL = /^Verified (image|video)$/;
+
+/**
+ * Append an asset, de-duplicated by URI. Re-pasting a URI that's already saved
+ * UPDATES the entry's kind (and label) in place instead of no-op'ing — the kind
+ * can't be inferred from an opaque BytePlus asset id, so re-adding with the
+ * correct type toggled is the only way to fix a mislabeled asset. An empty
+ * incoming label keeps an existing custom label but regenerates an
+ * auto-generated one so it never contradicts the corrected kind.
+ */
 export function upsertSavedAsset(
 	list: SavedVerifiedAsset[],
 	asset: SavedVerifiedAsset,
 ): SavedVerifiedAsset[] {
 	if (!isAssetRef(asset.uri)) return list;
-	if (list.some((a) => a.uri === asset.uri)) return list;
-	return [...list, asset];
+	const fallbackLabel = (existing: string) =>
+		AUTO_LABEL.test(existing) ? `Verified ${asset.kind}` : existing;
+	const existing = list.find((a) => a.uri === asset.uri);
+	if (existing) {
+		const label = asset.label.trim() || fallbackLabel(existing.label);
+		if (existing.kind === asset.kind && existing.label === label) return list;
+		return list.map((a) =>
+			a.uri === asset.uri ? { ...a, kind: asset.kind, label } : a,
+		);
+	}
+	return [
+		...list,
+		{ ...asset, label: asset.label.trim() || `Verified ${asset.kind}` },
+	];
 }
 
 export function removeSavedAsset(

@@ -129,7 +129,11 @@ export function ReferenceMediaUploader({
 	const [assetDialogOpen, setAssetDialogOpen] = useState(false);
 	const [assetUri, setAssetUri] = useState("");
 	const [assetLabel, setAssetLabel] = useState("");
-	const [assetKind, setAssetKind] = useState<"image" | "video">("image");
+	// Deliberately unselected until the user picks: a BytePlus asset id is
+	// opaque (nothing says image vs video), and the kind decides whether the
+	// URI is sent as reference_image or reference_video — a silent "image"
+	// default mislabeled real video assets.
+	const [assetKind, setAssetKind] = useState<"image" | "video" | null>(null);
 
 	const itemsRef = useRef(items);
 	itemsRef.current = items;
@@ -339,13 +343,17 @@ export function ReferenceMediaUploader({
 			toast.error("Enter a BytePlus asset URI, e.g. asset://asset-….");
 			return;
 		}
+		if (!assetKind) {
+			toast.error(
+				"Pick Portrait image or Video — the type can't be read from the asset id.",
+			);
+			return;
+		}
 		const label = assetLabel.trim();
 		if (!addAssetItem(uri, assetKind, label)) return;
-		onSaveAsset?.({
-			uri,
-			kind: assetKind,
-			label: label || `Verified ${assetKind}`,
-		});
+		// Raw (possibly empty) label — the store fills in a fallback and, on a
+		// re-paste of a known URI, updates the saved kind instead of no-op'ing.
+		onSaveAsset?.({ uri, kind: assetKind, label });
 		setAssetUri("");
 		setAssetLabel("");
 		setAssetDialogOpen(false);
@@ -495,7 +503,15 @@ export function ReferenceMediaUploader({
 						<span className="text-[9px] font-medium">Verified ID</span>
 					</button>
 
-					<Dialog open={assetDialogOpen} onOpenChange={setAssetDialogOpen}>
+					<Dialog
+						open={assetDialogOpen}
+						onOpenChange={(open) => {
+							setAssetDialogOpen(open);
+							// Every add starts with the type unselected — carrying the
+							// previous choice over is how a video got saved as "image".
+							if (!open) setAssetKind(null);
+						}}
+					>
 						<DialogContent className="sm:max-w-md">
 							<DialogHeader>
 								<DialogTitle>Add a verified real-human asset</DialogTitle>
