@@ -6,6 +6,7 @@ import {
 	SparklesIcon,
 	ArrowTurnBackwardIcon,
 } from "@hugeicons/core-free-icons";
+import { toast } from "sonner";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/utils/ui";
 
@@ -155,15 +156,27 @@ export function EnhancePromptButton({
 				if (data?.error === "enhance_not_configured") markNotConfigured();
 				return;
 			}
-			if (!res.ok) return;
+			if (!res.ok) {
+				const data = (await res.json().catch(() => null)) as {
+					message?: string;
+				} | null;
+				if (res.status === 401) {
+					toast.error("Log in to enhance prompts.");
+				} else if (res.status === 429) {
+					toast.error("Rate limit reached — try again in a minute.");
+				} else {
+					toast.error(data?.message || "Prompt enhancement failed.");
+				}
+				return;
+			}
 			const data = (await res.json()) as { enhanced?: string };
 			const enhanced = data.enhanced?.trim();
 			if (!enhanced) return;
 			setPrompt(restoreDroppedHandles(current, enhanced));
 			setCanUndo(true);
 		} catch {
-			// Network/parse failure — silently leave the field untouched. The button
-			// returns to idle so the user can retry.
+			// Network/parse failure — the button returns to idle so the user can retry.
+			toast.error("Prompt enhancement failed.");
 		} finally {
 			setState("idle");
 		}

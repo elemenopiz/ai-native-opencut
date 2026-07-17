@@ -29,6 +29,9 @@ class FakeAPIError extends Error {
 /** Records the last create params so a test can assert what the route sent. */
 const lastCreate: { params: unknown } = { params: null };
 
+/** Toggleable stop_reason so a test can drive the truncation-guard path. */
+const fakeAnthropicReply: { stopReason: string } = { stopReason: "end_turn" };
+
 class FakeAnthropic {
 	static APIError = FakeAPIError;
 	messages = {
@@ -38,7 +41,7 @@ class FakeAnthropic {
 				content: [
 					{ type: "text", text: "  a lush, cinematic enhanced prompt  " },
 				],
-				stop_reason: "end_turn",
+				stop_reason: fakeAnthropicReply.stopReason,
 				model: "fake",
 				usage: {},
 			};
@@ -108,6 +111,7 @@ beforeEach(() => {
 	webEnv.GEMINI_API_KEY = "";
 	webEnv.DIRECTOR_MODEL = "";
 	lastCreate.params = null;
+	fakeAnthropicReply.stopReason = "end_turn";
 });
 
 afterEach(() => {
@@ -208,8 +212,69 @@ test("413 when the body exceeds the size cap", async () => {
 	const huge = "x".repeat(33 * 1024);
 	const res = await POST(makeReq({ prompt: huge, mode: "image" }));
 
-	// Rejected before the (also-failing) 2000-char prompt validation.
+	// Rejected before the (also-failing) 8000-char prompt validation.
 	expect(res.status).toBe(413);
+});
+
+test("a prompt over 2000 but under the 8000-char cap now passes validation", async () => {
+	// Long, detailed drafts are exactly what this route must stop reducing —
+	// the input schema must accept them (previously capped at 2000 chars).
+	const long = "a very detailed cinematic description, ".repeat(150); // ~6000 chars
+	expect(long.length).toBeGreaterThan(2000);
+	expect(long.length).toBeLessThan(8000);
+
+	const res = await POST(makeReq({ prompt: long, mode: "video" }));
+
+	expect(res.status).toBe(200);
+});
+
+test("a prompt over the 8000-char cap is still rejected as a bad request", async () => {
+	const tooLong = "x".repeat(8001);
+	const res = await POST(makeReq({ prompt: tooLong, mode: "image" }));
+
+	expect(res.status).toBe(400);
+});
+
+test("system prompt instructs the model to preserve every user-specified detail", async () => {
+	await POST(makeReq({ prompt: "a cat on a couch", mode: "image" }));
+
+	const system = (lastCreate.params as { system?: string } | null)?.system;
+	expect(system).toContain(
+		"EVERY concrete element the user specified — subjects, actions, settings, styles, constraints, names, numbers, ordering — MUST survive into the rewrite",
+	);
+});
+
+// ── truncation guard ─────────────────────────────────────────────────────────
+
+test("Gemini MAX_TOKENS finishReason surfaces as a 502 truncated_completion, not partial text", async () => {
+	webEnv.GEMINI_API_KEY = "gem-key";
+	stubGeminiUpstream({
+		rawBody: JSON.stringify({
+			candidates: [
+				{
+					content: { parts: [{ text: "an enhanced prompt that got cut" }] },
+					finishReason: "MAX_TOKENS",
+				},
+			],
+		}),
+	});
+
+	const res = await POST(makeReq({ prompt: "a cat", mode: "image" }));
+
+	expect(res.status).toBe(502);
+	const json = (await res.json()) as { error?: string; message?: string };
+	expect(json.error).toBe("truncated_completion");
+	expect(json.message).toBeTruthy();
+});
+
+test("Anthropic/Kimi stop_reason max_tokens surfaces as a 502 truncated_completion", async () => {
+	fakeAnthropicReply.stopReason = "max_tokens";
+
+	const res = await POST(makeReq({ prompt: "a cat", mode: "image" }));
+
+	expect(res.status).toBe(502);
+	const json = (await res.json()) as { error?: string };
+	expect(json.error).toBe("truncated_completion");
 });
 
 // ── Gemini-first provider selection ──────────────────────────────────────────
