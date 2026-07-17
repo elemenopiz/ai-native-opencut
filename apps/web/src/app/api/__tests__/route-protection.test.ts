@@ -331,6 +331,17 @@ const SWEEP: SweepCase[] = [
 		},
 	},
 	{
+		file: "studio/upload-url/route.ts",
+		calls: {
+			POST: [
+				makeRequest("POST", `${BASE}/studio/upload-url`, {
+					mimeType: "image/png",
+					sizeBytes: 1024,
+				}),
+			],
+		},
+	},
+	{
 		file: "studio/upload/route.ts",
 		calls: {
 			POST: [makeRequest("POST", `${BASE}/studio/upload`)],
