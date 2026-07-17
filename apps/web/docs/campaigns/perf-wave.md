@@ -73,6 +73,36 @@ If ANY golden-path regression: ship flag-OFF + findings (a flip is cheap to redo
 Post-merge check @c0c7dc7b: `bun run typecheck` exit 0; new unit tests 9/9. Full battery
 deferred to final tip (machine contended — battery will run serially).
 
+- @1689d8db `task/bug2-reseek-storm` (28a1b1a8) — BUG2 FIXED. Reviewed: tolerateStale
+  out-of-window now serves stale + ONE coalesced background re-seek per sink (retargets to
+  freshest time); in-flight seek ⇒ stale requests bypass the exclusive chain (no torn reads:
+  currentFrame is a single reference reassigned only after full decode); non-tolerateStale
+  (export/snapshot) still queues on the chain and awaits — behavior preserved. Evidence:
+  521ms→0 stall episodes under CPU throttle + clean unthrottled trials + single-layer
+  control (`docs/perf/bug2-fps60/`); +143-line unit test file. Tier: verified locally
+  (repro harness).
+- @a96b06bc `task/p1-flag-verify` (a10417bc) — P1 verdict: **HARD NO-GO on default-ON;
+  ships flag-OFF (unchanged, zero product code touched)**. Flag-ON preview = opaque black:
+  overlay canvas (worker-preview-canvas.tsx:365-371) painted opaque black every frame by
+  CanvasRenderer.clear() (canvas-renderer.ts:121-124) then blitted over working worker
+  output (worker itself: +241 frames, 0 errors). Pixel probe: worker canvas 576/576
+  content, overlay 576/576 black. Prior flag-ON bench numbers INVALIDATED (measured an
+  invisible canvas). e2e w/ flag ON: 11/0/9-skipped green — but suite never asserts preview
+  pixels, so green+black is the expected combo. Bench re-run INCONCLUSIVE (host loadavg
+  18-20; 4 attempts all rAF<55) — fixed bench committed for a quiet-host re-run. 10-gap
+  parity audit with file:line in `rerun-2026-07-17/EVIDENCE.md`. Filed BUG23; P1 queue row
+  now carries the 3 preconditions.
+
+## Decisions (final)
+
+- **Default-ON: NO.** Golden-path regression (black preview) = P0 per brief ⇒ flag stays
+  OFF. The flip is cheap to redo once BUG23 + parity land; a broken preview is not.
+- **BUG23 fix deferred to a scoped follow-up wave**: canvas-renderer.ts is CRITICAL-radius
+  shared with the live preview — not a drive-by inside an integration turn.
+- **P2 re-baseline: filed blocked-on-quiet-host** with recipe (queue §3) — every bench
+  attempt today was rAF-throttled by sibling-session load; minting numbers under loadavg
+  18-20 would fabricate the baseline.
+
 ## Evidence
 
 (bench JSONs, screenshots, e2e output — filled as parts close)
