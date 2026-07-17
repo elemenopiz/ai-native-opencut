@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { BETA_COOKIE, betaAccessCode } from "@/lib/beta-gate";
@@ -10,6 +11,20 @@ import { BETA_COOKIE, betaAccessCode } from "@/lib/beta-gate";
  * secretive because guessing is capped.
  */
 
+/**
+ * Constant-time string comparison — a plain `!==` leaks byte-position
+ * mismatch timing, unnecessary attack surface even behind the per-IP rate
+ * limit above. Length is checked first (cheap, and not itself a useful
+ * timing oracle for a fixed-format code) because `timingSafeEqual` throws on
+ * unequal-length buffers rather than returning false.
+ */
+function constantTimeEquals(a: string, b: string): boolean {
+	const bufA = Buffer.from(a, "utf8");
+	const bufB = Buffer.from(b, "utf8");
+	if (bufA.length !== bufB.length) return false;
+	return timingSafeEqual(bufA, bufB);
+}
+
 export async function POST(req: Request) {
 	const limited = await enforceRateLimit({ name: "beta:gate", request: req });
 	if (limited) return limited;
@@ -18,7 +33,7 @@ export async function POST(req: Request) {
 	const code = body?.code?.trim();
 	const expected = betaAccessCode();
 
-	if (!code || code !== expected) {
+	if (!code || !constantTimeEquals(code, expected)) {
 		return NextResponse.json({ error: "invalid_code" }, { status: 401 });
 	}
 
