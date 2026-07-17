@@ -569,7 +569,10 @@ function MusicMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
 	const [showLyrics, setShowLyrics] = useState(false);
 	const [duration, setDuration] = useState(30);
 	const [busy, setBusy] = useState(false);
-	const [resultUrl, setResultUrl] = useState<string | null>(null);
+	const [lastResult, setLastResult] = useState<{
+		mediaIds: string[];
+		url: string;
+	} | null>(null);
 
 	const cost = estimateAudioCredits(duration, "elevenlabs-music");
 	const modelLabel = "ElevenLabs Music";
@@ -581,7 +584,7 @@ function MusicMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
 	async function handleGenerate() {
 		if (!prompt.trim()) return;
 		setBusy(true);
-		setResultUrl(null);
+		setLastResult(null);
 		try {
 			const res = await apiFetch("/api/studio/audio", {
 				method: "POST",
@@ -619,7 +622,7 @@ function MusicMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
 				projectId = null;
 			}
 			if (projectId) {
-				const { added } = await addItemsToProjectMedia({
+				const { added, mediaIds } = await addItemsToProjectMedia({
 					editor,
 					projectId,
 					source: "ai",
@@ -633,7 +636,7 @@ function MusicMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
 				});
 				if (added > 0) {
 					toast.success("Music added to Assets.");
-					setResultUrl(data.resultUrl);
+					setLastResult({ mediaIds, url: data.resultUrl });
 				}
 			}
 		} catch (err) {
@@ -643,6 +646,36 @@ function MusicMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
 		} finally {
 			setBusy(false);
 		}
+	}
+
+	// Drops the generated music onto a fresh audio track at the playhead — the
+	// same "explicit placement on a freshly created audio track" idiom
+	// `views/voiceover.tsx`'s `handleAddToTimeline` uses (see `addTrack` +
+	// `insertElement` there). Reads the asset's own probed duration (set by
+	// `processMediaAssets` inside `addItemsToProjectMedia`) rather than the
+	// requested chip value, since providers don't always return exactly the
+	// requested length.
+	function addToTimeline() {
+		const mediaId = lastResult?.mediaIds[0];
+		if (!mediaId) return;
+
+		const asset = editor.media.getAssets().find((a) => a.id === mediaId);
+		const elementDuration = asset?.duration ?? duration;
+
+		const trackId = editor.timeline.addTrack({ type: "audio", index: 0 });
+		const startTime = editor.playback.getCurrentTime();
+		const element = buildElementFromMedia({
+			mediaId,
+			mediaType: "audio",
+			name: prompt.trim().slice(0, 48) || "AI music",
+			duration: elementDuration,
+			startTime,
+		});
+		editor.timeline.insertElement({
+			element,
+			placement: { mode: "explicit", trackId },
+		});
+		toast.success("Added to the timeline.");
 	}
 
 	const settingsContent = (
@@ -726,9 +759,20 @@ function MusicMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
 				/>
 			</GenerationCard>
 
-			{resultUrl && (
-				// biome-ignore lint/a11y/useMediaCaption: generated music has no caption track
-				<audio controls className="w-full h-8" src={resultUrl} />
+			{lastResult && (
+				<div className="space-y-2">
+					{/* biome-ignore lint/a11y/useMediaCaption: generated music has no caption track */}
+					<audio controls className="w-full h-8" src={lastResult.url} />
+					{lastResult.mediaIds[0] && (
+						<button
+							type="button"
+							onClick={addToTimeline}
+							className="rounded-[10px] bg-foreground/[0.14] px-3 py-2 text-left text-[12.5px] font-medium text-foreground transition-colors hover:bg-foreground/[0.2]"
+						>
+							Add to timeline
+						</button>
+					)}
+				</div>
 			)}
 		</div>
 	);
