@@ -6,6 +6,7 @@ interface MediaDragOverlayProps {
 	isProcessing?: boolean;
 	progress?: number;
 	onClick?: () => void;
+	mode?: "empty" | "drag-active";
 }
 
 export function MediaDragOverlay({
@@ -13,6 +14,7 @@ export function MediaDragOverlay({
 	isProcessing = false,
 	progress = 0,
 	onClick,
+	mode = "empty",
 }: MediaDragOverlayProps) {
 	if (!isVisible) return null;
 
@@ -42,6 +44,8 @@ export function MediaDragOverlay({
 				<p className="text-muted-foreground max-w-sm text-xs">
 					{isProcessing ? (
 						`Processing your files (${progress}%)`
+					) : mode === "drag-active" ? (
+						"Drop files to import"
 					) : (
 						<>
 							Drag and drop videos, photos, and audio files here
