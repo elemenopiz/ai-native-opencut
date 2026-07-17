@@ -60,6 +60,7 @@ function makeQuery() {
 		limit() {
 			return q;
 		},
+		// biome-ignore lint/suspicious/noThenProperty: fake query builder is a deliberate thenable so the route can `await` a drizzle select — mirrors sibling vc-routes.test.ts
 		then(resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) {
 			let rows: unknown[] = [];
 			if (table === mediaObjects) {
