@@ -10,6 +10,7 @@ import {
 	probeVideoFile,
 	decideNormalization,
 	normalizeVideoFile,
+	type ProbeResult,
 } from "./normalize-media";
 import { Input, ALL_FORMATS, BlobSource, VideoSampleSink } from "mediabunny";
 
@@ -232,6 +233,19 @@ export async function generateImageThumbnail({
 	});
 }
 
+/**
+ * Distinguishes a "no readable video track" probe (audio-only container,
+ * unparseable — nothing to ingest) from a "known codec this browser just
+ * can't decode" probe (HEVC on non-supporting Chrome, etc. — real media,
+ * still worth keeping). Only the former should cause `processMediaAssets` to
+ * skip adding the file to the library: pushing a phantom asset with no
+ * duration/dimensions/thumbnail is worse than not importing it at all, since
+ * a user has no way to tell it's broken until they drag it onto the timeline.
+ */
+export function isUnreadableVideoProbe(probe: ProbeResult): boolean {
+	return !probe.parseable || !probe.videoCodec;
+}
+
 export async function processMediaAssets({
 	files,
 	onProgress,
@@ -328,10 +342,22 @@ export async function processMediaAssets({
 						// Distinguish "codec we know but this browser can't decode" from
 						// "no readable video track at all" (audio-only-in-video-container,
 						// unparseable) — the latter shouldn't be blamed on the decoder.
+						if (isUnreadableVideoProbe(probe)) {
+							// Nothing usable to ingest: no video track means no
+							// duration/dimensions/thumbnail downstream either, so
+							// pushing this to the library would just be a phantom
+							// tile a user could drag to the timeline and hit a
+							// worse, more confusing failure later. Skip it entirely
+							// — the toast is the only signal, same as an unsupported
+							// file-type rejection above.
+							toast.error(
+								`Couldn't read a video track from ${file.name}. The file may be audio-only or in an unsupported format.`,
+							);
+							URL.revokeObjectURL(assetUrl);
+							continue;
+						}
 						toast.error(
-							probe.parseable && probe.videoCodec
-								? `This clip is ${probe.videoCodec.toUpperCase()} and your browser can't decode it. Try Safari, or convert it to H.264 first.`
-								: `Couldn't read a video track from ${file.name}. The file may be audio-only or in an unsupported format.`,
+							`This clip is ${probe.videoCodec?.toUpperCase()} and your browser can't decode it. Try Safari, or convert it to H.264 first.`,
 						);
 					}
 				} catch (probeError) {
