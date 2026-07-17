@@ -8,11 +8,19 @@ describe("withIdentityLock", () => {
 		);
 	});
 
-	it("preserves the prompt verbatim at the start and appends the instruction block when locked", () => {
+	it("leads with the instruction block and carries the prompt verbatim as directions when locked", () => {
 		const prompt = "a woman walking on the beach";
 		const out = withIdentityLock(prompt, true);
-		expect(out.startsWith(prompt)).toBe(true);
-		expect(out).toBe(`${prompt}\n\n${IDENTITY_LOCK_INSTRUCTION}`);
+		// Instruction-first is load-bearing: a trailing lock loses to prompts
+		// that describe a person (see the module header).
+		expect(out.startsWith(IDENTITY_LOCK_INSTRUCTION)).toBe(true);
+		expect(out).toBe(`${IDENTITY_LOCK_INSTRUCTION}\n\nDirections: ${prompt}`);
+	});
+
+	it("declares prompt-described people to be the reference person", () => {
+		expect(IDENTITY_LOCK_INSTRUCTION).toContain(
+			"that is THIS person playing that role",
+		);
 	});
 
 	it("leaves an empty prompt unchanged even when locked is true", () => {
