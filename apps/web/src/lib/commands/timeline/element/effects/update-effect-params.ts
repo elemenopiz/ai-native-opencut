@@ -50,6 +50,15 @@ export class UpdateClipEffectParamsCommand extends Command {
 		params: Partial<EffectParamValues>;
 	}) {
 		super();
+		if (
+			typeof params !== "object" ||
+			params === null ||
+			Array.isArray(params)
+		) {
+			throw new Error(
+				`UpdateClipEffectParamsCommand: "params" must be a plain object of effect param values; got ${JSON.stringify(params)}`,
+			);
+		}
 		this.trackId = trackId;
 		this.elementId = elementId;
 		this.effectId = effectId;
@@ -65,12 +74,12 @@ export class UpdateClipEffectParamsCommand extends Command {
 			trackId: this.trackId,
 			elementId: this.elementId,
 			elementPredicate: isVisualElement,
-		update: (element) => {
-			return updateEffectParamsOnElement({
-				element: element as VisualElement,
-				effectId: this.effectId,
-				params: this.params,
-			});
+			update: (element) => {
+				return updateEffectParamsOnElement({
+					element: element as VisualElement,
+					effectId: this.effectId,
+					params: this.params,
+				});
 			},
 		});
 
