@@ -5,6 +5,9 @@ import {
 	resolveStretchDecision,
 	stretchAudioBufferSegment,
 } from "@/lib/media/pitch-preserving-stretch";
+import { getNumberChannelValueAtTime } from "@/lib/animation";
+import { getNumberChannelForPath } from "@/lib/animation/number-channel";
+import type { NumberKeyframe } from "@/types/animation";
 import {
 	ALL_FORMATS,
 	AudioBufferSink,
@@ -15,6 +18,102 @@ import {
 
 /** Max cached pitch-preserved renders (each is a fully decoded clip slot). */
 const MAX_STRETCHED_BUFFER_CACHE = 12;
+
+/** Minimal surface of a WebAudio `AudioParam` this module schedules against —
+ *  narrowed so the scheduling plan builder/applier is testable with a plain
+ *  fake, no real AudioContext required. */
+export interface AudioParamLike {
+	setValueAtTime(value: number, startTime: number): unknown;
+	linearRampToValueAtTime(value: number, endTime: number): unknown;
+}
+
+/** One scheduled gain-automation instruction in the AudioContext time domain. */
+export interface VolumeAutomationStep {
+	kind: "set" | "ramp";
+	value: number;
+	contextTime: number;
+}
+
+/**
+ * Pure builder for a clip's volume gain-automation schedule, sampled from its
+ * `volume` animation channel (the same channel `resolveVolumeAtTime` reads for
+ * the properties UI — see `lib/animation/resolve.ts`). Kept AudioContext-free
+ * so it's unit-testable: `localTimeToContextTime` maps an element-local time
+ * (0..clip duration, matching how keyframe `time` is stored — see
+ * `UpsertKeyframeCommand`) to the absolute AudioContext time it should land at.
+ *
+ * `nowLocalTime` is the element-local time at which this schedule starts being
+ * applied — a fresh playback session starts at 0, but a mid-clip seek (or a
+ * resync after a scheduling underrun) starts partway through, so the plan
+ * always opens with a `set` step pinning the CURRENT interpolated value at
+ * `nowLocalTime`, then only schedules keyframes still ahead of it. This avoids
+ * both replaying already-elapsed automation and a jarring jump from whatever
+ * the gain node's default value was.
+ */
+export function buildVolumeAutomationPlan({
+	keyframes,
+	nowLocalTime,
+	fallbackValue,
+	localTimeToContextTime,
+}: {
+	keyframes: NumberKeyframe[];
+	nowLocalTime: number;
+	fallbackValue: number;
+	localTimeToContextTime: (localTime: number) => number;
+}): VolumeAutomationStep[] {
+	if (keyframes.length === 0) return [];
+
+	const sorted = [...keyframes].sort((a, b) => a.time - b.time);
+	const clampedNow = Math.max(0, nowLocalTime);
+
+	const anchorValue = getNumberChannelValueAtTime({
+		channel: { valueKind: "number", keyframes: sorted },
+		time: clampedNow,
+		fallbackValue,
+	});
+
+	const plan: VolumeAutomationStep[] = [
+		{
+			kind: "set",
+			value: anchorValue,
+			contextTime: localTimeToContextTime(clampedNow),
+		},
+	];
+
+	for (let i = 0; i < sorted.length; i++) {
+		const keyframe = sorted[i];
+		if (keyframe.time <= clampedNow) continue; // already elapsed — anchor covers it
+
+		const previous = i > 0 ? sorted[i - 1] : undefined;
+		const isHoldSegment = previous?.interpolation === "hold";
+		plan.push({
+			kind: isHoldSegment ? "set" : "ramp",
+			value: keyframe.value,
+			contextTime: localTimeToContextTime(keyframe.time),
+		});
+	}
+
+	return plan;
+}
+
+/** Apply a schedule built by `buildVolumeAutomationPlan` to a real (or fake)
+ *  AudioParam. Split out from the builder so tests can assert on the plan
+ *  directly without a GainNode. */
+export function applyVolumeAutomationPlan({
+	gainParam,
+	plan,
+}: {
+	gainParam: AudioParamLike;
+	plan: VolumeAutomationStep[];
+}): void {
+	for (const step of plan) {
+		if (step.kind === "set") {
+			gainParam.setValueAtTime(step.value, step.contextTime);
+		} else {
+			gainParam.linearRampToValueAtTime(step.value, step.contextTime);
+		}
+	}
+}
 
 export class AudioManager {
 	private audioContext: AudioContext | null = null;
@@ -50,6 +149,15 @@ export class AudioManager {
 		AsyncGenerator<WrappedAudioBuffer, void, unknown>
 	>();
 	private queuedSources = new Set<AudioBufferSourceNode>();
+	/**
+	 * Per-clip GainNode for clips with a `volume` animation channel, keyed by
+	 * clip.id. Created lazily the first time `connectClipNode` sees the clip
+	 * this playback session (one automation schedule for the clip's whole
+	 * lookahead-streamed lifetime, not one per streamed buffer chunk — see
+	 * `getOrCreateAnimatedClipGain`). Scoped to a single playback session:
+	 * cleared in `stopPlayback()` alongside the other per-session maps.
+	 */
+	private clipGainNodes = new Map<string, GainNode>();
 	/**
 	 * Pitch-preserved renders of speed-changed clips, keyed by
 	 * source|rate|trim|duration|sampleRate. Survives timeline restarts (every
@@ -400,6 +508,13 @@ export class AudioManager {
 			source.disconnect();
 		}
 		this.queuedSources.clear();
+
+		for (const gain of this.clipGainNodes.values()) {
+			try {
+				gain.disconnect();
+			} catch {}
+		}
+		this.clipGainNodes.clear();
 	}
 
 	private async runClipIterator({
@@ -562,6 +677,19 @@ export class AudioManager {
 		audioContext: AudioContext;
 	}): void {
 		const destinationNode = this.getTrackDestination(clip.id);
+
+		const animatedGain = this.getOrCreateAnimatedClipGain({
+			clip,
+			audioContext,
+			destinationNode,
+		});
+		if (animatedGain) {
+			node.connect(animatedGain);
+			return;
+		}
+
+		// Static-volume fast path — unchanged for clips without a volume
+		// animation channel.
 		const clipVolume = clip.volume ?? 1;
 		if (clipVolume < 1) {
 			const clipGain = audioContext.createGain();
@@ -571,6 +699,60 @@ export class AudioManager {
 		} else {
 			node.connect(destinationNode);
 		}
+	}
+
+	/**
+	 * Per-clip GainNode carrying the clip's `volume` keyframe automation, or
+	 * `null` when the clip has no volume animation (callers fall back to the
+	 * static-volume path). Created + scheduled ONCE per clip per playback
+	 * session — cached in `clipGainNodes` — because `connectClipNode` runs once
+	 * per streamed buffer chunk (a clip can span many chunks) and re-scheduling
+	 * automation on every chunk would repeatedly cut off in-flight ramps.
+	 *
+	 * The schedule is anchored at `getPlaybackTime()` (the actual clip-relative
+	 * "now" of this session, whether that's the clip's own start or a mid-clip
+	 * seek/resync) — see `buildVolumeAutomationPlan`.
+	 */
+	private getOrCreateAnimatedClipGain({
+		clip,
+		audioContext,
+		destinationNode,
+	}: {
+		clip: AudioClipSource;
+		audioContext: AudioContext;
+		destinationNode: AudioNode;
+	}): GainNode | null {
+		const cached = this.clipGainNodes.get(clip.id);
+		if (cached) return cached;
+
+		const channel = getNumberChannelForPath({
+			animations: clip.animations,
+			propertyPath: "volume",
+		});
+		if (!channel || channel.keyframes.length === 0) return null;
+
+		const gain = audioContext.createGain();
+		const nowLocalTime = this.getPlaybackTime() - clip.startTime;
+		// contextTime = playbackStartContextTime + latencyComp + (timelineTime - playbackStartTime)
+		// timelineTime = clip.startTime + localTime, so this is that formula with
+		// the clip.startTime + localTime terms factored out per-call below.
+		const contextTimeBase =
+			this.playbackStartContextTime +
+			this.playbackLatencyCompensationSeconds -
+			this.playbackStartTime +
+			clip.startTime;
+
+		const plan = buildVolumeAutomationPlan({
+			keyframes: channel.keyframes,
+			nowLocalTime,
+			fallbackValue: clip.volume ?? 1,
+			localTimeToContextTime: (localTime) => contextTimeBase + localTime,
+		});
+		applyVolumeAutomationPlan({ gainParam: gain.gain, plan });
+
+		gain.connect(destinationNode);
+		this.clipGainNodes.set(clip.id, gain);
+		return gain;
 	}
 
 	/**
