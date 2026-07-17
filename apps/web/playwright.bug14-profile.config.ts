@@ -16,6 +16,11 @@ import { defineConfig, devices } from "@playwright/test";
 const PORT = Number(process.env.E2E_BUG14_PORT ?? 3130);
 const BASE_URL = `http://localhost:${PORT}`;
 
+// The spec self-skips unless this is set, so the default `test:e2e` suite
+// (bundled Chromium, no HEVC decode) never tries to run the profiling
+// harness. Running through THIS config is the opt-in.
+process.env.BUG14_PROFILE = "1";
+
 export default defineConfig({
 	testDir: "./e2e",
 	testMatch: "**/bug14-import-stall-profile.e2e.ts",

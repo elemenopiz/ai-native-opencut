@@ -270,6 +270,17 @@ const RUN_OFFSETS = process.env.BUG14_RUN_OFFSETS
 	: [0, 1000, 3000];
 
 test.describe("BUG14 — import-stall profiling", () => {
+	// Profiling harness, not a regression spec: it needs the real Chrome
+	// channel (4K HEVC decode) and its own serve/port wiring, both provided
+	// only by playwright.bug14-profile.config.ts (which sets this env var).
+	// Under the default suite's bundled Chromium it would exercise the
+	// codec-unsupported fallback and fail — self-skip instead (same idiom as
+	// fixtures-w2-hunt's capability self-skips).
+	test.skip(
+		process.env.BUG14_PROFILE !== "1",
+		"run via playwright.bug14-profile.config.ts (real Chrome channel required)",
+	);
+
 	test(`${RUN_OFFSETS.length} varied attempts: mutation during heavy 4K HEVC import background work`, async ({
 		page,
 	}) => {
