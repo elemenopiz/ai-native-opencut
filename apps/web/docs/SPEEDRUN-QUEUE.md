@@ -113,9 +113,9 @@ landed — **confirm in git log, then strike.**)
 | F7 | Background fill + curves UI | OpenCut-ecosystem poach opens | open |
 | F8 | Reconcile the two voiceover UIs into the audio tab (MMAudio + ElevenLabs) | gen-UI packet | open (= BUG5) |
 
-| BUG24 | **`version-control/media/[hash]` GET has no repo-access check** — session-gated but not flag-gated (VC API routes live per ADR-003) and selects mediaObjects by hash globally then 302s to R2; any authed user who knows a SHA-256 fetches another user's media. MED (content-hash = bearer capability not enumerable IDOR; VC corpus near-empty this beta). TENANCY-FLOOR fix-now (before VC corpus grows / collab un-hides): mirror sibling `repos/[repoId]/media/route.ts` — resolve object→repo→getRepoRole, 403 if none | C6 W-SEC+W-COLLAB reconciled 2026-07-17 | open (tenancy, fix-now MED) |
+| BUG24 | **`version-control/media/[hash]` GET has no repo-access check** — session-gated but not flag-gated (VC API routes live per ADR-003) and selects mediaObjects by hash globally then 302s to R2; any authed user who knows a SHA-256 fetches another user's media. MED (content-hash = bearer capability not enumerable IDOR; VC corpus near-empty this beta). TENANCY-FLOOR fix-now (before VC corpus grows / collab un-hides): mirror sibling `repos/[repoId]/media/route.ts` — resolve object→repo→getRepoRole, 403 if none | C6 W-SEC+W-COLLAB reconciled 2026-07-17 | done(hardening-w2, verified locally — repo-access check + cross-tenant 403 test) |
 | BUG25 | `studio/image/route.ts` settles the credit charge BEFORE persisting the image row (generate/promote insert first) — DB blip post-settle = charged, images made, no row, raw 500. Reorder settle-after-persist or compensating release (money logic ⇒ money-gated wave) | C6 W-COPY 2026-07-17 | open (money-gated) |
-| BUG26 | `beta-gate/route.ts:21` non-constant-time code compare (`!==`) — impractical to exploit (rate-limited 5/min + 4-digit keyspace) but trivial `crypto.timingSafeEqual` fix | C6 W-SEC 2026-07-17 | open (low) |
+| BUG26 | `beta-gate/route.ts:21` non-constant-time code compare (`!==`) — impractical to exploit (rate-limited 5/min + 4-digit keyspace) but trivial `crypto.timingSafeEqual` fix | C6 W-SEC 2026-07-17 | done(hardening-w2, timingSafeEqual) |
 
 ## 5 · Poach targets (license-gate first — see `.claude/fable-poach-orchestrator.md`)
 
