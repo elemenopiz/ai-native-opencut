@@ -1,0 +1,12 @@
+[fixe:off] fixture server on :8890
+[fixe:off] navigating to /editor/fixe-base-off-1784249701707
+[fixe:off] FAILED page.goto: net::ERR_ABORTED; maybe frame was detached?
+Call log:
+  - navigating to "http://localhost:3115/editor/fixe-base-off-1784249701707", waiting until "load"
+
+    at main (/private/tmp/claude-501/-Users-zsha-Documents-ai-native-opencut/ada6718e-31b3-48f8-beaf-a62c82a8253e/scratchpad/bench.js:145:13) {
+  log: [
+    '  - navigating to "http://localhost:3115/editor/fixe-base-off-1784249701707", waiting until "load"'
+  ],
+  name: 'Error'
+}
