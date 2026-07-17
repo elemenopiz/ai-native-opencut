@@ -65,8 +65,8 @@ track pan (StereoPannerNode in playback, absent in mixdown), solo semantics, key
 | Worker | Status |
 |---|---|
 | W-A mixdown-gain | DONE — `task/c24-mixdown-gain` @ae697a2a, diff-reviewed by L1, merged to campaign @846b840d. `CollectedAudioElement` + volume/trackVolume/volumeKeyframes; `computeVolumeEnvelope` forward-cursor walker parity-tested vs `getNumberChannelValueAtTime` (1e-6 over sampled points, linear/hold/eased); gain keyed on output-domain local time, applied pre-accumulation; playback path + resolveMixElement untouched. Verified on campaign tip by L1: `bun test apps/web/src/lib/media` 114/0. Worker detect_changes: low, 6 symbols, 0 affected processes |
-| W-B fidelity-matrix | dispatched 2026-07-18 (sonnet, isolated worktree, `task/c24-fidelity-matrix`) |
-| W-C audio-only-export | dispatched 2026-07-18 (sonnet, isolated worktree, `task/c24-audio-only-export`) |
+| W-B fidelity-matrix | STALLED pre-commit (park-on-notification failure mode, twice: initial + one resume nudge); work SALVAGED by L1 per L0 ruling — spec/helpers/config + package.json script read+reviewed in its worktree, ported and committed to campaign @6b94ef8e. Spec quality high: 7 cases, correct assertion polarity (BUG32/BUG17 cases assert fixed behavior), measured-number logging throughout |
+| W-C audio-only-export | in progress on `task/c24-audio-only-export` — scene-exporter.ts + renderer-manager.ts edits + new audio-only-export.test.ts present in its worktree (uncommitted); verification reported queued behind host contention |
 
 BUG17 behavior call (L1 decision, given to W-C): suppress the video stream when the
 scene has no visual content — audio-only MP4/WebM is valid and least surprising; keep
