@@ -26,6 +26,20 @@ export class SplitElementsCommand extends Command {
 		rippleEnabled?: boolean;
 	}) {
 		super();
+		if (
+			!Array.isArray(elements) ||
+			elements.some(
+				(element) =>
+					typeof element !== "object" ||
+					element === null ||
+					typeof element.trackId !== "string" ||
+					typeof element.elementId !== "string",
+			)
+		) {
+			throw new Error(
+				`SplitElementsCommand: "elements" must be an array of { trackId, elementId }; got ${JSON.stringify(elements)}`,
+			);
+		}
 		this.elements = elements;
 		this.splitTime = splitTime;
 		this.retainSide = retainSide;

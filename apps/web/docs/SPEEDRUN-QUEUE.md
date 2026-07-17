@@ -94,7 +94,7 @@ landed — **confirm in git log, then strike.**)
 | # | Item | Why / source | Status |
 |---|---|---|---|
 | F1 | **Character-consistency deepening** — persona/seed-lock UX polish + Runway Aleph interim route for real-face VFX (BytePlus verified-asset partner access is the blocked long pole — asset:// picker already shipped) | Moat #1; Higgsfield's #1 captured gap | open |
-| F2 | **MCP surface expansion** — finish deferred Redis pub/sub relay, widen the tool catalog, reliability hardening | Moat #2; Palmier's MCP reliability is cracking publicly | open |
+| F2 | **MCP surface expansion** — finish deferred Redis pub/sub relay, widen the tool catalog, reliability hardening | Moat #2; Palmier's MCP reliability is cracking publicly | done(campaign/mcp-moat 2026-07-17, tier: merged-to-campaign — relay landed env-gated fail-soft on existing @upstash/redis; catalog 53→56 (Board verbs); double edit-loop reconnect e2e + token-auth edges; BUG13 guard sweep ×3; conformance delta vs Palmier v0.6.6 in `docs/mcp/palmier-conformance-2026-07-17.md` — its 24 paste-ready queue rows Q1–Q24 are the follow-up backlog, top picks: unknown-key rejection, non-finite rejection, reportLimitation, readPlaybook) |
 | F3 | Director context gaps Tier 2/4 + beat-grid/LUFS audio grounding | Director context-gap audit (3/4 fixes landed; this is the tail) | open |
 | F4 | Upscale (video+image) — verify the 4 fal APIs, then gated merge (see branch row above) | Built 2026-07-14, never verified | open |
 | F5 | Transcript **edit-by-text** (delete words → cut media) | Fork-sweep gap; Descript-class differentiator; on-device Whisper + transcripts already shipped | open |

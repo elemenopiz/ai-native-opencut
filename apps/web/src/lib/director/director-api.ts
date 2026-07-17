@@ -187,6 +187,10 @@ import type {
 import type {
 	BackendCatalogEntry,
 	BackendCatalogProvider,
+	BoardDiscardFn,
+	BoardFetchFn,
+	BoardItemSnapshot,
+	BoardPromoteFn,
 	BudgetStatus,
 	DirectorResult,
 	DuplicateAssetPair,
@@ -208,6 +212,11 @@ import type {
 export type {
 	BackendCatalogEntry,
 	BackendCatalogProvider,
+	BoardDiscardFn,
+	BoardFetchFn,
+	BoardItemSnapshot,
+	BoardMutationResult,
+	BoardPromoteFn,
 	DirectorResult,
 	DuplicateAssetPair,
 	GenerateExecutor,
@@ -386,6 +395,23 @@ export interface CreateDirectorApiOptions {
 	 * Pure + injectable like `understanding`.
 	 */
 	transcripts?: AssetTranscriptLookup;
+	/**
+	 * Board seam (see `apps/web/src/hooks/use-board-items.ts`): the pending
+	 * multi-take/-image drafts a generation batch parks for the user to star
+	 * into Assets or dismiss. `fetch` powers the read-only `getBoard` verb;
+	 * `promote`/`discard` back `promoteBoardItem`/`discardBoardItem`. Each is
+	 * independently optional — an absent one makes only its verb report the
+	 * Board is unavailable in this context (e.g. an MCP/server context with no
+	 * browser wiring), never throw. BROWSER-BOUND like `backends`/`audio`/
+	 * `references` — the app wires the real fetch/promote/discard in
+	 * `use-director.ts` (calling the same `/api/studio/board` endpoints
+	 * `useBoardItems` does); headless tests inject stubs.
+	 */
+	board?: {
+		fetch?: BoardFetchFn;
+		promote?: BoardPromoteFn;
+		discard?: BoardDiscardFn;
+	};
 }
 
 const ok = <T>(message: string, data?: T): DirectorResult<T> => ({
@@ -605,6 +631,7 @@ export function createDirectorApi(
 	options: CreateDirectorApiOptions = {},
 ) {
 	const { executor, backends: backendsProvider, critic } = options;
+	const board = options.board;
 
 	// Reference-intake seam: model derivation + anchor upload + persona create.
 	// Defaults are browser-bound (relay / R2 upload / persona store); tests inject.
@@ -1110,6 +1137,103 @@ export function createDirectorApi(
 		} catch (error) {
 			return fail(
 				`Failed to load backends: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+			);
+		}
+	}
+
+	// ---- BOARD ---------------------------------------------------------------
+	// The Board is where multi-take/-image generation batches land as pending
+	// drafts for the user to star into Assets or dismiss — a step outside the
+	// reel/timeline model, so these three verbs read/write through the
+	// INJECTED `board` seam only and never touch `editor.timeline`/`command`.
+
+	/**
+	 * List the project's pending Board items — multi-take/-image generation
+	 * drafts parked for the user to star into Assets (`promoteBoardItem`) or
+	 * dismiss (`discardBoardItem`). Read-only. Compact snapshot: null/absent
+	 * fields omitted (token economy, same convention as `getReel`). Reads
+	 * through the injected `board.fetch` seam; with none wired, reports the
+	 * Board is unavailable in this context rather than throwing.
+	 */
+	async function getBoard(): Promise<DirectorResult<BoardItemSnapshot[]>> {
+		if (!board?.fetch) {
+			return fail("Board is unavailable in this context.");
+		}
+		try {
+			const items = await board.fetch();
+			return ok(
+				items.length
+					? `${items.length} pending Board item(s).`
+					: "Board is empty — no pending drafts.",
+				items,
+			);
+		} catch (error) {
+			return fail(
+				`Failed to load the Board: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+			);
+		}
+	}
+
+	/**
+	 * Star one pending Board item into Assets, then drop it from the Board —
+	 * the agent-facing sibling of the Board's "star" action
+	 * (`useBoardItems.promoteToAssets`). Mutating (moves a draft into the
+	 * project's permanent media library) but does not touch the reel/timeline,
+	 * so it never returns a `delta` (same treatment as `setBudget`/
+	 * `updateBrief` — `reel:write`-scoped state changes outside the slot
+	 * model). Reads through the injected `board.promote` seam; with none
+	 * wired, or on an unresolved/malformed id, reports a graceful failure
+	 * rather than throwing.
+	 */
+	async function promoteBoardItem(input: {
+		itemId: string;
+	}): Promise<DirectorResult<{ itemId: string }>> {
+		const itemId = typeof input?.itemId === "string" ? input.itemId.trim() : "";
+		if (!itemId) return fail("promoteBoardItem requires a non-empty itemId.");
+		if (!board?.promote) {
+			return fail("Board is unavailable in this context.");
+		}
+		try {
+			const result = await board.promote(itemId);
+			if (!result.ok) return fail(result.error);
+			return ok(`Starred Board item "${itemId}" into Assets.`, { itemId });
+		} catch (error) {
+			return fail(
+				`Failed to promote Board item "${itemId}": ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+			);
+		}
+	}
+
+	/**
+	 * Discard one pending Board item without saving it anywhere — the
+	 * agent-facing sibling of the Board's "dismiss" action
+	 * (`useBoardItems.dismiss`). Mutating (deletes the draft's Board row) but
+	 * not the reel/timeline, so no `delta` (same treatment as
+	 * `promoteBoardItem`). Reads through the injected `board.discard` seam;
+	 * with none wired, or on an unresolved/malformed id, reports a graceful
+	 * failure rather than throwing.
+	 */
+	async function discardBoardItem(input: {
+		itemId: string;
+	}): Promise<DirectorResult<{ itemId: string }>> {
+		const itemId = typeof input?.itemId === "string" ? input.itemId.trim() : "";
+		if (!itemId) return fail("discardBoardItem requires a non-empty itemId.");
+		if (!board?.discard) {
+			return fail("Board is unavailable in this context.");
+		}
+		try {
+			const result = await board.discard(itemId);
+			if (!result.ok) return fail(result.error);
+			return ok(`Discarded Board item "${itemId}".`, { itemId });
+		} catch (error) {
+			return fail(
+				`Failed to discard Board item "${itemId}": ${
 					error instanceof Error ? error.message : String(error)
 				}`,
 			);
@@ -4533,6 +4657,10 @@ export function createDirectorApi(
 		getLibraryManifest,
 		getTranscript,
 		getBackends,
+		// board (pending multi-take/-image drafts)
+		getBoard,
+		promoteBoardItem,
+		discardBoardItem,
 		// media search / placement
 		searchMedia,
 		findDuplicateAssets,
