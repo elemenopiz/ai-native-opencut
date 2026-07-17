@@ -162,6 +162,9 @@ multicam, Palmier delta items not yet integrated (see branch row), CapCut poach 
 | C4 · UI excellence — phase A | **done — merged @c5864ac4**; phase B gated on user taste-gate (G7) | `campaign/ui-direction-phase-a` | design-only (delivered: direction doc + 11 shots) | 2026-07-17 L0 |
 | C2 · Character-consistency moat | **complete — awaiting L0 merge gate** (fold gap closed, persona-seed threading, consistency UI strip, Aleph seam; battery green, fail set == main; e2e walkthrough + screenshots on branch) | `campaign/char-consistency` | studio generation UI + hooks + lib/studio (+ additive backends/router seam); log: `docs/campaigns/char-consistency.md` | 2026-07-17 C2 |
 
+### Session close — 2026-07-17 (Mission Control L0)
+**16 campaigns merged to local `main` today**, combined battery green at each step, repo clean (main + 2 gated branches [money, upscale] + goodall hold). **207 commits ahead of origin — nothing is live until the G2 push decision.** C7 wave-3 regression hunt found **ZERO golden-path regressions** across all 15 prior campaigns' integrated result (real exports ffprobed). L0 holding here pending user gates (G1-G9, money+upscale packets) rather than deepening the unpushed pile on a contended host; loop idle-warm.
+
 ## In-flight (claim before dispatching — session · items · owned files)
 
 | Session | Item(s) | Owned files | Since |
