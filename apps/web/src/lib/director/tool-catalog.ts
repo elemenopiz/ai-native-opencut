@@ -633,6 +633,49 @@ export function toolCatalog(): ToolDescriptor[] {
 							: undefined,
 				}),
 		},
+		// ── board (pending multi-take/-image drafts) ───────────────────────
+		{
+			name: "getBoard",
+			description:
+				"list the project's pending BOARD items — multi-take/-image generation drafts parked for review, waiting to be starred into Assets (promoteBoardItem) or dismissed (discardBoardItem). Use after a batch generation to see what landed, or when the user asks what's waiting for a decision.",
+			mutating: false,
+			inputSchema: EMPTY,
+			handler: (d) => d.getBoard(),
+		},
+		{
+			name: "promoteBoardItem",
+			description:
+				"star one pending Board item into Assets (the project's permanent media library), then remove it from the Board. Use once you've judged a draft (from getBoard) as the winner worth keeping.",
+			mutating: true,
+			inputSchema: {
+				type: "object",
+				properties: {
+					itemId: {
+						type: "string",
+						description: "Board item id, from getBoard.",
+					},
+				},
+				required: ["itemId"],
+			},
+			handler: (d, a) => d.promoteBoardItem({ itemId: str(a.itemId) }),
+		},
+		{
+			name: "discardBoardItem",
+			description:
+				"dismiss one pending Board item without saving it anywhere — it is removed from the Board permanently. Use to clear out a draft (from getBoard) that isn't worth keeping.",
+			mutating: true,
+			inputSchema: {
+				type: "object",
+				properties: {
+					itemId: {
+						type: "string",
+						description: "Board item id, from getBoard.",
+					},
+				},
+				required: ["itemId"],
+			},
+			handler: (d, a) => d.discardBoardItem({ itemId: str(a.itemId) }),
+		},
 		// ── storyboard ──────────────────────────────────────────────────────
 		{
 			name: "storyboard",

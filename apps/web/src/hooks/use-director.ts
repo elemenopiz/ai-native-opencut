@@ -6,9 +6,17 @@ import { FEATURE_UNDERSTANDING_PASS } from "@/lib/feature-flags";
 import {
 	createDirectorApi,
 	type BackendCatalogEntry,
+	type BoardDiscardFn,
+	type BoardFetchFn,
+	type BoardItemSnapshot,
+	type BoardMutationResult,
+	type BoardPromoteFn,
 	type DirectorApi,
 } from "@/lib/director/director-api";
 import { createStudioExecutor } from "@/lib/director/studio-executor";
+import { apiFetch } from "@/lib/auth/unauthorized";
+import { addItemsToProjectMedia } from "@/lib/studio/add-to-editor";
+import type { BoardItem } from "@/hooks/use-board-items";
 import { callVisionRelay } from "@/lib/director/agent";
 import { createVisionTakeCritic } from "@/lib/director/take-critic-adapter";
 import { extractTakeFrames } from "@/lib/media/last-frame";
@@ -46,6 +54,162 @@ async function fetchBackendCatalog(
 	if (!res.ok) throw new Error(`Failed to load backends (${res.status})`);
 	const data = (await res.json()) as { backends?: BackendCatalogEntry[] };
 	return data.backends ?? [];
+}
+
+/** Best-effort parse of a route's `{ error?: string }` failure body — mirrors
+ *  the identically-named helper in `use-board-items.ts` (duplicated rather
+ *  than imported: that hook is a "use client" React data source with its own
+ *  ownership, this is a plain fetch helper for the Director's seam). */
+async function boardErrorMessage(
+	res: Response,
+	fallback: string,
+): Promise<string> {
+	try {
+		const data = (await res.json()) as { error?: string };
+		return data.error ?? fallback;
+	} catch {
+		return fallback;
+	}
+}
+
+/** Flatten one raw `BoardItem` (see `use-board-items.ts`) into the Director's
+ *  compact `BoardItemSnapshot` — null/absent fields omitted (token economy,
+ *  same convention as the rest of the catalog's compact snapshots). */
+function toBoardSnapshot(item: BoardItem): BoardItemSnapshot {
+	const snapshot: BoardItemSnapshot = {
+		id: item.id,
+		kind: item.kind,
+		createdAt: item.createdAt,
+	};
+	const status = item.kind === "take" ? item.take?.status : undefined;
+	if (status) snapshot.status = status;
+	const prompt = item.kind === "take" ? item.set?.prompt : item.image?.prompt;
+	if (prompt) snapshot.prompt = prompt;
+	const resolution =
+		item.kind === "take" ? item.take?.resolution : item.image?.size;
+	if (resolution) snapshot.resolution = resolution;
+	if (item.notes) snapshot.notes = item.notes;
+	return snapshot;
+}
+
+/**
+ * The Director's Board seam (see `CreateDirectorApiOptions.board`) — backs the
+ * `getBoard`/`promoteBoardItem`/`discardBoardItem` verbs by calling the SAME
+ * `/api/studio/board` endpoints `useBoardItems` renders in the UI, with the
+ * same error-message convention (parse `{ error }`, fall back to a generic
+ * message). Deliberately does NOT import `useBoardItems` itself — a React
+ * hook can't be called from here, and the Director needs a from-an-id entry
+ * point (`itemId`) rather than the hook's from-an-object one (it already has
+ * the full `BoardItem` in local state when it calls `promoteToAssets`/
+ * `dismiss`; the Director only has the id an agent turn named). `promote`
+ * mirrors `promoteToAssets`: resolve the item's media through the SAME
+ * `addItemsToProjectMedia` helper (reads `editor`, never a store), then
+ * delete the Board row; `discard` mirrors `dismiss`.
+ */
+function createBoardApi(editor: EditorCore): {
+	fetch: BoardFetchFn;
+	promote: BoardPromoteFn;
+	discard: BoardDiscardFn;
+} {
+	async function fetchRawItems(): Promise<BoardItem[]> {
+		const res = await apiFetch("/api/studio/board");
+		if (!res.ok) {
+			throw new Error(
+				await boardErrorMessage(res, `Failed to load board (${res.status})`),
+			);
+		}
+		const data = (await res.json()) as { items: BoardItem[] };
+		return data.items;
+	}
+
+	// Named distinctly from the global `fetch` (this function is one of the
+	// three properties returned below, aliased to `fetch` there) to avoid
+	// shadowing it in this scope.
+	async function fetchSnapshot(): Promise<BoardItemSnapshot[]> {
+		const items = await fetchRawItems();
+		return items.map(toBoardSnapshot);
+	}
+
+	async function promote(itemId: string): Promise<BoardMutationResult> {
+		try {
+			const items = await fetchRawItems();
+			const item = items.find((i) => i.id === itemId);
+			if (!item) {
+				return { ok: false, error: `Board item "${itemId}" not found.` };
+			}
+
+			const projectId = editor.project.getActiveOrNull()?.metadata.id;
+			if (!projectId) {
+				return { ok: false, error: "No active project." };
+			}
+
+			const url =
+				item.kind === "take" ? item.take?.videoUrl : item.image?.imageUrl;
+			if (!url) {
+				return { ok: false, error: "Draft has no media to save." };
+			}
+			const name =
+				(item.kind === "take" ? item.set?.prompt : item.image?.prompt) ||
+				"Generated";
+
+			// Same save path the UI's "star" action uses — reads `editor`, never a
+			// store; adds to Assets without touching the timeline.
+			const { added, failed } = await addItemsToProjectMedia({
+				editor,
+				projectId,
+				items: [{ url, name, kind: item.kind === "take" ? "video" : "image" }],
+				source: "ai",
+			});
+			// Mirrors `promoteToAssets`: only drop the Board row once the save has
+			// actually landed, so a failed add never loses the draft's only pointer.
+			if (added === 0 || failed > 0) {
+				return { ok: false, error: "Failed to add the draft to Assets." };
+			}
+
+			const delRes = await apiFetch(`/api/studio/board?id=${itemId}`, {
+				method: "DELETE",
+			});
+			if (!delRes.ok) {
+				return {
+					ok: false,
+					error: await boardErrorMessage(
+						delRes,
+						"Failed to remove the draft from Board",
+					),
+				};
+			}
+			return { ok: true };
+		} catch (err) {
+			return {
+				ok: false,
+				error:
+					err instanceof Error ? err.message : "Failed to promote the draft.",
+			};
+		}
+	}
+
+	async function discard(itemId: string): Promise<BoardMutationResult> {
+		try {
+			const res = await apiFetch(`/api/studio/board?id=${itemId}`, {
+				method: "DELETE",
+			});
+			if (!res.ok) {
+				return {
+					ok: false,
+					error: await boardErrorMessage(res, "Failed to dismiss draft"),
+				};
+			}
+			return { ok: true };
+		} catch (err) {
+			return {
+				ok: false,
+				error:
+					err instanceof Error ? err.message : "Failed to dismiss the draft.",
+			};
+		}
+	}
+
+	return { fetch: fetchSnapshot, promote, discard };
 }
 
 /**
@@ -278,6 +442,7 @@ export function useDirector(): DirectorApi {
 								})
 							: Promise.resolve([]),
 				}),
+				board: createBoardApi(editor),
 			}),
 		[editor],
 	);
