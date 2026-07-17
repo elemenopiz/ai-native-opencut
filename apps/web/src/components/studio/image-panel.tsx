@@ -10,6 +10,7 @@ import {
 	STORYBOARD_PANEL_OPTIONS,
 	type ImagePresetId,
 } from "@/lib/studio/image-presets";
+import { withIdentityLock } from "@/lib/studio/identity-lock";
 import { ImageLightbox } from "@/components/studio/image-lightbox";
 import { STUDIO_IMAGE_DND_TYPE, type StudioImageDrag } from "@/lib/studio/dnd";
 import { useStudioSettingsStore } from "@/stores/studio-settings-store";
@@ -72,6 +73,7 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 	const {
 		imageSize: size,
 		imageQuality: quality,
+		imageKeepFacePose,
 		set: setSettings,
 	} = useStudioSettingsStore();
 	const editor = useEditor();
@@ -239,15 +241,18 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 		setGenerating(true);
 		setError(null);
 
-		const finalPrompt = preset.buildPrompt(prompt, { panels });
-		const total = preset.allowsMultiple ? n : 1;
-		setProgress({ done: 0, total });
-
 		// Reference images (when the backend accepts them): first ready image as
 		// the primary `referenceImageUrl` (single-reference backends read only
 		// this), the rest as `referenceImages` (multi-reference backends blend
 		// every url supplied). Same refs apply to every image in the batch.
 		const refUrls = readyRefs.map((r) => r.url);
+		const finalPrompt = withIdentityLock(
+			preset.buildPrompt(prompt, { panels }),
+			imageKeepFacePose && readyRefs.length > 0,
+		);
+		const total = preset.allowsMultiple ? n : 1;
+		setProgress({ done: 0, total });
+
 		const referenceImageUrl = refUrls[0];
 		const referenceImages = refUrls.length > 1 ? refUrls.slice(1) : undefined;
 
@@ -440,13 +445,47 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 			    only. Hidden when the selected backend can't condition on one. */}
 			{showReferences && (
 				<div className="space-y-1.5">
-					<div className="flex items-center justify-between">
+					<div className="flex items-center justify-between gap-2">
 						<span className="text-[13px] font-semibold text-foreground/70">
 							References
 						</span>
-						<span className="text-[11.5px] text-muted-foreground">
-							optional · drag, drop, or browse
-						</span>
+						<div className="flex items-center gap-2">
+							{readyRefs.length > 0 && (
+								<button
+									type="button"
+									aria-pressed={imageKeepFacePose}
+									title="Keep the person's exact face and pose from the reference image — clothes, background, and setting still follow your prompt."
+									onClick={() =>
+										setSettings({ imageKeepFacePose: !imageKeepFacePose })
+									}
+									className={cn(
+										"flex h-[26px] shrink-0 items-center gap-1.5 rounded-[8px] px-2.5 text-[11.5px] font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/40",
+										imageKeepFacePose
+											? "bg-foreground/[0.16] font-semibold text-foreground"
+											: "bg-foreground/[0.06] text-muted-foreground hover:bg-foreground/[0.09] hover:text-foreground",
+									)}
+								>
+									<svg
+										className="size-[11px] shrink-0"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										strokeWidth={2}
+										aria-hidden="true"
+									>
+										<path
+											strokeLinecap="round"
+											strokeLinejoin="round"
+											d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-.334-.02-.663-.062-.985z"
+										/>
+									</svg>
+									Keep face & pose
+								</button>
+							)}
+							<span className="text-[11.5px] text-muted-foreground">
+								optional · drag, drop, or browse
+							</span>
+						</div>
 					</div>
 					<ReferenceMediaUploader
 						items={refMedia}
