@@ -12,6 +12,7 @@
 
 import { useEffect, useRef } from "react";
 import { useEditor } from "@/hooks/use-editor";
+import type { MediaManager } from "@/core/managers/media-manager";
 import { embeddings } from "@/lib/local-ai/embeddings";
 import { indexMedia } from "@/services/search/embedding-service";
 import {
@@ -28,6 +29,41 @@ import {
 } from "@/services/search/embedding-store";
 import type { EmbeddingStatus } from "@/lib/search/embedding-types";
 import { usePersonaStore } from "@/stores/persona-store";
+
+/**
+ * BUG14 mitigation: don't start CLIP frame-sampling for an asset while ITS
+ * OWN auto-proxy job is generating.
+ *
+ * `indexMedia`'s frame sampler (embedding-service.ts's `sampleVideoFrames`)
+ * seeks a plain `<video>` element across the asset's ORIGINAL file — for a
+ * freshly-imported 4K/HEVC source with no proxy yet, each seek is a real
+ * decode on the main thread. That collides with `MediaManager`'s auto-proxy
+ * job for the SAME asset (also decoding the same original, off-thread but
+ * still CPU-shared) and with the preview compositor's own decode of the
+ * newly-inserted clip — exactly the "import heavy 4K file, immediately drag
+ * it onto the timeline" window profiled in
+ * docs/perf/bug14-import-stall-profile-2026-07-17.md. Skipping here doesn't
+ * lose the asset: it isn't marked indexed/inflight, so it's retried on the
+ * next tick — proxy start AND finish both call `MediaManager.notify()`
+ * (media-manager.ts's `generateProxyForAsset`), the same channel this hook
+ * subscribes to below, so indexing picks the asset back up as soon as the
+ * proxy job clears.
+ *
+ * This narrows one measured contributor (frame-sampling self-time was ~7%
+ * of a profiled stall window); it does not by itself close BUG14 — the
+ * dominant cost is the preview renderer's own main-thread decode of the
+ * un-proxied source (VideoCache/CanvasSink, out of scope here; see the perf
+ * doc's opportunity #6/#7 cross-reference).
+ */
+export function shouldDeferIndexing({
+	assetId,
+	editor,
+}: {
+	assetId: string;
+	editor: { media: Pick<MediaManager, "isProxyGenerating"> };
+}): boolean {
+	return editor.media.isProxyGenerating(assetId);
+}
 
 export function useEmbeddingIndexer() {
 	const editor = useEditor();
@@ -75,6 +111,14 @@ export function useEmbeddingIndexer() {
 				}
 				if (!asset.url) {
 					indexedSet.add(asset.id);
+					continue;
+				}
+				if (shouldDeferIndexing({ assetId: asset.id, editor })) {
+					// Don't mark indexed/inflight — retried on the next tick. Proxy
+					// start/finish both call MediaManager.notify() (see
+					// media-manager.ts's generateProxyForAsset), which is the same
+					// channel this hook subscribes to below, so a tick fires again
+					// as soon as the proxy job clears.
 					continue;
 				}
 

@@ -1,0 +1,11 @@
+[after2-t0] import done in 421ms, asset=4e24f1b4-81ae-44a2-b319-7ddaf62c72c2
+[after2-t0] proxy state after import: generating
+[after2-t0] proxy generating at mutation time (t+0ms): true
+[after2-t0] mutation -> next rAF: 69.3ms
+[after2-t0] longtasks captured: 10 — durations [67,53,122,248,236,65,213,97,274,501]ms, span 2507-6591ms (post-navigation)
+
+[after2-t1000] import done in 149ms, asset=cc08f9ce-2b9c-4ed8-b2dc-0dc03b936304
+[after2-t1000] proxy state after import: generating
+[after2-t1000] proxy generating at mutation time (t+1000ms): true
+[after2-t1000] mutation -> next rAF: 45.8ms
+[after2-t1000] longtasks captured: 0 — []

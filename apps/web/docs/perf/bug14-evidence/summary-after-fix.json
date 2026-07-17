@@ -1,0 +1,69 @@
+[
+  {
+    "label": "after2-t0",
+    "mutationOffsetMs": 0,
+    "importMs": 421,
+    "stallMs": 69.29999995231628,
+    "longtasks": [
+      {
+        "name": "self",
+        "start": 2507,
+        "duration": 67
+      },
+      {
+        "name": "self",
+        "start": 2845.2000000476837,
+        "duration": 53
+      },
+      {
+        "name": "self",
+        "start": 2978.5999999046326,
+        "duration": 122
+      },
+      {
+        "name": "self",
+        "start": 3158.2000000476837,
+        "duration": 248
+      },
+      {
+        "name": "self",
+        "start": 3546.7000000476837,
+        "duration": 236
+      },
+      {
+        "name": "self",
+        "start": 3809.899999856949,
+        "duration": 65
+      },
+      {
+        "name": "self",
+        "start": 3893.2000000476837,
+        "duration": 213
+      },
+      {
+        "name": "self",
+        "start": 4753.200000047684,
+        "duration": 97
+      },
+      {
+        "name": "self",
+        "start": 5798.5,
+        "duration": 274
+      },
+      {
+        "name": "self",
+        "start": 6090,
+        "duration": 501
+      }
+    ],
+    "cpuprofilePath": "/Users/zsha/Documents/ai-native-opencut/.claude/worktrees/agent-adf3b821fd5da4d24/apps/web/docs/perf/bug14-evidence/after2-t0.cpuprofile"
+  },
+  {
+    "label": "after2-t1000",
+    "mutationOffsetMs": 1000,
+    "importMs": 149,
+    "stallMs": 45.799999952316284,
+    "longtasks": [],
+    "cpuprofilePath": "/Users/zsha/Documents/ai-native-opencut/.claude/worktrees/agent-adf3b821fd5da4d24/apps/web/docs/perf/bug14-evidence/after2-t1000.cpuprofile"
+  }
+]
