@@ -1,7 +1,11 @@
 "use client";
 
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Cancel01Icon, SparklesIcon } from "@hugeicons/core-free-icons";
+import {
+	Cancel01Icon,
+	SparklesIcon,
+	StarIcon,
+} from "@hugeicons/core-free-icons";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { cn } from "@/utils/ui";
@@ -10,9 +14,9 @@ import { useBoardStore } from "@/stores/board-store";
 import { useBoardItems, type BoardItem } from "@/hooks/use-board-items";
 
 /**
- * Board — the single place batches of 2+ generations land for you to pick a
- * winner. A lone generation skips this entirely and goes straight to Assets;
- * this view only ever shows drafts still waiting on a decision.
+ * Board — the single place batches of 2+ generations are stored. A lone
+ * generation skips this entirely and goes straight to Assets; drafts kept
+ * here stay until dismissed or starred into Assets.
  */
 export function ReelBoard() {
 	const open = useBoardStore((s) => s.open);
@@ -74,7 +78,7 @@ export function ReelBoard() {
 				<HugeiconsIcon icon={SparklesIcon} className="size-4 text-primary" />
 				<span className="text-sm font-medium">Board</span>
 				<span className="text-xs text-muted-foreground">
-					{items.length} pending · star a winner to save it to Assets
+					{items.length} stored · star anything to save it to Assets
 				</span>
 				<button
 					type="button"
@@ -90,8 +94,8 @@ export function ReelBoard() {
 			<div className="flex-1 overflow-y-auto p-5">
 				{items.length === 0 ? (
 					<div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-						Nothing pending — batches of 2+ generations land here for you to
-						pick a winner.
+						Nothing stored — batches of 2+ generations are kept here; star
+						anything to save it to Assets.
 					</div>
 				) : (
 					<div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
@@ -138,8 +142,19 @@ function DraftCard({
 	const prompt =
 		(item.kind === "take" ? item.set?.prompt : item.image?.prompt) ?? "";
 
+	// Board items don't carry known dimensions up front, so measure the media
+	// itself once it loads and render the tile at its true aspect ratio —
+	// matching the Assets grid — instead of forcing 16:9 and cropping portrait
+	// content. Clamp to a sane range so an extreme shape can't blow out the
+	// grid row height.
+	const [naturalRatio, setNaturalRatio] = useState<number | null>(null);
+	const aspectRatio = Math.min(Math.max(naturalRatio ?? 16 / 9, 0.5), 2);
+
 	return (
-		<div className="group relative aspect-video overflow-hidden rounded-lg border bg-muted">
+		<div
+			className="group relative overflow-hidden rounded-lg border bg-muted"
+			style={{ aspectRatio }}
+		>
 			{url ? (
 				item.kind === "take" ? (
 					<video
@@ -149,9 +164,25 @@ function DraftCard({
 						muted
 						loop
 						playsInline
+						onLoadedMetadata={(e) => {
+							const { videoWidth, videoHeight } = e.currentTarget;
+							if (videoWidth && videoHeight) {
+								setNaturalRatio(videoWidth / videoHeight);
+							}
+						}}
 					/>
 				) : (
-					<img src={url} alt="" className="size-full object-cover" />
+					<img
+						src={url}
+						alt=""
+						className="size-full object-cover"
+						onLoad={(e) => {
+							const { naturalWidth, naturalHeight } = e.currentTarget;
+							if (naturalWidth && naturalHeight) {
+								setNaturalRatio(naturalWidth / naturalHeight);
+							}
+						}}
+					/>
 				)
 			) : (
 				<div className="flex size-full items-center justify-center text-[11px] text-muted-foreground">
@@ -189,13 +220,18 @@ function DraftCard({
 							type="button"
 							onClick={onStar}
 							disabled={pending}
+							aria-label="Star — save to Assets"
+							title="Star — save to Assets"
 							className={cn(
-								"rounded px-1.5 py-0.5 text-[10px] font-medium",
+								"flex size-5 items-center justify-center rounded-full",
 								"bg-amber-400/90 text-black hover:bg-amber-400",
 								"disabled:pointer-events-none disabled:opacity-50",
 							)}
 						>
-							{pending ? "…" : "Star"}
+							<HugeiconsIcon
+								icon={StarIcon}
+								className={cn("size-3", pending && "animate-pulse")}
+							/>
 						</button>
 					</div>
 				</div>
