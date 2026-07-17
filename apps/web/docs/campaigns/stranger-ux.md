@@ -116,3 +116,14 @@ labels are unverifiable (no live pricing) — money file, off-limits, queued.
   server on another port ⇒ login/signup dead on secondary dev ports. Dev DX only.
 - 8420 health-poll leak NOT observed this session (may be config-dependent); react-scan
   toolbar re-enables per-load in dev (use init-script override for automation).
+
+### Battery on campaign tip 7c482e09 (+queue-docs commit after)
+- typecheck: exit 0.
+- lint: 343 errors / 225 warnings vs main baseline 346-347e/225w — no-worse (better).
+- build: exit 0. build:e2e: exit 0.
+- bun test (root): campaign 1590 pass/48 fail/5 skip (1643 tests, 199 files) vs main
+  @259683ee same-host throwaway-worktree run 1585 pass/48 fail/5 skip (1638, 198 files) —
+  **named fail sets diffed IDENTICAL**; campaign adds 5 tests (W1 store suite), all green.
+- e2e: 12 passed / 0 failed / 10 skipped incl. happy-path, persona-consistency,
+  takes/board invariants I1–I5b, pitch-stretch. (real-export spec in the conditional-skip
+  set on this host run.)
