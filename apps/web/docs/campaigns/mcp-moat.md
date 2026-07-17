@@ -40,10 +40,10 @@ The MCP server is FAR past the Sprint-2 memory. Current state on main:
 
 | W | Task | Owned files | Status |
 |---|---|---|---|
-| W1 | Reliability e2e: DOUBLE edit-loop (connect→auth→list→edit ops→export→disconnect→reconnect→repeat) + token-auth edge tests | `lib/mcp/__tests__/mcp-reliability-e2e.test.ts` (new); route/session-store fixes only if defect found | in-flight — test file written, paused pre-commit; resumed by L1 ~10:05 with finish-and-commit instructions |
+| W1 | Reliability e2e: DOUBLE edit-loop (connect→auth→list→edit ops→export→disconnect→reconnect→repeat) + token-auth edge tests | `lib/mcp/__tests__/mcp-reliability-e2e.test.ts` (new); route/session-store fixes only if defect found | complete @77e831f9 → **merged @2c45a2b2** (diff-reviewed; 5 tests: double loop w/ real DELETE + stale-session 404, wrong-user 403, revoked-mid-session 401, evicted-session self-heal, tab-disconnect structured error; 0 product defects found; tests-only diff) |
 | W2 | Redis pub/sub relay behind EditorBridge (Upstash Subscriber, fail-soft, no new deps) | `lib/mcp/editor-bridge.ts`, new `lib/mcp/bridge-relay.ts`, relay tests | complete @e27f5104 → **merged to campaign @fb1d2b2e** (diff-reviewed: env-gated null-relay = identical old behavior; 9/9 relay tests; typecheck 0; GitNexus LOW) |
 | W3 | Catalog extension: Board verbs (getBoard/promoteBoardItem/discardBoardItem) via injected deps; happy+malformed tests | `lib/director/director-api.ts` (new verbs), `tool-catalog.ts`, `hooks/use-director.ts` (wiring), new tests | complete @ede295b0 → **merged to campaign @b14beaa8** (diff-reviewed incl. phase-scope deviation — justified: hard-invariant test forces phase assignment for every catalog verb, trio→production, ceiling 27→28; catalog 53→56; paid 1080p promote flow excluded; 427/0 director tests) |
-| W4 | BUG13-class sweep: fail-fast guards on toolCatalog-reachable commands | `lib/commands/**` (guards only) + unit tests | in-flight — 3 guards + tests written (SplitElements, UpdateElementStartTime, UpdateClipEffectParams), paused pre-commit; resumed by L1 ~10:05 with finish-and-commit instructions |
+| W4 | BUG13-class sweep: fail-fast guards on toolCatalog-reachable commands | `lib/commands/**` (guards only) + unit tests | complete @b299598b → **merged @9024150f** (diff-reviewed; 3 guards on SplitElements/UpdateElementStartTime/UpdateClipEffectParams, delete-elements pattern; 3 validation test suites; remaining reachable commands verified already-safe per worker's reachability table) |
 | W5 | Conformance doc vs `docs/poach/palmier-mcp-schema-spec.md` (+2026-07-14 delta §4–5) | `docs/mcp/palmier-conformance-2026-07-17.md` (new) | complete @dbb00f13 on `task/mcp-w5-conformance` (45 Palmier rows: 13✅ 8🟡 17🔺 7⛔ + Board addendum row; verified verb count = **53**, not the 54/57 previously written here) — **merged to campaign @ee550cc0** (real sha, verified: `git log` resolves it) |
 
 Merge order: W4 → W3 → W1 → W2 → W5-first-in-practice (W5 landed first; doc's in-flight caveats to be revisited once code lands).
@@ -63,3 +63,36 @@ Merge order: W4 → W3 → W1 → W2 → W5-first-in-practice (W5 landed first; 
 - DoD evidence: W1's double-loop e2e green twice in a row (`bun test mcp`) — this IS
   the external-agent e2e (official SDK Client over the real route handler).
 - Conformance deltas: table in W5's doc, each row fix-or-queue dispositioned.
+
+## FINAL BATTERY (campaign tip 2c45a2b2 + docs commits, 2026-07-17)
+
+All run in this campaign worktree after `bun install --frozen-lockfile` +
+`.env.local` copied from the shared checkout (fresh worktree lacked both — the
+first red battery was env-shape, not code):
+
+- typecheck: exit 0
+- lint: 345 errors / 225 warnings vs base(1f9e9164) 346/225 — one error BETTER
+- build: exit 0
+- full `bun test` (apps/web): 1942 pass / 5 skip / 11 fail vs base 1887/5/11 —
+  identical 11-fail set (BUG20 route-protection + 10× generateProxyOffThread,
+  both documented pre-existing, queue §2/§6); +55 new passing tests, 0 new fails
+- MCP suite: 67/67 across 11 files
+- **DoD double edit-loop e2e: 5/5 green, run TWICE consecutively** (run1 then
+  run2 in the same session, plus green inside two full-suite runs) — connect →
+  auth → tools/list (full 56-tool catalog both rounds) → getReel → trim/addText/
+  remove → export → DELETE (terminateSession) → reconnect fresh → repeat;
+  different session ids, stale round-1 session 404s, 10 relayed calls reach the
+  same untouched tab
+- one telemetry.test.ts flake observed in an early run under sibling-session
+  Postgres load; passed in isolation and in 2 subsequent full runs (known C8
+  class)
+
+## Follow-ups / caveats for L0
+
+- Relay real-Redis path is interface-tested (hermetic fake); needs a
+  two-instance staging smoke before any prod multi-instance claim (W2 caveat).
+- Board `promoteBoardItem` deliberately excludes the paid 1080p takes-promote
+  flow (money-adjacent); agent promote = save-media-to-Assets + drop Board row.
+- Conformance doc Q1–Q24 = the ranked follow-up backlog (top: unknown-key
+  rejection, non-finite rejection, reportLimitation, readPlaybook — all S).
+- Upstash REST pub/sub messages count toward Redis command usage (cost note).

@@ -19,6 +19,19 @@ section before relying on any single row.
 
 ---
 
+> **ADDENDUM (2026-07-17, later the same day, L1 orchestrator):** the four
+> "landing-this-campaign (UNVERIFIED)" items flagged below have since LANDED
+> as real, diff-reviewed merges on `campaign/mcp-moat`: Board verbs
+> (getBoard/promoteBoardItem/discardBoardItem) @b14beaa8 — catalog is now
+> **56**; Redis cross-instance relay @fb1d2b2e (env-gated, fail-soft, existing
+> `@upstash/redis` Subscriber, no new dep — the §3 "honest limitation" is now
+> closed for configured deployments, though the real-Redis path still needs a
+> two-instance staging smoke before prod claims); reliability double
+> edit-loop e2e @2c45a2b2 (the §3 "not yet present" reconnect-churn evidence
+> now exists: 5/5 green twice consecutively); command input guards @9024150f.
+> The §0 caveat below is preserved as history — it correctly called out a
+> fabricated status table, which was corrected @5365da87.
+
 ## 0. Caveat — campaign doc status table does not match source
 
 `apps/web/docs/campaigns/mcp-moat.md` (as committed on `campaign/mcp-moat`)
