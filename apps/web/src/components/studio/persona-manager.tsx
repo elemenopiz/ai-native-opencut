@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { SquareLock01Icon } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -288,14 +290,36 @@ export function PersonaManager({ className }: PersonaManagerProps) {
 				</p>
 			</div>
 
-			{/* Existing personas — click to select/deselect, × to delete */}
+			{/* Empty-state explainer — a stranger landing here has no reason to
+			    know what a persona is or why it matters; spell it out in two
+			    lines instead of assuming context. Only shown until the first
+			    persona exists. */}
+			{personas.length === 0 && (
+				<div
+					data-testid="consistency-personas-empty"
+					className="rounded-xl border border-dashed border-foreground/[0.14] bg-foreground/[0.02] px-3 py-3"
+				>
+					<p className="text-xs leading-relaxed text-muted-foreground">
+						A persona is one character kept consistent across generations and
+						projects.
+						<br />
+						Create it once — select it before generating.
+					</p>
+				</div>
+			)}
+
+			{/* Existing personas — click to select/deselect, × to delete. A small
+			    lock badge marks personas carrying a locked seed (extra cross-shot
+			    stability beyond the reference-image anchor). */}
 			{personas.length > 0 && (
 				<div className="grid grid-cols-3 gap-2">
 					{personas.map((p) => {
 						const active = p.id === activePersonaId;
+						const seedLocked = p.seed != null;
 						return (
 							<div key={p.id} className="relative group">
 								<button
+									data-testid={`consistency-persona-select-${p.id}`}
 									onClick={() => setActive(active ? null : p.id)}
 									className={cn(
 										"w-full rounded-md overflow-hidden border-2 transition-colors",
@@ -314,6 +338,18 @@ export function PersonaManager({ className }: PersonaManagerProps) {
 										{p.name}
 									</span>
 								</button>
+								{seedLocked && (
+									<span
+										data-testid="consistency-persona-card-seed-lock"
+										title="Locked seed — this persona holds a fixed identity seed"
+										className="pointer-events-none absolute left-0.5 top-0.5 flex size-4 items-center justify-center rounded-full bg-black/65 text-white/90"
+									>
+										<HugeiconsIcon
+											icon={SquareLock01Icon}
+											className="size-[9px]"
+										/>
+									</span>
+								)}
 								<button
 									onClick={() => void remove(p.id)}
 									className="absolute top-0.5 right-0.5 h-4 w-4 rounded-full bg-black/60 text-white text-[10px] leading-none opacity-0 group-hover:opacity-100 transition-opacity"

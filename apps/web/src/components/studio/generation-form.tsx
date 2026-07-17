@@ -3,7 +3,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Cancel01Icon } from "@hugeicons/core-free-icons";
+import {
+	Cancel01Icon,
+	SquareLock01Icon,
+	BookOpen01Icon,
+} from "@hugeicons/core-free-icons";
+import {
+	Popover,
+	PopoverArrow,
+	PopoverContent,
+	PopoverTrigger,
+} from "@/components/ui/popover";
 import { cn } from "@/utils/ui";
 import type {
 	VideoResolution,
@@ -37,6 +47,12 @@ import { useFrameChainStore } from "@/stores/frame-chain-store";
 import { useOmniReferenceChainStore } from "@/stores/omni-reference-chain-store";
 import { usePersonaStore } from "@/stores/persona-store";
 import { useBoardStore } from "@/stores/board-store";
+import { useEditor } from "@/hooks/use-editor";
+import {
+	getStoredConsistencyContext,
+	serializeConsistencyContext,
+} from "@/lib/director/consistency-prompt";
+import type { EditorCore } from "@/core";
 import { EnhancePromptButton } from "@/components/editor/ai/enhance-prompt-button";
 import {
 	ChipGrid,
@@ -46,6 +62,70 @@ import {
 	TextTabs,
 } from "@/components/studio/generation-bottom-bar";
 import { toast } from "sonner";
+
+/**
+ * Two-step read mirroring exactly what the generate/rerun fold paths read:
+ * the live session `ConsistencyContext` (WeakMap, set by the Director this
+ * session) if present, else the persisted bible's `consistencyContext`
+ * (`hydrateDirectorStateFromBible` restores ONLY this field into the WeakMap
+ * on mount — a bible carrying just a `styleBible` never folds, so it must
+ * never show the chip). Returns `null` when neither carries anything.
+ */
+function getStyleBiblePreview(editor: EditorCore): string | null {
+	const context =
+		getStoredConsistencyContext(editor) ??
+		editor.project.getProjectBible()?.consistencyContext;
+	if (!context) return null;
+	const text = serializeConsistencyContext(context).trim();
+	return text || null;
+}
+
+/** Abbreviate a persona's locked seed for the compact inline badge — the
+ *  popover-free indicator only needs to signal "there's a number, it's
+ *  fixed," not the full value. */
+function abbreviateSeed(seed: number): string {
+	const s = String(seed);
+	return s.length > 6 ? `${s.slice(0, 6)}…` : s;
+}
+
+/** Muted "Style bible" chip — appears wherever a reel-level consistency
+ *  context (session or persisted) exists, independent of persona state.
+ *  Popover previews the folded text read-only; no editing surface here. */
+function StyleBibleChip({ text }: { text: string }) {
+	return (
+		<Popover>
+			<PopoverTrigger asChild>
+				<button
+					type="button"
+					data-testid="consistency-style-bible-chip"
+					title="Style bible — folded into every generation in this project"
+					className="flex shrink-0 items-center gap-1.5 rounded-full bg-foreground/[0.06] px-2.5 py-1 text-[11.5px] font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.09] hover:text-foreground"
+				>
+					<HugeiconsIcon icon={BookOpen01Icon} className="size-[11px]" />
+					Style bible
+				</button>
+			</PopoverTrigger>
+			<PopoverContent
+				align="start"
+				side="top"
+				sideOffset={8}
+				collisionPadding={12}
+				className="w-72 space-y-2 rounded-[16px] border-foreground/[0.12] bg-popover/95 p-3.5 shadow-xl backdrop-blur-xl"
+			>
+				<p className="text-[11px] font-semibold uppercase tracking-wide text-foreground/50">
+					Style bible
+				</p>
+				<pre className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words font-sans text-[12px] leading-relaxed text-foreground/80">
+					{text}
+				</pre>
+				<p className="text-[11px] text-muted-foreground">
+					Folded into every generation in this project.
+				</p>
+				<PopoverArrow />
+			</PopoverContent>
+		</Popover>
+	);
+}
 
 interface GenerationFormProps {
 	onGenerate: (params: {
@@ -77,6 +157,10 @@ interface GenerationFormProps {
 	) => void | Promise<void>;
 	busy?: boolean;
 	className?: string;
+	/** Switch the panel to the Personas segment — wired by `generate.tsx`
+	 *  (which owns the segment state) so the no-persona hint row can jump
+	 *  a stranger straight to persona selection. */
+	onGoToPersonas?: () => void;
 }
 
 const GEN_MODES: { value: GenMode; label: string; hint: string }[] = [
@@ -137,6 +221,7 @@ export function GenerationForm({
 	onGenerateMultiframe,
 	busy,
 	className,
+	onGoToPersonas,
 }: GenerationFormProps) {
 	// Sticky settings — last choice becomes the default next time.
 	const {
@@ -248,6 +333,20 @@ export function GenerationForm({
 	const [count, setCount] = useState(1);
 	// "Match @VideoN" duration pin — see the Duration section of settingsContent.
 	const [matchRef, setMatchRef] = useState(false);
+
+	// Mirrors the generate route's seed-lock rule exactly: a persona with a
+	// stored non-null seed rides seed-locked ONLY for a single-shot generation
+	// (count 1) with no explicit seed override — a batch of unlocked drafts
+	// still wants distinct seeds per take, so the lock never applies there.
+	const seedLocked =
+		!!activePersona && activePersona.seed != null && count === 1;
+
+	// Reel-level style bible — session consistency context if the Director set
+	// one this session, else the project's persisted look. Read fresh every
+	// render (editor is a stable singleton so a memo keyed on it would never
+	// re-run when the underlying project/session state changes).
+	const editor = useEditor();
+	const styleBiblePreview = getStyleBiblePreview(editor);
 
 	const isOmni = !activePersona && genMode === "omni";
 	const isMultiframe = !activePersona && genMode === "multiframe";
@@ -863,34 +962,77 @@ export function GenerationForm({
 
 	return (
 		<div className={cn("flex flex-col gap-3", className)}>
-			{/* Persona — when active, replaces mode selection below and drives
-			    reference-conditioned character consistency. Restyled to a quiet
-			    row: no border, a ✕ chip instead of an underlined "Clear" link. */}
-			{activePersona && (
-				<div className="flex items-center gap-2 rounded-xl bg-foreground/[0.04] p-2">
-					<img
-						src={activePersona.anchorImageUrl}
-						alt={activePersona.name}
-						className="h-8 w-8 shrink-0 rounded object-cover"
-					/>
-					<div className="min-w-0 flex-1">
-						<p className="truncate text-[13px] font-semibold">
-							{activePersona.name}
-						</p>
-						<p className="text-[11.5px] text-muted-foreground">
-							Same character every shot
-						</p>
+			{/* Consistency strip — makes character/style consistency visible and
+			    self-explanatory without reading docs. Persona chip (when active)
+			    gains a seed-lock badge mirroring the generate route's exact
+			    condition; a Style bible chip surfaces the reel-level look folded
+			    into every generation, independent of persona; and a no-persona
+			    hint jumps a stranger straight to the Personas tab. One of the
+			    persona chip / hint always renders, so this row isn't gated on
+			    styleBiblePreview alone. */}
+			<div className="flex flex-wrap items-center gap-2">
+				{/* Persona — when active, replaces mode selection below and drives
+				    reference-conditioned character consistency. Restyled to a quiet
+				    row: no border, a ✕ chip instead of an underlined "Clear" link. */}
+				{activePersona && (
+					<div
+						data-testid="consistency-persona-chip"
+						className="flex min-w-0 flex-1 items-center gap-2 rounded-xl bg-foreground/[0.04] p-2"
+					>
+						<img
+							src={activePersona.anchorImageUrl}
+							alt={activePersona.name}
+							className="h-8 w-8 shrink-0 rounded object-cover"
+						/>
+						<div className="min-w-0 flex-1">
+							<div className="flex items-center gap-1.5">
+								<p className="truncate text-[13px] font-semibold">
+									{activePersona.name}
+								</p>
+								{seedLocked && (
+									<span
+										data-testid="consistency-seed-lock"
+										title="Takes reuse this persona's locked seed — identity holds across generations"
+										className="flex shrink-0 items-center gap-1 rounded-full bg-foreground/[0.08] px-1.5 py-[1px] text-[10.5px] font-medium tabular-nums text-foreground/70"
+									>
+										<HugeiconsIcon
+											icon={SquareLock01Icon}
+											className="size-[9px]"
+										/>
+										{abbreviateSeed(activePersona.seed as number)}
+									</span>
+								)}
+							</div>
+							<p className="text-[11.5px] text-muted-foreground">
+								{seedLocked
+									? "Same character, same seed every shot"
+									: "Same character every shot"}
+							</p>
+						</div>
+						<button
+							type="button"
+							onClick={() => clearPersona(null)}
+							aria-label="Clear persona"
+							className="flex size-6 shrink-0 items-center justify-center rounded-full bg-foreground/[0.08] text-muted-foreground transition-colors hover:bg-foreground/[0.14] hover:text-foreground"
+						>
+							<HugeiconsIcon icon={Cancel01Icon} className="size-[11px]" />
+						</button>
 					</div>
+				)}
+
+				{!activePersona && (
 					<button
 						type="button"
-						onClick={() => clearPersona(null)}
-						aria-label="Clear persona"
-						className="flex size-6 shrink-0 items-center justify-center rounded-full bg-foreground/[0.08] text-muted-foreground transition-colors hover:bg-foreground/[0.14] hover:text-foreground"
+						data-testid="consistency-persona-hint"
+						onClick={onGoToPersonas}
+						className="flex-1 rounded-xl border border-dashed border-foreground/[0.14] px-3 py-2 text-left text-[11.5px] text-muted-foreground transition-colors hover:border-foreground/25 hover:text-foreground"
 					>
-						<HugeiconsIcon icon={Cancel01Icon} className="size-[11px]" />
+						Keeping a character? Pick a persona <span aria-hidden>→</span>
 					</button>
-				</div>
-			)}
+				)}
+
+				{styleBiblePreview && <StyleBibleChip text={styleBiblePreview} />}
+			</div>
 
 			{/* Mode selection — Palmier-style text tabs on the main surface.
 			    Persona active ⇒ Consistency tier takes this slot instead, since
