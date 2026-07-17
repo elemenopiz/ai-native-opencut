@@ -64,7 +64,7 @@ track pan (StereoPannerNode in playback, absent in mixdown), solo semantics, key
 
 | Worker | Status |
 |---|---|
-| W-A mixdown-gain | dispatched 2026-07-18 (sonnet, isolated worktree, `task/c24-mixdown-gain`) |
+| W-A mixdown-gain | DONE — `task/c24-mixdown-gain` @ae697a2a, diff-reviewed by L1, merged to campaign @846b840d. `CollectedAudioElement` + volume/trackVolume/volumeKeyframes; `computeVolumeEnvelope` forward-cursor walker parity-tested vs `getNumberChannelValueAtTime` (1e-6 over sampled points, linear/hold/eased); gain keyed on output-domain local time, applied pre-accumulation; playback path + resolveMixElement untouched. Verified on campaign tip by L1: `bun test apps/web/src/lib/media` 114/0. Worker detect_changes: low, 6 symbols, 0 affected processes |
 | W-B fidelity-matrix | dispatched 2026-07-18 (sonnet, isolated worktree, `task/c24-fidelity-matrix`) |
 | W-C audio-only-export | dispatched 2026-07-18 (sonnet, isolated worktree, `task/c24-audio-only-export`) |
 
@@ -79,4 +79,23 @@ unchanged.
 
 ## Bugs filed (BUG40–BUG49)
 
-(none yet)
+Verified in source by L1 before filing (deduped against queue §2 — none present):
+
+- **BUG40** — Track PAN is applied in playback (`audio-manager.ts` StereoPannerNode per
+  track; `track.pan` in `types/timeline.ts:87`) but silently dropped by the export
+  mixdown (`createTimelineAudioBuffer` mixes straight L/R with no panning). Preview-vs-
+  export fidelity gap, same class as BUG32. Fix home: `lib/media/audio.ts` mix path
+  (constant-power pan per output channel).
+- **BUG41** — SOLO semantics dropped on export: playback silences non-soloed tracks when
+  any track is soloed (`audio-manager.ts:415` `isSoloMode`; `track.solo` in
+  `types/timeline.ts:73,88`), but `collectAudioElements` only honors `track.muted` — an
+  export made while a track is soloed includes ALL tracks. Product call embedded: should
+  export honor solo (WYHIWYE) or ignore it as a monitoring-only affordance? Either way
+  the current silent divergence is wrong; if solo is monitoring-only, playback/export
+  should at least be documented as intentionally divergent.
+- **BUG42** — Keyframed (variable) playbackRate curves fall back to constant base rate
+  in the export mixdown (`mixAudioChannels` warns + uses base rate; flagged
+  `hasVariableRate` in `resolveClipPlaybackRate`) while the preview renders the curve.
+  Pre-existing, documented in code as "tracked as a follow-up" but never queued. With
+  BUG32 fixed, the gain envelope is correct regardless (output-domain time), but the
+  audio content itself diverges from preview for speed-ramped clips.
