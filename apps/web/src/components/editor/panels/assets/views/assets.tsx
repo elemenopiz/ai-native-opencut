@@ -313,6 +313,7 @@ export function MediaView() {
 						isProcessing={isProcessing}
 						progress={progress}
 						onClick={openFilePicker}
+						mode={isDragOver ? "drag-active" : "empty"}
 					/>
 				) : (
 					<MediaItemList
