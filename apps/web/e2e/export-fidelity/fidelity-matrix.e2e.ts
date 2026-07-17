@@ -260,12 +260,26 @@ test.describe("export fidelity matrix — preview vs export (campaign C24)", () 
 			duration: 3,
 		});
 
-		// Sanity: this project genuinely has no video/image/text tracks before
-		// we export — the point of the case.
-		const trackTypes = await page.evaluate(() =>
-			window.__BYORN_E2E__!.editor.timeline.getTracks().map((t) => t.type),
+		// Sanity: this project genuinely has zero VISUAL ELEMENTS before we
+		// export — the point of the case. (A fresh project always carries an
+		// empty default main video track — `buildDefaultScene` — so assert on
+		// element placement, not on which track shells exist.)
+		const elementPlacement = await page.evaluate(() =>
+			window
+				.__BYORN_E2E__!.editor.timeline.getTracks()
+				.map((t) => ({ type: t.type, elementCount: t.elements.length })),
 		);
-		expect(trackTypes).toEqual(["audio"]);
+		const visualElementCount = elementPlacement
+			.filter((t) => t.type !== "audio")
+			.reduce((n, t) => n + t.elementCount, 0);
+		const audioElementCount = elementPlacement
+			.filter((t) => t.type === "audio")
+			.reduce((n, t) => n + t.elementCount, 0);
+		expect(
+			visualElementCount,
+			`expected zero visual elements, got placement ${JSON.stringify(elementPlacement)}`,
+		).toBe(0);
+		expect(audioElementCount).toBe(1);
 
 		const { resultMeta, probe } = await runRealExportAndProbe(
 			page,
