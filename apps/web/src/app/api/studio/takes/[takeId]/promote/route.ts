@@ -154,7 +154,11 @@ export async function POST(
 				refId: newTakeId,
 				idempotencyKey: `${newTakeId}:release`,
 			}).catch(() => {});
-			throw err;
+			const detail =
+				err instanceof Error ? err.message : "1080p promotion failed";
+			throw new Error(
+				`1080p promotion failed (${detail}). Not charged — the credit hold was released.`,
+			);
 		}
 
 		// Mark the source take as promoted

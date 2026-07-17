@@ -115,7 +115,11 @@ export async function POST(
 				refId: chargeId,
 				idempotencyKey: `${chargeId}:release`,
 			}).catch(() => {});
-			throw err;
+			const detail =
+				err instanceof Error ? err.message : "persona still render failed";
+			throw new Error(
+				`Persona still render failed (${detail}). Not charged — the credit hold was released.`,
+			);
 		}
 
 		// Charge the exact cost of the backend the router actually used, then free
