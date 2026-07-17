@@ -204,6 +204,7 @@ deferred(user), all merges to LOCAL main only. Baselines carried from 2026-07-17
 
 ## Done log (move rows here with sha + verification tier)
 
+- 2026-07-18: **C26 dogfood-hunt-assets merged @82aaefb7** (tier: verified locally). BUG55 (phantom corrupt-asset import) + BUG56 (silent duplicate uploads) fixed, 5/5 browser acceptance in real Chrome; BUG57–60 filed with repros; drag/context-menu matrix honestly DEFERRED(quiet-host) → C21-series wave-closer charter (run-ready 1089-line hunt suite committed). L0 battery on merged tip: typecheck 0, touched-module tests 111/0, lint per-campaign 339e (< baseline).
 - 2026-07-17: Queue seeded (prompt-suite v2 revamp session).
 - 2026-07-17: G6 untracked docs committed + `.playwright-mcp/` gitignored @3c7e41c8 (L0, docs-only).
 - 2026-07-17: C4 phase A UI direction pass merged @c5864ac4 (tier: merged — docs+screenshots only, no product code). Deliverable: `docs/design/2026-07-17-ui-direction-phase-a.md`; recommendation = direction A "Instrument-Grade Minimal"; phase B blocked on G7 taste-gate. Found BUG7–BUG11.
