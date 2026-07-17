@@ -103,6 +103,26 @@ deferred to final tip (machine contended — battery will run serially).
   attempt today was rAF-throttled by sibling-session load; minting numbers under loadavg
   18-20 would fabricate the baseline.
 
+## Final battery (serial, campaign tip 2026-07-17)
+
+- typecheck: exit 0.
+- lint: 346 errors / 225 warnings vs 347/225 baseline — one BETTER, passes no-worse.
+- build: green (after copying the untracked `.env.local` into the worktree — fresh
+  worktrees fail page-data collection without it; recipe note for future L1s).
+- bun test (root): campaign 1506 pass / 47 fail / 34 errors vs main @1f9e9164 in an
+  identical throwaway worktree: 1500 / 47 / 34 — **fail sets diffed name-by-name:
+  IDENTICAL** (the known pre-existing C8 set: generateProxyOffThread ×10, redis-health ×3,
+  codec/WASM env classes). Campaign delta = +6 net passing, 0 new failures.
+- e2e: 11 passed / 10 skipped / 0 failed. (First run had 1 red: W-C's BUG14 profiling
+  harness leaked into the default suite under bundled Chromium (no HEVC decode); fixed
+  @68800da6 — spec self-skips unless run via its dedicated config, fixtures-w2 idiom.
+  The extra skip = that harness.)
+
 ## Evidence
 
-(bench JSONs, screenshots, e2e output — filled as parts close)
+- P1 NO-GO: `docs/perf/fix-e-worker-compositor/rerun-2026-07-17/` (EVIDENCE.md, pixel
+  probe, golden-path screenshots + verdict JSON, fixed bench script, 4 bench logs).
+- BUG2: `docs/perf/bug2-fps60/` (repro script + 6 result JSONs, before/after).
+- BUG14: `docs/perf/bug14-import-stall-profile-2026-07-17.md` + `bug14-evidence/`
+  (cpuprofiles, before/after console logs, summary JSON).
+- BUG16: `docs/perf/bug16-hdr/` (finding doc, PQ reference imagery, ffprobe JSON).
