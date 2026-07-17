@@ -35,7 +35,24 @@ Prior art is FAR deeper than the ladder card assumed — this is gap-closure, no
 - **Verified-asset seam**: `lib/studio/saved-verified-assets.ts` = BytePlus real-human
   `asset://` shortlist (localStorage, owner-scoped) — the partner-access prep exists.
 
-Full wired-vs-orphaned gap map: recon worker (Explore, in flight) — results below.
+### Recon gap map (W-recon, confirmed with file:line evidence)
+
+| Area | Status | Missing link |
+|---|---|---|
+| Persona persistence/cross-project | WIRED | none — user-scoped DB, no project column |
+| Persona UI (manager + form chip) | WIRED | none |
+| Seed threading generate→take | WIRED | `personas.seed` write-only, never consumed |
+| Regenerate-same-identity | PARTIAL | exists on placed clips; absent on Board (`reel-board.tsx`) |
+| StyleBible → manual Generate | **ORPHANED** | `use-studio-generation.ts` never folds ConsistencyContext — only `studio-executor.ts:78-90` (agent path) does |
+| StyleBible → Rerun/Remix | **ORPHANED** | `use-slot-generation.ts:95` bypasses the fold |
+| StyleBible in Generate UI | MISSING | zero surfacing outside the Director chat |
+| Runway/Aleph adapter | WIRED | complete + registered; 2 `UNVERIFIED` field comments; no real-face routing signal/flag |
+| E2E mock backend | n/a | mocking = Playwright `page.route` network boundary (takes-board-routing.e2e.ts pattern) |
+| Verified-asset seam | WIRED | `saved-verified-assets.ts` (owner-only localStorage `asset://` shortlist) — distinct from personas |
+
+Server design note: `/api/studio/generate` deliberately never falls back to persona
+seed (batches must vary; route.ts:226-233). Client rule adopted instead: active
+persona w/ stored seed + single-shot + no explicit seed ⇒ thread `seed`+locked.
 
 ## Constraints
 
@@ -47,23 +64,35 @@ Full wired-vs-orphaned gap map: recon worker (Explore, in flight) — results be
   (docs/design/2026-07-17-ui-direction-phase-a.md); no new gradients/glow.
 - Never merge to main, never push. Mocked provider calls only.
 
-## Plan (pending recon confirmation)
+## Plan (final partition — disjoint file clusters)
 
-1. W-recon (Explore, running) → gap map.
-2. Partition workers by file cluster over the confirmed gaps (draft):
-   - W1 persona UX chain: Generate-panel persona selection affordance on the composer
-     (not buried in tab 4), 3-take chain affordance ("keep this character"), StyleBible
-     chip surfacing. Files: components/studio/* + views/generate.tsx.
-   - W2 lib/adapters: seed/persona threading gaps, Aleph real-face flag seam,
-     verified-asset adapter prep. Files: lib/studio/backends/*, lib/studio/*.
-   - W3 e2e + mocked-provider verification spec. Files: e2e/*, __tests__.
-3. Battery + browser-verify the 3-generation walkthrough with screenshots.
+- **W1 consistency-fold plumbing**: fold ConsistencyContext into manual generate +
+  rerun/remix (executor pattern), WeakMap-rehydration check vs persisted bible,
+  persona-seed single-shot rule. Owns: `hooks/use-studio-generation.ts`,
+  `hooks/use-slot-generation.ts`, new `lib/studio/consistency-fold.ts` (+tests),
+  additive-only touches to `lib/director/consistency-prompt.ts`/`studio-executor.ts`.
+- **W2 UX surfacing** (frontend-design): seed-lock indicator on persona chip
+  (mirrors W1 rule), StyleBible chip + popover in composer, personas-tab empty-state
+  explainer, no-persona hint → Personas segment, `consistency-*` testids. Owns:
+  `generation-form.tsx`, `persona-manager.tsx`, `views/generate.tsx`, ≤1 new component.
+- **W3 Aleph real-face seam**: `realFaceReference` signal on RouteInput +
+  `REAL_FACE_VIDEO_BACKEND` env preference in `routeSlot` (unset ⇒ byte-identical
+  behavior, proven by tests). Owns: `backends/router.ts`, `backends/types.ts`, tests.
+- **W4 verification e2e** (spawned after W1+W2 integrate): `e2e/persona-consistency.e2e.ts`
+  — network-boundary mocks, drive persona select → 3 generations → assert all 3
+  `/api/studio/generate` payloads share personaId (+locked seed), then second project
+  reuse; screenshots per step. Owns: that one spec file.
+- Board "generate again with this character" affordance: DEFERRED to wave 2 (queue row).
 
 ## Worker log
 
 | Worker | Brief | Branch | Status |
 |---|---|---|---|
-| W-recon | wired-vs-orphaned gap map | (read-only) | in flight |
+| W-recon | wired-vs-orphaned gap map | (read-only) | done — gap map above |
+| W1 | consistency fold + persona-seed rule | task/c2-consistency-fold | in flight |
+| W2 | Generate-panel consistency UX | task/c2-consistency-ux | in flight |
+| W3 | Aleph real-face route seam | task/c2-realface-route-seam | in flight |
+| W4 | persona-consistency e2e + screenshots | task/c2-verify-e2e | pending W1+W2 |
 
 ## Verification evidence
 
