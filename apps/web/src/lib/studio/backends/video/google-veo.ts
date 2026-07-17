@@ -47,6 +47,7 @@
 import { webEnv } from "@byorn/env/web";
 import { costFor } from "@/lib/credits/cost-table";
 import { fetchWithTimeout, MEDIA_TIMEOUT_MS } from "@/lib/studio/fetch-timeout";
+import { fetchReferenceMediaSafely } from "@/lib/studio/reference-fetch";
 import type {
 	BackendRequest,
 	CostEstimate,
@@ -116,11 +117,17 @@ export async function fetchAsInlineData(
 ): Promise<{ mimeType: string; data: string } | undefined> {
 	try {
 		// Reference media download — media bytes, so the longer budget applies.
-		const res = await fetchWithTimeout(url, { timeoutMs: MEDIA_TIMEOUT_MS });
-		if (!res.ok) return undefined;
-		const mimeType = res.headers.get("content-type") || "image/png";
-		const buf = Buffer.from(await res.arrayBuffer());
-		return { mimeType, data: buf.toString("base64") };
+		// Goes through the shared SSRF guard: this URL is caller-supplied
+		// (`req.referenceImageUrl` / `req.lastFrameUrl` / `req.referenceImages[]`),
+		// so the target host must be validated as public and the connection
+		// pinned before we fetch it. A rejected/failed fetch falls through to the
+		// existing `undefined` contract — callers already treat a missing
+		// reference as "omit it and continue" rather than failing generation.
+		const { contentType, arrayBuffer } = await fetchReferenceMediaSafely(url, {
+			timeoutMs: MEDIA_TIMEOUT_MS,
+		});
+		const mimeType = contentType || "image/png";
+		return { mimeType, data: Buffer.from(arrayBuffer).toString("base64") };
 	} catch {
 		return undefined;
 	}

@@ -13,6 +13,7 @@
 import { webEnv } from "@byorn/env/web";
 import { nanoid } from "nanoid";
 import { fetchWithTimeout, MEDIA_TIMEOUT_MS } from "@/lib/studio/fetch-timeout";
+import { fetchReferenceMediaSafely } from "@/lib/studio/reference-fetch";
 import { costFor } from "@/lib/credits/cost-table";
 import type {
 	BackendRequest,
@@ -70,14 +71,13 @@ function mapQualityToRenderingSpeed(quality?: ImageQuality): string {
 
 async function fetchReferenceBlob(url: string): Promise<Blob> {
 	// Reference image download — media bytes, so the longer budget applies.
-	const res = await fetchWithTimeout(url, { timeoutMs: MEDIA_TIMEOUT_MS });
-	if (!res.ok) {
-		throw new Error(`Failed to fetch reference image (${res.status})`);
-	}
-	const buf = await res.arrayBuffer();
-	return new Blob([buf], {
-		type: res.headers.get("content-type") ?? "image/png",
+	// Goes through the shared SSRF guard: this URL is caller-supplied
+	// (`req.referenceImageUrl`), so the target host must be validated as
+	// public and the connection pinned before we fetch it.
+	const { contentType, arrayBuffer } = await fetchReferenceMediaSafely(url, {
+		timeoutMs: MEDIA_TIMEOUT_MS,
 	});
+	return new Blob([arrayBuffer], { type: contentType || "image/png" });
 }
 
 export const ideogramBackend: GenerationBackend = {

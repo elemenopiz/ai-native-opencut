@@ -19,6 +19,7 @@
 import { webEnv } from "@byorn/env/web";
 import { nanoid } from "nanoid";
 import { fetchWithTimeout, MEDIA_TIMEOUT_MS } from "@/lib/studio/fetch-timeout";
+import { fetchReferenceMediaSafely } from "@/lib/studio/reference-fetch";
 import { costFor } from "@/lib/credits/cost-table";
 import type {
 	BackendRequest,
@@ -72,12 +73,15 @@ function mapSizeToAspectRatio(size?: ImageSize): string {
 
 async function fetchAsBase64(url: string): Promise<string> {
 	// Reference image download — media bytes, so the longer budget applies.
-	const res = await fetchWithTimeout(url, { timeoutMs: MEDIA_TIMEOUT_MS });
-	if (!res.ok) {
-		throw new Error(`Failed to fetch reference image (${res.status})`);
-	}
-	const buf = await res.arrayBuffer();
-	return Buffer.from(buf).toString("base64");
+	// Goes through the shared SSRF guard: this URL is caller-supplied
+	// (`req.referenceImageUrl`), so the target host must be validated as
+	// public and the connection pinned before we fetch it. (Contrast with
+	// `pollOnce` below, which fetches BFL's own `polling_url` — not
+	// caller-controlled — and stays on the plain `fetchWithTimeout` path.)
+	const { arrayBuffer } = await fetchReferenceMediaSafely(url, {
+		timeoutMs: MEDIA_TIMEOUT_MS,
+	});
+	return Buffer.from(arrayBuffer).toString("base64");
 }
 
 /** One GET against BFL's returned `polling_url`, mapped to our PollResult. */
