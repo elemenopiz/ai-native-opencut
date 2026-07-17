@@ -85,6 +85,18 @@ order-dependence baseline), and browser-verifies every fix.
   M6 PARTIAL, M1 PARTIAL/inconclusive (host contention — quiet-host re-verify only).
   L1 verified BUG55's code path in `processing.ts` directly. BUG55+BUG56 allocated,
   queue §2 rows added on this branch.
+- 2026-07-18: W-FIX dispatched (BUG55 skip-on-unreadable + BUG56 dupe toast; owns
+  processing.ts + assets.tsx; port 3304; branch task/c26-fixes off campaign tip).
+- 2026-07-18: L0 stall ruling executed. W-PROXY dead at 2h20m/zero commits — but its
+  worktree held UNCOMMITTED work: full hunt script + real-Chrome config + 15 screenshots
+  (M10–M16 series) + TBD findings skeleton; ported to campaign @230fb441. W-DRAG had
+  committed its 1089-line hunt suite @8d686b82 (incl. proven native-drag + Radix-menu
+  techniques) but parked mid-suite with an empty findings dir and a clean tree — nothing
+  to port. Both REPLACED (never resumed): W-PROXY2 (scoped down to M9–M12 + optional M16;
+  M13/extras NOT-RUN; branch task/c26-hunt-proxy2 off campaign tip) and W-DRAG2 (full
+  drag/menu matrix; branch task/c26-hunt-drag2 off @8d686b82). Both briefs require a
+  proof-of-life commit within ~15 min. M19 briefs now include the two L1 desk-review
+  Download suspicions to test explicitly.
 
 ## Findings ledger (BUG55–69 allocations)
 
