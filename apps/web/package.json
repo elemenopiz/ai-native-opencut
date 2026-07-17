@@ -12,6 +12,7 @@
 		"test:e2e": "playwright test",
 		"build:e2e:real": "cross-env NEXT_PUBLIC_E2E=1 NEXT_PUBLIC_E2E_STUB_EXPORT=0 next build",
 		"test:e2e:real": "playwright test -c playwright.real-export.config.ts",
+		"test:e2e:fidelity": "playwright test -c playwright.export-fidelity.config.ts",
 		"lint": "biome check src/",
 		"lint:fix": "biome check src/ --write",
 		"format": "biome format src/ --write",
