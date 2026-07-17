@@ -13,6 +13,8 @@ import {
 import { withIdentityLock } from "@/lib/studio/identity-lock";
 import { ImageLightbox } from "@/components/studio/image-lightbox";
 import { STUDIO_IMAGE_DND_TYPE, type StudioImageDrag } from "@/lib/studio/dnd";
+import { clearDragData, setDragData } from "@/lib/drag-data";
+import type { StudioTakeDragData } from "@/types/drag";
 import { useStudioSettingsStore } from "@/stores/studio-settings-store";
 import { useEditor } from "@/hooks/use-editor";
 import { EnhancePromptButton } from "@/components/editor/ai/enhance-prompt-button";
@@ -530,7 +532,22 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 									JSON.stringify(payload),
 								);
 								e.dataTransfer.effectAllowed = "copy";
+
+								// Also carry a StudioTakeDragData payload — the app-wide drag
+								// system the timeline and Assets tab already listen for — so
+								// dropping a still there imports it into the project on demand.
+								const baseName = prompt.trim().slice(0, 32) || "AI image";
+								const dragData: StudioTakeDragData = {
+									id: still.id,
+									name: stills.length > 1 ? `${baseName} ${i + 1}` : baseName,
+									type: "studio-take",
+									url: still.imageUrl,
+									kind: "image",
+									takeId: still.id,
+								};
+								setDragData({ dataTransfer: e.dataTransfer, dragData });
 							}}
+							onDragEnd={() => clearDragData()}
 							onClick={() => setLightboxIndex(i)}
 							className="relative group rounded-xl overflow-hidden border bg-muted cursor-pointer"
 						>
