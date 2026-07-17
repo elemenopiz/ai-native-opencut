@@ -1074,7 +1074,7 @@ function EmptyState() {
 				<h3 className="text-lg font-medium">No projects yet</h3>
 				<p className="text-muted-foreground max-w-md">
 					Start creating your first project. Import media, edit, and export your
-					videos. All privately.
+					videos. Private to your account.
 				</p>
 			</div>
 			<Button size="lg" className="gap-2" onClick={handleCreateProject}>
