@@ -73,3 +73,26 @@ Verdict: **env-shape/test-harness, NOT a real money bug. No stop.** Evidence:
 - 2026-07-17: W-ROUTE branch merged @5fa58b03 (diff read: +11 lines, SWEEP entry for
   studio/upload-url only). Route-protection test on campaign branch: **59/59 PASS**
   — BUG20 closed, red-on-main cleared.
+- 2026-07-17: W-COPY merged @f60665d6 (string/message-only, 5 paid route files).
+  Credit-truth copy: 402/5xx now state "Not charged — the credit hold was released"
+  on the release-then-throw paths (verified truthful: catch block calls release()).
+  W-COPY surfaced 2 pre-existing credit findings (L0 dispositioned):
+  (G-row, GATED) `sweepStaleHolds` (lib/credits/sweep.ts:108) has ZERO prod call
+  sites — no cron, no vercel.json schedule. Abandoned/crashed jobs strand reserved
+  credits with no backstop. Wiring a scheduled invocation = money-adjacent +
+  deploy-config = HARD GATE. Surface to user; do NOT build. Fix shape: cron route or
+  vercel.json cron calling sweepStaleHolds on an interval. MONEY FLOOR.
+  (queue row, not gated) studio/image/route.ts settles the charge BEFORE persisting
+  the image row (generate/promote insert-first) → DB blip post-settle = user charged,
+  image made, no row, raw 500. Future money-gated wave: reorder settle-after-persist
+  or compensating release. settle reorder = money logic ⇒ not fixed here.
+- 2026-07-17: W-OBS merged @99131f8d. ADR-002 vendor-alerting adapter shipped
+  DEP-FREE (no @sentry/nextjs — hard gate respected): generic webhook forwarder in
+  logger.ts gated on `OBSERVABILITY_ALERT_WEBHOOK_URL`; unset ⇒ byte-identical no-op.
+  Fail-soft (never throws/awaits on request path), 8KB payload cap, secret-redacted
+  (reuses intake.redactSecrets), in-module 10/min fixed-window rate limit. Sentry-DSN
+  path deliberately deferred to real SDK (documented). BUG18: not-found first-load
+  downgraded to console.info keyed to exact "Project with id X not found" message;
+  real load failures still error-level. +158 lines of unit tests.
+- 2026-07-17: W-SSRF (HIGH fix) dispatched, branch task/c6-ssrf-reference-fetch —
+  awaiting completion before combined battery.
