@@ -18,9 +18,7 @@ import {
 } from "@/stores/background-tasks-store";
 
 function formatElapsed(startedAt: number, completedAt?: number): string {
-	const elapsed = Math.floor(
-		((completedAt ?? Date.now()) - startedAt) / 1000,
-	);
+	const elapsed = Math.floor(((completedAt ?? Date.now()) - startedAt) / 1000);
 	if (elapsed < 60) return `${elapsed}s`;
 	return `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`;
 }
@@ -58,9 +56,7 @@ function TaskRow({ task }: { task: BackgroundTask }) {
 
 			<div className="flex-1 min-w-0">
 				<div className="flex items-center gap-1.5">
-					<span className="text-[11px] font-medium truncate">
-						{task.label}
-					</span>
+					<span className="text-[11px] font-medium truncate">{task.label}</span>
 					<span className="text-[10px] text-muted-foreground tabular-nums shrink-0">
 						{elapsed}
 					</span>
@@ -71,9 +67,7 @@ function TaskRow({ task }: { task: BackgroundTask }) {
 					</p>
 				)}
 				{task.status === "error" && task.error && (
-					<p className="text-[10px] text-red-400 truncate">
-						{task.error}
-					</p>
+					<p className="text-[10px] text-red-400 truncate">{task.error}</p>
 				)}
 			</div>
 
@@ -103,7 +97,10 @@ export function BackgroundTasksWidget() {
 	const hasCompleted = tasks.some((t) => t.status !== "running");
 
 	return (
-		<div className="fixed bottom-4 right-4 z-50 w-72 rounded-lg border bg-background shadow-lg overflow-hidden">
+		// z-40: stays below Radix dialog/popover content (z-50/z-250, see
+		// dialog.tsx / popover.tsx) so the export dialog and export popover are
+		// never occluded — BUG9.
+		<div className="fixed bottom-4 right-4 z-40 w-72 rounded-lg border bg-background shadow-lg overflow-hidden">
 			{/* Header */}
 			<div
 				className="flex items-center justify-between px-3 py-2 border-b cursor-pointer hover:bg-accent/50 transition-colors"
