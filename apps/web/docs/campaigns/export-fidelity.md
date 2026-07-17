@@ -64,9 +64,14 @@ track pan (StereoPannerNode in playback, absent in mixdown), solo semantics, key
 
 | Worker | Status |
 |---|---|
-| W-A mixdown-gain | — |
-| W-B fidelity-matrix | — |
-| W-C audio-only-export | — |
+| W-A mixdown-gain | dispatched 2026-07-18 (sonnet, isolated worktree, `task/c24-mixdown-gain`) |
+| W-B fidelity-matrix | dispatched 2026-07-18 (sonnet, isolated worktree, `task/c24-fidelity-matrix`) |
+| W-C audio-only-export | dispatched 2026-07-18 (sonnet, isolated worktree, `task/c24-audio-only-export`) |
+
+BUG17 behavior call (L1 decision, given to W-C): suppress the video stream when the
+scene has no visual content — audio-only MP4/WebM is valid and least surprising; keep
+container/extension; "no visual + no audio" ⇒ fail fast with a clear error; GIF path
+unchanged.
 
 ## Evidence
 
