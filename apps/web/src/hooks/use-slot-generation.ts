@@ -3,6 +3,7 @@
 import { useCallback } from "react";
 import { useEditor } from "@/hooks/use-editor";
 import { generateTakeMedia } from "@/lib/studio/generate-take";
+import { foldConsistencyIntoSpec } from "@/lib/studio/consistency-fold";
 import { createLeaseScheduler } from "@/lib/studio/lease-scheduler";
 import { generateUUID } from "@/utils/id";
 import type { GenerationSpec, TimelineElement } from "@/types/timeline";
@@ -92,7 +93,18 @@ export function useSlotGeneration() {
 				patch: { status: "generating" },
 			});
 
-			const result = await generateTakeMedia({ editor, projectId, spec });
+			// Fold the reel-level STYLE/CHARACTERS/SETTING block into this take's
+			// prompt before it reaches the provider, mirroring `studio-executor.ts`'s
+			// application for the Director path — each take is an independent
+			// provider call, so identity/style has to be restated per-shot. Only the
+			// submitted spec is folded; the take's stored `spec` above keeps the
+			// clean, unfolded prompt so remixing this take doesn't compound the fold.
+			const effectiveSpec = foldConsistencyIntoSpec(spec, editor);
+			const result = await generateTakeMedia({
+				editor,
+				projectId,
+				spec: effectiveSpec,
+			});
 			if (result.status === "failed") {
 				editor.timeline.updateTake({
 					elementId,
