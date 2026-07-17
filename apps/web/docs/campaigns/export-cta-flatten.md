@@ -133,7 +133,7 @@ replace the manual `onKeyDown` Enter/Space shim; `disabled` handled by the primi
   baseline (no-worse bar met with margin). Zero diagnostics reference either touched
   file.
 - **e2e testid audit:** grepped all `e2e/**` specs for `export-open` before editing —
-  13 references across 9 spec files (`happy-path`, `auth-flow`, `persona-consistency`,
+  15 references across 9 spec files (`happy-path`, `auth-flow`, `persona-consistency`,
   `takes-board-routing`, `audio-gen`, `fixtures-w2-hunt`, `voiceover-single-ui`,
   `real-export/golden-path-export`, `auto-duck-playback`) all assert visibility or
   `.click()` on `data-testid="export-open"` — preserved verbatim, so none of these
