@@ -8,7 +8,7 @@
  * multi-step run stream live in the Director panel and cancelling it.
  */
 import { afterEach, expect, mock, test } from "bun:test";
-import { runDirectorAgent, type DirectorEvent } from "./agent";
+import { reelSummary, runDirectorAgent, type DirectorEvent } from "./agent";
 import type { DirectorApi } from "./director-api";
 
 // These tests replace `global.fetch` with a synthetic-SSE stub by direct
@@ -179,4 +179,44 @@ test("cooperative cancel stops the run but keeps completed steps", async () => {
 	expect(events.some((e) => e.type === "cancelled")).toBe(true);
 	// The loop stopped before requesting another model turn.
 	expect(call).toBe(1);
+});
+
+// ── reelSummary — per-slot timing (C8 director-intel part 2) ────────────────
+//
+// `reelSummary` is folded into every agent turn's prompt, so a slot's
+// start/duration (already on `SlotSnapshot`) used to be dropped entirely —
+// the brain couldn't tell two empty slots apart by position/length without a
+// separate `getReel` round trip. This pins the compact `@Ns+Ns` clause.
+
+test("reelSummary lists each slot's timeline start + duration compactly", () => {
+	const director = {
+		getReel: () => ({
+			slots: [
+				{
+					id: "el_1",
+					prompt: "wide establishing shot",
+					status: "empty",
+					takeCount: 0,
+					takes: [],
+					start: 0,
+					duration: 4,
+				},
+				{
+					id: "el_2",
+					prompt: "hero close-up",
+					status: "empty",
+					takeCount: 0,
+					takes: [],
+					start: 12,
+					duration: 3.5,
+				},
+			],
+			totalDuration: 15.5,
+		}),
+	} as unknown as DirectorApi;
+
+	const summary = reelSummary(director);
+
+	expect(summary).toContain("@0.0s+4.0s");
+	expect(summary).toContain("@12.0s+3.5s");
 });

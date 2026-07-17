@@ -54,6 +54,73 @@ export const VERDICT_KINDS: readonly VerdictKind[] = [
 	"remix-for-continuity",
 ] as const;
 
+/**
+ * A small, closed set of WHY-it-failed buckets a {@link CriticVerdict}'s free-
+ * prose `reason`/`temporalIssue` can be classified into. Exists so verdict
+ * HISTORY (see {@link recordVerdict}) is aggregatable ("this prompt keeps
+ * failing on identity-drift") instead of only diffable as prose.
+ */
+export type FailureAxis =
+	| "identity-drift"
+	| "motion-artifact"
+	| "continuity-break"
+	| "prompt-mismatch"
+	| "exposure-color";
+
+export const FAILURE_AXES: readonly FailureAxis[] = [
+	"identity-drift",
+	"motion-artifact",
+	"continuity-break",
+	"prompt-mismatch",
+	"exposure-color",
+] as const;
+
+/**
+ * Keyword heuristics for {@link classifyFailureAxes}. Deliberately loose
+ * (prefix match, no trailing `\b`) so "morphs"/"morphing"/"drifted" etc. all
+ * hit their stem — but each pattern still opens on a `\b` so it won't fire
+ * inside an unrelated longer word (e.g. "amorphous" does not match "morph").
+ */
+const AXIS_KEYWORDS: Record<FailureAxis, RegExp> = {
+	"identity-drift":
+		/\b(identity|recast|drift|face (?:chang)|different (?:person|character|actor))/i,
+	"motion-artifact":
+		/\b(morph|warp|flicker|artifact|deform|garbl|glitch|jitter|stutter)/i,
+	"continuity-break":
+		/\b(continuity|palette|wardrobe|outfit|style bible|inconsist|lighting jump)/i,
+	"prompt-mismatch":
+		/\b(wrong (?:subject|scene)|doesn'?t (?:match|realize)|missing|off-?brief|unrelated|different (?:scene|subject|setting))/i,
+	"exposure-color":
+		/\b(exposure|overexpos|underexpos|washed out|too (?:dark|bright)|colou?r cast|white balance|black frame)/i,
+};
+
+/**
+ * Classify a corrective verdict's free-prose `reason`/`temporalIssue` into zero
+ * or more {@link FailureAxis} buckets (pure, deterministic, no model call).
+ * `remix-for-continuity` always includes `continuity-break` (the verdict kind
+ * itself says so). Falls back to `motion-artifact` (a temporal issue was
+ * flagged) or `prompt-mismatch` (the general default) when no keyword matches,
+ * so a corrective verdict is never left unclassified. Returns `[]` for `pass`
+ * — nothing failed.
+ */
+export function classifyFailureAxes(v: {
+	verdict: VerdictKind;
+	reason?: string;
+	temporalIssue?: string;
+}): FailureAxis[] {
+	if (v.verdict === "pass") return [];
+	const axes = new Set<FailureAxis>();
+	if (v.verdict === "remix-for-continuity") axes.add("continuity-break");
+	const text = `${v.reason ?? ""} ${v.temporalIssue ?? ""}`.toLowerCase();
+	for (const axis of FAILURE_AXES) {
+		if (AXIS_KEYWORDS[axis].test(text)) axes.add(axis);
+	}
+	if (axes.size === 0) {
+		axes.add(v.temporalIssue ? "motion-artifact" : "prompt-mismatch");
+	}
+	return [...axes];
+}
+
 export interface CriticVerdict {
 	verdict: VerdictKind;
 	/** Plain-language justification, surfaced in the agent's step log. */
@@ -75,6 +142,15 @@ export interface CriticVerdict {
 	 * from `reason`, which summarizes the overall verdict.
 	 */
 	temporalIssue?: string;
+	/**
+	 * A small, AGGREGATABLE classification of what went wrong, derived from
+	 * `reason`/`temporalIssue` by {@link classifyFailureAxes}. Additive and
+	 * backwards-compatible: `reason` stays the free-prose source of truth for the
+	 * step log; `failureAxes` exists so verdict HISTORY (see
+	 * {@link recordVerdict}/{@link recentVerdictsFor}) can be grouped/counted
+	 * across generations instead of only diffed as prose. Absent for `pass`.
+	 */
+	failureAxes?: FailureAxis[];
 }
 
 /**
@@ -175,6 +251,13 @@ export function buildCriticSystemPrompt(continuity: boolean): string {
  * shot's reference, ahead of this shot's frames (first → last), and the intro
  * text explains that ordering. Frames that aren't decodable base64 data URLs are
  * silently dropped.
+ *
+ * FEED-FORWARD: automatically consults {@link recentVerdictsFor} for `intent`
+ * and, when this prompt has a recorded failure history, folds a compact
+ * "PRIOR ATTEMPTS" line into the intro so the critic doesn't repeat a mistake
+ * it already caught. No new model call — it's a synchronous, in-memory lookup.
+ * A silent no-op (identical output to before this existed) until a caller
+ * starts recording verdicts via {@link recordVerdict}.
  */
 export function buildCriticUserBlocks(
 	intent: string,
@@ -188,6 +271,12 @@ export function buildCriticUserBlocks(
 	const introParts = [
 		`INTENT (what this clip must realize):\n${intent || "(no prompt set)"}`,
 	];
+	const history = recentVerdictsFor(intent);
+	if (history) {
+		introParts.push(
+			`PRIOR ATTEMPTS ON THIS PROMPT (avoid repeating these mistakes):\n${history}`,
+		);
+	}
 	if (priorBlock && continuity?.bible?.trim()) {
 		introParts.push(
 			`STYLE BIBLE (must hold across shots):\n${continuity.bible.trim()}`,
@@ -331,12 +420,168 @@ export function parseVerdict(text: string): CriticVerdict {
 		);
 	}
 
+	const failureAxes = classifyFailureAxes({
+		verdict: kind,
+		reason,
+		temporalIssue,
+	});
+
 	return {
 		verdict: kind,
 		reason,
 		revisedPrompt,
 		...(temporalIssue ? { temporalIssue } : {}),
+		...(failureAxes.length ? { failureAxes } : {}),
 	};
+}
+
+// ── verdict memory (feed-forward) ────────────────────────────────────────────
+//
+// TIER-4 GAP THIS CLOSES: a {@link CriticVerdict} used to be transient — parsed,
+// acted on once, then discarded, so a prompt that failed review one generation
+// could fail the SAME way again next time with the critic none the wiser. This
+// is an in-memory, per-session ledger (module-scoped Map — the same
+// "pure-logic-plus-a-small-seam" idiom `cross-project-memory.ts` uses for its
+// promote/seed rules, minus the async storage glue: there is no server-side or
+// IndexedDB precedent for PER-GENERATION critic history, so in-memory is the
+// right tier here — see that file's module doc for the promotion/seeding split
+// this deliberately does NOT need). It never grows unbounded (capped per key
+// and in total) and is READ automatically by {@link buildCriticUserBlocks} so a
+// re-review of a previously-failed prompt carries "previously failed because X"
+// context WITHOUT any new model call or persistence infrastructure.
+//
+// Recording is an explicit, separate step ({@link recordVerdict}) — parsing a
+// verdict stays a pure function with no side effects. The auto-review loop
+// (`agent.ts`, not owned by this module) is what actually SEES a slot's prompt
+// + the parsed verdict together; wiring it to call `recordVerdict` after each
+// `reviewTake` critique is a one-line addition there (see the module's callers)
+// once this seam is on main.
+
+/** One recorded critic decision, keyed by a normalized prompt. */
+export interface VerdictRecord {
+	/** Normalized (see {@link normalizePromptKey}) prompt/intent the take was judged against. */
+	promptKey: string;
+	verdict: VerdictKind;
+	reason: string;
+	failureAxes?: FailureAxis[];
+	temporalIssue?: string;
+	/** The reviewed take, when the caller has it. */
+	takeId?: string;
+	/** The slot the take belongs to, when the caller has it. */
+	slotId?: string;
+	/** `Date.now()` at record time (or an injected clock, for tests). */
+	at: number;
+}
+
+/** Bound on how many records are kept per prompt key — recent history only. */
+const MAX_VERDICTS_PER_KEY = 5;
+/** Bound on how many distinct prompt keys the ledger tracks — evicts oldest. */
+const MAX_LEDGER_KEYS = 200;
+
+/** The ledger itself: normalized prompt key → its recent verdict records, oldest first. */
+const verdictLedger = new Map<string, VerdictRecord[]>();
+
+/**
+ * Normalize a prompt/intent string into a stable ledger key: trimmed,
+ * lower-cased, internal whitespace collapsed, length-capped. Two prompts that
+ * differ only in casing/spacing hit the SAME history.
+ */
+export function normalizePromptKey(text: string): string {
+	return (text ?? "").trim().toLowerCase().replace(/\s+/g, " ").slice(0, 200);
+}
+
+/**
+ * Record a critic verdict against a prompt key (in-memory, this session only).
+ * A no-op when `promptKey` is blank. Bounded on both axes (per-key recency cap,
+ * total-keys eviction of the oldest key) so a long Director session never leaks
+ * memory. Safe to call for EVERY verdict, including `pass` — {@link
+ * recentVerdictsFor} only ever surfaces the non-pass ones.
+ */
+export function recordVerdict(input: {
+	promptKey: string;
+	verdict: CriticVerdict;
+	takeId?: string;
+	slotId?: string;
+	at?: number;
+}): void {
+	const key = normalizePromptKey(input.promptKey);
+	if (!key) return;
+
+	const record: VerdictRecord = {
+		promptKey: key,
+		verdict: input.verdict.verdict,
+		reason: input.verdict.reason,
+		...(input.verdict.failureAxes?.length
+			? { failureAxes: input.verdict.failureAxes }
+			: {}),
+		...(input.verdict.temporalIssue
+			? { temporalIssue: input.verdict.temporalIssue }
+			: {}),
+		...(input.takeId ? { takeId: input.takeId } : {}),
+		...(input.slotId ? { slotId: input.slotId } : {}),
+		at: input.at ?? Date.now(),
+	};
+
+	const list = verdictLedger.get(key) ?? [];
+	list.push(record);
+	if (list.length > MAX_VERDICTS_PER_KEY) {
+		list.splice(0, list.length - MAX_VERDICTS_PER_KEY);
+	}
+	verdictLedger.set(key, list);
+
+	if (verdictLedger.size > MAX_LEDGER_KEYS) {
+		const oldestKey = verdictLedger.keys().next().value;
+		if (oldestKey !== undefined) verdictLedger.delete(oldestKey);
+	}
+}
+
+/** Render one record as a compact, token-lean history line. */
+function formatVerdictRecord(r: VerdictRecord): string {
+	const axes = r.failureAxes?.length ? ` [${r.failureAxes.join(", ")}]` : "";
+	const why = r.reason || r.temporalIssue || "unspecified issue";
+	return `${r.verdict}${axes}: ${why}`;
+}
+
+/**
+ * Compact, token-lean feed-forward retrieval: the most recent non-`pass`
+ * verdicts recorded for a prompt (or, when nothing matches the prompt key, for
+ * a takeId/slotId — a looser fallback so an asset-shaped lookup still finds
+ * something). Returns `""` when there is no relevant failure history (the
+ * common case — most prompts pass first try, and this seam is currently unread
+ * until a caller starts recording). Never throws, never calls the model.
+ */
+export function recentVerdictsFor(
+	promptOrAsset: string,
+	opts?: { limit?: number },
+): string {
+	const needle = (promptOrAsset ?? "").trim();
+	if (!needle) return "";
+	const limit = Math.max(1, opts?.limit ?? 2);
+
+	let records = verdictLedger.get(normalizePromptKey(needle)) ?? [];
+	if (records.length === 0) {
+		// Fallback: scan for a takeId/slotId match. The ledger is capped, so a
+		// linear scan is cheap.
+		records = [];
+		for (const list of verdictLedger.values()) {
+			for (const r of list) {
+				if (r.takeId === needle || r.slotId === needle) records.push(r);
+			}
+		}
+	}
+
+	const failures = records.filter((r) => r.verdict !== "pass");
+	if (failures.length === 0) return "";
+	return failures.slice(-limit).reverse().map(formatVerdictRecord).join("; ");
+}
+
+/**
+ * Wipe the verdict ledger. Exported for tests, and for a caller (e.g. the
+ * project-switch reset path) that wants to avoid one project's failure history
+ * leaking into another's critic prompts within the same browser session.
+ */
+export function clearVerdictMemory(): void {
+	verdictLedger.clear();
 }
 
 // ── auto-review opt-in ───────────────────────────────────────────────────────
@@ -407,15 +652,25 @@ export function pickLabel(index: number): string {
  * candidate, a "Candidate <label>:" text marker followed by its frames as image
  * blocks (first → last). Candidates whose frames are all undecodable contribute
  * only their marker; a candidate with no frames at all is skipped entirely.
+ *
+ * `history` is an optional compact feed-forward line — typically
+ * {@link recentVerdictsFor}`(intent)` — folded into the intro so a repeated A/B
+ * pick for a prompt that has failed single-take review before carries that
+ * context too. Omit (or pass `""`) for the plain, unchanged prompt; callers
+ * that don't pass it get byte-identical output to before this existed.
  */
 export function buildPickUserBlocks(
 	intent: string,
 	candidates: PickCandidate[],
+	history?: string,
 ): Anthropic.ContentBlockParam[] {
+	const historyLine = history?.trim()
+		? `\n\nPRIOR ATTEMPTS ON THIS PROMPT (avoid repeating these mistakes):\n${history.trim()}`
+		: "";
 	const blocks: Anthropic.ContentBlockParam[] = [
 		{
 			type: "text",
-			text: `INTENT (what every candidate must realize):\n${intent || "(no prompt set)"}\n\nThe candidates and their frames follow. Judge each against the intent and reply with the JSON winner.`,
+			text: `INTENT (what every candidate must realize):\n${intent || "(no prompt set)"}${historyLine}\n\nThe candidates and their frames follow. Judge each against the intent and reply with the JSON winner.`,
 		},
 	];
 	for (const candidate of candidates) {

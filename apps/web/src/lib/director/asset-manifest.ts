@@ -115,6 +115,35 @@ export type AssetUnderstandingLookup = (
 export type AssetSpeechLookup = (mediaId: string) => boolean | undefined;
 
 /**
+ * MINIMAL LOCAL MIRROR of `stores/beat-grid-store.ts`'s `BeatGrid` — same "own
+ * copy, not import" discipline as {@link AssetUnderstanding}: only the facts
+ * that ground a pacing decision (tempo, beat/downbeat density, energy), never
+ * the full per-beat-timestamp array the UI's snap grid needs. That grid is
+ * analyzed ON-DEMAND in the UI (not at ingest), so most projects/assets have
+ * none — this facet is deliberately sparse.
+ */
+export interface AssetBeatGrid {
+	/** Detected tempo in BPM, when the analyzer resolved one. */
+	bpm?: number;
+	/** Total analyzed beat count. */
+	beatCount: number;
+	/** Subset of beats flagged as downbeats. */
+	downbeatCount: number;
+	/** Coarse energy classification (e.g. "energetic", "calm"), when resolved. */
+	energyClass?: string;
+}
+
+/**
+ * Injected read-through to the (at most one, today) analyzed BEAT GRID: returns
+ * the grid's facts for a media id, or `undefined` when that asset has no
+ * analyzed grid. ABSENT (the whole lookup) ⇒ the digest simply omits the
+ * beat-grid facet — same degrade-to-nothing contract as {@link AssetSpeechLookup}.
+ */
+export type AssetBeatGridLookup = (
+	mediaId: string,
+) => AssetBeatGrid | undefined;
+
+/**
  * A library asset as the manifest sees it. `id`/`name`/`type` are always
  * present; the rest MIRROR fields that already exist on the real editor asset
  * (`MediaAssetData` in `@/services/storage/types`) but never used to reach the
@@ -285,6 +314,14 @@ export interface LibraryManifest {
 	 * Absent when no `canvasOrientation` was given, or nothing conflicts.
 	 */
 	orientationMismatch?: OrientationMismatch;
+	/**
+	 * Set ⇒ a `beatGrid` lookup was supplied AND it resolved facts for one
+	 * library asset (today's store holds at most one analyzed grid). Names the
+	 * matched asset (`mediaId`/`assetName`) alongside its {@link AssetBeatGrid}
+	 * facts so a consumer can act on it without a re-query. Absent when no
+	 * lookup was given, or nothing matched.
+	 */
+	beatGrid?: AssetBeatGrid & { mediaId: string; assetName: string };
 	/** The compact one-line digest string for the system prompt. */
 	digest: string;
 }
@@ -324,6 +361,15 @@ const TYPE_ORDER: readonly MediaType[] = ["video", "image", "audio"];
  * to `digest` (see {@link withOrientationFacet}); no conflict (or no
  * `canvasOrientation`) adds ZERO bytes — this module stays ~40 tokens for the
  * always-injected line, per the caps below.
+ *
+ * BEAT-GRID facet (independent of grounded/fallback, like speech/orientation):
+ * when `beatGrid` is supplied and resolves facts for a library asset, a short
+ * `♫ ...` clause naming that asset's tempo/beat density/energy is appended to
+ * `digest` (see {@link withBeatGridFacet}) so pacing decisions (cut-on-beat,
+ * matching shot length to bar length) are grounded on REAL analyzed data
+ * instead of the brain guessing a tempo. No lookup (or no match) adds ZERO
+ * bytes and NEVER triggers analysis itself — purely a read of whatever the UI
+ * already analyzed.
  */
 export function buildLibraryManifest(input: {
 	assets: ManifestAsset[];
@@ -338,8 +384,23 @@ export function buildLibraryManifest(input: {
 	 * `director-api.ts` resolves the real canvas size and passes the bucket in.
 	 */
 	canvasOrientation?: AssetOrientation;
+	/**
+	 * Optional beat-grid facet from the analyzed beat-snap grid (see
+	 * {@link AssetBeatGridLookup}). A per-mediaId read-through, not an
+	 * `useBeatGridStore` import — this module stays PURE LOGIC; the caller
+	 * resolves the store and passes a lookup in, same pattern as `understanding`/
+	 * `speech`.
+	 */
+	beatGrid?: AssetBeatGridLookup;
 }): LibraryManifest {
-	const { assets, understanding, personas, speech, canvasOrientation } = input;
+	const {
+		assets,
+		understanding,
+		personas,
+		speech,
+		canvasOrientation,
+		beatGrid,
+	} = input;
 	const total = assets.length;
 
 	// Media-type counts: always cheap, and the fallback digest's basis.
@@ -359,6 +420,10 @@ export function buildLibraryManifest(input: {
 		assets,
 		canvasOrientation,
 	);
+
+	// Beat-grid facet: same independence as speech/orientation — a pure
+	// per-mediaId read, no understanding pass required.
+	const beatGridMatch = computeBeatGridMatch(assets, beatGrid);
 
 	// Resolve understanding rows in library order (index → `#N` ref).
 	const rows = understanding
@@ -389,12 +454,16 @@ export function buildLibraryManifest(input: {
 			faceAnchors: [],
 			speechCount,
 			orientationMismatch,
-			digest: withOrientationFacet(
-				withSpeechFacet(
-					formatFallbackDigest(assets, total, typeCounts),
-					speechCount,
+			beatGrid: beatGridMatch,
+			digest: withBeatGridFacet(
+				withOrientationFacet(
+					withSpeechFacet(
+						formatFallbackDigest(assets, total, typeCounts),
+						speechCount,
+					),
+					orientationMismatch,
 				),
-				orientationMismatch,
+				beatGridMatch,
 			),
 		};
 	}
@@ -463,18 +532,22 @@ export function buildLibraryManifest(input: {
 		tail,
 		speechCount,
 		orientationMismatch,
-		digest: withOrientationFacet(
-			withSpeechFacet(
-				formatGroundedDigest({
-					total,
-					roleCounts,
-					heroes,
-					faceAnchors,
-					tail,
-				}),
-				speechCount,
+		beatGrid: beatGridMatch,
+		digest: withBeatGridFacet(
+			withOrientationFacet(
+				withSpeechFacet(
+					formatGroundedDigest({
+						total,
+						roleCounts,
+						heroes,
+						faceAnchors,
+						tail,
+					}),
+					speechCount,
+				),
+				orientationMismatch,
 			),
-			orientationMismatch,
+			beatGridMatch,
 		),
 	};
 }
@@ -523,6 +596,40 @@ function formatOrientationWarning(mismatch: OrientationMismatch): string {
 	return `⚠ ${segments.join(", ")} asset${mismatch.total === 1 ? "" : "s"}, canvas is ${mismatch.canvasOrientation}.`;
 }
 
+// ── beat-grid facet ──────────────────────────────────────────────────────────
+
+/**
+ * Resolve the (at most one, today) library asset with an analyzed beat grid,
+ * via the injected `beatGrid` lookup. Checks every asset (cheap — same O(assets)
+ * loop as the speech facet) so a future multi-grid store still finds its match
+ * by mediaId without this module changing. Returns `undefined` when no lookup
+ * was given, or nothing matched — the caller treats that as "add zero bytes".
+ */
+function computeBeatGridMatch(
+	assets: ManifestAsset[],
+	lookup?: AssetBeatGridLookup,
+): (AssetBeatGrid & { mediaId: string; assetName: string }) | undefined {
+	if (!lookup) return undefined;
+	for (const a of assets) {
+		const grid = lookup(a.id);
+		if (grid) return { mediaId: a.id, assetName: a.name, ...grid };
+	}
+	return undefined;
+}
+
+/**
+ * Render the beat-grid clause, e.g. `♫ "song.mp3" 128bpm, 64 beats/16
+ * downbeats, energetic.` — bpm/energyClass are individually optional (the
+ * analyzer may not resolve either), so each is only included when present.
+ */
+function formatBeatGridClause(
+	grid: AssetBeatGrid & { mediaId: string; assetName: string },
+): string {
+	const bpmPart = grid.bpm != null ? `${grid.bpm}bpm, ` : "";
+	const energyPart = grid.energyClass ? `, ${grid.energyClass}` : "";
+	return `♫ ${JSON.stringify(grid.assetName)} ${bpmPart}${grid.beatCount} beats/${grid.downbeatCount} downbeats${energyPart}.`;
+}
+
 // ── formatting ────────────────────────────────────────────────────────────────
 
 /**
@@ -533,6 +640,21 @@ function formatOrientationWarning(mismatch: OrientationMismatch): string {
 function withSpeechFacet(digest: string, speechCount: number): string {
 	if (speechCount === 0) return digest;
 	return `${digest} ${speechCount} with speech — getTranscript(mediaId) for sentence-aligned cut points.`;
+}
+
+/**
+ * Append the BEAT-GRID facet to a digest (grounded OR fallback): a short
+ * `♫ ...` clause naming the one library asset with an analyzed beat grid and
+ * its tempo/beat-density/energy — grounds cut-on-beat pacing decisions on real
+ * analyzed data. No `match` (no lookup was supplied, or nothing matched) ⇒
+ * digest unchanged, zero bytes added.
+ */
+function withBeatGridFacet(
+	digest: string,
+	match: (AssetBeatGrid & { mediaId: string; assetName: string }) | undefined,
+): string {
+	if (!match) return digest;
+	return `${digest} ${formatBeatGridClause(match)}`;
 }
 
 /**

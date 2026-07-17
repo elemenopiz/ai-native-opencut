@@ -30,6 +30,7 @@
 import type { EditorCore } from "@/core";
 import { TIMELINE_CONSTANTS } from "@/constants/timeline-constants";
 import { generateUUID } from "@/utils/id";
+import { useBeatGridStore } from "@/stores/beat-grid-store";
 import { usePersonaStore } from "@/stores/persona-store";
 import type {
 	GenerationSpec,
@@ -966,6 +967,12 @@ export function createDirectorApi(
 	function buildManifest(): LibraryManifest {
 		const assets = editor.media.getAssets();
 		const personas = usePersonaStore.getState().personas;
+		// Read-through to the (at most one, today) analyzed beat-snap grid — same
+		// browser-bound `getState()` idiom as `usePersonaStore` above. Returns the
+		// grid's pacing facts for the media it was analyzed from, `undefined` for
+		// everything else; absent grid ⇒ the facet adds zero bytes. Never triggers
+		// analysis — purely surfaces whatever the UI already computed.
+		const beatGridState = useBeatGridStore.getState().grid;
 		return buildLibraryManifest({
 			assets: assets.map((a) => ({
 				id: a.id,
@@ -986,6 +993,21 @@ export function createDirectorApi(
 					}
 				: undefined,
 			canvasOrientation: getCanvasOrientation(),
+			beatGrid: beatGridState
+				? (mediaId) =>
+						mediaId === beatGridState.mediaId
+							? {
+									...(beatGridState.bpm != null
+										? { bpm: beatGridState.bpm }
+										: {}),
+									beatCount: beatGridState.beats.length,
+									downbeatCount: beatGridState.downbeats.length,
+									...(beatGridState.energyClass != null
+										? { energyClass: beatGridState.energyClass }
+										: {}),
+								}
+							: undefined
+				: undefined,
 		});
 	}
 
