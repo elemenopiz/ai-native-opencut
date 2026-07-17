@@ -55,21 +55,22 @@ order-dependence baseline), and browser-verifies every fix.
 | M5 | Unsupported file type → error copy + recovery | W-UP | PASS (clear toast, panel recovers) | w-up/m5 shots |
 | M6 | Corrupt/truncated media file → error copy + recovery | W-UP | PARTIAL → BUG55 (error shown but phantom asset added) | w-up/m6 shot |
 | M7 | Delete (non-audio) → re-upload same file | W-UP | PASS | w-up/m7 shots ×4 |
-| M8 | Rename asset (incl. edge names) | W-DRAG | | |
+| M8 | Rename asset (incl. edge names) | W-DRAG2 | DEFERRED(quiet-host) — 2 sub-tests attempted, page.goto timeouts under fleet contention | w-drag/FINDINGS.md |
 | M9 | Thumbnails while proxy generating | W-PROXY | PASS (cross-confirmed via M16/M11) → BUG57 rider | w-proxy/FINDINGS.md |
 | M10 | Failed proxy state + recovery | W-PROXY(+2) | PARTIAL → BUG58; full lifecycle re-run = W-PROXY2 | w-proxy/m10 shot |
 | M11 | HEVC fixture ingest/preview (real Chrome) | W-PROXY | PASS ×2 clean (passthrough hev1 + proxy trigger correct) | w-proxy/m11 shots ×5 |
 | M12 | Portrait 1080x1920 fixture tile/preview | W-PROXY | PASS (dims correct; object-cover crop; list-view toggle not reached) | w-proxy/m12 shots |
 | M13 | Big file (≥500MB-class) upload/preview | W-PROXY | PASS ×2 (394MB/70min in 21–59s, no freeze/crash) | w-proxy/m13 shots |
-| M14 | Drag-to-timeline from grid view | W-DRAG | | |
-| M15 | Drag-to-timeline from other views (search/filtered/etc.) | W-DRAG | | |
+| M14 | Drag-to-timeline from grid view | W-DRAG2 | DEFERRED(quiet-host) | |
+| M15 | Drag-to-timeline from other views (search/filtered/etc.) | W-DRAG2 | DEFERRED(quiet-host) | |
 | M16 | Drag DURING proxy generation | W-PROXY | PASS structural (insert succeeds) → BUG59 rider (black preview right after; root cause unconfirmed) | w-proxy/m16 shots |
 | M21 | (extra) VFR-ish clip ingest | W-PROXY | PASS — positive: averaged fps (12) measured, nominal 30 ignored | w-proxy/FINDINGS.md F4 |
-| M22 | (extra) Thumbnail persistence after reload | W-PROXY2 | (in flight — was NOT-RUN, env-blocked) | |
-| M17 | Drag-overlay states (empty vs drag-active) | W-DRAG | | |
-| M18 | Context menu: full item sweep per asset type | W-DRAG | | |
-| M19 | Context menu: per-asset Download @b8e354a2 (video/image/audio/generated) | W-DRAG | | |
-| M20 | Record-button entry points (toolbar + assets panel; entry only) | W-DRAG | | |
+| M22 | (extra) Thumbnail persistence after reload | W-PROXY2 | DEFERRED(quiet-host) — NOT-RUN twice, env-starved both attempts (addendum: check uptime <4 before retry) | w-proxy2/FINDINGS-ADDENDUM.md |
+| M23 | M10-full: failed-proxy lifecycle to completion | W-PROXY2 | DEFERRED(quiet-host) — dev server served `/` then went server-wide unresponsive (3 curl probes, zero log activity) | w-proxy2/FINDINGS-ADDENDUM.md |
+| M17 | Drag-overlay states (empty vs drag-active) | W-DRAG2 | DEFERRED(quiet-host) — regression-check only | |
+| M18 | Context menu: full item sweep per asset type | W-DRAG2 | DEFERRED(quiet-host) — note: W-UP's M7 delete-via-menu PASS partially covers | |
+| M19 | Context menu: per-asset Download @b8e354a2 | W-DRAG2 | DEFERRED(quiet-host) — static read: L1 suspicion (a) "rename then download" is structurally impossible via the menu (menu edits `label`, Download uses `name`; no rename path); possible UX gap that "Edit label" silently never affects the download filename — UNVERIFIED, needs a browser run | w-drag/FINDINGS.md "Code read" |
+| M20 | Record-button entry points (toolbar + assets panel; entry only) | W-DRAG2 | DEFERRED(quiet-host) | |
 
 ## Worker log (append-only, past-tense only)
 
@@ -155,6 +156,47 @@ order-dependence baseline), and browser-verifies every fix.
 - **(positive, no row) W-PROXY-F4:** VFR clip correctly measured to averaged fps (12) vs
   nominal container 30 — recorded so nobody re-derives it as a mystery.
 
-## Close-out
+## Close-out (2026-07-18, final)
 
-(pending)
+**Branch:** `campaign/dogfood-assets`, tip = the commit carrying this close-out (see git
+log; fixes landed @7b671e15, acceptance evidence @83523995). NOT merged to main, NOT
+pushed — L0 integration gate. **Territory RELEASED** (queue §7 + in-flight table updated).
+
+**Haul:** 6 bugs in-range (BUG55–60, BUG61–69 unused), all deduped against queue §2:
+- **BUG55 (P2) FIXED — verified locally:** corrupt/unreadable video no longer imports as a
+  phantom asset. 5/5 browser acceptance in real Chrome (w-fix/VERIFY-RESULTS.md + 6 shots).
+- **BUG56 (P3) FIXED — verified locally:** duplicate uploads now get an informational
+  toast (cross-batch + within-batch), import never blocked, no false positives.
+- **BUG57 (P2) filed:** no per-tile proxy-generating indicator (state-capture proven).
+- **BUG58 (P2) filed:** BUG55's sibling — clean-probing corrupt file → no thumbnail, no
+  error at all (console.warn-only catch). Small-fix recipe in the queue row.
+- **BUG59 (P3) filed:** black preview right after inserting a still-proxying clip (root
+  cause unconfirmed; control experiment specified).
+- **BUG60 (P3) filed:** repeated aborted blob: URL requests during ingest (pattern only).
+- Positive: VFR ingest measures averaged fps correctly (logged, no row).
+
+**Battery on campaign tip** (vs baselines): typecheck exit 0 · lint 339e/225w vs baseline
+346e/225w (**better**) · targeted unit tests 34/34 · full `bun test` 1740 pass / 54 fail /
+39 errors, failing files all within the documented C8 order-dependence set
+(proxy-encoder-controller, health route, add-to-editor, …), stable across two runs, zero
+fails in campaign-touched modules → **no-worse**. Browser acceptance 5/5 PASS at load 3.46.
+
+**Honesty ledger (run/not-run):** upload cluster M1–M7 run (M1 PARTIAL, contention);
+proxy cluster M9–M16+VFR run (M10 PARTIAL); drag/context-menu cluster M8/M14–M20 and
+M22/M23 **DEFERRED(quiet-host)** — two workers were starved by fleet host contention
+(~14 dev/tsc processes; even `GET /` timed out), zero scenarios fabricated. These rows
+fold into the next C21-series wave-closer hunt on a quiet host.
+
+**Per-worker log:** W-UP full report (M1–M7, 2 findings) · W-PROXY full report after a
+2h52m starved run (M9–M16, 5 findings) · W-PROXY2 respawn → re-scoped → both gap rows
+honestly NOT-RUN (env) · W-DRAG committed its 1089-line proven hunt suite then parked;
+W-DRAG2 respawn infra-blocked, matrix NOT-RUN + one static-read note (label-vs-name) ·
+W-FIX wrote both fixes + tests + verify script, parked with zero commits; diff
+L1-reviewed and adopted, acceptance run by L1 5/5.
+
+**For the next wave:** (1) the deferred drag/context-menu matrix — the committed
+w-drag.hunt.e2e.ts suite is ready to run as-is on a quiet host; (2) BUG58 small fix;
+(3) BUG57 tile indicator (needs a reactive seam from media-manager proxy state);
+(4) BUG59 control experiment; (5) label-vs-name Download UX question (M19 note);
+(6) fleet-ops: dev-server starvation is the dominant hunt killer — enforce the HOST RULE
+(one server per campaign) and check `uptime` <4 before browser work.
