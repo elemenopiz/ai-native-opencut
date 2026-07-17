@@ -9,9 +9,15 @@ import type {
 import { waitForJobTerminal } from "@/stores/generation-status-store";
 import { gateOn402 } from "@/lib/credits/client-gate";
 import { useCreditsStore } from "@/stores/credits-store";
+import { usePersonaStore } from "@/stores/persona-store";
 import { apiFetch } from "@/lib/auth/unauthorized";
 import type { EditorCore } from "@/core";
 import { addItemsToProjectMedia } from "@/lib/studio/add-to-editor";
+import {
+	foldConsistencyIntoPrompt,
+	resolveConsistencyContext,
+	resolvePersonaSeedOverride,
+} from "@/lib/studio/consistency-fold";
 
 // Module-level (not per-hook-instance) so a takeId's resume is deduped across
 // GenerateView remounts — e.g. the user tabs away and back while a resumed
@@ -257,6 +263,41 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 			// so keep them out of the request body.
 			const { editor, projectId, batchSize, ...apiParams } = params;
 
+			// Fold the reel-level STYLE/CHARACTERS/SETTING block into the wire
+			// prompt only — `params.prompt` (used below for the take's display
+			// name and as the Assets/Board item name) stays the clean, user-typed
+			// prompt. Mirrors `studio-executor.ts`'s fold for the Director path,
+			// which this manual Generate panel never applied
+			// (`lib/studio/consistency-fold.ts`).
+			const consistencyContext = resolveConsistencyContext(editor);
+			const foldedPrompt = foldConsistencyIntoPrompt(
+				apiParams.prompt,
+				consistencyContext,
+			);
+
+			// Single-shot generations for a locked persona reuse that persona's
+			// stored seed so repeat single takes reproduce the same shot instead of
+			// drifting on a fresh random seed each time. Batches (2+) and any
+			// explicit seed the caller already set are left alone — see
+			// `resolvePersonaSeedOverride`'s doc for the batch-must-vary rationale.
+			const persona = apiParams.personaId
+				? usePersonaStore
+						.getState()
+						.personas.find((p) => p.id === apiParams.personaId)
+				: undefined;
+			const seedOverride = resolvePersonaSeedOverride({
+				personaId: apiParams.personaId,
+				batchSize,
+				seed: apiParams.seed,
+				persona,
+			});
+
+			const requestBody = {
+				...apiParams,
+				prompt: foldedPrompt,
+				...(seedOverride != null ? { seed: seedOverride } : {}),
+			};
+
 			setStatus("submitting");
 			setError(null);
 
@@ -264,7 +305,7 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 				const res = await apiFetch("/api/studio/generate", {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify(apiParams),
+					body: JSON.stringify(requestBody),
 				});
 
 				if (!res.ok) {
