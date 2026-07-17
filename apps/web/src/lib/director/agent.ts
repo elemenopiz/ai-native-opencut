@@ -73,6 +73,7 @@ import {
 	buildCriticUserBlocks,
 	dataUrlToImageBlock,
 	parseVerdict,
+	recordVerdict,
 	wantsAutoReview,
 	type ContinuityContext,
 	type CriticVerdict,
@@ -1064,6 +1065,17 @@ export async function autoReviewSlot(opts: {
 			}`,
 			true,
 		);
+
+		// 2b. Feed-forward memory: record this verdict against the slot's prompt so
+		// a later generation of the SAME prompt carries "previously failed because
+		// X" context into the critic (see `recordVerdict`/`recentVerdictsFor` in
+		// vision-critic.ts). In-memory, per-session, no model call; `pass` is
+		// recorded too but only non-pass history is ever surfaced.
+		recordVerdict({
+			promptKey: review.data.prompt,
+			verdict,
+			slotId,
+		});
 
 		// 3. Keep it and stop.
 		if (verdict.verdict === "pass" || !verdict.revisedPrompt) return;
