@@ -65,3 +65,27 @@ LZW, delay = round(100/fps) cs.
 - 2026-07-17: wave 1 dispatched — W1 (captions serialize/collect/UI-swap), W2 (preset
   dimensions plumb + dialog), W3 (gif encoder) — sonnet, isolated worktrees, disjoint
   owned-file sets as tabled above.
+- 2026-07-17: AUDIT on integrate — all 3 workers branched off `99ab432c` (this worktree's
+  original HEAD), NOT current main @ad40f13e; `main..branch` diffs were dominated by
+  phantom deletions of main's newer work. Real delta = each branch's single feature commit.
+  Integrated by CHERRY-PICK of the three commits onto campaign (based on main @2a1307a0):
+  W1 @fa416b60, W2 @fed37725, W3 @a800ab88 — clean, disjoint (only W2 touches types/export.ts).
+- 2026-07-17: worktree had no node_modules — symlinked from main checkout + linked
+  `.env.local`; typecheck then 0. Post-cherry-pick battery: typecheck 0, 40/40 worker tests.
+- 2026-07-17: GIF WIRING done (@3c02a09c). Design: kept `EXPORT_FORMAT_VALUES` (Director/MCP
+  verb enum + clip-reference) NARROW at mp4/webm; introduced `ExportContainerFormat`
+  (mp4/webm/gif) only at the dialog + render/mime boundary. `SceneExporter.exportGif`
+  reuses the shared render + contain-fit stage → presets apply to GIF. No audio for GIF
+  (renderer skips mixdown; dialog disables audio control). Director export verb kept narrow
+  via `satisfies` (dropped the `: ExportOptions` annotation that widened `format`).
+- 2026-07-17: BROWSER-VERIFIED the dialog (dev server :3210, E2E bridge, react-scan cleared).
+  Screenshots in `docs/export/assets/`: default (new IG Square/Portrait chips + Output line),
+  tiktok-formats (Output 1080×1920 + MP4/WebM/GIF radios), gif-audio-disabled.
+- 2026-07-17: QA MATRIX (real exports, STUB_EXPORT=0, ffprobe) — 6 presets all correct:
+  youtube mp4 1920×1080 h264, tiktok mp4 1080×1920 h264, ig-square mp4 1080×1080 h264,
+  web webm 1280×720 vp9, gif 1920×1080 GIF89a+loop 30f, gif-tiktok 1080×1920 (presets apply
+  to gif). All decode clean in ffmpeg. Doc: `docs/export/qa-matrix-2026-07-17.md`.
+- 2026-07-17: full battery on campaign tip GREEN — typecheck 0, build 0, lint 342 (<347
+  baseline), targeted tests 40/0, director export verb 7/0.
+- 2026-07-17: filed cross-campaign queue row — export mixdown must honor per-element volume
+  automation (C9 auto-duck keyframes); NOT fixed here (out of territory, non-trivial).
