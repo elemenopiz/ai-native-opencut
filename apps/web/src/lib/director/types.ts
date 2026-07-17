@@ -441,3 +441,58 @@ export interface GenerateExecutor {
 		> & { failure?: GenerationFailure }
 	>;
 }
+
+/**
+ * Compact, agent-readable snapshot of one pending Board item — a multi-take/
+ * -image generation draft parked for the user to star into Assets
+ * ({@link DirectorApi.promoteBoardItem}) or dismiss
+ * ({@link DirectorApi.discardBoardItem}). Mirrors the shape
+ * `useBoardItems`/`GET /api/studio/board` return, flattened and with
+ * null/absent fields OMITTED (token economy, same convention as
+ * {@link SlotSnapshot}).
+ */
+export interface BoardItemSnapshot {
+	id: string;
+	kind: "take" | "image";
+	/** The draft's generation status (e.g. "ready"/"queued"/"failed"), when known. */
+	status?: string;
+	/** The prompt that produced this draft (from the parent generation set or image). */
+	prompt?: string;
+	/** Resolution (video takes) or size (images), when known. */
+	resolution?: string;
+	notes?: string;
+	createdAt: string;
+}
+
+/**
+ * Injectable read-through to the caller's pending Board items (see
+ * `apps/web/src/hooks/use-board-items.ts`'s `refetch`, which hits
+ * `GET /api/studio/board`). Powers the read-only `getBoard` verb. BROWSER-BOUND
+ * — the app wires the real fetch in `use-director.ts`; headless tests inject a
+ * stub. Absent ⇒ `getBoard` reports the Board is unavailable in this context.
+ */
+export type BoardFetchFn = () => Promise<BoardItemSnapshot[]>;
+
+/**
+ * Outcome of an injected Board mutation (`promote`/`discard`) — translates
+ * `use-board-items.ts`'s throw-on-failure convention into a result, so
+ * `director-api.ts` never needs to catch a thrown Error from browser code.
+ */
+export type BoardMutationResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * Injectable star-to-Assets action for one Board item by id (see
+ * `useBoardItems`'s `promoteToAssets`, which resolves the item's media, adds
+ * it to the project's Assets, then removes the Board row). BROWSER-BOUND, like
+ * {@link BoardFetchFn}. Absent ⇒ `promoteBoardItem` reports the Board is
+ * unavailable in this context.
+ */
+export type BoardPromoteFn = (itemId: string) => Promise<BoardMutationResult>;
+
+/**
+ * Injectable dismiss action for one Board item by id (see `useBoardItems`'s
+ * `dismiss`, which removes the Board row without saving it anywhere).
+ * BROWSER-BOUND, like {@link BoardFetchFn}. Absent ⇒ `discardBoardItem`
+ * reports the Board is unavailable in this context.
+ */
+export type BoardDiscardFn = (itemId: string) => Promise<BoardMutationResult>;

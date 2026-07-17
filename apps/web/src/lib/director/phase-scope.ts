@@ -163,6 +163,16 @@ export const PHASE_TOOL_ASSIGNMENTS: Readonly<
 	// pre-generation library review this verb primarily serves.
 	findDuplicateAssets: ["briefing"],
 	getBackends: ["production"],
+	// getBoard/promoteBoardItem/discardBoardItem: production only — a Board
+	// draft only exists once a batch generation has produced one, and
+	// resolving it (star/dismiss) is take-judging work, the same bucket as
+	// compareTake/chooseTake/reviewTake. Kept together (not split across
+	// phases) so the model can always list AND act on Board items in the same
+	// turn — see the ceiling note in phase-scope.test.ts for why production's
+	// bound moved from 27 to 28 to fit this trio.
+	getBoard: ["production"],
+	promoteBoardItem: ["production"],
+	discardBoardItem: ["production"],
 	getBrief: ["briefing"],
 	getProposal: ["briefing"],
 	getConsistencyContext: ["briefing"],

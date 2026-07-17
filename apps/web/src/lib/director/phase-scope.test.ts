@@ -204,21 +204,24 @@ test("every phase includes the always-on core", () => {
 	}
 });
 
-test("per-phase active counts stay generous but bounded (15–27)", () => {
+test("per-phase active counts stay generous but bounded (15–28)", () => {
 	// Target is 15–22 (Google's 10–20 guidance, buckets deliberately generous).
 	// Polish is REQUIRED to carry the full timeline/text/audio surface plus
 	// export/approveFinalCut/voice verbs plus generate+reroll on top of the
 	// 7-verb core — that mandated content alone is 25 — plus getTranscript
 	// (speech-aligned trim/split is a polish move) and removeSilence (auto-cut
-	// dead air is timeline surgery), so the enforced ceiling is 27, still about
-	// half the catalog and close to guidance.
+	// dead air is timeline surgery), so polish's own content pins it at 27.
+	// Production separately picked up the getBoard/promoteBoardItem/
+	// discardBoardItem trio (kept together so the model can list AND act on
+	// Board items in the same turn — see phase-scope.ts), pushing the shared
+	// ceiling to 28. Still about half the catalog and close to guidance.
 	for (const phase of PHASES) {
 		const count = activeToolNamesForPhase(phase).length;
 		expect(
 			count,
 			`${phase} bucket too small (${count})`,
 		).toBeGreaterThanOrEqual(15);
-		expect(count, `${phase} bucket too fat (${count})`).toBeLessThanOrEqual(27);
+		expect(count, `${phase} bucket too fat (${count})`).toBeLessThanOrEqual(28);
 	}
 });
 
