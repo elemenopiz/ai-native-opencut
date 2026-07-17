@@ -116,6 +116,16 @@ export interface BackendRequest {
 	// NOTE: video-to-audio "score" generation (MMAudio-class) reuses
 	// `referenceVideos[0]` as the source video URL rather than adding a new
 	// field — it is already the modality-agnostic "reference video" slot.
+	/**
+	 * Real-human-face reference signal (interim Seedance→Runway routing seam;
+	 * see `router.ts` header for the full rationale). Mirrors
+	 * `RouteInput.realFaceReference` — carried here only as a passthrough so a
+	 * backend can see *why* it was routed, if it ever needs to. No adapter
+	 * currently reads this field; the routing decision is already made by the
+	 * time `submit()` runs. Left in place so wave-2 can wire it without
+	 * touching this type again.
+	 */
+	realFaceReference?: boolean;
 }
 
 export type JobStatus = "pending" | "processing" | "completed" | "failed";

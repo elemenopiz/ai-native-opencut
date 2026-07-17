@@ -6,6 +6,42 @@
  *
  * A manual override (`preferredBackendId`) always wins when available — the
  * dropdown is the exception, not the default.
+ *
+ * ── Real-human-face routing seam (interim, campaign C2) ─────────────────────
+ * BytePlus Seedance's *standard* endpoint hard-blocks generations that
+ * reference a real human face — a documented BytePlus policy behavior, not a
+ * bug on our side. The durable fix is BytePlus's *verified-asset* partner
+ * program: once an asset is verified in the ModelArk console it's addressed
+ * by an `asset://<id>` URI (see `saved-verified-assets.ts`) and the block
+ * lifts for that asset. That program requires a BytePlus business
+ * relationship that is currently blocked — out of our hands, not an
+ * engineering task.
+ *
+ * Until that lands, the interim route is Runway (Gen-4 / Aleph via
+ * `video/runway.ts`), which has no equivalent hard block. This router exposes
+ * a narrow seam for that: `RouteInput.realFaceReference` is a signal a caller
+ * sets when it knows the slot's reference material contains a real human
+ * face (e.g. a persona photo with no verified-asset URI backing it yet).
+ * When that signal is true AND the server env var `REAL_FACE_VIDEO_BACKEND`
+ * names a registered, available *video* backend (expected value: `"runway"`),
+ * that backend is preferred over the normal intent-fitness ranking — but
+ * still loses to an explicit `preferredBackendId` pin, same precedence as
+ * everything else auto-routed.
+ *
+ * `REAL_FACE_VIDEO_BACKEND` is read directly off `process.env` (not through
+ * the validated `@byorn/env/web` schema — see `rate-limit.ts`'s
+ * `DIRECTOR_FREE_TURNS_PER_DAY` / `TRUSTED_PROXY_HOPS` and `beta-gate.ts`'s
+ * `BETA_ACCESS_CODE` for the same pattern) so this seam ships without a
+ * `packages/env` schema change. Unset ⇒ this branch never fires and
+ * `routeSlot` behaves byte-for-byte as it did before this signal existed.
+ *
+ * WAVE 2 (not this task): nothing currently sets `realFaceReference` — no
+ * caller reads persona photo-provenance to populate it. That's the wiring
+ * wave-2 needs: teach the caller (likely `generate-take.ts` / the
+ * `/api/studio/generate` route) to detect "this slot's reference material is
+ * an unverified real human face" and pass `realFaceReference: true` into
+ * `RouteInput`. This file and `BackendRequest.realFaceReference` (types.ts)
+ * are the seam that wiring lands on — no further archaeology needed.
  */
 
 import type { GenerationSpec } from "@/types/timeline";
@@ -29,6 +65,27 @@ export interface RouteInput {
 	intent?: SlotIntent;
 	/** Manual model pin (the "exception" dropdown). Wins when available. */
 	preferredBackendId?: BackendId;
+	/**
+	 * Set when the caller knows this slot's reference material contains a
+	 * real human face not yet backed by a BytePlus verified asset. Combined
+	 * with the `REAL_FACE_VIDEO_BACKEND` env var to prefer an interim
+	 * real-face-safe backend for video slots. See the file header. Video-only;
+	 * ignored for image/audio modalities. Omitted/false ⇒ no behavior change.
+	 */
+	realFaceReference?: boolean;
+}
+
+/**
+ * Server-only env read for the interim real-face routing seam. A plain
+ * default-arg `process.env` read (not `webEnv`) — see the file header for
+ * why. Exported so it's independently unit-testable without mutating
+ * `process.env` around every `routeSlot` call.
+ */
+export function realFaceVideoBackendId(
+	value: string | undefined = process.env.REAL_FACE_VIDEO_BACKEND,
+): BackendId | undefined {
+	const trimmed = value?.trim();
+	return trimmed ? trimmed : undefined;
 }
 
 export interface RouteResult {
@@ -58,7 +115,9 @@ export function inferIntent(
 	// Image intents. Heuristic: a persona/identity lock → character still;
 	// otherwise a light prompt signal for typography-heavy stills.
 	if (identityLocked) return "character-still";
-	if (/\b(text|title|caption|logo|typograph|word|headline)\b/i.test(spec.prompt))
+	if (
+		/\b(text|title|caption|logo|typograph|word|headline)\b/i.test(spec.prompt)
+	)
 		return "text-in-image";
 	return "broll-still";
 }
@@ -70,6 +129,8 @@ function personaCritical(intent: SlotIntent): boolean {
 /**
  * Pick a backend for a slot. Order:
  *   1. manual `preferredBackendId` if registered + available
+ *   1.5. `realFaceReference` + `REAL_FACE_VIDEO_BACKEND` env override (video
+ *        only) — the interim Seedance→Runway routing seam. See file header.
  *   2. available backends whose `capabilities.intents` include the intent,
  *      requiring seed-lock OR reference-edit support for persona-critical slots
  *      (so identity survives), ranked by safety tier then cheapest estimate
@@ -91,6 +152,29 @@ export function routeSlot(input: RouteInput): RouteResult {
 				reason: `Pinned to ${pinned.label}`,
 			};
 		}
+	}
+
+	// 1.5) Real-face interim override — video only, additive: no-op unless
+	// BOTH the caller flags a real-face reference AND the env var names a
+	// registered+available video backend. See file header for the rationale.
+	if (modality === "video" && input.realFaceReference === true) {
+		const overrideId = realFaceVideoBackendId();
+		if (overrideId) {
+			const overrideBackend = getBackend(overrideId);
+			if (
+				overrideBackend?.isAvailable() &&
+				overrideBackend.modality === "video"
+			) {
+				return {
+					backend: overrideBackend,
+					intent,
+					routedBy: "auto",
+					reason: `Routed to ${overrideBackend.label} — real-face reference (REAL_FACE_VIDEO_BACKEND interim route)`,
+				};
+			}
+		}
+		// Named backend missing/unavailable/unset → fall through to normal
+		// auto-routing below, unchanged.
 	}
 
 	// 2) Auto-route by intent fitness.
@@ -144,7 +228,10 @@ export function routeSlot(input: RouteInput): RouteResult {
 
 /** Minimal spec→request projection for cost ranking (full mapping lives in the
  *  wiring layer). Kept local so the router has no dependency on the API route. */
-function specToRequestShape(spec: GenerationSpec, modality: GenerationModality) {
+function specToRequestShape(
+	spec: GenerationSpec,
+	modality: GenerationModality,
+) {
 	return {
 		modality,
 		prompt: spec.prompt,

@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it } from "bun:test";
-import { inferIntent, routeSlot } from "../router";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { inferIntent, realFaceVideoBackendId, routeSlot } from "../router";
 import { registerBackend } from "../registry";
 import type {
 	BackendCapabilities,
@@ -20,7 +20,15 @@ import type { GenerationSpec } from "@/types/timeline";
 
 const VIDEO_DEFAULT = "byteplus-seedance";
 const IMAGE_DEFAULT = "google-nano-banana";
-const ROSTER = [VIDEO_DEFAULT, IMAGE_DEFAULT, "vidA", "vidB", "vidC", "imgA"];
+const ROSTER = [
+	VIDEO_DEFAULT,
+	IMAGE_DEFAULT,
+	"vidA",
+	"vidB",
+	"vidC",
+	"imgA",
+	"runway",
+];
 
 function caps(
 	overrides: Partial<BackendCapabilities> = {},
@@ -278,5 +286,164 @@ describe("routeSlot — fallback", () => {
 		const res = routeSlot({ modality: "video", spec: spec() });
 		expect(res.backend.id).toBe(VIDEO_DEFAULT);
 		expect(res.reason).toMatch(/not configured/i);
+	});
+});
+
+describe("realFaceVideoBackendId", () => {
+	it("returns undefined when the value is unset", () => {
+		expect(realFaceVideoBackendId(undefined)).toBeUndefined();
+	});
+
+	it("returns undefined for an empty/whitespace-only value", () => {
+		expect(realFaceVideoBackendId("")).toBeUndefined();
+		expect(realFaceVideoBackendId("   ")).toBeUndefined();
+	});
+
+	it("returns the trimmed backend id when set", () => {
+		expect(realFaceVideoBackendId("runway")).toBe("runway");
+		expect(realFaceVideoBackendId("  runway  ")).toBe("runway");
+	});
+});
+
+describe("routeSlot — real-face interim routing seam (REAL_FACE_VIDEO_BACKEND)", () => {
+	const ENV_KEY = "REAL_FACE_VIDEO_BACKEND";
+	const originalEnv = process.env[ENV_KEY];
+
+	afterEach(() => {
+		if (originalEnv === undefined) {
+			delete process.env[ENV_KEY];
+		} else {
+			process.env[ENV_KEY] = originalEnv;
+		}
+	});
+
+	function withDefaultAndRunway(runwayAvailable: boolean) {
+		registerBackend(
+			makeBackend(VIDEO_DEFAULT, {
+				modality: "video",
+				available: true,
+				capabilities: { intents: ["broll-video"] },
+			}),
+		);
+		registerBackend(
+			makeBackend("runway", {
+				modality: "video",
+				available: runwayAvailable,
+				capabilities: { intents: ["broll-video", "character-video"] },
+			}),
+		);
+	}
+
+	it("flag unset: routing is unchanged even with realFaceReference: true", () => {
+		delete process.env[ENV_KEY];
+		withDefaultAndRunway(true);
+
+		const withFlag = routeSlot({
+			modality: "video",
+			spec: spec(),
+			realFaceReference: true,
+		});
+		const withoutFlag = routeSlot({ modality: "video", spec: spec() });
+
+		// Byte-for-byte same RouteResult shape/values either way.
+		expect(withFlag).toEqual(withoutFlag);
+		expect(withFlag.backend.id).toBe(VIDEO_DEFAULT);
+	});
+
+	it("realFaceReference unset (env set): routing is unchanged", () => {
+		process.env[ENV_KEY] = "runway";
+		withDefaultAndRunway(true);
+
+		const res = routeSlot({ modality: "video", spec: spec() });
+		expect(res.backend.id).toBe(VIDEO_DEFAULT);
+	});
+
+	it("flag set + named backend available: routes real-face video requests to it", () => {
+		process.env[ENV_KEY] = "runway";
+		withDefaultAndRunway(true);
+
+		const res = routeSlot({
+			modality: "video",
+			spec: spec(),
+			realFaceReference: true,
+		});
+		expect(res.backend.id).toBe("runway");
+		expect(res.routedBy).toBe("auto");
+		expect(res.reason).toMatch(/real-face/i);
+	});
+
+	it("flag set + named backend unavailable: falls back to default with no throw", () => {
+		process.env[ENV_KEY] = "runway";
+		withDefaultAndRunway(false);
+
+		let res: ReturnType<typeof routeSlot> | undefined;
+		expect(() => {
+			res = routeSlot({
+				modality: "video",
+				spec: spec(),
+				realFaceReference: true,
+			});
+		}).not.toThrow();
+		expect(res?.backend.id).toBe(VIDEO_DEFAULT);
+	});
+
+	it("flag set + named backend not registered: falls back to default with no throw", () => {
+		process.env[ENV_KEY] = "does-not-exist";
+		registerBackend(
+			makeBackend(VIDEO_DEFAULT, {
+				modality: "video",
+				available: true,
+				capabilities: { intents: ["broll-video"] },
+			}),
+		);
+
+		const res = routeSlot({
+			modality: "video",
+			spec: spec(),
+			realFaceReference: true,
+		});
+		expect(res.backend.id).toBe(VIDEO_DEFAULT);
+	});
+
+	it("a manual pin still wins over the real-face override", () => {
+		withDefaultAndRunway(true);
+		process.env[ENV_KEY] = "runway";
+		registerBackend(
+			makeBackend("vidA", {
+				modality: "video",
+				available: true,
+				capabilities: { intents: ["broll-video"] },
+			}),
+		);
+
+		const res = routeSlot({
+			modality: "video",
+			spec: spec(),
+			realFaceReference: true,
+			preferredBackendId: "vidA",
+		});
+		expect(res.backend.id).toBe("vidA");
+		expect(res.routedBy).toBe("manual");
+	});
+
+	it("non-video modality is unaffected by the real-face flag/env", () => {
+		process.env[ENV_KEY] = "runway";
+		registerBackend(
+			makeBackend(IMAGE_DEFAULT, {
+				modality: "image",
+				available: true,
+				capabilities: { intents: ["broll-still"] },
+			}),
+		);
+
+		const res = routeSlot({
+			modality: "image",
+			spec: spec({ prompt: "a mossy rock" }),
+			// realFaceReference is typed video-only in intent, but the router must
+			// still ignore it for a non-video modality even if a caller sets it.
+			realFaceReference: true,
+		});
+		expect(res.backend.id).toBe(IMAGE_DEFAULT);
+		expect(res.reason).not.toMatch(/real-face/i);
 	});
 });
