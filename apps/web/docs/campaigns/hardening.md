@@ -55,3 +55,21 @@ Verdict: **env-shape/test-harness, NOT a real money bug. No stop.** Evidence:
   `.env.local` copied from shared checkout (worktree test recipe).
 - 2026-07-17: BUG21 triaged (above) — env-shape, payments floor intact, item closed
   without code change.
+- 2026-07-17: wave 1 dispatched (W-SEC, W-ROUTE, W-COLLAB, W-OBS, W-COPY).
+- 2026-07-17: L0 course-correction received — W-SEC found HIGH SSRF in 4 studio
+  backend adapters (client-controlled reference URLs fetched server-side unguarded:
+  google-nano-banana, google-veo, ideogram, bfl-flux). Fix surface verified first-hand
+  (per-adapter fetchWithTimeout helpers; ssrf-guard.ts validateProxyTarget/pinnedFetch
+  available). W-SSRF worker dispatched: shared fetchReferenceMediaSafely wrapper +
+  generic error copy + private-IP rejection tests; branch `task/c6-ssrf-reference-fetch`.
+  Security floor > territory line per L0; no hard gate crossed.
+- 2026-07-17: W-COLLAB done → merged. Packet at
+  `apps/web/docs/security/collab-pre-unhide-2026-07-17.md` @41780599. Verdict
+  GO-with-fixes; 3 HIGH (invite-steal via unverified email; media/[hash] no
+  repo-access check — LIVE TODAY, cloud-sync routes are unflagged; unsigned R2
+  storageUrl), 4 MED, 2 LOW. NOTE: media/[hash] severity discrepancy — W-SEC/L0
+  called it LOW, W-COLLAB HIGH (any signed-in user can fetch any media object by
+  hash from the global CAS); surfacing both in the report.
+- 2026-07-17: W-ROUTE branch merged @5fa58b03 (diff read: +11 lines, SWEEP entry for
+  studio/upload-url only). Route-protection test on campaign branch: **59/59 PASS**
+  — BUG20 closed, red-on-main cleared.
