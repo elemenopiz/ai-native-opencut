@@ -142,6 +142,28 @@ server on :3105, real Chromium:
 - Gotchas hit + handled: react-scan overlay intercepts clicks (disable via
   `window.reactScan({enabled:false})` + reload), MobileGate on navigate.
 
+## Post-main-merge battery (tip after merging main @82f16d0e, 2026-07-17)
+
+- Merge of main into campaign @3d63c737: clean, zero conflicts.
+- typecheck exit 0 · lint 347e/225w == baseline · `bun run build` exit 0 ·
+  `bun run build:e2e` exit 0.
+- `bun test`: 1852 pass / 13 fail — same known set as before (10 proxy
+  order-dependent, BUG15 route-protection, BUG16 polar ×2), zero merge-caused;
+  recordMcpEvent flake green this run; main's new auth-form tests pass.
+- **e2e (`test:e2e`, ×2 runs, identical results): 2 passed (incl. pitch-stretch
+  real-WASM audio path), 2 failed, 3 skipped.**
+  - happy-path main journey: FAILS with the editor hard-redirected to /signup at
+    Stage 2 (page snapshot in test-results = signup form) — the exact BUG12
+    anon-401 redirect race, documented failing on CLEAN MAIN by C12's worker
+    (see queue BUG12 row); C13's fix lands on newer main (@fa603a7a), not on
+    this tip. NOT merge-caused: failure precedes the generate/export stages my
+    merge touched, and the export assertion never executed.
+  - auth-flow (serial, 4 tests): first test stuck on /signup after submit
+    (63× URL poll) = the known Upstash-unreachable signup failure in this
+    sandbox; its 3 serial followers auto-skip. Pre-existing, not merge-caused.
+  - Baseline basis: documentation-based (queue BUG12 row = C12 clean-main repro
+    + L0's sandbox-known-reds note), not a fresh main-side e2e run.
+
 ## Remainder (explicit, for L0)
 
 1. e2e suite run (`build:e2e` + `test:e2e`) on the campaign branch before it
