@@ -92,7 +92,7 @@ persona w/ stored seed + single-shot + no explicit seed ⇒ thread `seed`+locked
 | W1 | consistency fold + persona-seed rule | task/c2-consistency-fold @799bf08c | merged @7b148090 — diff reviewed, 23 tests; rehydration gap = already covered by editor-provider's `hydrateDirectorStateFromBible`, bible-fallback kept for pre-hydration/headless callers; folded prompt goes wire-only (display name stays clean) |
 | W2 | Generate-panel consistency UX | task/c2-consistency-ux @db829bbf | merged @2c2e97ae — diff reviewed; one defect bounced+fixed (StyleBible chip fallback read `styleBible` while the fold reads `consistencyContext` — chip could claim a fold that never happens; now both read the same source); browser-verified by worker (8 shots) + orchestrator (hint→Personas jump, empty-state copy, live on :3157) |
 | W3 | Aleph real-face route seam | task/c2-realface-route-seam @b4a74a4c | merged @a9e2f39e — diff reviewed, inert-by-default proven (env unset ⇒ unchanged routing), manual pin still wins, 10 new tests; wave-2 wiring = set `realFaceReference` from persona photo-provenance |
-| W4 | persona-consistency e2e + screenshots | task/c2-verify-e2e | pending W1+W2 |
+| W4 | persona-consistency e2e + screenshots | task/c2-verify-e2e @3d02fc85 | merged @b6e16172 — 420-line spec, green 3× in worker + 2× on campaign host; stayed exactly in owned files. Host gotcha found: a `next dev` sharing `.next` with the spec's `next start` breaks the run — kill dev servers before `test:e2e` |
 
 ## Battery (campaign tip 2c2e97ae, 2026-07-17)
 
@@ -110,8 +110,23 @@ persona w/ stored seed + single-shot + no explicit seed ⇒ thread `seed`+locked
   composer; clicking it opens the Personas segment; empty-state explainer copy
   confirmed; StyleBible chip correctly absent with no context. (React-scan overlay
   pollutes manual screenshots — clean evidence comes from W4's Playwright run.)
-- W4 e2e walkthrough (3-generation chain + cross-project reuse, mocked providers):
-  see `e2e/persona-consistency.e2e.ts` + `docs/campaigns/assets/c2-walkthrough-*.png`.
+- W4 e2e walkthrough (`e2e/persona-consistency.e2e.ts`, ALL provider calls
+  Playwright-route-mocked, zero credit spend), rerun by the orchestrator on the
+  final campaign tip: PASS (and full e2e suite: 12 passed / 9 known-skip / 0 fail).
+  Asserts: persona created through the real form (seed 424242 typed into the
+  actual "Locked seed" input) → selected → 3 single-shot generations whose
+  captured `/api/studio/generate` bodies ALL carry `personaId: "p-nova"`,
+  `seed: 424242`, and a `^STYLE:…\n\nSHOT:`-folded prompt → fresh second project
+  where the same persona is listed, selected, and generation #4 carries the same
+  personaId+seed (cross-project reuse) → batch negative control: Variations=2
+  request has NO seed (server's batch-must-vary rule preserved).
+  Screenshots: `docs/campaigns/assets/c2-walkthrough-01…07.png` (01 hint,
+  02 personas empty-state, 03 created card + lock badge, 04 chip + seed badge
+  424242, 05 style-bible chip + popover, 06 after 3rd generation, 07 project B
+  with the reused persona active).
+- Additional passive-readout note (W4): `styleBiblePreview` has no store
+  subscription — an out-of-band context write repaints only on the next
+  editor/segment event (accepted, wave-2 row 4).
 
 ## Wave-2 queue (filed)
 
