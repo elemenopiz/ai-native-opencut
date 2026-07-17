@@ -13,7 +13,7 @@
 | # | Item | Why now | Status |
 |---|---|---|---|
 | G1 | **B3 hands-on verify ON prod** — seed owner credits, then run `docs/beta-b3-verification-runbook.md`: real export → play the file + one paid Director gen with reserve→settle observed | The last beta gate; beta ≈2026-07-19 | gated(user) |
-| G2 | **Push cadence decision** — local `main` is now ~50 commits ahead of origin (5 merged campaigns: C4-A, C7-w1, C12, C13, C7-w2, C1/Palmier wave); push = prod deploy | Unpushed work doesn't exist for users | gated(user) |
+| G2 | **Push to origin — DEFERRED BY USER DIRECTIVE (2026-07-18): LOCAL-ONLY BUILD MODE.** Nothing gets pushed until the user explicitly reopens this. Do NOT surface push asks at checkpoints; keep the release-notes/risk-audit packet quietly maintained so the eventual push is turnkey. (Local `main` was 207+ commits ahead at last count; push = prod deploy when it happens) | User is dogfooding local builds for now | deferred(user 2026-07-18) |
 | G3 | Resend sender-domain verification — reset/verify emails are log-only in prod | Strangers can't reset passwords | gated(user) |
 | G4 | Provider spend caps on dashboards (BytePlus $25 pool, Gemini, Kimi, fal if upscale lands) | Courtesy-credit chunks make runaway spend possible | gated(user) |
 | G5 | Rotate the Vercel token used during B2 | Standing hygiene item from the deploy | gated(user) |
@@ -81,9 +81,11 @@ execute** (C1 deleted nothing — several are worktree-attached).
 | BUG29 | `lib/payments/catalog.ts:65,73` pack labels "Most popular"/"Best value" are unverifiable claims (Polar product ids still TODO placeholders, no live pricing anywhere in repo) — drop or replace with factual per-credit counts when real pricing lands; money file ⇒ gated branch | C10/W2 sweep 2026-07-17 | open (money-gated) |
 | BUG30 | `MediaDragOverlay` renders identical copy for resting empty state AND drag-active overlay — fixed: `mode?: "empty" \| "drag-active"` prop (default empty), drag-active shows terse "Drop files to import", call site keys off `isDragOver`; browser-verified both states (shots in `docs/campaigns/assets/bug-purge-w3/`) | C10/W3 → fixed by bug-purge-w3 @b095cc41 | done(campaign/bug-purge-w3, verified locally) |
 | BUG33 | SRT/VTT Download buttons + track list gated on transcript `segments.length>0` (`captions.tsx:1061`) but `.srt` IMPORT never sets segments — imported-subtitles-only users can't reach caption export. One-condition fix (also allow when a `Subs:` text-track exists) | bug-purge-w3 hunt 2026-07-17 | open (low) |
-| BUG32 | Export audio mixdown does not honor per-element VOLUME automation — C9's auto-duck writes volume keyframes that `createTimelineAudioBuffer` (`lib/media/audio.ts`) flattens without applying; auto-duck works in playback but not in exported files. Owner: audio mixdown (C9 territory). Non-trivial | C11+C9 cross-campaign 2026-07-17 | open |
+| BUG32 | Export audio mixdown does not honor per-element VOLUME automation — C9's auto-duck writes volume keyframes that `createTimelineAudioBuffer` (`lib/media/audio.ts`) flattens without applying; auto-duck works in playback but not in exported files. **BROADENED 2026-07-17 (USER dogfood report):** static per-clip volume is ALSO ignored on export — the whole gain path is dropped in mixdown, not just automation keyframes. What-you-hear ≠ what-you-export = golden-path floor bug. Owner: C24 export-fidelity | C11+C9 cross-campaign + user dogfood (feature-ideas.md) 2026-07-17 | open (C24, priority) |
 | BUG31 | `buildSpec` (director-api.ts) undefined-clobbers-defaults via raw `{...overrides}` spread — fixed: strip-undefined before spread (auto-cut `resolveOptions` idiom); ready repro test unskipped as regression pin; director suite 471/0 | C8/W4 → fixed by bug-purge-w3 @e93fc0a7 | done(campaign/bug-purge-w3, merged+unit-tested) |
 | BUG33 | Captions "Export subtitle file" (Download .srt/.vtt) + "Subtitle tracks" sections are gated on transcript `segments.length > 0` (`views/captions.tsx:1061`), but `.srt` import only creates a `Subs:` text track (never touches the transcript store) — imported-subtitles-only projects can NEVER reach SRT/VTT export or see their track listed, though `collectSubtitleCues` prefers the timeline-track source. Verified live (bug-purge-w3 shot w3-04): track lands with cues, Download buttons absent. Fix = also gate on `activeSubtitleTracks.length > 0`/hasAnyCues. Not a regression (gate predates 2026-07-17 wave) | bug-purge-w3 hunt 2026-07-17 | open (low/UX) |
+| BUG34 | **(USER dogfood)** Deleting an audio asset from Assets removes its timeline clips, but Ctrl+Z does NOT restore the audio — undo integrity hole in the asset-delete→timeline cascade. Same lifecycle: the recording flow has NO discard path (a take is force-saved). Needs the audio asset/recording lifecycle redesign, not a spot patch | user dogfood 2026-07-17, feature-ideas.md | open (C25, priority) |
+| BUG35 | **(USER dogfood)** Audio asset previews/thumbnails in the Assets panel aren't square — inconsistent with every other asset type's tile shape | user dogfood 2026-07-17, feature-ideas.md | open (C25 cosmetic rider) |
 | BUG20 | route-protection test red ON MAIN: `studio/upload-url/route.ts` is session-gated but missing from the executed SWEEP table in `app/api/__tests__/route-protection.test.ts` — the "every route classified" assertion fails on a clean checkout | C1 battery triage 2026-07-17 (fails identically on main and campaign) | open |
 | BUG22 | `claude/admiring-goodall-623ae4` branch held for one salvage item: port `reportFromException` render-guard observability wiring + its unit test to main, then delete the branch (C1 disposition; low) | C1 2026-07-17 | open (low) |
 | BUG21 | polar/webhook signature-verification tests red ON MAIN (2 tests: `polar provider — rejects a signature made with the wrong secret`, `webhook route — rejects a bad signature with 401`) — pre-existing, but it's the payments floor; needs triage (env-shape vs real bug) | C1 battery triage 2026-07-17 (fails identically on main and campaign, in isolation too) | open |
@@ -115,6 +117,7 @@ landed — **confirm in git log, then strike.**)
 | F6 | Multicam flatten | Fork-sweep gap | open |
 | F7 | Background fill + curves UI | OpenCut-ecosystem poach opens | open |
 | F8 | Reconcile the two voiceover UIs into the audio tab (MMAudio + ElevenLabs) | gen-UI packet | done(= BUG5, @5287f9c6) |
+| F9 | **(USER idea)** Asset folders — organize assets into folders in the Assets panel; folder-upload preserving structure; manual folder creation for existing assets | user, feature-ideas.md 2026-07-17 | open (C33 — build AFTER the C26 assets hardening pass) |
 
 | BUG24 | **`version-control/media/[hash]` GET has no repo-access check** — session-gated but not flag-gated (VC API routes live per ADR-003) and selects mediaObjects by hash globally then 302s to R2; any authed user who knows a SHA-256 fetches another user's media. MED (content-hash = bearer capability not enumerable IDOR; VC corpus near-empty this beta). TENANCY-FLOOR fix-now (before VC corpus grows / collab un-hides): mirror sibling `repos/[repoId]/media/route.ts` — resolve object→repo→getRepoRole, 403 if none | C6 W-SEC+W-COLLAB reconciled 2026-07-17 | done(hardening-w2, verified locally — repo-access check + cross-tenant 403 test) |
 | BUG25 | `studio/image/route.ts` settles the credit charge BEFORE persisting the image row (generate/promote insert first) — DB blip post-settle = charged, images made, no row, raw 500. Reorder settle-after-persist or compensating release (money logic ⇒ money-gated wave) | C6 W-COPY 2026-07-17 | open (money-gated) |
@@ -162,6 +165,21 @@ multicam, Palmier delta items not yet integrated (see branch row), CapCut poach 
 | C4 · UI excellence — phase A | **done — merged @c5864ac4**; phase B gated on user taste-gate (G7) | `campaign/ui-direction-phase-a` | design-only (delivered: direction doc + 11 shots) | 2026-07-17 L0 |
 | C2 · Character-consistency moat | **complete — awaiting L0 merge gate** (fold gap closed, persona-seed threading, consistency UI strip, Aleph seam; battery green, fail set == main; e2e walkthrough + screenshots on branch) | `campaign/char-consistency` | studio generation UI + hooks + lib/studio (+ additive backends/router seam); log: `docs/campaigns/char-consistency.md` | 2026-07-17 C2 |
 
+### v4 hardening-first run — kickoff 2026-07-18 (Mission Control L0)
+
+Wave 1 launched. ID namespace: C14/C24/C25/C26 live; bug ranges allocated per campaign
+(C14: BUG36–39 · C24: BUG40–49 · C25: BUG50–54 · C26: BUG55–69). Local-only mode: G2
+deferred(user), all merges to LOCAL main only. Baselines carried from 2026-07-17: lint
+~346e/225w (bar = no-worse), full `bun test` order-dependence fail-set ~52 fails / 5 files
+(all pass in isolation — C8 chore; judge batteries as deltas).
+
+| Campaign | L1 status | Branch | Territory | Last update |
+|---|---|---|---|---|
+| C14 · Gated-packet prep | launched | `campaign/gated-packet-prep` | docs + gated-branch worktrees only (money/upscale/G8-cron parked branches) | 2026-07-18 L0 |
+| C24 · Export fidelity | launched | `campaign/export-fidelity` | `lib/media/audio*`, scene-exporter/export pipeline, `lib/export/**`, export e2e | 2026-07-18 L0 |
+| C25 · Audio lifecycle | launched | `campaign/audio-lifecycle` | assets audio views + recording flow + media-store delete/undo commands | 2026-07-18 L0 |
+| C26 · Dogfood hunt: assets | launched | `campaign/dogfood-assets` | hands-on hunt; fix-forward only in non-audio assets surfaces (files everything else) | 2026-07-18 L0 |
+
 ### Session close — 2026-07-17 (Mission Control L0)
 **16 campaigns merged to local `main` today**, combined battery green at each step, repo clean (main + 2 gated branches [money, upscale] + goodall hold). **207 commits ahead of origin — nothing is live until the G2 push decision.** C7 wave-3 regression hunt found **ZERO golden-path regressions** across all 15 prior campaigns' integrated result (real exports ffprobed). L0 holding here pending user gates (G1-G9, money+upscale packets) rather than deepening the unpushed pile on a contended host; loop idle-warm.
 
@@ -169,7 +187,11 @@ multicam, Palmier delta items not yet integrated (see branch row), CapCut poach 
 
 | Session | Item(s) | Owned files | Since |
 |---|---|---|---|
-| — | — | — | — |
+| L0 mission-control (v4 run) | wave-1 integration gate | `main` merges (serial), SPEEDRUN-QUEUE.md §0/§7 | 2026-07-18 |
+| C14 | G8 draft, money+upscale packet refresh, release-notes | docs/campaigns/gated-packet-prep.md, gated parked branches | 2026-07-18 |
+| C24 | BUG32(priority), BUG17, fidelity-matrix e2e | lib/media/audio*, services/renderer/scene-exporter*, lib/export/**, e2e export specs | 2026-07-18 |
+| C25 | BUG34(priority), recording discard, BUG35 | media-panel audio views, recording flow, media-store delete/undo commands | 2026-07-18 |
+| C26 | assets dogfood hunt (BUG55–69) | media-panel non-audio views (small fix-forward only) | 2026-07-18 |
 
 (C5 perf-wave released its territory 2026-07-17: complete on `campaign/perf-wave`, awaiting L0 merge gate.)
 
