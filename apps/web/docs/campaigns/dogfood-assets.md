@@ -73,6 +73,13 @@ order-dependence baseline), and browser-verifies every fix.
 
 - 2026-07-18: Campaign branch created off `main@6b4a1de2`; plan committed. No workers
   dispatched yet at commit time.
+- 2026-07-18: W-UP, W-PROXY, W-DRAG dispatched (sonnet, isolated worktrees, background;
+  ports 3301/3302/3303; ~60 min budget each). W-FIX held until hunter findings land.
+- 2026-07-18: L1 desk review of Download @b8e354a2 (`lib/media-download.ts`): two edge
+  suspicions for cross-check — (a) `HAS_EXT` regex treats a rename like "clip.v2" as
+  already-extensioned → file saved without a real media extension; (b) synchronous
+  `URL.revokeObjectURL` immediately after `a.click()` is a known race on very large
+  files in some engines (Chrome tolerant). Neither confirmed in-browser yet.
 
 ## Findings ledger (BUG55–69 allocations)
 
