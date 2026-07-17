@@ -16,6 +16,20 @@ export class DeleteElementsCommand extends Command {
 		rippleEnabled?: boolean;
 	}) {
 		super();
+		if (
+			!Array.isArray(elements) ||
+			elements.some(
+				(element) =>
+					typeof element !== "object" ||
+					element === null ||
+					typeof element.trackId !== "string" ||
+					typeof element.elementId !== "string",
+			)
+		) {
+			throw new Error(
+				`DeleteElementsCommand: "elements" must be an array of { trackId, elementId }; got ${JSON.stringify(elements)}`,
+			);
+		}
 		this.elements = elements;
 		this.rippleEnabled = rippleEnabled;
 	}
@@ -39,8 +53,14 @@ export class DeleteElementsCommand extends Command {
 					.map((target) =>
 						track.elements.find((element) => element.id === target.elementId),
 					)
-					.filter((element): element is NonNullable<typeof element> => element !== undefined)
-					.map((element) => ({ startTime: element.startTime, duration: element.duration }));
+					.filter(
+						(element): element is NonNullable<typeof element> =>
+							element !== undefined,
+					)
+					.map((element) => ({
+						startTime: element.startTime,
+						duration: element.duration,
+					}));
 
 				let elements = track.elements.filter(
 					(element) =>

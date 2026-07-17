@@ -15,6 +15,17 @@ import { clearDragData, setDragData } from "@/lib/drag-data";
 import type { TimelineDragData } from "@/types/drag";
 import { cn } from "@/utils/ui";
 
+/**
+ * Middle-truncates a name so the tail (e.g. a file extension) stays visible.
+ * Only truncates when the name is actually longer than head + ellipsis + tail
+ * — otherwise the name is returned unchanged. Fixes BUG10, where names of
+ * length 9–19 rendered doubled fragments ("Body Text" → "Body Text...ext").
+ */
+export function middleTruncate(name: string, head = 16, tail = 3): string {
+	if (name.length <= head + tail + 1) return name;
+	return `${name.slice(0, head)}...${name.slice(-tail)}`;
+}
+
 export interface DraggableItemProps {
 	name: string;
 	preview: ReactNode;
@@ -132,11 +143,7 @@ export function DraggableItem({
 								title={name}
 							>
 								<span className="sr-only">{name}</span>
-								<span aria-hidden="true">
-									{name.length > 8
-										? `${name.slice(0, 16)}...${name.slice(-3)}`
-										: name}
-								</span>
+								<span aria-hidden="true">{middleTruncate(name)}</span>
 							</span>
 						)}
 					</div>

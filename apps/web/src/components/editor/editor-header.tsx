@@ -491,6 +491,14 @@ function EditableProjectName() {
 	};
 
 	const handleKeyDown = (event: React.KeyboardEvent) => {
+		if (!isEditing) {
+			if (event.key === "Enter" || event.key === "F2") {
+				event.preventDefault();
+				startEditing();
+			}
+			return;
+		}
+
 		if (event.key === "Enter") {
 			event.preventDefault();
 			inputRef.current?.blur();
@@ -518,6 +526,8 @@ function EditableProjectName() {
 				"text-[0.9rem] h-8 px-2 py-1 rounded-sm bg-transparent outline-none cursor-pointer hover:bg-accent hover:text-accent-foreground",
 				isEditing && "ring-1 ring-ring cursor-text hover:bg-transparent",
 			)}
+			aria-label="Project name"
+			title={isEditing ? undefined : "Rename project (Enter or F2)"}
 		/>
 	);
 }
