@@ -1,0 +1,30 @@
+{
+  "M1": {
+    "verdict": "PARTIAL",
+    "evidence": "added 1/8 assets; names=m1-clip-1.mp4"
+  },
+  "M2": {
+    "verdict": "PASS",
+    "evidence": "added 3/3 real assets (junk skipped); toasts=[\"Unsupported file type: m2-junk.txt\"]; wedged=false"
+  },
+  "M3": {
+    "verdict": "PASS",
+    "evidence": "added 6/6 expected (4 from batch A + 2 from batch B); names=m1-img-1.png,m1-img-2.png,m1-clip-1.mp4,m1-clip-2.mp4,m1-clip-3.mp4,m1-clip-4.mp4"
+  },
+  "M4": {
+    "verdict": "FAIL",
+    "evidence": "2 identical uploads produced 2 assets; duplicate-warning toast seen=false (silently dupes if added=2 and no warning)"
+  },
+  "M5": {
+    "verdict": "PASS",
+    "evidence": ".xyz toasts=[\"Unsupported file type: m5-unsupported.xyz\"]; .zip toasts=[\"Unsupported file type: m5-archive.zip\"]; spuriously-added=0; panel recovered=true"
+  },
+  "M6": {
+    "verdict": "PARTIAL",
+    "evidence": "added=1 asset(s) for corrupt file; toasts=[\"Couldn't read a video track from m6-corrupt.mp4. The file may be audio-only or in an unsupported format.\"]; pageErrors=[]; recovered=true"
+  },
+  "M7": {
+    "verdict": "PASS",
+    "evidence": "deleted=true; reuploadOk=true; reuploadedCount=1"
+  }
+}

@@ -66,6 +66,21 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 
+/**
+ * Cheap duplicate heuristic for the manual upload path: same file name AND
+ * same byte size (no hashing). Good enough to flag the common "I already
+ * imported this" case without the cost of content hashing; see BUG56 / W-UP-F2.
+ */
+export function mediaAssetSignature({
+	name,
+	size,
+}: {
+	name: string;
+	size: number;
+}): string {
+	return `${name}::${size}`;
+}
+
 export function MediaView() {
 	const editor = useEditor();
 	const mediaFiles = editor.media.getAssets();
@@ -105,7 +120,30 @@ export function MediaView() {
 				onProgress: (progress: { progress: number }) =>
 					setProgress(progress.progress),
 			});
+
+			// Duplicate signal only — never blocks or dedupes the import itself.
+			// Checks against the library as it stood before this batch AND against
+			// files already seen earlier in this same batch (same file picked
+			// twice in one selection).
+			const existingSignatures = new Set(
+				mediaFiles.map((asset) =>
+					mediaAssetSignature({ name: asset.name, size: asset.file.size }),
+				),
+			);
+			const seenInBatch = new Set<string>();
+
 			for (const asset of processedAssets) {
+				const signature = mediaAssetSignature({
+					name: asset.name,
+					size: asset.file.size,
+				});
+				if (existingSignatures.has(signature) || seenInBatch.has(signature)) {
+					toast.info(
+						`"${asset.name}" looks like a duplicate of an asset already in your library — imported anyway.`,
+					);
+				}
+				seenInBatch.add(signature);
+
 				await editor.media.addMediaAsset({
 					projectId: activeProject.metadata.id,
 					asset,

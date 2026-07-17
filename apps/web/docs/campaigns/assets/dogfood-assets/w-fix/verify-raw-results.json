@@ -1,0 +1,22 @@
+{
+  "S1_corrupt_not_added": {
+    "verdict": "PASS",
+    "evidence": "added=0 (want 0); toast seen=true; toasts=[\"Couldn't read a video track from w-fix-corrupt.mp4. The file may be audio-only or in an unsupported format.\"]; pageErrors=[]"
+  },
+  "S2_healthy_unaffected": {
+    "verdict": "PASS",
+    "evidence": "added=[{\"id\":\"faba12a8-3307-41d8-bbde-bfc35ccf43ca\",\"name\":\"w-fix-healthy.mp4\",\"type\":\"video\",\"duration\":2,\"width\":640,\"height\":360}]"
+  },
+  "S3a_dup_cross_batch": {
+    "verdict": "PASS",
+    "evidence": "added=2 (want 2, both copies present); duplicate toast seen=true; toasts=[\"\\\"w-fix-dup-a.mp4\\\" looks like a duplicate of an asset already in your library — imported anyway.\"]"
+  },
+  "S3b_dup_within_batch": {
+    "verdict": "PASS",
+    "evidence": "added=2 (want 2, both copies present); duplicate toast seen=true; toasts=[\"\\\"w-fix-batch-dup.mp4\\\" looks like a duplicate of an asset already in your library — imported anyway.\"]"
+  },
+  "S4_no_false_positive": {
+    "verdict": "PASS",
+    "evidence": "added=1 (want 1); spurious duplicate toast=false; toasts=[]"
+  }
+}
