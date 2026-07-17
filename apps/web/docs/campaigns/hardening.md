@@ -94,5 +94,70 @@ Verdict: **env-shape/test-harness, NOT a real money bug. No stop.** Evidence:
   path deliberately deferred to real SDK (documented). BUG18: not-found first-load
   downgraded to console.info keyed to exact "Project with id X not found" message;
   real load failures still error-level. +158 lines of unit tests.
-- 2026-07-17: W-SSRF (HIGH fix) dispatched, branch task/c6-ssrf-reference-fetch —
-  awaiting completion before combined battery.
+- 2026-07-17: W-SSRF (HIGH fix) merged @b93339a5. Diff read: shared
+  `fetchReferenceMediaSafely` (validateProxyTarget + pinnedFetch + redirect
+  re-validation; generic `ReferenceFetchError`; detail logged server-side via
+  logger.warn, never returned to caller). All 4 adapters routed through it;
+  bfl pollOnce (provider URL) correctly excluded. +51 tests incl.
+  loopback/private/DNS-rebind rejection; valid public-URL flow unchanged.
+
+## media/[hash] adjudication (L0 asked; answer is load-bearing)
+
+Route: `app/api/version-control/media/[hash]/route.ts`. Read in full.
+- Session-gated (401 for anon) — YES. Feature-flag gated — **NO**. Repo-access /
+  membership check — **NO**. It selects `mediaObjects` by hash GLOBALLY (no
+  owner/repo scoping) and 302-redirects to the R2 storageUrl.
+- **Reachable by ANY authenticated user TODAY: YES.** Per ADR-003, VC API routes
+  intentionally stayed live and UNFLAGGED during beta. So this is NOT gated behind
+  the collab un-hide — any signed-in beta user can hit it now.
+- Therefore it is a **TENANCY-FLOOR item (broken object-level authZ / cross-tenant
+  read), fix-now — not a collab-prep item.** The sibling `repos/[repoId]/media/route.ts`
+  DOES enforce access (403 Forbidden / 404 on `visible`); the global-by-hash route
+  is the inconsistent one.
+- Severity reconciliation (W-SEC LOW vs W-COLLAB HIGH): land at **MED, fix-now-cheap.**
+  Mitigations that pull it off HIGH-in-practice: (1) the key is a content hash — you
+  must already know the object's SHA to fetch it (knowing hash ≈ possessing content);
+  the route doesn't enumerate and 404s without leaking, so hashes aren't discoverable
+  through it → bearer-capability, not an enumerable IDOR. (2) mediaObjects is only
+  populated by the VC/collab sync path (hidden this beta) → fetchable corpus is
+  small-to-empty now. But it IS live and unscoped, so it's a floor item, not deferrable.
+- **Fix shape (queued, C6 territory app/api/**):** mirror the sibling route —
+  resolve the object → its repo → `getRepoRole(session.user, repoId)`, 403 if no
+  role; or drop the unscoped global-by-hash route in favor of the repo-scoped one.
+  Left as a fix-now queue row (not self-dispatched: campaign budget spent, L0 routes).
+
+## Final battery (campaign tip @86ce8249, run SERIALLY from apps/web)
+
+- typecheck: **exit 0** (tsc --noEmit).
+- lint: **344 errors / 225 warnings** vs 347/225 baseline ⇒ no-worse (slightly better).
+- build: **exit 0** (full next build).
+- C6-touched suites (reference-fetch, 4 adapters, observability, route-protection,
+  polar-webhook): **146/146 pass**.
+- full suite from apps/web (preload applied): **2011 pass / 10 fail**. All 10 are
+  the `proxy-encoder-controller.test.ts` `generateProxyOffThread` suite — proven
+  order-dependent: **15/15 in isolation**, contributes the 10 only in the full run
+  = the pre-existing bun `mock.module` global-leak class (queue C8). ZERO
+  C6-touched suites fail. NOTE: root `bun test` (52 fail) is the BUG21 env-shape
+  artifact — the bunfig preload only loads from apps/web; run from apps/web.
+
+## Findings summary (severity · disposition)
+
+| # | Finding | Sev | Disposition |
+|---|---|---|---|
+| SSRF | 4 adapters fetch client-controlled reference URLs unguarded | HIGH | **FIXED @b93339a5** (in campaign) |
+| BUG20 | route-protection sweep red on main (upload-url unlisted) | — | **FIXED @5fa58b03**, test 59/59 |
+| collab-H1 | invite accept via unverified email (steal invite) | HIGH | packet — pre-unhide blocker (user gate) |
+| collab-H2 | media/[hash] no repo-access check | HIGH→**MED** (adjudicated) | **fix-now tenancy** queue row (fix shape above) |
+| collab-H3 | unsigned R2 storageUrl in redirect | HIGH | packet — pre-unhide blocker (user gate) |
+| credit-G | sweepStaleHolds has 0 prod call sites | MONEY-FLOOR | **GATED(user)** — cron/vercel.json wiring |
+| credit-Q | image route settles before persisting row | MED | queue row — money-gated wave |
+| lows | VC media/[hash] (folded above) + beta-gate non-constant-time compare | LOW | queue rows |
+| BUG18 | console.error on expected first-load | LOW | **FIXED @99131f8d** |
+| BUG21 | polar tests red from root | — | env-shape, not a bug; closed |
+
+Zero unreviewed HIGHs: SSRF fixed; both remaining collab HIGHs are in the
+user-gated pre-unhide packet (un-hide is a hard gate); media/[hash] adjudicated
+down to MED fix-now with fix shape.
+
+Campaign complete @86ce8249. Awaiting L0 merge to main + user gates
+(sweepStaleHolds money floor; collab un-hide packet).
