@@ -18,6 +18,7 @@
 | G4 | Provider spend caps on dashboards (BytePlus $25 pool, Gemini, Kimi, fal if upscale lands) | Courtesy-credit chunks make runaway spend possible | gated(user) |
 | G5 | Rotate the Vercel token used during B2 | Standing hygiene item from the deploy | gated(user) |
 | G6 | Commit untracked docs: `apps/web/docs/compliance/`, `docs/plans/2026-07-15-hevc-cross-browser-decode-design.md`; gitignore `.playwright-mcp/` artifacts | Work product sitting untracked in the shared checkout | done(2026-07-17, L0 mission control) |
+| G8 | **`sweepStaleHolds` never invoked in prod** (MONEY FLOOR) — `lib/credits/sweep.ts:108` is implemented+tested but has ZERO production call sites; abandoned/crashed jobs strand reserved credits with no backstop. Fix = a cron route or vercel.json cron calling it on an interval (money-adjacent + deploy-config ⇒ hard gate) | C6 hardening find 2026-07-17 | gated(user) |
 | G7 | **C4 UI taste-gate** — review `apps/web/docs/design/2026-07-17-ui-direction-phase-a.md` (+11 screenshots in `docs/design/assets/`): pick direction A/B/C, answer the 6-question set in §7 (export CTA, accent policy, icon rail, mechanical-batch pre-approval, tasks popover). Phase B implementation is blocked on this | Wave-1 C4-A merged @c5864ac4; recommendation = A "Instrument-Grade Minimal" | gated(user) |
 
 ## 1 · Integration sweep (built work parked on branches — decide merge/kill, then delete)
@@ -105,6 +106,10 @@ landed — **confirm in git log, then strike.**)
 | F6 | Multicam flatten | Fork-sweep gap | open |
 | F7 | Background fill + curves UI | OpenCut-ecosystem poach opens | open |
 | F8 | Reconcile the two voiceover UIs into the audio tab (MMAudio + ElevenLabs) | gen-UI packet | open (= BUG5) |
+
+| BUG24 | **`version-control/media/[hash]` GET has no repo-access check** — session-gated but not flag-gated (VC API routes live per ADR-003) and selects mediaObjects by hash globally then 302s to R2; any authed user who knows a SHA-256 fetches another user's media. MED (content-hash = bearer capability not enumerable IDOR; VC corpus near-empty this beta). TENANCY-FLOOR fix-now (before VC corpus grows / collab un-hides): mirror sibling `repos/[repoId]/media/route.ts` — resolve object→repo→getRepoRole, 403 if none | C6 W-SEC+W-COLLAB reconciled 2026-07-17 | open (tenancy, fix-now MED) |
+| BUG25 | `studio/image/route.ts` settles the credit charge BEFORE persisting the image row (generate/promote insert first) — DB blip post-settle = charged, images made, no row, raw 500. Reorder settle-after-persist or compensating release (money logic ⇒ money-gated wave) | C6 W-COPY 2026-07-17 | open (money-gated) |
+| BUG26 | `beta-gate/route.ts:21` non-constant-time code compare (`!==`) — impractical to exploit (rate-limited 5/min + 4-digit keyspace) but trivial `crypto.timingSafeEqual` fix | C6 W-SEC 2026-07-17 | open (low) |
 
 ## 5 · Poach targets (license-gate first — see `.claude/fable-poach-orchestrator.md`)
 
