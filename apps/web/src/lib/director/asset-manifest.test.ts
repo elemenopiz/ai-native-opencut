@@ -4,6 +4,8 @@ import {
 	aspectRatioTag,
 	buildLibraryManifest,
 	orientationOf,
+	type AssetBeatGrid,
+	type AssetBeatGridLookup,
 	type AssetUnderstanding,
 	type AssetUnderstandingLookup,
 	type ManifestAsset,
@@ -488,5 +490,123 @@ describe("buildLibraryManifest — dims, provenance, and style facets", () => {
 			counts: { landscape: 1 },
 			total: 1,
 		});
+	});
+});
+
+/**
+ * BEAT-GRID facet: grounds pacing decisions (cut-on-beat, matching a shot's
+ * length to a bar) on the beat-snap grid's REAL analyzed tempo/beat-density/
+ * energy for a matching library asset — see `stores/beat-grid-store.ts`'s
+ * `BeatGrid` (analyzed on-demand in the UI, so at most one asset typically has
+ * one). Zero bytes when no lookup is wired, or nothing matches — same
+ * surface-when-present contract as speech/orientation.
+ */
+describe("buildLibraryManifest — beat-grid facet", () => {
+	/** Injectable lookup returning `grid` only for `matchId`. */
+	function beatGridFor(
+		matchId: string,
+		grid: AssetBeatGrid,
+	): AssetBeatGridLookup {
+		return (mediaId) => (mediaId === matchId ? grid : undefined);
+	}
+
+	it("appends the beat-grid clause to the digest (grounded path) with bpm + energyClass present", () => {
+		const list: ManifestAsset[] = [
+			{ id: "m1", name: "clip1.mp4", type: "video" },
+			{ id: "m2", name: "song.mp3", type: "audio" },
+		];
+		const understanding: AssetUnderstandingLookup = (id) =>
+			id === "m1"
+				? { mediaId: "m1", role: "hero", caption: "hero" }
+				: undefined;
+
+		const m = buildLibraryManifest({
+			assets: list,
+			understanding,
+			beatGrid: beatGridFor("m2", {
+				bpm: 128,
+				beatCount: 64,
+				downbeatCount: 16,
+				energyClass: "energetic",
+			}),
+		});
+
+		expect(m.grounded).toBe(true);
+		expect(m.beatGrid).toEqual({
+			mediaId: "m2",
+			assetName: "song.mp3",
+			bpm: 128,
+			beatCount: 64,
+			downbeatCount: 16,
+			energyClass: "energetic",
+		});
+		expect(m.digest).toContain(
+			'♫ "song.mp3" 128bpm, 64 beats/16 downbeats, energetic.',
+		);
+	});
+
+	it("appends the beat-grid clause to the digest (fallback path)", () => {
+		const list: ManifestAsset[] = [
+			{ id: "m1", name: "song.mp3", type: "audio" },
+		];
+		const m = buildLibraryManifest({
+			assets: list,
+			beatGrid: beatGridFor("m1", {
+				bpm: 90,
+				beatCount: 32,
+				downbeatCount: 8,
+				energyClass: "calm",
+			}),
+		});
+
+		expect(m.grounded).toBe(false);
+		expect(m.beatGrid).toEqual({
+			mediaId: "m1",
+			assetName: "song.mp3",
+			bpm: 90,
+			beatCount: 32,
+			downbeatCount: 8,
+			energyClass: "calm",
+		});
+		expect(m.digest).toContain(
+			'♫ "song.mp3" 90bpm, 32 beats/8 downbeats, calm.',
+		);
+	});
+
+	it("omits bpm/energyClass individually when the analyzer didn't resolve them", () => {
+		const list: ManifestAsset[] = [
+			{ id: "m1", name: "song.mp3", type: "audio" },
+		];
+		const m = buildLibraryManifest({
+			assets: list,
+			beatGrid: beatGridFor("m1", { beatCount: 20, downbeatCount: 5 }),
+		});
+		expect(m.digest).toContain('♫ "song.mp3" 20 beats/5 downbeats.');
+	});
+
+	it("adds ZERO bytes to the digest and manifest when no beatGrid lookup is given", () => {
+		const list: ManifestAsset[] = [
+			{ id: "m1", name: "song.mp3", type: "audio" },
+		];
+		const withLookup = buildLibraryManifest({
+			assets: list,
+			beatGrid: beatGridFor("nope", { beatCount: 1, downbeatCount: 1 }),
+		});
+		const without = buildLibraryManifest({ assets: list });
+		expect(without.beatGrid).toBeUndefined();
+		expect(without.digest).not.toContain("♫");
+		// A lookup wired but matching nothing behaves identically to no lookup.
+		expect(withLookup.digest).toBe(without.digest);
+		expect(withLookup.beatGrid).toBeUndefined();
+	});
+
+	it("is byte-identical to the no-beatGrid digest when the lookup is absent entirely (explicit regression pin)", () => {
+		const list: ManifestAsset[] = [
+			{ id: "m1", name: "clip1.mp4", type: "video" },
+			{ id: "m2", name: "clip2.mp4", type: "video" },
+		];
+		const before = buildLibraryManifest({ assets: list });
+		const after = buildLibraryManifest({ assets: list, beatGrid: undefined });
+		expect(after).toEqual(before);
 	});
 });

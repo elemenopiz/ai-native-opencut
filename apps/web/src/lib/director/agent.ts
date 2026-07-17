@@ -441,7 +441,7 @@ export function reelSummary(director: DirectorApi): string {
 	const map = reelShortIdMap(director);
 	const lines = reel.slots.map(
 		(s, i) =>
-			`  #${i + 1} id=${map.shorten(s.id)} status=${s.status} takes=${s.takeCount} prompt=${JSON.stringify(
+			`  #${i + 1} id=${map.shorten(s.id)} @${s.start.toFixed(1)}s+${s.duration.toFixed(1)}s status=${s.status} takes=${s.takeCount} prompt=${JSON.stringify(
 				s.prompt,
 			)}`,
 	);
