@@ -2,11 +2,13 @@
  * POST /api/llm/enhance-prompt — one-shot prompt rewriter for the generation
  * surfaces.
  *
- * WHY THIS SHAPE: most users type short, underspecified prompts. This route
- * takes their draft plus a compact, client-supplied slice of the project's
- * reference context (StyleBible / brief / asset notes / persona) and rewrites it
- * into a detailed, generation-ready prompt the user can READ and EDIT before they
- * generate. It NEVER submits anything — the button just replaces the field text.
+ * WHY THIS SHAPE: drafts range from a sparse fragment to a long, detailed
+ * paragraph. This route takes the draft plus a compact, client-supplied slice
+ * of the project's reference context (StyleBible / brief / asset notes /
+ * persona) and rewrites it into a generation-ready prompt the user can READ and
+ * EDIT before they generate — improving it (enriching what's sparse, tightening
+ * what's rambling) without ever dropping content the user specified. It NEVER
+ * submits anything — the button just replaces the field text.
  *
  * PROVIDER SELECTION — GEMINI FIRST: Gemini is the product's premier LLM, so
  * `GEMINI_API_KEY` wins (one native `generateContent` call against the same
@@ -45,8 +47,14 @@ const DEFAULT_KIMI_MODEL = "kimi-k2.6";
 const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
 const DEFAULT_GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
 
-/** Single-shot output budget. A generation prompt is short — cap it tight. */
-const MAX_OUTPUT_TOKENS = 700;
+/**
+ * Single-shot output budget. On the Gemini path this ceiling is SHARED with
+ * thinking tokens (`thinkingConfig` below draws from the same
+ * `maxOutputTokens`), and the prompt's own guideline now runs up to ~350
+ * words — so this needs generous headroom, not a tight cap, to avoid
+ * truncating the visible text mid-sentence.
+ */
+const MAX_OUTPUT_TOKENS = 2048;
 
 /** Hard cap on the raw request body, before JSON parsing (abuse bound). */
 const MAX_BODY_BYTES = 32 * 1024;
@@ -66,7 +74,7 @@ const contextSchema = z
 
 const bodySchema = z
 	.object({
-		prompt: z.string().min(1).max(2000),
+		prompt: z.string().min(1).max(8000),
 		mode: z.enum(MODES),
 		context: contextSchema.optional(),
 	})
@@ -75,17 +83,23 @@ const bodySchema = z
 type EnhanceContext = z.infer<typeof contextSchema>;
 
 /**
- * The enhancer's instructions. The heart of the feature — it must expand without
- * hijacking: keep the user's exact subject/intent, add concrete specificity in
- * the target model's own prompt dialect, and lean on the project's established
- * look (never contradicting or inventing it).
+ * The enhancer's instructions. The heart of the feature — it must IMPROVE, not
+ * REDUCE: a sparse draft gets enriched with concrete specificity, a rambling
+ * one gets tightened into sharper wording, but every concrete thing the user
+ * specified survives either way. It must expand or tighten without hijacking:
+ * keep the user's exact subject/intent, add concrete specificity in the target
+ * model's own prompt dialect, and lean on the project's established look
+ * (never contradicting or inventing it).
  */
 function buildSystemPrompt(mode: EnhanceMode): string {
 	const shared = [
-		"You are a prompt engineer for an AI video studio. You rewrite a user's short, underspecified draft into ONE detailed, generation-ready prompt.",
+		"You are a prompt engineer for an AI video studio. You rewrite a user's draft into ONE improved, generation-ready prompt — you never reduce it.",
+		"",
+		"FIRST, ASSESS THE DRAFT: if it's sparse or underspecified, ENRICH it with concrete, relevant specificity. If it's rambling, redundant, or repetitive, TIGHTEN it — but tightening means sharper, more economical wording, never dropping content. A long, detailed draft should come back at least as detailed, never compressed into something shorter or vaguer than what the user wrote.",
 		"",
 		"HARD RULES:",
-		"- PRESERVE the user's core intent and subject EXACTLY. Never swap, drop, or add a subject, action, or setting they did not ask for. You are enriching THEIR idea, not replacing it.",
+		"- PRESERVE the user's core intent and subject EXACTLY. Never swap, drop, or add a subject, action, or setting they did not ask for. You are improving THEIR idea, not replacing it.",
+		"- EVERY concrete element the user specified — subjects, actions, settings, styles, constraints, names, numbers, ordering — MUST survive into the rewrite. If you're unsure whether a detail was intentional, keep it; when in doubt, preserve.",
 		"- If reference context is provided (STYLE, BRIEF, ASSETS, PERSONA), weave it in so the result is consistent with the look the user has already established. Cite their actual descriptors; never contradict them and never invent facts about their assets, characters, or brand that the context does not state.",
 		'- The draft may contain literal handle tokens like @Image1 or @Video2 — machine-readable references to attached media (see ASSETS for what each one is). Preserve every one EXACTLY as written: same letters, digits, and leading @, never translated, renamed, merged, explained, or dropped. Keep each token attached to the phrase it modifies (e.g. "@Image1 walking through fog" stays built around @Image1 as the subject).',
 		"- Output ONLY the rewritten prompt text. No preamble, no explanation, no surrounding quotes, no markdown, no code fences, no labels. Just the prompt.",
@@ -95,7 +109,7 @@ function buildSystemPrompt(mode: EnhanceMode): string {
 		return [
 			...shared,
 			"- This is a DIRECTOR instruction, addressed to an autonomous editing agent. Write it as clear, natural creative direction — not a comma-separated image caption. Expand the user's ask into concrete direction: the shots or beats implied, pacing, tone, and mood. Keep it actionable and specific, but do NOT fabricate details about the user's footage or cast.",
-			"- Keep it under about 120 words.",
+			"- Length should scale with the draft: roughly 150 words is a good guideline for a typical ask, but this is soft guidance, not a cap — a detailed draft earns a longer rewrite, never a shorter one. Absolute ceiling: about 350 words.",
 		].join("\n");
 	}
 
@@ -107,7 +121,7 @@ function buildSystemPrompt(mode: EnhanceMode): string {
 		...shared,
 		`- This targets an AI ${mode} model. Write a dense, richly visual prompt as comma-separated descriptors: subject and its details, composition and framing, lighting, lens/camera language,${motion} mood, color, and overall style.`,
 		"- Front-load the subject, then layer specificity. Prefer concrete, visual nouns and adjectives over abstract or narrative phrasing.",
-		"- Keep it under about 150 words.",
+		"- Length should scale with the draft: roughly 60–200 words is a good guideline, but this is soft guidance, not a cap — a sparse draft can land near the low end, a detailed one deserves more room and should never be compressed below the substance the user already wrote. Absolute ceiling: about 350 words.",
 	].join("\n");
 }
 
@@ -168,6 +182,32 @@ function textOfGeminiBody(body: unknown): string {
 		.trim();
 }
 
+/** `candidates[0].finishReason` out of a Gemini `generateContent` reply. */
+function finishReasonOfGeminiBody(body: unknown): string | undefined {
+	const candidates = (body as { candidates?: unknown } | null)?.candidates;
+	if (!Array.isArray(candidates)) return undefined;
+	const reason = (candidates[0] as { finishReason?: unknown } | undefined)
+		?.finishReason;
+	return typeof reason === "string" ? reason : undefined;
+}
+
+/**
+ * The response for a provider that cut the completion off at the token budget
+ * — with the 2048-token cap this should be rare, but the check is the safety
+ * net so a partial rewrite is never silently returned as if complete. A fresh
+ * `NextResponse` per call: its body is a stream, so a single shared instance
+ * could only ever be read once.
+ */
+function truncatedResponse(): NextResponse {
+	return NextResponse.json(
+		{
+			error: "truncated_completion",
+			message: "The enhanced prompt was cut off — try a shorter draft.",
+		},
+		{ status: 502 },
+	);
+}
+
 /**
  * The Gemini path: one native `generateContent` call. Returns the enhanced
  * text, or a `NextResponse` error to relay as-is (same `provider_api_error`
@@ -214,7 +254,13 @@ async function enhanceViaGemini(args: {
 			{ status: upstream.status || 502 },
 		);
 	}
-	return textOfGeminiBody((await upstream.json()) as unknown);
+	const body = (await upstream.json()) as unknown;
+	// `maxOutputTokens` is shared with thinking tokens on this path, so a cutoff
+	// is possible even under the 2048 cap — surface it rather than returning
+	// partial text silently.
+	if (finishReasonOfGeminiBody(body) === "MAX_TOKENS")
+		return truncatedResponse();
+	return textOfGeminiBody(body);
 }
 
 export async function POST(req: Request) {
@@ -327,6 +373,7 @@ export async function POST(req: Request) {
 				system,
 				messages: [{ role: "user", content: user }],
 			});
+			if (response.stop_reason === "max_tokens") return truncatedResponse();
 			enhanced = textOfContent(response.content);
 		}
 
