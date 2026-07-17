@@ -89,9 +89,9 @@ persona w/ stored seed + single-shot + no explicit seed ⇒ thread `seed`+locked
 | Worker | Brief | Branch | Status |
 |---|---|---|---|
 | W-recon | wired-vs-orphaned gap map | (read-only) | done — gap map above |
-| W1 | consistency fold + persona-seed rule | task/c2-consistency-fold | in flight |
-| W2 | Generate-panel consistency UX | task/c2-consistency-ux | in flight |
-| W3 | Aleph real-face route seam | task/c2-realface-route-seam | in flight |
+| W1 | consistency fold + persona-seed rule | task/c2-consistency-fold @799bf08c | merged @7b148090 — diff reviewed, 23 tests; rehydration gap = already covered by editor-provider's `hydrateDirectorStateFromBible`, bible-fallback kept for pre-hydration/headless callers; folded prompt goes wire-only (display name stays clean) |
+| W2 | Generate-panel consistency UX | task/c2-consistency-ux | in flight (stalled once, resumed by L0) |
+| W3 | Aleph real-face route seam | task/c2-realface-route-seam @b4a74a4c | merged @a9e2f39e — diff reviewed, inert-by-default proven (env unset ⇒ unchanged routing), manual pin still wins, 10 new tests; wave-2 wiring = set `realFaceReference` from persona photo-provenance |
 | W4 | persona-consistency e2e + screenshots | task/c2-verify-e2e | pending W1+W2 |
 
 ## Verification evidence
