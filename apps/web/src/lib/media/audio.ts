@@ -4,12 +4,14 @@ import type {
 	TimelineElement,
 	TimelineTrack,
 } from "@/types/timeline";
-import type { ElementAnimations } from "@/types/animation";
+import type { ElementAnimations, NumberKeyframe } from "@/types/animation";
 import type { MediaAsset } from "@/types/assets";
 import { canElementHaveAudio } from "@/lib/timeline/element-utils";
 import { canTracktHaveAudio } from "@/lib/timeline";
 import { doesElementHaveEnabledAudio } from "@/lib/timeline/audio-separation";
 import { getNumberChannelForPath } from "@/lib/animation/number-channel";
+import { applyEasing } from "@/lib/animation/easing";
+import { TIME_EPSILON_SECONDS } from "@/constants/animation-constants";
 import {
 	shouldTimeStretch,
 	stretchAudioBufferSegment,
@@ -32,7 +34,54 @@ export type CollectedAudioElement = Omit<
 	 * rate used as a best-effort constant fallback. See resolveClipPlaybackRate.
 	 */
 	hasVariableRate: boolean;
+	/**
+	 * Static per-clip volume (default 1) — the same field AudioManager reads as
+	 * `clip.volume ?? 1` in its static-volume fast path (see connectClipNode).
+	 * Always 1 for a video element's own embedded audio: VideoElement has no
+	 * `volume` field, matching collectAudioClips' playback-path precedent.
+	 */
+	volume: number;
+	/**
+	 * The element's owning track volume (default 1) — a separate multiplier
+	 * from the clip's own volume, mirroring AudioManager's per-track GainNode
+	 * (see getOrCreateTrackNodes).
+	 */
+	trackVolume: number;
+	/**
+	 * The element's `volume` animation-channel keyframes (auto-duck), or null
+	 * when absent/empty. Mirrors AudioManager.getOrCreateAnimatedClipGain: when
+	 * present, the channel entirely governs the gain at every sample (the
+	 * static `volume` above only serves as the fallback value the channel
+	 * evaluator would use if it had zero keyframes, which can't happen here).
+	 */
+	volumeKeyframes: NumberKeyframe[] | null;
 };
+
+/**
+ * Resolve a clip's static volume and (optional) `volume` animation channel for
+ * the export mixdown — the same two inputs AudioManager reads for playback
+ * (`clip.volume ?? 1` and `getNumberChannelForPath(..., "volume")`). Called
+ * uniformly for audio and video elements, matching resolveClipPlaybackRate:
+ * VideoElement has no `volume` field, so video clips always resolve to a
+ * static volume of 1 (their track's volume still applies separately).
+ */
+function resolveClipVolume(element: {
+	volume?: number;
+	animations?: ElementAnimations;
+}): { volume: number; keyframes: NumberKeyframe[] | null } {
+	const volume = typeof element.volume === "number" ? element.volume : 1;
+
+	const channel = getNumberChannelForPath({
+		animations: element.animations,
+		propertyPath: "volume",
+	});
+
+	return {
+		volume,
+		keyframes:
+			channel && channel.keyframes.length > 0 ? channel.keyframes : null,
+	};
+}
 
 /**
  * Resolve a constant playback rate for an element in the export audio mixdown.
@@ -141,6 +190,8 @@ export async function collectAudioElements({
 	for (const track of tracks) {
 		if (canTracktHaveAudio(track) && track.muted) continue;
 
+		const trackVolume = ("volume" in track ? track.volume : undefined) ?? 1;
+
 		for (const element of track.elements) {
 			if (!canElementHaveAudio(element)) continue;
 			if (element.duration <= 0) continue;
@@ -157,6 +208,8 @@ export async function collectAudioElements({
 						if (!audioBuffer) return null;
 						const { playbackRate, hasVariableRate } =
 							resolveClipPlaybackRate(element);
+						const { volume, keyframes: volumeKeyframes } =
+							resolveClipVolume(element);
 						return {
 							buffer: audioBuffer,
 							startTime: element.startTime,
@@ -166,6 +219,9 @@ export async function collectAudioElements({
 							muted: element.muted || isTrackMuted,
 							playbackRate,
 							hasVariableRate,
+							volume,
+							trackVolume,
+							volumeKeyframes,
 						};
 					}),
 				);
@@ -189,6 +245,8 @@ export async function collectAudioElements({
 						const elementMuted = element.muted ?? false;
 						const { playbackRate, hasVariableRate } =
 							resolveClipPlaybackRate(element);
+						const { volume, keyframes: volumeKeyframes } =
+							resolveClipVolume(element);
 						return {
 							buffer: audioBuffer,
 							startTime: element.startTime,
@@ -198,6 +256,9 @@ export async function collectAudioElements({
 							muted: elementMuted || isTrackMuted,
 							playbackRate,
 							hasVariableRate,
+							volume,
+							trackVolume,
+							volumeKeyframes,
 						};
 					}),
 				);
@@ -698,6 +759,128 @@ export async function resolveMixElement({
 	};
 }
 
+/**
+ * Sample a `volume` animation channel across `sampleCount` consecutive
+ * element-local-time samples (index `i` -> time `i / sampleRate`), matching
+ * `getNumberChannelValueAtTime` (lib/animation/interpolation.ts) exactly —
+ * same first/last clamping, same "hold" step semantics, same eased linear
+ * ramps — but walking the sorted keyframes with a forward-only cursor instead
+ * of rescanning them from scratch per sample, since the queried time is
+ * monotonically increasing here. See the parity test in
+ * audio-mixdown.test.ts, which checks this walker against
+ * `getNumberChannelValueAtTime` at many sample points.
+ */
+export function computeVolumeEnvelope({
+	keyframes,
+	fallbackValue,
+	sampleCount,
+	sampleRate,
+}: {
+	keyframes: NumberKeyframe[] | null | undefined;
+	fallbackValue: number;
+	sampleCount: number;
+	sampleRate: number;
+}): Float32Array {
+	const envelope = new Float32Array(sampleCount);
+
+	if (!keyframes || keyframes.length === 0) {
+		envelope.fill(fallbackValue);
+		return envelope;
+	}
+
+	const sorted = [...keyframes].sort((a, b) => a.time - b.time);
+	const first = sorted[0];
+	const last = sorted[sorted.length - 1];
+
+	// Index of the left keyframe of the current [left, right] segment; only
+	// ever advances, since the queried time (i / sampleRate) only increases.
+	let segmentIndex = 0;
+
+	for (let i = 0; i < sampleCount; i++) {
+		const time = i / sampleRate;
+
+		if (time <= first.time + TIME_EPSILON_SECONDS) {
+			envelope[i] = first.value;
+			continue;
+		}
+		if (time >= last.time - TIME_EPSILON_SECONDS) {
+			envelope[i] = last.value;
+			continue;
+		}
+
+		while (
+			segmentIndex < sorted.length - 2 &&
+			time > sorted[segmentIndex + 1].time + TIME_EPSILON_SECONDS
+		) {
+			segmentIndex++;
+		}
+
+		const leftKeyframe = sorted[segmentIndex];
+		const rightKeyframe = sorted[segmentIndex + 1];
+
+		if (Math.abs(time - rightKeyframe.time) <= TIME_EPSILON_SECONDS) {
+			envelope[i] = rightKeyframe.value;
+			continue;
+		}
+
+		const span = rightKeyframe.time - leftKeyframe.time;
+		if (Math.abs(span) <= TIME_EPSILON_SECONDS) {
+			envelope[i] = rightKeyframe.value;
+			continue;
+		}
+
+		const progress = Math.max(
+			0,
+			Math.min(1, (time - leftKeyframe.time) / span),
+		);
+
+		envelope[i] =
+			leftKeyframe.interpolation === "hold"
+				? leftKeyframe.value
+				: leftKeyframe.value +
+					(rightKeyframe.value - leftKeyframe.value) *
+						applyEasing({ easing: leftKeyframe.easing, progress });
+	}
+
+	return envelope;
+}
+
+/** Per-sample gain for a clip: either a single constant (the common case — no
+ *  volume automation) or a precomputed per-output-sample envelope (already
+ *  folded together with the track volume multiplier). */
+type GainPlan =
+	| { kind: "constant"; value: number }
+	| { kind: "envelope"; values: Float32Array };
+
+function resolveGainPlan({
+	volumeKeyframes,
+	volume,
+	trackVolume,
+	sampleCount,
+	sampleRate,
+}: {
+	volumeKeyframes: NumberKeyframe[] | null | undefined;
+	volume: number;
+	trackVolume: number;
+	sampleCount: number;
+	sampleRate: number;
+}): GainPlan {
+	if (!volumeKeyframes || volumeKeyframes.length === 0) {
+		return { kind: "constant", value: volume * trackVolume };
+	}
+
+	const values = computeVolumeEnvelope({
+		keyframes: volumeKeyframes,
+		fallbackValue: volume,
+		sampleCount,
+		sampleRate,
+	});
+	if (trackVolume !== 1) {
+		for (let i = 0; i < values.length; i++) values[i] *= trackVolume;
+	}
+	return { kind: "envelope", values };
+}
+
 export function mixAudioChannels({
 	element,
 	outputBuffer,
@@ -716,6 +899,9 @@ export function mixAudioChannels({
 		duration: elementDuration,
 		playbackRate,
 		hasVariableRate,
+		volume,
+		trackVolume,
+		volumeKeyframes,
 	} = element;
 
 	if (hasVariableRate) {
@@ -743,6 +929,18 @@ export function mixAudioChannels({
 	// applied to the per-sample source step below.
 	const resampledLength = Math.floor(elementDuration * sampleRate);
 
+	// Gain is keyed on the OUTPUT-domain loop index `i` (element-local timeline
+	// time = i / sampleRate), NOT the source index: the `volume` automation
+	// envelope lives in timeline time, which is unaffected by playbackRate and
+	// by resolveMixElement's pitch-preserving stretch (see module docs above).
+	const gainPlan = resolveGainPlan({
+		volumeKeyframes,
+		volume: typeof volume === "number" ? volume : 1,
+		trackVolume: typeof trackVolume === "number" ? trackVolume : 1,
+		sampleCount: resampledLength,
+		sampleRate,
+	});
+
 	const outputChannels = 2;
 	for (let channel = 0; channel < outputChannels; channel++) {
 		const outputData = outputBuffer.getChannelData(channel);
@@ -757,7 +955,10 @@ export function mixAudioChannels({
 				sourceStartSample + Math.floor((i * rate) / resampleRatio);
 			if (sourceIndex >= sourceData.length) break;
 
-			outputData[outputIndex] += sourceData[sourceIndex];
+			const gain =
+				gainPlan.kind === "constant" ? gainPlan.value : gainPlan.values[i];
+
+			outputData[outputIndex] += sourceData[sourceIndex] * gain;
 		}
 	}
 }
