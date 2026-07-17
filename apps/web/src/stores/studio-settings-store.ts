@@ -40,6 +40,12 @@ interface StudioSettingsState {
 	// GPT Image
 	imageSize: ImageSize;
 	imageQuality: ImageQuality;
+	// "Keep face & pose" — when a ready image reference is attached, appends
+	// an identity-lock instruction (see lib/studio/identity-lock.ts) so the
+	// generated image keeps the reference person's exact face/pose while
+	// everything else (clothes, background, setting) still follows the
+	// prompt. Sticky like the other image settings above.
+	imageKeepFacePose: boolean;
 	// Cost-preview approval gate: generations whose estimated cost meets or
 	// exceeds this CREDITS threshold ask for explicit approval before spending
 	// (see `lib/studio/cost.ts`). Trivial single re-rolls fall under it.
@@ -66,6 +72,7 @@ export const useStudioSettingsStore = create<StudioSettingsState>()(
 			consistencyMode: "high",
 			imageSize: "1024x1536",
 			imageQuality: "high",
+			imageKeepFacePose: false,
 			approvalThresholdCredits: DEFAULT_APPROVAL_THRESHOLD_CREDITS,
 			autoReviewEnabled: false,
 			set: (patch) => set(patch),
