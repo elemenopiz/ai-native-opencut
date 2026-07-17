@@ -49,7 +49,7 @@ export function BuyCreditsDialog({
 				};
 				setError(
 					data.error === "payments_not_configured"
-						? "Payments aren't available yet. Please check back soon."
+						? "Payments aren't set up yet."
 						: "Couldn't start checkout. Please try again.",
 				);
 				setPending(null);
