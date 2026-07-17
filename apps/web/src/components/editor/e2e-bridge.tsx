@@ -27,7 +27,9 @@
 import { useEffect } from "react";
 import { useEditor } from "@/hooks/use-editor";
 import { useSlotGeneration } from "@/hooks/use-slot-generation";
+import { useScrubAudio } from "@/hooks/audio/use-scrub-audio";
 import type { EditorCore } from "@/core";
+import type { ScrubPlayer } from "@/lib/audio/scrub-player";
 import { stretchAudioBufferSegment } from "@/lib/media/pitch-preserving-stretch";
 import { perfStats } from "@/services/renderer/perf-stats";
 import { useBackgroundTasksStore } from "@/stores/background-tasks-store";
@@ -93,6 +95,13 @@ export interface E2EBridge {
 		frameChain: typeof useFrameChainStore;
 		backgroundTasks: typeof useBackgroundTasksStore;
 	};
+	/** The real ScrubPlayer singleton driving grain-based audible scrub
+	 *  (§4.2 palmier-delta-refresh-2026-07-14.md) — same instance the
+	 *  playhead-drag and arrow-key paths use (shared via the WeakMap in
+	 *  hooks/audio/use-scrub-audio.ts). Exposes grainStartCount/lastDirection
+	 *  so a headless run can assert grains were scheduled + which direction,
+	 *  without needing to actually hear audio. */
+	scrubPlayer: ScrubPlayer;
 }
 
 declare global {
@@ -107,6 +116,7 @@ export function E2EBridge() {
 	// Hooks must run unconditionally; the flag gates only the side effects.
 	const editor = useEditor();
 	const { generateIntoSlot } = useSlotGeneration();
+	const scrubAudio = useScrubAudio();
 
 	useEffect(() => {
 		if (!E2E_ENABLED || typeof window === "undefined") return;
@@ -173,6 +183,7 @@ export function E2EBridge() {
 				frameChain: useFrameChainStore,
 				backgroundTasks: useBackgroundTasksStore,
 			},
+			scrubPlayer: scrubAudio.player,
 		};
 		window.__byornPerf = perfStats;
 
@@ -182,7 +193,7 @@ export function E2EBridge() {
 			delete window.__BYORN_E2E__;
 			delete window.__byornPerf;
 		};
-	}, [editor, generateIntoSlot]);
+	}, [editor, generateIntoSlot, scrubAudio.player]);
 
 	return null;
 }

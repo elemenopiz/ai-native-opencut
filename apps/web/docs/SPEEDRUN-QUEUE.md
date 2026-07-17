@@ -24,24 +24,32 @@
 
 Branches with real deltas (`git rev-list --count main..<b>` on 2026-07-17):
 
-| Branch | Δ | What it is | Call needed |
-|---|---|---|---|
-| `integrate/palmier-2026-07-14` | 15 | The 6-item Palmier delta wave (built clean-room, freeze-held; Wave D never approved) | Freeze is over → review, re-battery against current main, merge or split |
-| `fix/credit-audit-money-gated` | 6 | Money packet: credit LOWs #6–#10 + #14 async persona-still + money tests | **Money floor — user-reviewed gated merge only** |
-| `poach/verb-telemetry` | 6 | Director verb telemetry | Verify + merge or kill |
-| `poach/staged-export-jobid` | 5 | Staged export w/ job id | Verify + merge or kill |
-| `integrate/palmier-wave-a` | 4 | Likely subsumed by the 07-14 integrate | Confirm subsumed → delete |
-| `feat/upscale-backend` | 2 | Tiered fal.ai upscale (Topaz default) + migration 0012; **4 fal APIs unverified** | Verify APIs against fal docs first; migration ⇒ gated |
-| `feat/beta-gate-models-audio-templates` | 2 | Uninspected | Inspect → decide |
-| `poach/scrub-audio-vu-meter` / `poach/mcp-project-binding` / `poach/chroma-luma-lut-check` / `poach/agent-undo-origin` | 1 each | Small poach tail | Verify + merge or kill |
-| `wip/local-ai-session-rescue-2026-07-12` | 1 | Local-AI is FROZEN (ADR-004) | Almost certainly delete |
+All rows dispositioned by C1 (`campaign/ship-parked-inventory`, 2026-07-17 — full
+evidence in `docs/campaigns/ship-parked-inventory.md`):
 
-**Branch hygiene:** ~13 branches at 0-ahead (landed or superseded — incl.
-`fix/project-switch-hardening`, `fix/b1-text-background-crash`, `perf/hevc-passthrough-hw-decode`,
-`perf/export-decode-tier`, `fix/scope-playback-perf`, `poach/subtitle-import`,
-`poach/keyframe-clipboard`, `feat/director-*`, `feat/audio-gen-backends`,
-`feat/openai-google-models`, `axis4-export-bench`) plus ~13 stale `worktree-agent-*` branches
-and any orphaned worktrees → confirm landed, then delete. `open`
+| Branch | Δ | What it is | Disposition |
+|---|---|---|---|
+| `integrate/palmier-2026-07-14` | 15 | The 6-item Palmier delta wave (Waves A/B/C; Wave D = keyframe-verbs/ElevenLabs was never built — not on the branch) | **merged-to-campaign** @3af26f35; 3 conflicts union-resolved; battery green; browser-smoked |
+| `fix/credit-audit-money-gated` | 6 | Money packet: credit LOWs #6–#10 + #14 async persona-still + money tests | **gated(user)** — review packet prepared in campaign log; 208 behind main ⇒ needs rebase-and-reconcile session, not textual merge |
+| `poach/verb-telemetry` | 6 | Director verb telemetry | merged via palmier-15 → kill after C1 lands |
+| `poach/staged-export-jobid` | 5 | Staged export w/ job id | merged via palmier-15 → kill after C1 lands |
+| `integrate/palmier-wave-a` | 4 | Strict subset of the 07-14 integrate (patch-id verified) | **kill-list** |
+| `feat/upscale-backend` | 2 | Tiered fal.ai upscale + migration 0012; **all 5 fal APIs now VERIFIED current (2026-07-17), adapters work as-coded**; one pre-merge fix: clamp Topaz/Clarity factor ≤4 | **gated(user)** — migration packet prepared in campaign log |
+| `feat/beta-gate-models-audio-templates` | 2 | feat + its own revert ⇒ net-zero diff | **kill-list** |
+| `poach/scrub-audio-vu-meter` / `poach/mcp-project-binding` / `poach/chroma-luma-lut-check` / `poach/agent-undo-origin` | 1 each | Small poach tail | merged via palmier-15 → kill after C1 lands |
+| `wip/local-ai-session-rescue-2026-07-12` | 1 | Local-AI is FROZEN (ADR-004) | **kill-list** (fork-network-sweep doc salvaged @399aa759) |
+| `claude/admiring-goodall-623ae4` | 1 | Jul-11 render-guard fix, superseded (main has the finally-guard) | **kill-list** (optional: port reportFromException + unit test first) |
+
+**Branch hygiene: VERIFIED 2026-07-17 (C1).** All ~13 named 0-ahead branches
+(`fix/project-switch-hardening` @c2a0f815 and `fix/b1-text-background-crash`
+@164fd049 are exact ancestors of main — the "held un-merged" memories are stale;
+plus `perf/hevc-passthrough-hw-decode`, `perf/export-decode-tier`,
+`fix/scope-playback-perf`, `poach/subtitle-import`, `poach/keyframe-clipboard`,
+`feat/director-*`, `feat/audio-gen-backends`, `feat/openai-google-models`,
+`axis4-export-bench`, `archive/virality-score`) and all 17 `worktree-agent-*`
+branches confirmed ahead=0 ⇒ landed verbatim. **Kill-list ready for L0 to
+execute** (C1 deleted nothing — several are worktree-attached).
+(`ci/test-depth-workflow` Δ1 = C12 territory, untouched.)
 
 ## 2 · Live bugs
 
@@ -66,6 +74,8 @@ and any orphaned worktrees → confirm landed, then delete. `open`
 | BUG17 | Audio-only project export still emits a blank 1920×1080 H.264 video stream alongside the audio (90 static frames, ~39kbps) — wasted encode time/bytes and confusing in players. Repro: `e2e/fixtures-w2-hunt.e2e.ts` "audio-only" case | bug-purge-w2 hunt 2026-07-17 | open (low) |
 | BUG18 | Brand-new anon project route logs `console.error` "Failed to load project: … not found" (`project-manager.ts:157`) on the EXPECTED first-load path (app then creates the project and proceeds) — noise that could trip error-rate alerting; downgrade to info/debug on this path | bug-purge-w2 hunt 2026-07-17 (seen in all 4 hunt tests) | open (low/cosmetic) |
 | BUG19 | Anon editor's Generate panel rendered NO composer (0 `<textarea>` in DOM) in a local E2E-flag dev session, while C4-A shots show the composer for anon — suspect backends-list hydration failing silently for anon and the form not rendering a fallback; needs a targeted repro (dev vs e2e-build difference matters) | bug-purge-w2 BUG8 repro side-find 2026-07-17 | open (needs repro) |
+| BUG20 | route-protection test red ON MAIN: `studio/upload-url/route.ts` is session-gated but missing from the executed SWEEP table in `app/api/__tests__/route-protection.test.ts` — the "every route classified" assertion fails on a clean checkout | C1 battery triage 2026-07-17 (fails identically on main and campaign) | open |
+| BUG21 | polar/webhook signature-verification tests red ON MAIN (2 tests: `polar provider — rejects a signature made with the wrong secret`, `webhook route — rejects a bad signature with 401`) — pre-existing, but it's the payments floor; needs triage (env-shape vs real bug) | C1 battery triage 2026-07-17 (fails identically on main and campaign, in isolation too) | open |
 
 (Perf-audit B1 text-node crash and B3 mounted-loadProject crash: branches show 0-ahead ⇒
 landed — **confirm in git log, then strike.**)
@@ -118,7 +128,7 @@ multicam, Palmier delta items not yet integrated (see branch row), CapCut poach 
 
 | Campaign | L1 status | Branch | Territory | Last update |
 |---|---|---|---|---|
-| C1 · Ship the parked inventory | launching | `campaign/ship-parked-inventory` | queue §1 branches (merge-shaped, broad); money branch = prep-only; upscale = verify-then-gate | 2026-07-17 L0 |
+| C1 · Ship the parked inventory | **complete — awaiting L0 merge gate** (§1 fully dispositioned: palmier-15 merged-to-campaign, 2 gated packets, kill-list verified; filed BUG15–16) | `campaign/ship-parked-inventory` | queue §1 branches (merge-shaped, broad); money branch = prep-only; upscale = verify-then-gate | 2026-07-17 C1 |
 | C7 · Bug purge wave 1 | **done — merged** (BUG1 fixed-prior, BUG2 repro'd→C5, BUG3 fixed, BUG4 obsolete; filed BUG12–14); wave 2 relaunchable | `campaign/bug-purge-w1` | golden-path browser hunt + queue §2 repros | 2026-07-17 L0 |
 | C12 · Test depth | **done — merged @0ebedaf6** (real-export e2e + takes/board invariants + CI; zero new flakes) | `campaign/test-depth` | tests only | 2026-07-17 L0 |
 | C7 · Bug purge wave 2 | **done — merged @0ab8fc0b** (BUG7 artifact-closed, BUG10/11/13 fixed, BUG8 documented, filed BUG16-19; wave 3 relaunchable) | `campaign/bug-purge-w2` | C4-A bug crop + fresh-fixture hunt | 2026-07-17 L0 |
@@ -140,3 +150,4 @@ multicam, Palmier delta items not yet integrated (see branch row), CapCut poach 
 - 2026-07-17: C13 fix-401-redirect merged @3cd3acd4 (tier: verified locally; user-approved CRITICAL-radius merge). Additive on401 silent/prompt mode on apiFetch; anon editor survives background 401s (20s-soak e2e green, was red), user-initiated 401s still prompt+redirect (browser-proven); happy-path de-flaked 5/5. Follow-up BUG15: generation-status-store resume-poll still prompt-mode (stores/* owner = C5).
 - 2026-07-17: C12 test-depth merged @0ebedaf6 (tier: merged; specs verified green on the campaign tip — real-export e2e 2/2 deterministic w/ ffprobe h264/aac 1.600s exact, takes/board 7/7 x4 runs, +10 unit tests, zero new failures vs baseline). CI: ffmpeg + real-export steps; auth-flow e2e blocked on reachable Upstash (not Postgres) — new row below. Bridge additions E2E-gated only, diff reviewed by L0.
 - 2026-07-17: C7 bug-purge wave 1 merged (campaign tip f5999ce9). BUG1 done (fixed-prior @20066e26, 9/9 regression tests); BUG2 reproduced 3/3 + mechanism traced (re-seek storm in VideoCache), fix → C5; BUG3 fixed (tier: merged+unit-tested); BUG4 obsolete. Golden-path real export PASS frame-exact (47.09s vs 47.0s). Filed BUG12–14, re-confirmed C5 chore (8420 poll). Battery: typecheck 0, lint == baseline, build 0, tests == baseline +5 green.
+- 2026-07-17: C1 ship-parked-inventory complete on `campaign/ship-parked-inventory` (awaiting L0 merge gate). §1 fully dispositioned: palmier-15 (all 6 items, Waves A/B/C) merged-to-campaign @3af26f35 (tier: verified locally, smoke — VU meter + both e2e-bridge seams live, 0 console errors); money + upscale gated packets in `docs/campaigns/ship-parked-inventory.md` (all 5 fal APIs verified current); kill-list verified (0-ahead proofs incl. the two "held" fix branches = ancestors of main); fork-sweep doc salvaged @399aa759. Filed BUG15–16. Battery: typecheck 0, lint == baseline (347e/225w), build 0, bun test 1846 pass / 14 fail all triaged pre-existing or order-dependent.

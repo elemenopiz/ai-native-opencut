@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import type { EditorCore } from "@/core";
+import { CommandManager } from "@/core/managers/commands";
 import { usePersonaStore } from "@/stores/persona-store";
 import type { AssetTranscript } from "@/lib/search/asset-transcript";
 import { DIGEST_SEGMENT_CAP } from "@/lib/search/asset-transcript";
@@ -27,7 +28,7 @@ function makeEditor(assets: ReturnType<typeof mediaAsset>[]): EditorCore {
 			getTotalDuration: () => 0,
 			getTracks: () => [{ id: "track_1", elements: [] }],
 		},
-		command: { canUndo: () => false, canRedo: () => false },
+		command: new CommandManager(),
 		media: {
 			getAssetById: (id: string) => assets.find((a) => a.id === id),
 			getAssets: () => assets,

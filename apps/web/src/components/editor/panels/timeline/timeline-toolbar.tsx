@@ -44,6 +44,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useBeatGridStore } from "@/stores/beat-grid-store";
 import { AudioToolsMenu } from "./audio-tools-menu";
+import { TimelineVuMeter } from "./timeline-vu-meter";
 
 export function TimelineToolbar({
 	zoomLevel,
@@ -283,6 +284,10 @@ function ToolbarRightSection({
 					onClick={() => toggleRippleEditing()}
 				/>
 			</TooltipProvider>
+
+			<div className="bg-border mx-1 h-6 w-px" />
+
+			<TimelineVuMeter />
 
 			<div className="bg-border mx-1 h-6 w-px" />
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { EditorCore } from "@/core";
+import { CommandManager } from "@/core/managers/commands";
 import type { GenerationSpec, Take } from "@/types/timeline";
 import { LAST_FRAME_EPSILON_S, type FullFrame } from "@/lib/media/last-frame";
 import { createDirectorApi } from "./director-api";
@@ -95,7 +96,7 @@ function makeEditor() {
 				if (el) el.generation = input.spec;
 			},
 		},
-		command: { canUndo: () => false, canRedo: () => false },
+		command: new CommandManager(),
 		media: {
 			getAssetById: (id: string) => assets[id],
 			getAssets: () => Object.values(assets),

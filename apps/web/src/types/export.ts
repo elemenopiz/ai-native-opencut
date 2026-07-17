@@ -39,3 +39,25 @@ export interface ExportState {
 	progress: number;
 	result: ExportResult | null;
 }
+
+/**
+ * Full intended lifecycle for an export job (poach: palmier-delta-refresh
+ * 2026-07-14 §4.4, "Cancellable export queue + staged-output write" — idea
+ * only, clean-room: no palmier-pro source consulted, this enum is our own
+ * design from the doc's prose). Export is single-shot and synchronous today,
+ * so only `"completed"` and `"failed"` are ever actually emitted — the rest
+ * of the enum exists so a future FIFO `ExportQueue` can start emitting
+ * `queued → preparing → rendering → (canceling) → completed | failed |
+ * canceled` without changing the shape callers (Director verb, MCP relay,
+ * a future `manage_exports` verb) already depend on.
+ */
+export const EXPORT_JOB_STATUS_VALUES = [
+	"queued",
+	"preparing",
+	"rendering",
+	"canceling",
+	"completed",
+	"failed",
+	"canceled",
+] as const;
+export type ExportJobStatus = (typeof EXPORT_JOB_STATUS_VALUES)[number];

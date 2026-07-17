@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import type { EditorCore } from "@/core";
+import { CommandManager } from "@/core/managers/commands";
 import type { DirectorBrief } from "@/types/project";
 import { usePersonaStore } from "@/stores/persona-store";
 import { createDirectorApi } from "./director-api";
@@ -31,7 +32,7 @@ function makeEditor(assets: ReturnType<typeof imageAsset>[]): {
 			getTotalDuration: () => 0,
 			getTracks: () => [{ id: "track_1", elements: [] }],
 		},
-		command: { canUndo: () => false, canRedo: () => false },
+		command: new CommandManager(),
 		media: {
 			getAssetById: (id: string) => assets.find((a) => a.id === id),
 			getAssets: () => assets,
