@@ -38,9 +38,9 @@ import {
 import { BatchExportPanel } from "@/components/editor/panels/assets/views/batch-export";
 import { toast } from "sonner";
 import {
-	EXPORT_FORMAT_VALUES,
+	EXPORT_CONTAINER_VALUES,
 	EXPORT_QUALITY_VALUES,
-	type ExportFormat,
+	type ExportContainerFormat,
 	type ExportQuality,
 } from "@/types/export";
 import {
@@ -55,8 +55,8 @@ import {
 	EXPORT_PRESETS,
 } from "@/constants/export-constants";
 
-function isExportFormat(value: string): value is ExportFormat {
-	return EXPORT_FORMAT_VALUES.some((formatValue) => formatValue === value);
+function isExportFormat(value: string): value is ExportContainerFormat {
+	return EXPORT_CONTAINER_VALUES.some((formatValue) => formatValue === value);
 }
 
 function isExportQuality(value: string): value is ExportQuality {
@@ -126,7 +126,7 @@ function ExportPopover({
 		result: exportResult,
 	} = editor.project.getExportState();
 	const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
-	const [format, setFormat] = useState<ExportFormat>(
+	const [format, setFormat] = useState<ExportContainerFormat>(
 		DEFAULT_EXPORT_OPTIONS.format,
 	);
 	const [quality, setQuality] = useState<ExportQuality>(
@@ -138,6 +138,13 @@ function ExportPopover({
 	const [shouldIncludeWatermark, setShouldIncludeWatermark] = useState(true);
 	const [isExportingCapcutDraft, setIsExportingCapcutDraft] = useState(false);
 	const [isBatchOpen, setIsBatchOpen] = useState(false);
+	// Staged output dimensions from the selected preset. `null` means "use the
+	// project's own canvasSize" — the Custom preset and deselecting both fall
+	// back to this by clearing it.
+	const [dimensions, setDimensions] = useState<{
+		width: number;
+		height: number;
+	} | null>(null);
 
 	const handlePresetSelect = (presetId: string) => {
 		const preset = EXPORT_PRESETS.find((p) => p.id === presetId);
@@ -147,9 +154,13 @@ function ExportPopover({
 		if (isExportQuality(preset.options.quality))
 			setQuality(preset.options.quality);
 		setShouldIncludeAudio(preset.options.includeAudio ?? true);
+		setDimensions(preset.canvasSize ?? null);
 	};
 
 	const selectedPreset = EXPORT_PRESETS.find((p) => p.id === selectedPresetId);
+
+	const effectiveOutputSize =
+		dimensions ?? activeProject?.settings.canvasSize ?? null;
 
 	const handleExport = async () => {
 		if (!activeProject) return;
@@ -162,6 +173,7 @@ function ExportPopover({
 				fps: activeProject.settings.fps,
 				includeAudio: shouldIncludeAudio,
 				includeWatermark: shouldIncludeWatermark,
+				dimensions: dimensions ?? undefined,
 			},
 		});
 
@@ -279,6 +291,12 @@ function ExportPopover({
 											{selectedPreset.tip}
 										</p>
 									)}
+									{effectiveOutputSize && (
+										<p className="text-[10px] text-muted-foreground/70 mt-1">
+											Output: {effectiveOutputSize.width}x
+											{effectiveOutputSize.height}
+										</p>
+									)}
 								</div>
 
 								<div className="flex flex-col">
@@ -309,6 +327,12 @@ function ExportPopover({
 													<RadioGroupItem value="webm" id="webm" />
 													<Label htmlFor="webm">
 														WebM (VP9) - Smaller file size
+													</Label>
+												</div>
+												<div className="flex items-center space-x-2">
+													<RadioGroupItem value="gif" id="gif" />
+													<Label htmlFor="gif">
+														GIF - Animated image, no audio
 													</Label>
 												</div>
 											</RadioGroup>
@@ -358,13 +382,18 @@ function ExportPopover({
 											<div className="flex items-center space-x-2">
 												<Checkbox
 													id="include-audio"
-													checked={shouldIncludeAudio}
+													checked={
+														format === "gif" ? false : shouldIncludeAudio
+													}
+													disabled={format === "gif"}
 													onCheckedChange={(checked) =>
 														setShouldIncludeAudio(!!checked)
 													}
 												/>
 												<Label htmlFor="include-audio">
-													Include audio in export
+													{format === "gif"
+														? "Audio not available for GIF"
+														: "Include audio in export"}
 												</Label>
 											</div>
 										</SectionContent>

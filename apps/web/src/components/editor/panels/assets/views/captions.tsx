@@ -48,6 +48,8 @@ import {
 } from "@/lib/captions/caption-presets";
 import { parseSubtitleFile, SUBTITLE_FILE_ACCEPT } from "@/lib/subtitles/parse";
 import { insertSubtitleCuesAsTextTrack } from "@/lib/subtitles/insert";
+import { serializeSrt, serializeVtt } from "@/lib/subtitles/serialize";
+import { collectCaptionCues } from "@/lib/export/captions";
 
 interface SubtitleTrackInfo {
 	trackId: string;
@@ -646,19 +648,30 @@ export function Captions() {
 		}
 	};
 
-	// Export the transcript as a downloadable subtitle file. Uses the backend
-	// /transcribe/subtitles formatter so line-wrapping and timestamp formatting
-	// match server-side output.
-	const handleExportSubtitles = async (format: "srt" | "vtt") => {
-		const currentSegments = useTranscriptStore.getState().segments;
-		if (currentSegments.length === 0) return;
+	// Export subtitles as a downloadable file — fully client-side. Prefers
+	// cues from subtitle text tracks already on the timeline (what renders is
+	// the source of truth); falls back to the transcript store mapped onto the
+	// timeline through the referenced media element. See
+	// collectCaptionCues (apps/web/src/lib/export/captions.ts) for the
+	// precedence rules and the transcript→asset linkage limitation.
+	const handleExportSubtitles = (format: "srt" | "vtt") => {
+		const { cues, source } = collectCaptionCues({
+			tracks: editor.timeline.getTracks(),
+			transcriptSegments: useTranscriptStore.getState().segments,
+			mediaAssets: editor.media.getAssets(),
+		});
+
+		if (cues.length === 0) {
+			setError(
+				"Nothing to export yet. Add subtitles to the timeline or generate a transcript first.",
+			);
+			return;
+		}
 
 		setIsExportingSubtitles(format);
 		try {
-			const { content } = await aiClient.generateSubtitles(
-				currentSegments,
-				format,
-			);
+			const content =
+				format === "srt" ? serializeSrt({ cues }) : serializeVtt({ cues });
 			const projectName =
 				editor.project.getActiveOrNull()?.metadata.name ?? "subtitles";
 			const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
@@ -670,20 +683,16 @@ export function Captions() {
 			a.click();
 			document.body.removeChild(a);
 			URL.revokeObjectURL(url);
-			toast.success(`Exported ${format.toUpperCase()}`);
+			toast.success(`Exported ${format.toUpperCase()}`, {
+				description:
+					source === "timeline"
+						? "From the subtitle tracks on your timeline."
+						: "From your transcript, mapped onto the timeline.",
+			});
 		} catch (err) {
 			const message =
 				err instanceof Error ? err.message : "Subtitle export failed";
-			if (
-				message.includes("Cannot connect") ||
-				message.includes("connection_refused")
-			) {
-				setError(
-					"Cannot connect to AI backend. Make sure it is running (docker compose up -d).",
-				);
-			} else {
-				setError(message);
-			}
+			setError(message);
 		} finally {
 			setIsExportingSubtitles(null);
 		}

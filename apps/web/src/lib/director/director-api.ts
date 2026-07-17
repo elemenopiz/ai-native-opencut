@@ -4531,13 +4531,18 @@ export function createDirectorApi(
 
 		const jobId = createExportJobId();
 
-		const options: ExportOptions = {
+		// NB: intentionally NOT annotated `: ExportOptions` — that would widen
+		// `format` to ExportContainerFormat (which includes "gif"). The Director
+		// export verb only ever offers ExportFormat (mp4/webm); GIF is a
+		// dialog-only output. Letting `format` infer keeps it narrow so the
+		// DirectorResult `format?: ExportFormat` shape below stays honest.
+		const options = {
 			format: input?.format ?? DEFAULT_EXPORT_OPTIONS.format,
 			quality: input?.quality ?? DEFAULT_EXPORT_OPTIONS.quality,
 			fps: project.settings.fps,
 			includeAudio: input?.includeAudio ?? DEFAULT_EXPORT_OPTIONS.includeAudio,
 			includeWatermark: input?.includeWatermark ?? true,
-		};
+		} satisfies ExportOptions;
 
 		const result = await editor.project.export({ options });
 

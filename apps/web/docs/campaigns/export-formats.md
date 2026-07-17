@@ -1,0 +1,91 @@
+# Campaign: export-formats (C11) — 2026-07-17
+
+Branch: `campaign/export-formats` off main @2a1307a0. L1 orchestrator log (crash-survival
+state — status tables record only what HAS happened).
+
+## Objective
+
+1. **Captions/SRT+VTT export** — local (no ai-backend round-trip), timeline-time aligned,
+   validated output.
+2. **Preset matrix** — social-size presets (dimension-carrying), GIF + WebM options in the
+   export dialog, wired to the existing encoder path (no rebuild).
+3. **Export QA matrix doc** — `apps/web/docs/export/qa-matrix-2026-07-17.md`, real exports
+   ffprobed per preset.
+
+## Recon facts (verified in-tree 2026-07-17)
+
+- `renderer-manager.exportProject` always exports at `activeProject.settings.canvasSize`;
+  `ExportOptions` has NO dimensions field. The dimension plumb = optional
+  `dimensions` on `ExportOptions` → SceneExporter render-vs-output split (render scene at
+  project canvasSize, contain-fit blit onto an output canvas of preset size; elements are
+  positioned relative to canvas center, so rendering the scene itself at a different
+  aspect would recompose, not scale — blit is the correct approach).
+- mediabunny 1.29.1 has **no GIF output format** (checked `mediabunny.d.ts`: Mp4/WebM(Mkv)/
+  Mov/MpegTs/Ogg/etc, zero "gif" matches). No gif dep anywhere. GIF ⇒ clean-room GIF89a
+  encoder module (LZW + median-cut palette), no new deps (hard gate).
+- Existing SRT/VTT export (`captions.tsx` `handleExportSubtitles`) calls
+  `aiClient.generateSubtitles` — the **frozen Python ai-backend** (ADR-004); broken for
+  prod strangers. Replace with local serialization.
+- `lib/subtitles/` already has srt/vtt/ass **parsers** (MIT port) + `SubtitleCue` type —
+  use as round-trip validators for the new serializers.
+- Transcript timestamps are **asset-relative** (== trim timebase); timeline text elements
+  are timeline-time. Caption export must emit timeline time.
+- Two preset systems exist: `constants/export-constants.ts` `EXPORT_PRESETS` (wired to
+  dialog; format/quality only) and `lib/export-presets.ts` `PLATFORM_PRESETS` (has
+  canvasSize; batch-export panel). Extend the dialog's system with dimensions; don't
+  unify (out of scope).
+- `ExportFormat` consumers beyond dialog: `lib/director/tool-catalog.ts`,
+  `director-api.ts`, `lib/media/clip-reference.ts` — widening the union to "gif" must
+  keep those compiling and their schemas honest.
+- QA recipe: `e2e/real-export/golden-path-export.e2e.ts` + `playwright.real-export.config.ts`
+  + `test:e2e:real` (export stub OFF) + ffprobe — C12's machine-verified pattern.
+- Taste-gate G7 unanswered ⇒ export-dialog changes stay in the existing idiom (chips +
+  collapsible Sections), additive only, no restyle.
+
+## Plan — waves & file-cluster partition
+
+| Wave | Worker | Owned files (exclusive) | Deliverable |
+|---|---|---|---|
+| 1 | W1 captions (sonnet) | `lib/subtitles/serialize.ts`(new) + tests, `lib/export/captions.ts`(new) + tests, `panels/assets/views/captions.tsx` (export handler swap only) | Local SRT/VTT serialize + timeline-time cue collection + UI swap |
+| 1 | W2 presets (sonnet) | `types/export.ts`, `constants/export-constants.ts`, `components/editor/export-button.tsx`, `core/managers/renderer-manager.ts`, `services/renderer/scene-exporter.ts` | Dimension-carrying presets, contain-fit output plumb, dialog wiring (mp4/webm) |
+| 1 | W3 gif encoder (sonnet) | `lib/export/gif/**`(new) + tests | Clean-room GIF89a encoder to a fixed contract |
+| 2 | W4 gif wiring (sonnet, off campaign after W2+W3 merge) | scene-exporter gif branch, export-button gif option, mime/ext maps, ExportFormat union | GIF export end-to-end |
+| 3 | W5 QA (sonnet) | `e2e/real-export/preset-matrix.e2e.ts`(new), `docs/export/qa-matrix-2026-07-17.md`(new) | Real exports per preset, ffprobe evidence, QA doc |
+| 3 | L1 | — | Browser-verify dialog + captions export, screenshots |
+
+GIF encoder contract (fixed now so W4 can wire without renegotiation):
+`apps/web/src/lib/export/gif/encoder.ts` exports
+`class GifEncoder { constructor({width,height,fps,loop?}); addFrame(frame: ImageData): void; finish(): Uint8Array }`
+— GIF89a, NETSCAPE2.0 infinite loop, per-frame local color table (median-cut ≤256),
+LZW, delay = round(100/fps) cs.
+
+## Status log (append-only; only things that HAVE happened)
+
+- 2026-07-17: campaign branch created off main @2a1307a0; recon done; plan committed.
+- 2026-07-17: wave 1 dispatched — W1 (captions serialize/collect/UI-swap), W2 (preset
+  dimensions plumb + dialog), W3 (gif encoder) — sonnet, isolated worktrees, disjoint
+  owned-file sets as tabled above.
+- 2026-07-17: AUDIT on integrate — all 3 workers branched off `99ab432c` (this worktree's
+  original HEAD), NOT current main @ad40f13e; `main..branch` diffs were dominated by
+  phantom deletions of main's newer work. Real delta = each branch's single feature commit.
+  Integrated by CHERRY-PICK of the three commits onto campaign (based on main @2a1307a0):
+  W1 @fa416b60, W2 @fed37725, W3 @a800ab88 — clean, disjoint (only W2 touches types/export.ts).
+- 2026-07-17: worktree had no node_modules — symlinked from main checkout + linked
+  `.env.local`; typecheck then 0. Post-cherry-pick battery: typecheck 0, 40/40 worker tests.
+- 2026-07-17: GIF WIRING done (@3c02a09c). Design: kept `EXPORT_FORMAT_VALUES` (Director/MCP
+  verb enum + clip-reference) NARROW at mp4/webm; introduced `ExportContainerFormat`
+  (mp4/webm/gif) only at the dialog + render/mime boundary. `SceneExporter.exportGif`
+  reuses the shared render + contain-fit stage → presets apply to GIF. No audio for GIF
+  (renderer skips mixdown; dialog disables audio control). Director export verb kept narrow
+  via `satisfies` (dropped the `: ExportOptions` annotation that widened `format`).
+- 2026-07-17: BROWSER-VERIFIED the dialog (dev server :3210, E2E bridge, react-scan cleared).
+  Screenshots in `docs/export/assets/`: default (new IG Square/Portrait chips + Output line),
+  tiktok-formats (Output 1080×1920 + MP4/WebM/GIF radios), gif-audio-disabled.
+- 2026-07-17: QA MATRIX (real exports, STUB_EXPORT=0, ffprobe) — 6 presets all correct:
+  youtube mp4 1920×1080 h264, tiktok mp4 1080×1920 h264, ig-square mp4 1080×1080 h264,
+  web webm 1280×720 vp9, gif 1920×1080 GIF89a+loop 30f, gif-tiktok 1080×1920 (presets apply
+  to gif). All decode clean in ffmpeg. Doc: `docs/export/qa-matrix-2026-07-17.md`.
+- 2026-07-17: full battery on campaign tip GREEN — typecheck 0, build 0, lint 342 (<347
+  baseline), targeted tests 40/0, director export verb 7/0.
+- 2026-07-17: filed cross-campaign queue row — export mixdown must honor per-element volume
+  automation (C9 auto-duck keyframes); NOT fixed here (out of territory, non-trivial).
