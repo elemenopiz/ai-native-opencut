@@ -41,7 +41,7 @@ export function OutOfCreditsDialog() {
 							<span className="font-medium text-foreground">{needed}</span>{" "}
 							credits, but you have{" "}
 							<span className="font-medium text-foreground">{spendable}</span>{" "}
-							spendable. Local editing is always free — only cloud generation
+							available. Local editing is always free — only cloud generation
 							uses credits.
 						</p>
 					</DialogBody>

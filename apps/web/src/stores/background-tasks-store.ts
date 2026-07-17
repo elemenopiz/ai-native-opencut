@@ -51,7 +51,12 @@ interface BackgroundTasksState {
 export const useBackgroundTasksStore = create<BackgroundTasksState>(
 	(set, get) => ({
 		tasks: [],
-		isMinimized: false,
+		// BUG9: default to minimized so the widget never auto-expands over the
+		// timeline when a task starts — the user opts in to seeing the task
+		// list. addTask intentionally does NOT force isMinimized: it's a user
+		// preference that persists for the session once they toggle it (see
+		// setMinimized), not something new tasks should override.
+		isMinimized: true,
 
 		addTask: (task) => {
 			set((state) => ({
@@ -59,7 +64,6 @@ export const useBackgroundTasksStore = create<BackgroundTasksState>(
 					...state.tasks,
 					{ ...task, status: "running" as const, startedAt: Date.now() },
 				],
-				isMinimized: false,
 			}));
 		},
 

@@ -110,7 +110,7 @@ export function handleUnauthorized(
 	// normal state and this is the first money-moment touchpoint.
 	toast("Sign up to use AI features", {
 		description:
-			"Editing is free and stays on your device. Generation needs an account — new accounts come with free credits.",
+			"Editing is free and stays on your device. Cloud generation needs an account — new accounts come with free credits.",
 	});
 	window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
 	return true;

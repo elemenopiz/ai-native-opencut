@@ -40,9 +40,16 @@ export function MediaDragOverlay({
 
 			<div className="space-y-2">
 				<p className="text-muted-foreground max-w-sm text-xs">
-					{isProcessing
-						? `Processing your files (${progress}%)`
-						: "Drag and drop videos, photos, and audio files here"}
+					{isProcessing ? (
+						`Processing your files (${progress}%)`
+					) : (
+						<>
+							Drag and drop videos, photos, and audio files here
+							<br />
+							Generated clips land here too — or create one in Generate, on the
+							right
+						</>
+					)}
 				</p>
 			</div>
 

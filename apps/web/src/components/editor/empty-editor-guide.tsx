@@ -24,7 +24,7 @@ const GUIDE_STEPS: GuideStep[] = [
 		icon: AiMagicIcon,
 		title: "Ask the Director",
 		description:
-			"Open the Director tab and ask for a reel — it storyboards and shows the cost before spending",
+			"Open the Director tab and ask for a video — it storyboards and shows the cost before spending",
 		shortcut: "Director tab",
 	},
 	{
@@ -64,7 +64,7 @@ export function EmptyEditorGuide({
 			<div className="text-center">
 				<h3 className="text-sm font-medium">Get started</h3>
 				<p className="text-xs text-muted-foreground mt-1">
-					Direct your first reel
+					Direct your first video
 				</p>
 			</div>
 
@@ -88,7 +88,9 @@ export function EmptyEditorGuide({
 				<p className="text-[10px] text-muted-foreground">
 					Press{" "}
 					<kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">
-						Ctrl+K
+						{typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent)
+							? "⌘K"
+							: "Ctrl+K"}
 					</kbd>{" "}
 					for AI commands
 				</p>
