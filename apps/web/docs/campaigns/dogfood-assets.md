@@ -56,14 +56,16 @@ order-dependence baseline), and browser-verifies every fix.
 | M6 | Corrupt/truncated media file → error copy + recovery | W-UP | PARTIAL → BUG55 (error shown but phantom asset added) | w-up/m6 shot |
 | M7 | Delete (non-audio) → re-upload same file | W-UP | PASS | w-up/m7 shots ×4 |
 | M8 | Rename asset (incl. edge names) | W-DRAG | | |
-| M9 | Thumbnails while proxy generating | W-PROXY | | |
-| M10 | Failed proxy state + recovery | W-PROXY | | |
-| M11 | HEVC fixture ingest/preview (real Chrome) | W-PROXY | | |
-| M12 | Portrait 1080x1920 fixture tile/preview | W-PROXY | | |
-| M13 | Big file (≥500MB-class) upload/preview | W-PROXY | | |
+| M9 | Thumbnails while proxy generating | W-PROXY | PASS (cross-confirmed via M16/M11) → BUG57 rider | w-proxy/FINDINGS.md |
+| M10 | Failed proxy state + recovery | W-PROXY(+2) | PARTIAL → BUG58; full lifecycle re-run = W-PROXY2 | w-proxy/m10 shot |
+| M11 | HEVC fixture ingest/preview (real Chrome) | W-PROXY | PASS ×2 clean (passthrough hev1 + proxy trigger correct) | w-proxy/m11 shots ×5 |
+| M12 | Portrait 1080x1920 fixture tile/preview | W-PROXY | PASS (dims correct; object-cover crop; list-view toggle not reached) | w-proxy/m12 shots |
+| M13 | Big file (≥500MB-class) upload/preview | W-PROXY | PASS ×2 (394MB/70min in 21–59s, no freeze/crash) | w-proxy/m13 shots |
 | M14 | Drag-to-timeline from grid view | W-DRAG | | |
 | M15 | Drag-to-timeline from other views (search/filtered/etc.) | W-DRAG | | |
-| M16 | Drag DURING proxy generation | W-PROXY | | |
+| M16 | Drag DURING proxy generation | W-PROXY | PASS structural (insert succeeds) → BUG59 rider (black preview right after; root cause unconfirmed) | w-proxy/m16 shots |
+| M21 | (extra) VFR-ish clip ingest | W-PROXY | PASS — positive: averaged fps (12) measured, nominal 30 ignored | w-proxy/FINDINGS.md F4 |
+| M22 | (extra) Thumbnail persistence after reload | W-PROXY2 | (in flight — was NOT-RUN, env-blocked) | |
 | M17 | Drag-overlay states (empty vs drag-active) | W-DRAG | | |
 | M18 | Context menu: full item sweep per asset type | W-DRAG | | |
 | M19 | Context menu: per-asset Download @b8e354a2 (video/image/audio/generated) | W-DRAG | | |
@@ -97,6 +99,24 @@ order-dependence baseline), and browser-verifies every fix.
   drag/menu matrix; branch task/c26-hunt-drag2 off @8d686b82). Both briefs require a
   proof-of-life commit within ~15 min. M19 briefs now include the two L1 desk-review
   Download suspicions to test explicitly.
+- 2026-07-18: L0 correction — original W-PROXY was STARVED, not dead (host: 5+ dev
+  servers, ~130MB free RAM, 30-min cold compiles): it completed a full report
+  @bc3fc723. Merged @ce1466aa (add/add conflict on FINDINGS.md resolved theirs — full
+  report supersedes ported skeleton). Matrix M9/M11/M12/M13/M16 PASS, M10 PARTIAL.
+  BUG57–BUG60 allocated (F4 = positive, logged only). W-PROXY2 re-scoped mid-flight via
+  message: ONLY M10 full-run + reload-persistence extra; proof-of-life @8508d0a1.
+  HOST RULE adopted (all future briefs): max ONE dev server per campaign; note load
+  average beside any timing claim.
+- 2026-07-18: W-DRAG2 proof-of-life @c498aede (setup log + matrix skeleton NOT-RUN).
+- 2026-07-18: W-FIX parked itself mid-run ("waiting for notifications" failure mode)
+  with ZERO commits but a complete-looking working tree. Per doctrine NOT resumed. L1
+  reviewed the full diff in its worktree: BUG55 skip mirrors the existing junk-type
+  skip idiom (continue-before-accounting is pre-existing, consistent); BUG56 signature
+  helper + within-batch dedupe correct; regression test flipped from asserting the
+  phantom asset to asserting length 0. Unit validation in the fixer worktree: 27/27
+  pass across the 3 test files. Files adopted into the campaign worktree; typecheck
+  running; browser acceptance (4 scenarios, script c26-fix.verify.ts) delegated to
+  W-FIX2 alongside the BUG58 mini-fix.
 
 ## Findings ledger (BUG55–69 allocations)
 
@@ -113,6 +133,27 @@ order-dependence baseline), and browser-verifies every fix.
   Repro + evidence: w-up/FINDINGS.md. → fix-forward (W-FIX): informational dupe toast in
   `processFiles` (name+size match against existing assets); NO touch to
   AddMediaAssetCommand (media-store commands = C25 territory).
+- **BUG57 (P2, = W-PROXY-F1):** no per-tile indicator while a proxy generates — only the
+  asset-agnostic "N task running" chip; `MediaPreview()` (assets.tsx ~L865–944) renders
+  purely off `thumbnailUrl`/`type`, never reads `isProxyGenerating(assetId)`
+  (`core/managers/media-manager.ts` ~L419). Confirmed with state capture at screenshot
+  instant. Evidence: w-proxy/m11-01 vs m11-02, m16-01.
+- **BUG58 (P2, = W-PROXY-F2):** SIBLING of BUG55, different path — corrupt file whose
+  faststart header probes CLEAN (good width/height/duration/fps) gets NO thumbnail and NO
+  error at all: `getVideoInfo()` + `generateThumbnail()` share one try/catch whose catch
+  is `console.warn` only (processing.ts video branch); metadata fields populate before the
+  decode fails, so the asset looks valid minus thumbnail. Deterministic ffmpeg+dd repro in
+  w-proxy/FINDINGS.md. Proxy-attempt lifecycle on the corrupt asset = W-PROXY2 follow-up.
+- **BUG59 (P3, = W-PROXY-F3, root cause UNCONFIRMED):** preview canvas center pixel reads
+  solid black immediately after inserting a still-proxying clip (insert itself succeeds,
+  timeline strip renders). No control run against a non-proxying clip yet — may be generic
+  compositor warm-up, not proxy-specific. Control experiment specified in FINDINGS.
+- **BUG60 (P3, = W-PROXY-F5, pattern only):** 8–25 `net::ERR_ABORTED` failures against a
+  single `blob:` URL per run during ingest/preview (M11/M13/M16 captures) — something
+  re-requests an already-created object URL repeatedly; nothing visibly breaks. For
+  whoever next touches `services/video-cache/` / preview media-element lifecycle.
+- **(positive, no row) W-PROXY-F4:** VFR clip correctly measured to averaged fps (12) vs
+  nominal container 30 — recorded so nobody re-derives it as a mystery.
 
 ## Close-out
 
