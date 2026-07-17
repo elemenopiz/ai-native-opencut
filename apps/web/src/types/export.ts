@@ -16,6 +16,15 @@ export interface ExportOptions {
 	fps?: number;
 	includeAudio?: boolean;
 	includeWatermark?: boolean;
+	/**
+	 * Output pixel dimensions for a platform preset (e.g. 1080x1920 for
+	 * TikTok/Reels). The scene is still built and rendered at the project's
+	 * own canvasSize — this only controls the final output canvas, which the
+	 * rendered frame is contain-fit (scaled + letterboxed/pillarboxed) into.
+	 * Omitted (or Custom preset) means "use the project's canvasSize", which
+	 * is a pure passthrough with no extra blit.
+	 */
+	dimensions?: { width: number; height: number };
 }
 
 export interface ExportResult {

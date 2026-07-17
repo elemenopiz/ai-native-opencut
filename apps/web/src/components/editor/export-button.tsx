@@ -138,6 +138,13 @@ function ExportPopover({
 	const [shouldIncludeWatermark, setShouldIncludeWatermark] = useState(true);
 	const [isExportingCapcutDraft, setIsExportingCapcutDraft] = useState(false);
 	const [isBatchOpen, setIsBatchOpen] = useState(false);
+	// Staged output dimensions from the selected preset. `null` means "use the
+	// project's own canvasSize" — the Custom preset and deselecting both fall
+	// back to this by clearing it.
+	const [dimensions, setDimensions] = useState<{
+		width: number;
+		height: number;
+	} | null>(null);
 
 	const handlePresetSelect = (presetId: string) => {
 		const preset = EXPORT_PRESETS.find((p) => p.id === presetId);
@@ -147,9 +154,13 @@ function ExportPopover({
 		if (isExportQuality(preset.options.quality))
 			setQuality(preset.options.quality);
 		setShouldIncludeAudio(preset.options.includeAudio ?? true);
+		setDimensions(preset.canvasSize ?? null);
 	};
 
 	const selectedPreset = EXPORT_PRESETS.find((p) => p.id === selectedPresetId);
+
+	const effectiveOutputSize =
+		dimensions ?? activeProject?.settings.canvasSize ?? null;
 
 	const handleExport = async () => {
 		if (!activeProject) return;
@@ -162,6 +173,7 @@ function ExportPopover({
 				fps: activeProject.settings.fps,
 				includeAudio: shouldIncludeAudio,
 				includeWatermark: shouldIncludeWatermark,
+				dimensions: dimensions ?? undefined,
 			},
 		});
 
@@ -277,6 +289,12 @@ function ExportPopover({
 									{selectedPreset?.tip && (
 										<p className="text-[10px] text-muted-foreground mt-2 leading-relaxed">
 											{selectedPreset.tip}
+										</p>
+									)}
+									{effectiveOutputSize && (
+										<p className="text-[10px] text-muted-foreground/70 mt-1">
+											Output: {effectiveOutputSize.width}x
+											{effectiveOutputSize.height}
 										</p>
 									)}
 								</div>

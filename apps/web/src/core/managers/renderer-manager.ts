@@ -107,7 +107,8 @@ export class RendererManager {
 		onProgress?: ({ progress }: { progress: number }) => void;
 		onCancel?: () => boolean;
 	}): Promise<ExportResult> {
-		const { format, quality, fps, includeAudio, includeWatermark } = options;
+		const { format, quality, fps, includeAudio, includeWatermark, dimensions } =
+			options;
 
 		try {
 			const tracks = this.editor.timeline.getTracks();
@@ -145,6 +146,14 @@ export class RendererManager {
 
 			const exportFps = fps || activeProject.settings.fps;
 			const canvasSize = activeProject.settings.canvasSize;
+			// The scene is always BUILT and RENDERED at the project's own
+			// canvasSize — scene elements are positioned in absolute canvas
+			// coordinates relative to it, so rendering at a different size would
+			// recompose (crop/reveal) the shot. A preset's dimensions only
+			// control the final output canvas; SceneExporter contain-fit blits
+			// each rendered frame onto it. No dimensions (Custom / default) means
+			// outputSize === canvasSize, which SceneExporter treats as a no-op.
+			const outputSize = dimensions ?? canvasSize;
 
 			let audioBuffer: AudioBuffer | null = null;
 			if (includeAudio) {
@@ -174,6 +183,7 @@ export class RendererManager {
 				quality,
 				shouldIncludeAudio: !!includeAudio,
 				audioBuffer: audioBuffer || undefined,
+				outputSize,
 			});
 
 			exporter.on("progress", (progress) => {

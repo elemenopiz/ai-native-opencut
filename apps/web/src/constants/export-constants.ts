@@ -21,50 +21,70 @@ export interface ExportPreset {
 	description: string;
 	options: ExportOptions;
 	tip?: string;
+	/**
+	 * Output pixel dimensions this preset targets. Omitted for presets that
+	 * should render at whatever size the project already is (Custom,
+	 * Podcast — audio-only, dimensions are moot).
+	 */
+	canvasSize?: { width: number; height: number };
 }
 
 export const EXPORT_PRESETS: ExportPreset[] = [
 	{
 		id: "youtube",
 		name: "YouTube",
-		description: "1080p MP4, best compatibility",
+		description: "16:9 · 1920x1080 · MP4",
 		options: { format: "mp4", quality: "high", includeAudio: true },
 		tip: "YouTube re-encodes everything, so high quality gives the best result after processing.",
+		canvasSize: { width: 1920, height: 1080 },
 	},
 	{
 		id: "youtube-4k",
 		name: "YouTube 4K",
-		description: "Maximum quality for large screens",
+		description: "16:9 · 3840x2160 · MP4",
 		options: { format: "mp4", quality: "very_high", includeAudio: true },
 		tip: "Upload at the highest quality your source allows. YouTube will create lower-res versions automatically.",
+		canvasSize: { width: 3840, height: 2160 },
 	},
 	{
 		id: "tiktok",
 		name: "TikTok / Reels",
-		description: "9:16 MP4, optimized for mobile",
+		description: "9:16 · 1080x1920 · MP4",
 		options: { format: "mp4", quality: "high", includeAudio: true },
 		tip: "Keep under 60s for best reach. TikTok compresses heavily, so export at high quality.",
+		canvasSize: { width: 1080, height: 1920 },
+	},
+	{
+		id: "instagram-square",
+		name: "Instagram Square",
+		description: "1:1 · 1080x1080 · MP4",
+		options: { format: "mp4", quality: "high", includeAudio: true },
+		tip: "Square works best for feed posts viewed on both mobile and desktop.",
+		canvasSize: { width: 1080, height: 1080 },
 	},
 	{
 		id: "instagram",
-		name: "Instagram",
-		description: "MP4, works for feed, stories, and reels",
+		name: "Instagram Portrait",
+		description: "4:5 · 1080x1350 · MP4",
 		options: { format: "mp4", quality: "high", includeAudio: true },
-		tip: "Square (1:1) for feed posts, vertical (9:16) for stories and reels.",
+		tip: "4:5 fills more of the feed than 1:1 without cropping to a full story.",
+		canvasSize: { width: 1080, height: 1350 },
 	},
 	{
 		id: "twitter",
 		name: "Twitter / X",
-		description: "MP4, 2 min 20s limit on free tier",
+		description: "16:9 · 1280x720 · MP4, 2 min 20s limit on free tier",
 		options: { format: "mp4", quality: "medium", includeAudio: true },
 		tip: "Twitter has a 512MB limit. Medium quality keeps file size manageable.",
+		canvasSize: { width: 1280, height: 720 },
 	},
 	{
 		id: "web",
 		name: "Web / email",
-		description: "WebM, smaller file size",
+		description: "16:9 · 1280x720 · WebM, smaller file size",
 		options: { format: "webm", quality: "medium", includeAudio: true },
 		tip: "WebM gives smaller files for embedding in websites. Not all email clients support video.",
+		canvasSize: { width: 1280, height: 720 },
 	},
 	{
 		id: "podcast",
