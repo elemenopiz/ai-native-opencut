@@ -50,6 +50,7 @@ import {
 	type FrameDecodeSource,
 } from "@/lib/media/frame-extraction";
 import type { DerivedFrom, DerivedFrameLabel } from "@/services/storage/types";
+import { downloadMediaAsset } from "@/lib/media-download";
 import { cn } from "@/utils/ui";
 import {
 	CloudUploadIcon,
@@ -61,6 +62,7 @@ import {
 	Video01Icon,
 	SparklesIcon,
 	ImageCropIcon,
+	Download01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 
@@ -514,7 +516,20 @@ function MediaItemWithContextMenu({
 						</ContextMenuItem>
 					</>
 				)}
-				<ContextMenuItem>Export clips</ContextMenuItem>
+				<ContextMenuItem
+					icon={<HugeiconsIcon icon={Download01Icon} />}
+					onClick={() => {
+						try {
+							downloadMediaAsset(item);
+						} catch (err) {
+							toast.error(
+								err instanceof Error ? err.message : "Couldn't download.",
+							);
+						}
+					}}
+				>
+					Download
+				</ContextMenuItem>
 				<ContextMenuItem
 					variant="destructive"
 					onClick={(event) => onRemove({ event, id: item.id })}
