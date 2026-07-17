@@ -16,6 +16,20 @@ export class UpdateElementStartTimeCommand extends Command {
 		startTime: number;
 	}) {
 		super();
+		if (
+			!Array.isArray(elements) ||
+			elements.some(
+				(element) =>
+					typeof element !== "object" ||
+					element === null ||
+					typeof element.trackId !== "string" ||
+					typeof element.elementId !== "string",
+			)
+		) {
+			throw new Error(
+				`UpdateElementStartTimeCommand: "elements" must be an array of { trackId, elementId }; got ${JSON.stringify(elements)}`,
+			);
+		}
 		this.elements = elements;
 		this.startTime = startTime;
 	}
