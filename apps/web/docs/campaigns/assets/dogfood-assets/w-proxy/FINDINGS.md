@@ -1,18 +1,19 @@
 # W-PROXY — Assets panel PREVIEW/PROXY/THUMBNAIL cluster hunt
 
 Campaign C26 (dogfood hunt). Worker: W-PROXY2 (replacing stalled W-PROXY).
-Branch: `task/c26-hunt-proxy2`, forked from `campaign/dogfood-assets` (which
-carries W-PROXY's ported artifacts: hunt script, config, 15 screenshots,
-this findings skeleton). Scope for this re-run is cut down to M9/M10/M11/M12
-(+M16 if time remains); M13 and the VFR/reload extras are explicitly
-out-of-scope for this pass and marked NOT-RUN below.
+Branch: `task/c26-hunt-proxy2`, forked from `campaign/dogfood-assets`.
 
-Setup-in-progress note (proof of life): env copied, deps installed, corrupt
-big-res fixture regenerated (the original was gitignored/ephemeral and not
-present on this branch), dev server starting on :3302. Verdicts below are
-filled in as each scenario completes.
-
-Predecessor's original scope note follows.
+**SUPERSEDED — read this note before the table below.** W-PROXY was NOT
+actually dead: it completed a full report on `task/c26-hunt-proxy` @
+`bc3fc723` (M9/M11/M12/M13/M16 = PASS, M10 = PARTIAL, findings F1-F5). This
+copy of FINDINGS.md predates that discovery and its M9-M16 rows below are
+STALE/UNRELIABLE — do not use them. The authoritative base report is
+`task/c26-hunt-proxy`'s `apps/web/docs/campaigns/assets/dogfood-assets/w-proxy/FINDINGS.md`
+@ `bc3fc723`. W-PROXY2's actual contribution is a scoped addendum covering
+just the two gaps that report left open (M10 full lifecycle + reload
+persistence) — see
+`apps/web/docs/campaigns/assets/dogfood-assets/w-proxy2/FINDINGS-ADDENDUM.md`
+on this branch for that (both ended up environment-blocked; see that doc).
 Read-only on product source -- this doc + screenshots + throwaway hunt
 scripts under `apps/web/e2e/hunt/` are the only deliverables.
 
