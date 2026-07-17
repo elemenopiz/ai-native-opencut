@@ -62,3 +62,6 @@ LZW, delay = round(100/fps) cs.
 ## Status log (append-only; only things that HAVE happened)
 
 - 2026-07-17: campaign branch created off main @2a1307a0; recon done; plan committed.
+- 2026-07-17: wave 1 dispatched — W1 (captions serialize/collect/UI-swap), W2 (preset
+  dimensions plumb + dialog), W3 (gif encoder) — sonnet, isolated worktrees, disjoint
+  owned-file sets as tabled above.
