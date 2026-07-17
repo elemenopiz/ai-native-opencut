@@ -525,22 +525,21 @@ describe("getTranscript → windowSegments(start, end) positional ?? fallbacks (
 // 4. Out-of-territory finding — buildSpec (director-api.ts) IS vulnerable
 // ---------------------------------------------------------------------------
 
-describe.skip(
-	"[FINDING, not fixed here] buildSpec (director-api.ts:577-590) — a real " +
-		"'{...DEFAULTS, ...overrides}' spread, vulnerable to the exact bug class " +
-		"this file sweeps for",
+describe(
+	"[BUG31, fixed] buildSpec (director-api.ts) — regression pin for the " +
+		"'{...DEFAULTS, ...overrides}' undefined-clobbers-defaults bug class",
 	() => {
 		/**
-		 * `buildSpec` (director-api.ts:577-590):
+		 * `buildSpec` (director-api.ts, near line 578) used to read:
 		 *   return { mode: "text-to-video", resolution: "480p", orientation:
 		 *   "portrait", ...overrides, prompt, duration };
 		 * `overrides` is `applyReferenceMediaId(input.spec)` — a caller-supplied
-		 * `Partial<GenerationSpec>` (`SpecOverride`). This is STRUCTURALLY the
+		 * `Partial<GenerationSpec>` (`SpecOverride`). This was STRUCTURALLY the
 		 * pre-fix auto-cut shape: an explicit-but-undefined key in `overrides`
-		 * (e.g. `{ mode: undefined }`) SURVIVES the spread and clobbers the
+		 * (e.g. `{ mode: undefined }`) survived the spread and clobbered the
 		 * "text-to-video"/"480p"/"portrait" literals with `undefined`.
 		 *
-		 * NOT currently reachable in production: the only caller that builds a
+		 * NOT reachable in production today: the only caller that builds a
 		 * `SpecOverride` is `tool-catalog.ts`'s `asSpecOverride()`
 		 * (tool-catalog.ts:109-134), which uses a key-omission guard (`if (o.x
 		 * != null) out.x = ...`) and therefore never emits an explicit-undefined
@@ -549,21 +548,16 @@ describe.skip(
 		 * `applyBriefPatch`/etc. are proven safe elsewhere in this file WITHOUT
 		 * relying on a caller-side guard.
 		 *
-		 * `reserveSlot` (director-api.ts:1531-1555) and `storyboard`'s per-shot
-		 * spec (director-api.ts:1616-1620) both funnel through `buildSpec` and
-		 * are equally exposed.
+		 * `reserveSlot` (director-api.ts:1553-1568) and `storyboard`'s per-shot
+		 * spec (director-api.ts:1598-1641) both funnel through `buildSpec` and
+		 * were equally exposed.
 		 *
-		 * EXPECTED (safe): `mode` falls back to `buildSpec`'s own
-		 * "text-to-video" default, exactly like `resolveOptions` now does for
-		 * auto-cut.
-		 * ACTUAL (bug, if this test is unskipped against the current code):
-		 * `generation.mode === undefined`.
-		 *
-		 * Not fixed here: the fix belongs in `buildSpec` inside director-api.ts,
-		 * which this campaign task explicitly excludes from editing. Reported
-		 * as an out-of-territory finding instead (see campaign report).
+		 * FIX: `buildSpec` now strips `undefined`-valued keys out of `overrides`
+		 * before spreading, mirroring `resolveOptions` in auto-cut/engine.ts.
+		 * `mode` now falls back to `buildSpec`'s own "text-to-video" default,
+		 * and this test pins that behavior as a regression guard.
 		 */
-		it("an explicit-undefined `mode` override clobbers buildSpec's own 'text-to-video' default", () => {
+		it("an explicit-undefined `mode` override falls back to buildSpec's own 'text-to-video' default", () => {
 			const fake = makeFakeEditor();
 			const d = createDirectorApi(fake.editor);
 			const res = d.reserveSlot({

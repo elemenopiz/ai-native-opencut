@@ -574,17 +574,29 @@ function describeSlotGeneration(
  * reserveSlot supply these. The resolved `prompt`/`duration` (already merged
  * from caller input by the verb) are authoritative; `overrides` fills in the
  * optional fields and may bump the defaults for mode/resolution/orientation.
+ *
+ * Keys explicitly present in `overrides` but `undefined` must NOT clobber the
+ * defaults above, so undefined values are stripped before merging (same
+ * idiom as `resolveOptions` in auto-cut/engine.ts).
  */
 function buildSpec(
 	prompt: string,
 	duration: number,
 	overrides?: Partial<GenerationSpec>,
 ): GenerationSpec {
+	const cleanOverrides: Partial<GenerationSpec> = {};
+	if (overrides) {
+		for (const [key, value] of Object.entries(overrides)) {
+			if (value !== undefined) {
+				(cleanOverrides as Record<string, unknown>)[key] = value;
+			}
+		}
+	}
 	return {
 		mode: "text-to-video",
 		resolution: "480p",
 		orientation: "portrait",
-		...overrides,
+		...cleanOverrides,
 		prompt,
 		duration,
 	};
