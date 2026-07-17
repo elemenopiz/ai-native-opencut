@@ -1,0 +1,12 @@
+[run1-t0] import done in 4017ms, asset=a0a8f45a-abe4-4245-9f01-c700d63be7b0
+[run1-t0] proxy state after import: timeout
+[run1-t0] proxy generating at mutation time (t+0ms): true
+[run1-t0] mutation -> next rAF: 905.5ms
+[run1-t0] cpuprofile written: /Users/zsha/Documents/ai-native-opencut/.claude/worktrees/agent-adf3b821fd5da4d24/apps/web/docs/perf/bug14-evidence/run1-t0.cpuprofile
+[run1-t0] longtasks captured: 39 — [{"name":"self","start":37210.200000047684,"duration":290},{"name":"self","start":39495.09999990463,"duration":175},{"name":"self","start":39686,"duration":70},{"name":"self","start":39768.59999990463,"duration":556},{"name":"self","start":40343.59999990463,"duration":451},{"name":"self","start":43213.89999985695,"duration":164},{"name":"self","start":61789.700000047684,"duration":314},{"name":"self","start":62210.200000047684,"duration":362},{"name":"self","start":64316,"duration":58},{"name":"self","start":64409.299999952316,"duration":815}]
+[run2-t1000] import done in 3080ms, asset=02c1f4c3-f921-4e46-9e6d-754ffe58c2f3
+[run2-t1000] proxy state after import: generating
+[run2-t1000] proxy generating at mutation time (t+1000ms): true
+[run2-t1000] mutation -> next rAF: 875.7ms
+[run2-t1000] cpuprofile written: /Users/zsha/Documents/ai-native-opencut/.claude/worktrees/agent-adf3b821fd5da4d24/apps/web/docs/perf/bug14-evidence/run2-t1000.cpuprofile
+[run2-t1000] longtasks captured: 52 — [{"name":"self","start":55999,"duration":202},{"name":"self","start":56815.199999809265,"duration":72},{"name":"self","start":57292.299999952316,"duration":262},{"name":"self","start":58850.5,"duration":293},{"name":"self","start":59213.699999809265,"duration":675},{"name":"self","start":59889.39999985695,"duration":83},{"name":"self","start":60067.39999985695,"duration":62},{"name":"self","start":63038.699999809265,"duration":72},{"name":"self","start":63506.5,"duration":53},{"name":"self","start":64888.09999990463,"duration":93}]
