@@ -39,7 +39,8 @@ ID range: BUG36–BUG39 (checked queue §2 — no existing rows cover these pack
 
 ## Status (records the past only)
 
-- 2026-07-18: kickoff — recon done, plan committed, workers not yet dispatched.
+- 2026-07-18: kickoff — recon done, plan committed.
+- 2026-07-18: W1–W4 dispatched (sonnet, isolated worktrees, background) per the partition table.
 
 ## Packet notes
 
