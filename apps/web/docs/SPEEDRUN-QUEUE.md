@@ -140,7 +140,7 @@ multicam, Palmier delta items not yet integrated (see branch row), CapCut poach 
 
 | Session | Item(s) | Owned files | Since |
 |---|---|---|---|
-| — | — | — | — |
+| C5 perf-wave (L1 + 5 workers) | P1, P2, BUG2, BUG14, BUG15, BUG16 | services/renderer/**, services/video-cache/**, compositor worker code, stores/* (incl. generation-status-store.ts), perf docs | 2026-07-17 |
 
 ## Done log (move rows here with sha + verification tier)
 
