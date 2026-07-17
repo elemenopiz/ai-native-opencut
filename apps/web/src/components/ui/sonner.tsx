@@ -12,8 +12,14 @@ const Toaster = ({ ...props }: ToasterProps) => {
 		<Sonner
 			theme={theme as ToasterProps["theme"]}
 			className="toaster group"
-			position="top-center"
-			offset={20}
+			// bottom-left: top-center collided with the top-center version-control
+			// pill (always) and the right-anchored export popover (narrow
+			// viewports) — see apps/web/docs/campaigns/bug-purge-w2.md BUG8.
+			// Bottom-left clears both; the timeline panel's own bottom-left
+			// padding (`px-3 pb-3` in the editor grid) keeps this off the track
+			// labels column.
+			position="bottom-left"
+			offset={{ bottom: "24px", left: "24px" }}
 			toastOptions={{
 				classNames: {
 					toast:
