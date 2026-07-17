@@ -1,9 +1,22 @@
 /**
- * Google Veo 3.1 (Standard + Fast) adapters — mocks only `global.fetch`
- * (real Gemini API LRO shape: submit at `/models/{model}:predictLongRunning`,
+ * Google Veo 3.1 (Standard + Fast) adapters — mocks `global.fetch` for the
+ * real Gemini API LRO shape (submit at `/models/{model}:predictLongRunning`,
  * poll at `/{operationName}`) and toggles `webEnv.GEMINI_API_KEY`/
  * `GEMINI_VEO_MODEL`/`GEMINI_VEO_FAST_MODEL` directly (plain mutable object,
- * no `mock.module` needed).
+ * no `mock.module` needed for those).
+ *
+ * Reference-media downloads (`referenceImageUrl`/`lastFrameUrl`/
+ * `referenceImages[]`) no longer go through `global.fetch` — they're routed
+ * through the shared SSRF-guarded `fetchReferenceMediaSafely`
+ * (`@/lib/studio/reference-fetch`), which pins its own socket (node
+ * http/https), bypassing any `global.fetch` stub entirely. That module is
+ * mocked here instead (`@/lib/studio/reference-fetch` is fully covered on
+ * its own in `../../__tests__/reference-fetch.test.ts` — the SSRF-guard
+ * behavior itself isn't re-tested per adapter). Per this repo's
+ * `mock.module`-before-dynamic-import convention (see
+ * `upload-url-route.test.ts`), the mock is registered before the adapters
+ * are imported so the binding baked into `google-veo.ts` is the mock, not
+ * the real implementation.
  *
  * `global.fetch` is captured/restored in `afterEach` — `mock.restore()` alone
  * does NOT undo a direct property assignment, so without this the stub leaks
@@ -11,11 +24,28 @@
  * known gotcha documented in `agent-streaming.test.ts` and mirrored in the
  * `fal-mmaudio.test.ts` audio adapter tests).
  */
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { webEnv } from "@byorn/env/web";
 import { costFor } from "@/lib/credits/cost-table";
-import { googleVeoBackend } from "../google-veo";
-import { googleVeoFastBackend } from "../google-veo-fast";
+
+const referenceFetchCalls: string[] = [];
+let referenceFetchShouldFail = false;
+
+mock.module("@/lib/studio/reference-fetch", () => ({
+	fetchReferenceMediaSafely: async (url: string) => {
+		referenceFetchCalls.push(url);
+		if (referenceFetchShouldFail) {
+			throw new Error("Failed to fetch reference media");
+		}
+		return {
+			contentType: "image/png",
+			arrayBuffer: new Uint8Array([1, 2, 3]).buffer,
+		};
+	},
+}));
+
+const { googleVeoBackend } = await import("../google-veo");
+const { googleVeoFastBackend } = await import("../google-veo-fast");
 
 const originalFetch = globalThis.fetch;
 const originalKey = webEnv.GEMINI_API_KEY;
@@ -29,10 +59,13 @@ afterEach(() => {
 	webEnv.GEMINI_BASE_URL = originalBase;
 	webEnv.GEMINI_VEO_MODEL = originalModel;
 	webEnv.GEMINI_VEO_FAST_MODEL = originalFastModel;
+	referenceFetchCalls.length = 0;
+	referenceFetchShouldFail = false;
 });
 
-/** A fetch stub that routes Gemini API calls to `onApi` and treats every
- *  other URL as a reference-media download (returns tiny binary bytes). */
+/** A fetch stub for the Gemini API calls (submit/poll) — reference-media
+ *  downloads are handled by the `fetchReferenceMediaSafely` mock above, not
+ *  `global.fetch`. */
 function stubFetch(
 	onApi: (url: string, init?: RequestInit) => Response | Promise<Response>,
 ) {
@@ -41,11 +74,7 @@ function stubFetch(
 		if (u.includes("generativelanguage.googleapis.com")) {
 			return onApi(u, init);
 		}
-		// Reference-image download.
-		return new Response(new Uint8Array([1, 2, 3]), {
-			status: 200,
-			headers: { "content-type": "image/png" },
-		});
+		throw new Error(`unexpected global.fetch call in test: ${u}`);
 	}) as unknown as typeof fetch;
 }
 
@@ -275,6 +304,54 @@ describe("googleVeoBackend.submit", () => {
 		expect(params.personGeneration).toBe("allow_adult");
 		// Reference conditioning also forces the 8s duration floor.
 		expect(params.durationSeconds).toBe("8");
+	});
+
+	it("routes referenceImageUrl, lastFrameUrl, and referenceImages through the shared SSRF guard", async () => {
+		stubFetch(
+			() => new Response(JSON.stringify({ name: "op-1" }), { status: 200 }),
+		);
+
+		await googleVeoBackend.submit({
+			modality: "video",
+			prompt: "x",
+			mode: "image-to-video",
+			referenceImageUrl: "https://cdn.example/frame.png",
+			lastFrameUrl: "https://cdn.example/last.png",
+			referenceImages: ["https://cdn.example/a.png"],
+		});
+
+		// Every caller-supplied reference URL went through
+		// `fetchReferenceMediaSafely`, not a bare fetch.
+		expect(referenceFetchCalls.sort()).toEqual(
+			[
+				"https://cdn.example/frame.png",
+				"https://cdn.example/last.png",
+				"https://cdn.example/a.png",
+			].sort(),
+		);
+	});
+
+	it("omits the reference field (never throws) when the SSRF guard rejects a reference URL", async () => {
+		referenceFetchShouldFail = true;
+		let capturedBody: Record<string, unknown> = {};
+		stubFetch((_url, init) => {
+			capturedBody = JSON.parse(init?.body as string);
+			return new Response(JSON.stringify({ name: "op-1" }), { status: 200 });
+		});
+
+		const result = await googleVeoBackend.submit({
+			modality: "video",
+			prompt: "x",
+			mode: "image-to-video",
+			referenceImageUrl: "http://169.254.169.254/latest/meta-data/",
+		});
+
+		// google-veo's existing contract: a reference fetch failure (guard
+		// rejection included) omits that field and still submits — it never
+		// surfaces the SSRF rejection detail to the caller.
+		expect(result.status).not.toBe("failed");
+		const instances = capturedBody.instances as Array<Record<string, unknown>>;
+		expect(instances[0].image).toBeUndefined();
 	});
 
 	it("returns a failed SubmitResult (never throws) on a provider error", async () => {

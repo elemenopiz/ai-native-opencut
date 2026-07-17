@@ -21,7 +21,13 @@
  * {@link ErrorReportingAdapter} and calling {@link setErrorReportingAdapter}
  * from `instrumentation.ts` — inside this file is the ONLY place the adapter
  * is invoked, so swapping providers never touches capture sites.
+ *
+ * ADR-002 follow-up — generic vendor-alerting webhook: see {@link sendAlert}
+ * below. Dep-free, env-gated, fail-soft; unset env ⇒ byte-identical to no
+ * adapter at all.
  */
+
+import { redactSecrets } from "./intake";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
@@ -176,6 +182,156 @@ export function normalizeError(error: unknown): NormalizedError {
 	return { name: "NonError", message: safeStringify(error) };
 }
 
+/* ---------------------------------------------------------------------------
+ * ADR-002 vendor-alerting adapter: generic webhook forwarder.
+ *
+ * Unset `OBSERVABILITY_ALERT_WEBHOOK_URL` ⇒ this whole block is a no-op and
+ * `reportError`'s behavior is byte-identical to before this existed. Set it
+ * to any HTTPS endpoint that accepts a JSON POST (Slack incoming webhook,
+ * PagerDuty Events API v2, Zapier/Make catch hook, a custom relay, …) to get
+ * push alerts on top of the structured log lines.
+ *
+ * NOT a Sentry SDK integration: hand-rolling Sentry's envelope/store HTTP API
+ * (X-Sentry-Auth header, event-id + envelope framing, DSN parsing) is easy to
+ * get subtly wrong in ways that silently drop events, which defeats the point
+ * of an alerting adapter. That's exactly what an SDK is for. When the user
+ * picks a vendor, `@sentry/nextjs` (or similar) remains the one-file change
+ * ADR-002 promises — replace this block's body, or register an
+ * {@link ErrorReportingAdapter} via {@link setErrorReportingAdapter}. Shipping
+ * only the generic forwarder here, not a SENTRY_DSN path, is a deliberate
+ * scope call, not an oversight.
+ * ------------------------------------------------------------------------- */
+
+const ALERT_WEBHOOK_URL_ENV = "OBSERVABILITY_ALERT_WEBHOOK_URL";
+
+/** Hard cap on the JSON body POSTed to the webhook. */
+const MAX_ALERT_PAYLOAD_BYTES = 8 * 1024;
+const MAX_ALERT_MESSAGE_CHARS = 2_000;
+const MAX_ALERT_STACK_CHARS = 4_000;
+
+/** Fixed-window in-module rate limit so an error storm can't DDoS the webhook. */
+const ALERT_RATE_LIMIT_MAX = 10;
+const ALERT_RATE_LIMIT_WINDOW_MS = 60_000;
+let alertRateWindowStart = 0;
+let alertRateWindowCount = 0;
+let alertDropCount = 0;
+let alertFailureCount = 0;
+
+/** Test-only introspection/reset — never used from production code paths. */
+export function __resetAlertStateForTests(): void {
+	alertRateWindowStart = 0;
+	alertRateWindowCount = 0;
+	alertDropCount = 0;
+	alertFailureCount = 0;
+}
+export function __getAlertStatsForTests(): {
+	drops: number;
+	failures: number;
+} {
+	return { drops: alertDropCount, failures: alertFailureCount };
+}
+
+function takeAlertRateLimitToken(now: number): boolean {
+	if (now - alertRateWindowStart >= ALERT_RATE_LIMIT_WINDOW_MS) {
+		alertRateWindowStart = now;
+		alertRateWindowCount = 0;
+	}
+	if (alertRateWindowCount >= ALERT_RATE_LIMIT_MAX) {
+		alertDropCount += 1;
+		return false;
+	}
+	alertRateWindowCount += 1;
+	return true;
+}
+
+function truncateForAlert(value: string, max: number): string {
+	return value.length > max ? `${value.slice(0, max)}…[truncated]` : value;
+}
+
+/** Redact every string value in an arbitrary context record before it leaves the process. */
+function redactContext(context: LogContext): LogContext {
+	const out: LogContext = {};
+	for (const [key, value] of Object.entries(context)) {
+		out[key] = typeof value === "string" ? redactSecrets(value) : value;
+	}
+	return out;
+}
+
+function buildAlertPayload(
+	normalized: NormalizedError,
+	context: LogContext,
+): string {
+	const payload = {
+		ts: new Date().toISOString(),
+		level: "error" as const,
+		errorName: normalized.name,
+		message: redactSecrets(
+			truncateForAlert(normalized.message, MAX_ALERT_MESSAGE_CHARS),
+		),
+		stack: normalized.stack
+			? redactSecrets(truncateForAlert(normalized.stack, MAX_ALERT_STACK_CHARS))
+			: undefined,
+		digest: normalized.digest,
+		context: redactContext(context),
+	};
+
+	const json = safeStringify(payload);
+	if (json.length <= MAX_ALERT_PAYLOAD_BYTES) return json;
+
+	// Oversized even after field-level truncation (context is unbounded) —
+	// drop context first, then hard-truncate as a last resort so we never send
+	// an unbounded body.
+	const minimal = safeStringify({ ...payload, context: { truncated: true } });
+	return minimal.length <= MAX_ALERT_PAYLOAD_BYTES
+		? minimal
+		: minimal.slice(0, MAX_ALERT_PAYLOAD_BYTES);
+}
+
+/**
+ * Fire-and-forget POST to the generic alert webhook. Synchronous from the
+ * caller's perspective — never awaited, never throws, never lets a rejected
+ * fetch promise go unhandled. A dead/slow webhook must never slow down or
+ * fail the request that triggered the error.
+ *
+ * Caveat: on serverless platforms (Vercel) a function can freeze immediately
+ * after the response is sent, which can race an in-flight un-awaited fetch.
+ * Acceptable for a best-effort alert channel; a future iteration could use
+ * `waitUntil` where the runtime provides it.
+ */
+function sendAlert(normalized: NormalizedError, context: LogContext): void {
+	const url = process.env[ALERT_WEBHOOK_URL_ENV];
+	if (!url) return;
+
+	try {
+		if (!takeAlertRateLimitToken(Date.now())) return;
+
+		const body = buildAlertPayload(normalized, context);
+		const hasAbortController = typeof AbortController !== "undefined";
+		const controller = hasAbortController ? new AbortController() : undefined;
+		const timeoutId = controller
+			? setTimeout(() => controller.abort(), 5_000)
+			: undefined;
+
+		Promise.resolve(
+			fetch(url, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body,
+				signal: controller?.signal,
+			}),
+		)
+			.catch(() => {
+				alertFailureCount += 1;
+			})
+			.finally(() => {
+				if (timeoutId !== undefined) clearTimeout(timeoutId);
+			});
+	} catch {
+		// Never let the alerting path take the request down with it.
+		alertFailureCount += 1;
+	}
+}
+
 /**
  * THE seam: report an error with context. Logs a structured error line and
  * forwards to the provider adapter when one is registered. Never throws —
@@ -191,6 +347,7 @@ export function reportError(error: unknown, context: LogContext = {}): void {
 			...context,
 		});
 		adapter?.captureError(normalized, context);
+		sendAlert(normalized, context);
 	} catch {
 		// Swallow: the reporter must never take the app down with it.
 	}

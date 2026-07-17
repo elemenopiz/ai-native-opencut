@@ -193,7 +193,22 @@ export class ProjectManager {
 				}
 			}
 		} catch (error) {
-			console.error("Failed to load project:", error);
+			// A fresh `/editor/:id` route for a project that doesn't exist yet is an
+			// EXPECTED first-load path, not a failure: `storageService.loadProject`
+			// throws the exact "not found" message below, `editor-provider.tsx`
+			// catches it, and creates the project. Logging that at error level is
+			// noise on every brand-new-project visit (BUG18) — and would trip
+			// error-rate alerting once one is wired up (see ADR-002). Real load
+			// failures (storage corruption, media/font load errors, etc.) still log
+			// at error level below.
+			const isExpectedNotFound =
+				error instanceof Error &&
+				error.message === `Project with id ${id} not found`;
+			if (isExpectedNotFound) {
+				console.info("Project not found, will be created:", id);
+			} else {
+				console.error("Failed to load project:", error);
+			}
 			throw error;
 		} finally {
 			this.isLoading = false;

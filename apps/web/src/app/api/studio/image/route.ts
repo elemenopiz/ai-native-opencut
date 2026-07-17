@@ -136,7 +136,7 @@ export async function POST(req: Request) {
 						referenceImages,
 					});
 					if (submitted.status !== "completed" || !submitted.mediaUrl) {
-						throw new Error(submitted.error ?? "Image generation failed");
+						throw new Error(submitted.error ?? "provider dispatch failed");
 					}
 					return { imageUrl: submitted.mediaUrl };
 				}),
@@ -147,7 +147,11 @@ export async function POST(req: Request) {
 				refId: chargeId,
 				idempotencyKey: `${chargeId}:release`,
 			}).catch(() => {});
-			throw err;
+			const detail =
+				err instanceof Error ? err.message : "image generation failed";
+			throw new Error(
+				`Image generation failed (${detail}). Not charged — the credit hold was released.`,
+			);
 		}
 
 		if (creditCost > 0) {

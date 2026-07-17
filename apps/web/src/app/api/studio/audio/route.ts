@@ -235,7 +235,7 @@ export async function POST(req: Request) {
 		try {
 			result = await backend.submit(request);
 			if (result.status === "failed") {
-				throw new Error(result.error ?? "Audio generation failed");
+				throw new Error(result.error ?? "provider dispatch failed");
 			}
 		} catch (err) {
 			await meteredRelease(session.user.id, creditCost, {
@@ -251,7 +251,11 @@ export async function POST(req: Request) {
 					updatedAt: new Date(),
 				})
 				.where(eq(audioJobs.id, jobId));
-			throw err;
+			const detail =
+				err instanceof Error ? err.message : "audio generation failed";
+			throw new Error(
+				`Audio generation failed (${detail}). Not charged — the credit hold was released.`,
+			);
 		}
 
 		// Sync backends (ElevenLabs Music) finish inline — rehost + settle now.
