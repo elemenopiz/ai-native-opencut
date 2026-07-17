@@ -52,7 +52,6 @@ import {
 	getStoredConsistencyContext,
 	serializeConsistencyContext,
 } from "@/lib/director/consistency-prompt";
-import type { StyleBible } from "@/lib/director/storyboard-plan";
 import type { EditorCore } from "@/core";
 import { EnhancePromptButton } from "@/components/editor/ai/enhance-prompt-button";
 import {
@@ -65,45 +64,19 @@ import {
 import { toast } from "sonner";
 
 /**
- * Render a persisted {@link StyleBible} (project-level look, no session
- * context set yet) as the same STYLE/CHARACTERS/SETTING-shaped preview text
- * `serializeConsistencyContext` produces for a live `ConsistencyContext`, so
- * the popover reads the same regardless of which source supplied it.
- */
-function serializeStyleBible(bible: StyleBible): string {
-	const lines: string[] = [];
-	if (bible.palette) lines.push(`PALETTE: ${bible.palette}`);
-	if (bible.lensMood) lines.push(`LENS/MOOD: ${bible.lensMood}`);
-	if (bible.characters?.length) {
-		lines.push("CHARACTERS:");
-		for (const c of bible.characters)
-			lines.push(`- ${c.name}: ${c.descriptor}`);
-	}
-	if (bible.setting) lines.push(`SETTING: ${bible.setting}`);
-	return lines.join("\n");
-}
-
-/**
- * Two-step read mirroring the fold the generate/rerun paths apply server-side:
- * the live session `ConsistencyContext` (set by the Director this session) if
- * present, else the project's persisted `styleBible` (survives reload, set by
- * reference intake / the Understanding Pass). Returns `null` when neither
- * carries anything worth showing.
+ * Two-step read mirroring exactly what the generate/rerun fold paths read:
+ * the live session `ConsistencyContext` (WeakMap, set by the Director this
+ * session) if present, else the persisted bible's `consistencyContext`
+ * (`hydrateDirectorStateFromBible` restores ONLY this field into the WeakMap
+ * on mount — a bible carrying just a `styleBible` never folds, so it must
+ * never show the chip). Returns `null` when neither carries anything.
  */
 function getStyleBiblePreview(editor: EditorCore): string | null {
-	const sessionContext = getStoredConsistencyContext(editor);
-	if (sessionContext) {
-		const text = serializeConsistencyContext(sessionContext).trim();
-		return text || null;
-	}
-	let persistedBible: StyleBible | undefined;
-	try {
-		persistedBible = editor.project.getActive().projectBible?.styleBible;
-	} catch {
-		persistedBible = undefined;
-	}
-	if (!persistedBible) return null;
-	const text = serializeStyleBible(persistedBible).trim();
+	const context =
+		getStoredConsistencyContext(editor) ??
+		editor.project.getProjectBible()?.consistencyContext;
+	if (!context) return null;
+	const text = serializeConsistencyContext(context).trim();
 	return text || null;
 }
 
