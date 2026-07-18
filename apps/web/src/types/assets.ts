@@ -2,6 +2,20 @@ import type { MediaAssetData, ProxyInfo } from "@/services/storage/types";
 
 export type MediaType = "image" | "video" | "audio";
 
+/**
+ * A folder for organizing media assets in the Assets panel. Folders are
+ * purely organizational (never a delete cascade — see `DeleteFolderCommand`)
+ * and support nesting via `parentId`. The folder LIST persists as project
+ * metadata (`TProject.mediaFolders`, mirroring `directorBrief`); asset
+ * MEMBERSHIP persists as the additive `MediaAssetData.folderId` field.
+ */
+export interface MediaFolder {
+	id: string;
+	name: string;
+	/** `null` ⇒ top-level folder (root). */
+	parentId: string | null;
+}
+
 export interface MediaAsset
 	extends Omit<MediaAssetData, "size" | "lastModified"> {
 	file: File;

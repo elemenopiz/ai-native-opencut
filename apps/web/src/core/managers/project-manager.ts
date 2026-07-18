@@ -9,6 +9,7 @@ import type {
 	TProjectSettings,
 	TTimelineViewState,
 } from "@/types/project";
+import type { MediaFolder } from "@/types/assets";
 import type { ExportOptions, ExportResult, ExportState } from "@/types/export";
 import { migrateLegacyBrief } from "@/lib/director/director-brief";
 import { storageService } from "@/services/storage/service";
@@ -692,6 +693,29 @@ export class ProjectManager {
 		this.editor.save.markDirty();
 		// Notify subscribers so a brief write (Director verb OR human Bible edit) is
 		// reactive — the Bible panel re-renders through `editor.project.subscribe`.
+		this.notify();
+	}
+
+	/**
+	 * The active project's persistent list of Assets-panel FOLDERS (campaign
+	 * C33). Returns an empty array when unset or when no project is active, so
+	 * callers never branch on `undefined` (mirrors `getDirectorBrief`).
+	 */
+	getMediaFolders(): MediaFolder[] {
+		return this.active?.mediaFolders ?? [];
+	}
+
+	/**
+	 * Replace the active project's folder list with `folders` and mark the
+	 * project dirty so the SaveManager persists it (same durable path as
+	 * `setDirectorBrief`). Folder-organization *commands* (create/rename/delete)
+	 * compute the next array and call this as their single write choke point.
+	 * No-op without an active project.
+	 */
+	setMediaFolders({ folders }: { folders: MediaFolder[] }): void {
+		if (!this.active) return;
+		this.active = { ...this.active, mediaFolders: folders };
+		this.editor.save.markDirty();
 		this.notify();
 	}
 

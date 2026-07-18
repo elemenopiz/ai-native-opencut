@@ -9,6 +9,10 @@ import type {
 	StoryboardPlan,
 	StyleBible,
 } from "@/lib/director/storyboard-plan";
+// Type-only — same "erased at runtime, no real import cycle" reasoning as
+// above; `@/types/assets` transitively type-imports `TProject` back via
+// `@/services/storage/types`.
+import type { MediaFolder } from "@/types/assets";
 
 export type TBackground =
 	| {
@@ -234,6 +238,13 @@ export interface TProject {
 	 * into the session WeakMaps on editor mount. See {@link ProjectBible}.
 	 */
 	projectBible?: ProjectBible;
+	/**
+	 * Persistent list of Assets-panel folders (campaign C33). Mirrors
+	 * `directorBrief`'s persistence idiom exactly: written via
+	 * `ProjectManager.setMediaFolders`, read via `getMediaFolders`. Asset
+	 * membership rides on each `MediaAssetData.folderId`, not here.
+	 */
+	mediaFolders?: MediaFolder[];
 }
 
 export type TProjectSortKey = "createdAt" | "updatedAt" | "name" | "duration";

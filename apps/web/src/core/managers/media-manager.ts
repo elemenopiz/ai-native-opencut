@@ -131,6 +131,39 @@ export class MediaManager {
 	}
 
 	/**
+	 * Sets (or clears, when `folderId` is `null`) an asset's folder membership
+	 * (campaign C33) via the SAME mutate-map/persist/notify path
+	 * `updateMediaAsset` uses. `folderId: null` removes the field entirely
+	 * (rather than persisting a literal `null`) so a root-level asset round-trips
+	 * identically to a pre-folders asset that never had the field at all.
+	 * Callers that need this reversible go through `MoveAssetToFolderCommand`
+	 * instead — this method itself has no undo.
+	 */
+	async moveAssetToFolder({
+		projectId,
+		assetId,
+		folderId,
+	}: {
+		projectId: string;
+		assetId: string;
+		folderId: string | null;
+	}): Promise<void> {
+		const index = this.assets.findIndex((a) => a.id === assetId);
+		if (index === -1) return;
+
+		const current = this.assets[index];
+		const updated: MediaAsset = { ...current, folderId: folderId ?? undefined };
+		this.assets = this.assets.map((a) => (a.id === assetId ? updated : a));
+		this.notify();
+
+		try {
+			await storageService.saveMediaAsset({ projectId, mediaAsset: updated });
+		} catch (error) {
+			console.error("Failed to move media asset to folder:", error);
+		}
+	}
+
+	/**
 	 * Deletes a media asset AND its dependent timeline elements as ONE
 	 * reversible command (BUG34) — Ctrl+Z restores the asset (still playable —
 	 * object URLs are no longer revoked on delete, see RemoveMediaAssetCommand)

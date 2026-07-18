@@ -204,6 +204,9 @@ export function serializeProject({
 		// Rides through alongside `directorBrief` — a plain, already-serializable
 		// object (the Director's durable, versioned Project Bible).
 		projectBible: project.projectBible,
+		// Assets-panel folder list (campaign C33) — same "plain object, no
+		// transform needed" idiom as `directorBrief`/`projectBible`.
+		mediaFolders: project.mediaFolders,
 	};
 }
 
@@ -285,6 +288,8 @@ export function deserializeProject({
 		// Restored verbatim (absent on projects saved before it existed ⇒ left
 		// `undefined`, so old projects load unchanged).
 		projectBible: serializedProject.projectBible,
+		// Same "restored verbatim, absent ⇒ undefined" idiom.
+		mediaFolders: serializedProject.mediaFolders,
 	};
 }
 
@@ -437,6 +442,7 @@ class StorageService {
 			passthrough: mediaAsset.passthrough,
 			proxy: mediaAsset.proxy,
 			needsProxy: mediaAsset.needsProxy,
+			folderId: mediaAsset.folderId,
 		};
 
 		await mediaMetadataAdapter.set(mediaAsset.id, metadata);
@@ -506,6 +512,7 @@ class StorageService {
 			passthrough: metadata.passthrough,
 			proxy: metadata.proxy,
 			needsProxy: metadata.needsProxy,
+			folderId: metadata.folderId,
 		};
 	}
 

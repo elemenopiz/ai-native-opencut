@@ -125,6 +125,12 @@ export interface MediaAssetData {
 	passthrough?: PassthroughCodec;
 	proxy?: ProxyInfo;
 	needsProxy?: boolean;
+	/**
+	 * `MediaFolder.id` this asset is organized under (Assets panel folders,
+	 * campaign C33). Absent ⇒ asset sits at folder root. Additive/optional —
+	 * pre-existing assets simply lack it and behave exactly as before.
+	 */
+	folderId?: string;
 }
 
 export type SerializedScene = Omit<TScene, "createdAt" | "updatedAt"> & {
