@@ -676,6 +676,7 @@ export function toolCatalog(): ToolDescriptor[] {
 				required: ["itemId"],
 			},
 			handler: (d, a) => d.discardBoardItem({ itemId: str(a.itemId) }),
+			},
 		{
 			name: "readPlaybook",
 			description:
