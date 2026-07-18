@@ -9,6 +9,15 @@ const buttonVariants = cva(
 		variants: {
 			variant: {
 				default: "bg-foreground text-background hover:bg-foreground/90",
+				// Additive-only (C15a export-cta-flatten): the one system accent
+				// (`--primary`, #009dff) at full component saturation — no new hue,
+				// no gradient. Reserved for the single highest-stakes CTA per
+				// surface (e.g. Export); everything else keeps `default`. The ring
+				// is strengthened vs. the base `ring-1 ring-ring` because the
+				// neutral gray ring token reads faint on the dark editor header —
+				// still an existing token (`--primary`), just a wider/tinted ring.
+				primary:
+					"bg-primary text-primary-foreground hover:bg-primary/90 active:bg-primary/80 focus-visible:ring-2 focus-visible:ring-primary/50",
 				background: "bg-background text-foreground hover:bg-background/90",
 				destructive:
 					"bg-destructive text-destructive-foreground hover:bg-destructive/80",
