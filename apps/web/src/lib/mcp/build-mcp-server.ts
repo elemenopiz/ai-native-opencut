@@ -44,6 +44,7 @@ import { toolCatalog, type ToolDescriptor } from "@/lib/director/tool-catalog";
 import { scopeForTool } from "@/lib/mcp/auth";
 import { RATE_LIMITS, getRateLimiter } from "@/lib/rate-limit";
 import { recordMcpEvent } from "@/lib/mcp/telemetry";
+import { validateToolArgs } from "./arg-validate";
 import {
 	BridgeError,
 	type BridgeErrorDetails,
@@ -259,6 +260,23 @@ export function createByornMcpServer(pin: {
 				},
 				true,
 			);
+		}
+
+		// Arg-shape conformance guard (runs AFTER the security gates so a
+		// malformed call can never reach the bridge): reject unknown keys where
+		// the schema declares `additionalProperties: false`, and reject
+		// non-finite numbers (NaN/Infinity) for numeric fields. Handlers coerce
+		// types, so this stays narrow — no `required`/wrong-type enforcement.
+		const argViolation = validateToolArgs(descriptor.inputSchema, args);
+		if (argViolation) {
+			recordMcpEvent({
+				userId: pin.userId,
+				projectId: pin.projectId,
+				event: "tool_call",
+				verb: name,
+				meta: { mutating: descriptor.mutating, blocked: "invalid_args" },
+			});
+			return jsonResult({ ok: false, message: argViolation.message }, true);
 		}
 
 		const timeoutMs = LONG_RUNNING_TOOLS.has(name)

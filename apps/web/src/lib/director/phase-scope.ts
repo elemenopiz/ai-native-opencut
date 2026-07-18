@@ -173,6 +173,15 @@ export const PHASE_TOOL_ASSIGNMENTS: Readonly<
 	getBoard: ["production"],
 	promoteBoardItem: ["production"],
 	discardBoardItem: ["production"],
+	// meta/read utilities — orientation aids: readPlaybook (fetch a prompt
+	// playbook body) and reportLimitation (feed back a capability gap).
+	// Briefing-only: production sat at its enforced ceiling (28, see the count
+	// bounds in phase-scope.test.ts) once the Board trio landed, and polish
+	// likewise — prompt-craft guidance is a planning-time read anyway, and
+	// hard capability failures in production are already captured by the MCP
+	// boundary telemetry (meta.blocked) without needing the verb on the menu.
+	readPlaybook: ["briefing"],
+	reportLimitation: ["briefing"],
 	getBrief: ["briefing"],
 	getProposal: ["briefing"],
 	getConsistencyContext: ["briefing"],

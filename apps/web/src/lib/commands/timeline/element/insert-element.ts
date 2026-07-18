@@ -21,7 +21,9 @@ import {
 	enforceMainTrackStart,
 } from "@/lib/timeline/track-utils";
 import type { MediaAsset } from "@/types/assets";
+import type { TProjectSettings } from "@/types/project";
 import { TIMELINE_CONSTANTS } from "@/constants/timeline-constants";
+import { UpdateProjectSettingsCommand } from "@/lib/commands/project";
 
 type InsertElementPlacement =
 	| { mode: "explicit"; trackId: string }
@@ -36,6 +38,19 @@ export class InsertElementCommand extends Command {
 	private elementId: string;
 	private savedState: TimelineTrack[] | null = null;
 	private targetTrackId: string | null = null;
+	/**
+	 * BUG100: inserting the FIRST visual element onto an empty timeline also
+	 * seeds project settings (canvasSize/originalCanvasSize/fps) off the
+	 * asset's own dimensions/fps. That's a cross-store side effect this
+	 * command's undo() must reverse too — otherwise Ctrl+Z removes the clip
+	 * but leaves the canvas size/fps changed. Built directly (never via
+	 * `editor.project.updateSettings()`, which would just re-run this same
+	 * command internally and hand back no reference to undo) so a handle
+	 * survives for undo(). Rebuilt fresh on every execute() (including
+	 * redo()) so it always snapshots the CURRENT settings rather than
+	 * replaying a stale/already-undone snapshot from a prior run.
+	 */
+	private projectSettingsCommand: UpdateProjectSettingsCommand | null = null;
 
 	constructor({ element, placement }: InsertElementParams) {
 		super();
@@ -50,6 +65,7 @@ export class InsertElementCommand extends Command {
 	execute(): void {
 		const editor = EditorCore.getInstance();
 		this.savedState = editor.timeline.getTracks();
+		this.projectSettingsCommand = null;
 
 		if (!this.savedState) {
 			console.error("Tracks not available");
@@ -89,26 +105,31 @@ export class InsertElementCommand extends Command {
 				(item: MediaAsset) => item.id === newElement.mediaId,
 			);
 
+			const settingsPatch: Partial<TProjectSettings> = {};
+
 			if (asset?.width && asset?.height) {
 				const nextCanvasSize = { width: asset.width, height: asset.height };
 				const shouldSetOriginalCanvasSize =
 					!activeProject?.settings.originalCanvasSize;
-				editor.project.updateSettings({
-					settings: {
-						canvasSize: nextCanvasSize,
-						...(shouldSetOriginalCanvasSize
-							? { originalCanvasSize: nextCanvasSize }
-							: {}),
-					},
-					pushHistory: false,
-				});
+				settingsPatch.canvasSize = nextCanvasSize;
+				if (shouldSetOriginalCanvasSize) {
+					settingsPatch.originalCanvasSize = nextCanvasSize;
+				}
 			}
 
 			if (asset?.type === "video" && asset?.fps) {
-				editor.project.updateSettings({
-					settings: { fps: asset.fps },
-					pushHistory: false,
-				});
+				settingsPatch.fps = asset.fps;
+			}
+
+			// Built + executed directly (never via `editor.project.updateSettings`)
+			// so undo() can call .undo() on THIS instance below — see BUG100 note
+			// on `projectSettingsCommand`.
+			if (Object.keys(settingsPatch).length > 0) {
+				const projectSettingsCommand = new UpdateProjectSettingsCommand(
+					settingsPatch,
+				);
+				projectSettingsCommand.execute();
+				this.projectSettingsCommand = projectSettingsCommand;
 			}
 		}
 
@@ -119,6 +140,7 @@ export class InsertElementCommand extends Command {
 		if (this.savedState) {
 			const editor = EditorCore.getInstance();
 			editor.timeline.updateTracks(this.savedState);
+			this.projectSettingsCommand?.undo();
 		}
 	}
 

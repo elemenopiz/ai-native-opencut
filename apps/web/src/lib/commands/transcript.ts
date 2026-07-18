@@ -55,10 +55,15 @@ function restoreTranscriptSnapshot(snap: TranscriptSnapshot): void {
 	for (const t of snap.translations) {
 		store.addTranslation(t);
 	}
-	// Restore speaker positions
-	for (const [id, pos] of Object.entries(snap.speakerPositions)) {
-		store.setSpeakerPosition(id, pos);
-	}
+	// Restore speaker positions as a full replace, not a merge (BUG109): the
+	// store only exposes an additive per-id `setSpeakerPosition`, so looping
+	// it over just `snap.speakerPositions` would ADD/overwrite entries
+	// present in the snapshot but never REMOVE a position that was set after
+	// the snapshot was taken — undo would leave stale positions behind
+	// instead of restoring the exact prior state. `setState` is zustand's own
+	// store API (not something added to the store module), so this replaces
+	// the whole map atomically from here without needing a new store setter.
+	useTranscriptStore.setState({ speakerPositions: snap.speakerPositions });
 }
 
 /**

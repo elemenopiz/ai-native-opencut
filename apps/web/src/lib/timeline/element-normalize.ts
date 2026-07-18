@@ -31,6 +31,80 @@ export function isVisualElement(
 	);
 }
 
+const KNOWN_ELEMENT_TYPES: ReadonlySet<TimelineElement["type"]> = new Set([
+	"video",
+	"image",
+	"text",
+	"audio",
+	"sticker",
+	"effect",
+]);
+
+/**
+ * Structural gate for a persisted element, ahead of `ensureVisualElementDefaults`.
+ * BUG129 — sibling corruption class to the transform-brick heal (B1): a `null`
+ * element, a non-object, an element missing a string `id`, or an element with
+ * a non-string/unrecognized `type` isn't a clip with missing fields, it's not
+ * a usable element at all. The compositor and timeline store key elements by
+ * `id` (Maps/selection sets), and every renderer, props panel, and command
+ * switches on `type` — either read crashes immediately (`.type` of `null`) or
+ * an unrecognized `type` silently falls through every switch, which is worse
+ * than a crash (invisible, unselectable, immovable timeline debris). Elements
+ * that fail this check are dropped by the caller rather than healed — there's
+ * no default `id`/`type` that would be safe to fabricate.
+ */
+export function isPlausibleTimelineElement(
+	element: unknown,
+): element is TimelineElement {
+	if (element === null || typeof element !== "object") return false;
+	const candidate = element as Record<string, unknown>;
+	return (
+		typeof candidate.id === "string" &&
+		candidate.id.length > 0 &&
+		typeof candidate.type === "string" &&
+		KNOWN_ELEMENT_TYPES.has(candidate.type as TimelineElement["type"])
+	);
+}
+
+/**
+ * True when `element` is a video/image/upload-audio element whose `mediaId`
+ * can't resolve anything — a required source reference that's missing or not
+ * a non-empty string. These types render by looking up `mediaId` in the
+ * project's media list; with nothing there, the element can never produce a
+ * frame. Unlike the transform-brick heal there's no safe default to
+ * substitute (no "blank media" to point at), so the caller drops the element
+ * outright rather than passing a permanently-black, still-occupying-timeline-
+ * space element downstream. NOTE: this only catches the mediaId field being
+ * structurally absent/empty. A `mediaId` that IS a string but doesn't match
+ * any asset in the *loaded* project (e.g. a pasted element from another
+ * project) can't be detected here — this is a pure `SerializedProject →
+ * TProject` mapping with no access to the media list (media loads async,
+ * after this, in `StorageService.loadProject` → `media.loadProjectMedia`).
+ * See BUG130 for that follow-up.
+ */
+export function requiresMediaIdButMissing(element: TimelineElement): boolean {
+	const hasMediaId =
+		typeof (element as { mediaId?: unknown }).mediaId === "string" &&
+		((element as { mediaId: string }).mediaId?.length ?? 0) > 0;
+
+	if (element.type === "video" || element.type === "image") {
+		return !hasMediaId;
+	}
+
+	if (element.type === "audio") {
+		// LibraryAudioElement plays from `sourceUrl`, not project media, so it
+		// has no `mediaId` requirement — only the upload variant does. A
+		// persisted element with a missing/corrupt `sourceType` is treated as
+		// "upload" (the stricter, more common case) rather than silently
+		// passed through as if it were a library clip.
+		const sourceType = (element as { sourceType?: unknown }).sourceType;
+		if (sourceType === "library") return false;
+		return !hasMediaId;
+	}
+
+	return false;
+}
+
 /**
  * Heal a text element missing its required text fields. `background` is the
  * critical one: the preview-overlay bounds math, the properties panel, the
