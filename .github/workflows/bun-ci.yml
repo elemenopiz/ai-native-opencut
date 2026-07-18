@@ -88,7 +88,8 @@ jobs:
     # against it before the suite runs.
     services:
       postgres:
-        image: postgres:16
+        # postgres:17 to match this repo's docker-compose.yaml (local-dev parity).
+        image: postgres:17
         env:
           POSTGRES_USER: opencut
           POSTGRES_PASSWORD: opencut
@@ -117,11 +118,10 @@ jobs:
           SRH_CONNECTION_STRING: "redis://redis:6379"
         ports:
           - 8079:80
-        options: >-
-          --health-cmd="wget --spider -q http://127.0.0.1:80 || exit 1"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
+        # No health check, matching docker-compose.yaml: srh answers an
+        # unauthenticated GET with a 4xx, which wget --spider would treat as
+        # unhealthy and wedge the service forever. srh boots in ms and the
+        # suite doesn't hit it until well after the build steps.
 
     env:
       DATABASE_URL: "postgresql://opencut:opencut@localhost:5432/opencut"
