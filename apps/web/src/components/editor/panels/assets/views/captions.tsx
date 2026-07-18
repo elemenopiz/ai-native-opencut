@@ -9,6 +9,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { useState, useRef } from "react";
 import { useEditor } from "@/hooks/use-editor";
 import { DEFAULT_TEXT_ELEMENT } from "@/constants/text-constants";
@@ -32,12 +33,9 @@ import { useTranscriptStore } from "@/stores/transcript-store";
 import { getElementsAtTime, hasMediaId } from "@/lib/timeline";
 import { toast } from "sonner";
 import { aiClient } from "@/lib/ai-client";
-import {
-	isLocalWhisperSupported,
-	transcribeLocally,
-} from "@/lib/transcription/local-whisper";
+import { transcribeFileWithEngine } from "@/hooks/use-transcription";
 import type { TimelineElement } from "@/types/timeline";
-import type { TranscriptionResult } from "@/types/ai";
+import type { TranscriptionSegment } from "@/types/ai";
 import { useBackgroundTasksStore } from "@/stores/background-tasks-store";
 import {
 	CAPTION_PRESETS,
@@ -64,6 +62,9 @@ export function Captions() {
 	const [isProcessing, setIsProcessing] = useState(false);
 	const [processingStep, setProcessingStep] = useState("");
 	const [error, setError] = useState<string | null>(null);
+	// When true, transcribe every audio-bearing track's source (whole video),
+	// merging into one transcript. When false, transcribe the first track only.
+	const [transcribeWholeVideo, setTranscribeWholeVideo] = useState(false);
 	const [subtitleTracks, setSubtitleTracks] = useState<SubtitleTrackInfo[]>([]);
 	const [translateLanguage, setTranslateLanguage] = useState("es");
 	const [captionPreset, setCaptionPreset] =
@@ -148,49 +149,99 @@ export function Captions() {
 			}
 			setSubtitleTracks([]);
 
-			// Find the media file from the timeline
+			// Find the media file(s) from the timeline. Single-track mode picks
+			// the first audio-bearing element found (original behavior); whole-video
+			// mode collects every distinct media asset backing an audio-bearing
+			// (video/audio) element across ALL tracks, so the resulting transcript
+			// spans every audio track instead of just one.
 			setProcessingStep("Finding media...");
 			bgTasks.updateTask(taskId, { progress: "Finding media..." });
 			const tracks = editor.timeline.getTracks();
-			let foundMediaId: string | null = null;
 
-			for (const track of tracks) {
-				for (const element of track.elements) {
-					if (
-						(track.type === "video" || track.type === "audio") &&
-						hasMediaId(element as TimelineElement)
-					) {
-						foundMediaId = (element as TimelineElement & { mediaId: string })
-							.mediaId;
-						break;
-					}
-				}
-				if (foundMediaId) break;
+			interface TranscriptionSource {
+				file: File;
+				label: string;
+				/** Timeline-time offset added to this source's segment timestamps
+				 *  so multiple sources line up on one shared timeline axis. */
+				offsetSeconds: number;
 			}
 
-			if (!foundMediaId) {
+			const sources: TranscriptionSource[] = [];
+
+			if (transcribeWholeVideo) {
+				const bestOffsetByMediaId = new Map<string, number>();
+				const trackNameByMediaId = new Map<string, string>();
+
+				for (const track of tracks) {
+					if (track.type !== "video" && track.type !== "audio") continue;
+					for (const element of track.elements) {
+						// Images can carry a mediaId too but never have audio — skip them.
+						if (element.type !== "video" && element.type !== "audio") continue;
+						if (!hasMediaId(element as TimelineElement)) continue;
+
+						const typedEl = element as TimelineElement & { mediaId: string };
+						// Reconstruct where this asset's local time 0 sits on the
+						// timeline; take the earliest across all clips of the asset
+						// (e.g. after a prior transcribe split it into several pieces).
+						const offset = Math.max(0, typedEl.startTime - typedEl.trimStart);
+						const existing = bestOffsetByMediaId.get(typedEl.mediaId);
+						if (existing === undefined || offset < existing) {
+							bestOffsetByMediaId.set(typedEl.mediaId, offset);
+							trackNameByMediaId.set(typedEl.mediaId, track.name);
+						}
+					}
+				}
+
+				for (const [mediaId, offsetSeconds] of bestOffsetByMediaId) {
+					const asset = editor.media.getAssets().find((a) => a.id === mediaId);
+					if (!asset?.file) continue;
+					sources.push({
+						file: asset.file,
+						label: asset.name || trackNameByMediaId.get(mediaId) || "track",
+						offsetSeconds,
+					});
+				}
+				sources.sort((a, b) => a.offsetSeconds - b.offsetSeconds);
+			} else {
+				let foundMediaId: string | null = null;
+				for (const track of tracks) {
+					for (const element of track.elements) {
+						if (
+							(track.type === "video" || track.type === "audio") &&
+							hasMediaId(element as TimelineElement)
+						) {
+							foundMediaId = (element as TimelineElement & { mediaId: string })
+								.mediaId;
+							break;
+						}
+					}
+					if (foundMediaId) break;
+				}
+
+				if (foundMediaId) {
+					const asset = editor.media
+						.getAssets()
+						.find((a) => a.id === foundMediaId);
+					if (asset?.file) {
+						sources.push({
+							file: asset.file,
+							label: asset.name,
+							offsetSeconds: 0,
+						});
+					}
+				}
+			}
+
+			if (sources.length === 0) {
 				setError(
-					"No video or audio found on the timeline. Import a file first.",
+					transcribeWholeVideo
+						? "No audio found on the timeline. Import a video or audio file first."
+						: "No video or audio found on the timeline. Import a file first.",
 				);
 				return;
 			}
 
-			const mediaAsset = editor.media
-				.getAssets()
-				.find((asset) => asset.id === foundMediaId);
-
-			if (!mediaAsset?.file) {
-				setError("Cannot access the media file for transcription.");
-				return;
-			}
-
-			// Send to appropriate transcription service
-			setProcessingStep(`Transcribing via ${engineLabel}...`);
-			bgTasks.updateTask(taskId, {
-				progress: `Transcribing via ${engineLabel}...`,
-			});
-
-			// Ensure the file has a proper extension — the backend rejects files without one
+			// Ensure each file has a proper extension — the backend rejects files without one
 			const mimeToExt: Record<string, string> = {
 				"video/mp4": ".mp4",
 				"video/webm": ".webm",
@@ -205,64 +256,80 @@ export function Captions() {
 				"audio/aac": ".aac",
 				"audio/mp4": ".m4a",
 			};
-
-			let file = mediaAsset.file;
-			const fileName = file.name || "";
-			const hasExtension =
-				fileName.includes(".") && fileName.split(".").pop()!.length > 0;
-
-			if (!hasExtension) {
-				const ext = mimeToExt[file.type] || ".mp4";
+			const ensureFileExtension = (input: File): File => {
+				const fileName = input.name || "";
+				const hasExtension =
+					fileName.includes(".") && fileName.split(".").pop()!.length > 0;
+				if (hasExtension) return input;
+				const ext = mimeToExt[input.type] || ".mp4";
 				const newName = fileName ? `${fileName}${ext}` : `media${ext}`;
-				file = new File([file], newName, { type: file.type || "video/mp4" });
-			}
+				return new File([input], newName, { type: input.type || "video/mp4" });
+			};
 
-			let result: TranscriptionResult;
-			if (engine === "sarvam") {
-				// Use Sarvam AI for Indian languages
-				const sarvamLangCode =
-					selectedLanguage === "auto"
+			// Resolve the engine-specific language once — the engine/language
+			// selectors are global, not per-track.
+			const resolvedLanguage =
+				engine === "sarvam"
+					? selectedLanguage === "auto"
 						? undefined
-						: SARVAM_LANGUAGE_MAP[selectedLanguage] || undefined;
-				result = await aiClient.sarvamTranscribe(file, sarvamLangCode);
-			} else if (engine === "smallest") {
-				// Use Smallest AI Pulse for multilingual STT
-				const language = selectedLanguage === "auto" ? "en" : selectedLanguage;
-				result = await aiClient.smallestTranscribe(file, language);
-			} else {
-				// Use Whisper — on-device first (Transformers.js/WebGPU), with the
-				// server route as a fallback if the browser can't decode/run it.
-				const language =
-					selectedLanguage === "auto" ? undefined : selectedLanguage;
-				try {
-					if (isLocalWhisperSupported()) {
-						result = await transcribeLocally(file, {
-							language,
-							onProgress: (p) => {
-								const label =
-									p.stage === "decoding"
-										? "Decoding audio on device..."
-										: p.stage === "loading-model"
-											? `Loading Whisper model... ${Math.round(p.progress * 100)}%`
-											: "Transcribing on device...";
-								setProcessingStep(label);
-								bgTasks.updateTask(taskId, { progress: label });
-							},
-						});
-					} else {
-						result = await aiClient.transcribe(file, language);
-					}
-				} catch (localErr) {
-					console.warn(
-						"On-device Whisper failed, falling back to server:",
-						localErr,
-					);
-					bgTasks.updateTask(taskId, {
-						progress: "Falling back to server...",
+						: SARVAM_LANGUAGE_MAP[selectedLanguage] || undefined
+					: engine === "smallest"
+						? selectedLanguage === "auto"
+							? "en"
+							: selectedLanguage
+						: selectedLanguage === "auto"
+							? undefined
+							: selectedLanguage;
+
+			// Send each source through the SAME single-file transcription pipeline
+			// (transcribeFileWithEngine — shared with the single-track path above),
+			// offset its segments onto the shared timeline axis, and merge them
+			// into one transcript spanning every audio track.
+			const mergedSegments: TranscriptionSegment[] = [];
+			let mergedLanguage = "en";
+			// Primary source drives the supplementary speaker/emotion passes below.
+			const primaryFile = ensureFileExtension(sources[0].file);
+
+			for (let i = 0; i < sources.length; i++) {
+				const source = sources[i];
+				const file = ensureFileExtension(source.file);
+
+				const progressLabel =
+					sources.length > 1
+						? `Transcribing ${source.label} (${i + 1}/${sources.length}) via ${engineLabel}...`
+						: `Transcribing via ${engineLabel}...`;
+				setProcessingStep(progressLabel);
+				bgTasks.updateTask(taskId, { progress: progressLabel });
+
+				const sourceResult = await transcribeFileWithEngine({
+					file,
+					engine,
+					language: resolvedLanguage,
+					onProgress: (label) => {
+						const combined =
+							sources.length > 1 ? `${source.label}: ${label}` : label;
+						setProcessingStep(combined);
+						bgTasks.updateTask(taskId, { progress: combined });
+					},
+				});
+
+				if (i === 0) mergedLanguage = sourceResult.language ?? mergedLanguage;
+
+				for (const seg of sourceResult.segments) {
+					mergedSegments.push({
+						...seg,
+						start: seg.start + source.offsetSeconds,
+						end: seg.end + source.offsetSeconds,
+						words: (seg.words ?? []).map((w) => ({
+							...w,
+							start: w.start + source.offsetSeconds,
+							end: w.end + source.offsetSeconds,
+						})),
 					});
-					result = await aiClient.transcribe(file, language);
 				}
 			}
+
+			mergedSegments.sort((a, b) => a.start - b.start);
 
 			setProcessingStep("Processing segments...");
 			bgTasks.updateTask(taskId, { progress: "Processing segments..." });
@@ -271,7 +338,7 @@ export function Captions() {
 
 			// Filter out hallucinated segments beyond the actual duration
 			// For Sarvam results, also allow Indic Unicode ranges through
-			const validSegments = result.segments
+			const validSegments = mergedSegments
 				.filter((seg) => {
 					if (seg.start >= timelineDuration) return false;
 					// Keep Latin, Cyrillic, CJK, Kana, Devanagari, Bengali, Gurmukhi, Gujarati,
@@ -329,24 +396,31 @@ export function Captions() {
 			}));
 
 			useTranscriptStore.getState().setSegments(transcriptSegments);
-			useTranscriptStore.getState().setLanguage(result.language ?? "en");
+			useTranscriptStore.getState().setLanguage(mergedLanguage);
 
 			// ── Auto Speaker Diarization + Emotion Detection ──
 			// Run both in parallel: speaker labels and emotion annotations.
+			// Scoped to the primary (first) source only — running these per
+			// source in whole-video mode would multiply backend/credit usage by
+			// the track count for a supplementary feature.
 			let speakerChangeTimes: number[] = [];
 			setProcessingStep("Detecting speakers & emotions...");
 			bgTasks.updateTask(taskId, {
 				progress: "Detecting speakers & emotions...",
 			});
 
-			const speakerPromise = aiClient.analyzeSpeakers(file).catch((err) => {
-				console.warn("Speaker diarization failed:", err);
-				return null;
-			});
-			const emotionPromise = aiClient.analyzeEmotions(file).catch((err) => {
-				console.warn("Emotion detection failed:", err);
-				return null;
-			});
+			const speakerPromise = aiClient
+				.analyzeSpeakers(primaryFile)
+				.catch((err) => {
+					console.warn("Speaker diarization failed:", err);
+					return null;
+				});
+			const emotionPromise = aiClient
+				.analyzeEmotions(primaryFile)
+				.catch((err) => {
+					console.warn("Emotion detection failed:", err);
+					return null;
+				});
 
 			const [speakerResult, emotionResult] = await Promise.all([
 				speakerPromise,
@@ -1013,6 +1087,22 @@ export function Captions() {
 						video changed.
 					</p>
 				)}
+
+				{/* ── Whole-video toggle ── */}
+				<div className="flex items-center justify-between gap-3">
+					<div className="flex flex-col">
+						<span className="text-xs">Transcribe entire video</span>
+						<span className="text-[10px] text-muted-foreground leading-relaxed">
+							Include every audio track, not just the first — one transcript
+							spanning the whole timeline.
+						</span>
+					</div>
+					<Switch
+						checked={transcribeWholeVideo}
+						onCheckedChange={setTranscribeWholeVideo}
+						disabled={isProcessing}
+					/>
+				</div>
 
 				<Button
 					className="w-full"

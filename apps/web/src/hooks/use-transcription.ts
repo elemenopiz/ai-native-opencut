@@ -5,6 +5,8 @@ import {
 	transcribeLocally,
 } from "@/lib/transcription/local-whisper";
 import { useTranscriptStore } from "@/stores/transcript-store";
+import type { TranscriptionEngine } from "@/types/transcription";
+import type { TranscriptionResult } from "@/types/ai";
 
 function formatTranscriptionError(error: unknown): string {
 	if (error instanceof AIClientError) {
@@ -92,4 +94,60 @@ export function useTranscription() {
 		error,
 		clearError,
 	};
+}
+
+export interface TranscribeFileParams {
+	file: File;
+	engine: TranscriptionEngine;
+	/** Already-resolved language code for the given engine. Undefined = auto-detect where supported. */
+	language?: string;
+	/** Human-readable progress label, e.g. "Loading Whisper model... 40%". */
+	onProgress?: (label: string) => void;
+}
+
+/**
+ * Transcribes a single file through the selected engine.
+ *
+ * This is the shared single-file primitive: both the single-track transcribe
+ * path and the whole-video (all-audio-tracks) path in the Captions panel call
+ * this once per source file, so there is exactly one place that knows how to
+ * talk to each backend and how on-device Whisper falls back to the server
+ * route. Whole-video transcription loops this over every distinct media
+ * asset backing an audio-bearing track instead of a parallel implementation.
+ */
+export async function transcribeFileWithEngine({
+	file,
+	engine,
+	language,
+	onProgress,
+}: TranscribeFileParams): Promise<TranscriptionResult> {
+	if (engine === "sarvam") {
+		return aiClient.sarvamTranscribe(file, language);
+	}
+	if (engine === "smallest") {
+		return aiClient.smallestTranscribe(file, language ?? "en");
+	}
+
+	// Whisper — on-device first (Transformers.js/WebGPU), server route as fallback.
+	try {
+		if (isLocalWhisperSupported()) {
+			return await transcribeLocally(file, {
+				language,
+				onProgress: (p) => {
+					const label =
+						p.stage === "decoding"
+							? "Decoding audio on device..."
+							: p.stage === "loading-model"
+								? `Loading Whisper model... ${Math.round(p.progress * 100)}%`
+								: "Transcribing on device...";
+					onProgress?.(label);
+				},
+			});
+		}
+		return await aiClient.transcribe(file, language);
+	} catch (localErr) {
+		console.warn("On-device Whisper failed, falling back to server:", localErr);
+		onProgress?.("Falling back to server...");
+		return await aiClient.transcribe(file, language);
+	}
 }
