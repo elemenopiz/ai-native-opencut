@@ -58,7 +58,7 @@ Landed on campaign tip; typecheck exit 0 (check real exit code, not tail-piped);
 |---|---|---|
 | Item 2 — tokens/focus/dark/Kbd | W1 | MERGED to campaign @55187102 (worker @36dc03f0; typecheck 0; diff reviewed) — browser pass pending |
 | Item 3 — overlays + tasks mini-bar + task glow | W2 | in-flight |
-| Item 4 — Board rebuild | W3 | in-flight (proof-of-life commits seen) |
+| Item 4 — Board rebuild | W3 | CHERRY-PICKED to campaign @373465d2 (worker @c0ce5e9d; typecheck 0; diff reviewed) — browser pass pending |
 | Item 5 — micro-type codemod + BUG28 + clip glow | W4 | MERGED to campaign @6b665e3c (worker 2 commits: 254-site codemod + BUG28/glow; typecheck 0; diff reviewed) — browser pass pending |
 | Item 6 — left-rail cards + BUG27 | W5 | in-flight |
 | Item 7 — header/chrome remainder | — | DEFERRED |
@@ -68,6 +68,8 @@ Landed on campaign tip; typecheck exit 0 (check real exit code, not tail-piped);
 ## Worker log
 - **W1** (task/w1-tokens-primitives @36dc03f0): DONE. globals.css + 9 primitives + kbd.tsx. Typecheck 0. Decisions: light `:root`/`.panel` blocks deleted with single-declaration tokens hoisted into `.dark`; focus recipe applied to 8 primitives (incl. ring-0 zero-width fixes in Textarea/Select/NumberField); textarea dark:bg-input/30 → bg-input/30. Kbd call sites NOT swapped (close-out pass). Could not browser-verify. Review note (L1): Button focus ring now `ring-1 ring-primary/20` — possibly too faint on borderless variants; check in browser pass.
 - **W4** (task/w4-microtype-codemod, 2 commits): DONE. 254 arbitrary text-[7..11px] sites → text-2xs/text-3xs across 34 files (timeline/ai/properties), 0 remaining in owned dirs; 1 dark: pair folded (smart-suggestions.tsx). BUG28: empty timeline previously rendered a 0-height `<div/>` — now a 160px centered quiet hint. Glow: `isGenerating && "glow-generation"` on GenerativeSlotContent root only. Typecheck 0; lint delta 0. IMPORTANT BASELINE CORRECTION: W4 measured main lint baseline = **152e/225w** (the ~339e figure in the brief was stale); W4 matches main exactly. No screenshots (worker worktree lacked env).
+
+- **W3** (task/w3-board-rebuild @c0ce5e9d): DONE. Board rebuilt on Radix Dialog (DialogPortal + direct DialogPrimitive.Content; full-bleed kept, documented; opaque `bg-surface-overlay` scrim). All raw buttons → Button primitive; amber star CTA → `--primary`; real BoardEmptyState (icon+title+desc+CTA). Provenance badge tiers → constructive/primary/tone-warning tokens, 0 `dark:` left. Typecheck 0. INTEGRATION NOTE: worker branched off stale ef4759c6 carrying 2 unrelated record-button commits — L1 cherry-picked ONLY c0ce5e9d; clean 3-way apply, main's newer board features (true-ratio previews, thumbnailUrl poster) verified preserved on tip. W3 could not browser-verify (declined to create an account at the beta gate — correct call).
 
 ## Lint baseline
 L1 measured `bun run lint` (apps/web) on campaign tip after W1+W4 merges: **339e/225w — exactly the briefed baseline** (no-worse holds). W4's reported "152e" came from a different script invocation (`lint:web`); the 339e/225w figure is the operative one.
