@@ -27,6 +27,10 @@ export function useAudioRecording() {
 	const audioContextRef = useRef<AudioContext | null>(null);
 	const startTimeRef = useRef<number>(0);
 	const pausedDurationRef = useRef<number>(0);
+	// Guards stopRecording's onstop handler and discardRecording against
+	// double-releasing mic/AudioContext/timer resources (and double-saving)
+	// if both race for the same in-flight recording.
+	const finalizedRef = useRef(true);
 
 	// Release the mic, AudioContext and level-meter interval if the component
 	// unmounts while a recording is still in progress (cleanup otherwise only
@@ -70,6 +74,7 @@ export function useAudioRecording() {
 
 			streamRef.current = stream;
 			chunksRef.current = [];
+			finalizedRef.current = false;
 
 			const audioContext = new AudioContext({ sampleRate: 48000 });
 			audioContextRef.current = audioContext;
@@ -166,12 +171,20 @@ export function useAudioRecording() {
 	} | null> => {
 		return new Promise((resolve) => {
 			const recorder = mediaRecorderRef.current;
-			if (!recorder || recorder.state === "inactive") {
+			if (!recorder || recorder.state === "inactive" || finalizedRef.current) {
 				resolve(null);
 				return;
 			}
 
 			recorder.onstop = () => {
+				// A discard may have raced in and already finalized/released
+				// everything while this stop was in flight — nothing to save.
+				if (finalizedRef.current) {
+					resolve(null);
+					return;
+				}
+				finalizedRef.current = true;
+
 				const blob = new Blob(chunksRef.current, { type: "audio/webm" });
 				const duration = state.duration;
 
@@ -204,6 +217,49 @@ export function useAudioRecording() {
 			recorder.stop();
 		});
 	}, [state.duration]);
+
+	// Stop the MediaRecorder WITHOUT resolving a save: drop the buffered
+	// chunks, release the mic/AudioContext/timer, and reset to idle. Safe to
+	// call while recording or paused; a no-op when idle.
+	const discardRecording = useCallback(() => {
+		const recorder = mediaRecorderRef.current;
+		if (!recorder) return;
+
+		finalizedRef.current = true;
+		chunksRef.current = [];
+
+		if (recorder.state !== "inactive") {
+			// Detach any pending stopRecording onstop handler so it can't
+			// resolve a save from this same recorder instance.
+			recorder.onstop = null;
+			recorder.stop();
+		}
+
+		if (streamRef.current) {
+			streamRef.current.getTracks().forEach((t) => t.stop());
+			streamRef.current = null;
+		}
+		if (audioContextRef.current) {
+			audioContextRef.current.close();
+			audioContextRef.current = null;
+		}
+		if (timerRef.current) {
+			clearInterval(timerRef.current);
+			timerRef.current = null;
+		}
+
+		mediaRecorderRef.current = null;
+		analyserRef.current = null;
+
+		setState({
+			isRecording: false,
+			isPaused: false,
+			duration: 0,
+			levels: new Array(8).fill(0),
+		});
+
+		toast("Recording discarded");
+	}, []);
 
 	const addToTimeline = useCallback(
 		async (blob: Blob, duration: number, name: string) => {
@@ -245,6 +301,7 @@ export function useAudioRecording() {
 		pauseRecording,
 		resumeRecording,
 		stopRecording,
+		discardRecording,
 		addToTimeline,
 	};
 }

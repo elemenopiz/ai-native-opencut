@@ -4,7 +4,13 @@ import { useState, useCallback } from "react";
 import { cn } from "@/utils/ui";
 import { Button } from "@/components/ui/button";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { RecordIcon, PauseIcon, StopCircleIcon, PlayIcon } from "@hugeicons/core-free-icons";
+import {
+	RecordIcon,
+	PauseIcon,
+	StopCircleIcon,
+	PlayIcon,
+	Cancel01Icon,
+} from "@hugeicons/core-free-icons";
 import { useAudioRecording } from "@/hooks/use-audio-recording";
 
 function formatTime(seconds: number): string {
@@ -14,8 +20,15 @@ function formatTime(seconds: number): string {
 }
 
 export function AudioRecordingPanel({ className }: { className?: string }) {
-	const { state, startRecording, pauseRecording, resumeRecording, stopRecording, addToTimeline } =
-		useAudioRecording();
+	const {
+		state,
+		startRecording,
+		pauseRecording,
+		resumeRecording,
+		stopRecording,
+		discardRecording,
+		addToTimeline,
+	} = useAudioRecording();
 	const [recordingName, setRecordingName] = useState("Recording");
 	const [recordingCount, setRecordingCount] = useState(1);
 
@@ -43,7 +56,9 @@ export function AudioRecordingPanel({ className }: { className?: string }) {
 			<div className="px-4 py-3 space-y-4 flex-1">
 				{!state.isRecording && (
 					<div className="space-y-1.5">
-						<span className="text-[10px] text-muted-foreground">Recording Name</span>
+						<span className="text-[10px] text-muted-foreground">
+							Recording Name
+						</span>
 						<input
 							className="w-full rounded border bg-transparent px-2 py-1 text-[10px] placeholder:text-muted-foreground"
 							value={recordingName}
@@ -65,7 +80,9 @@ export function AudioRecordingPanel({ className }: { className?: string }) {
 								{formatTime(state.duration)}
 							</span>
 							{state.isPaused && (
-								<span className="block text-[9px] text-yellow-500 mt-1">PAUSED</span>
+								<span className="block text-[9px] text-yellow-500 mt-1">
+									PAUSED
+								</span>
 							)}
 						</div>
 
@@ -106,6 +123,15 @@ export function AudioRecordingPanel({ className }: { className?: string }) {
 									Resume
 								</Button>
 							)}
+							<Button
+								variant="outline"
+								className="flex-1 h-8"
+								aria-label="Discard recording"
+								onClick={() => discardRecording()}
+							>
+								<HugeiconsIcon icon={Cancel01Icon} className="size-4 mr-1" />
+								Discard
+							</Button>
 							<Button
 								variant="destructive"
 								className="flex-1 h-8"
