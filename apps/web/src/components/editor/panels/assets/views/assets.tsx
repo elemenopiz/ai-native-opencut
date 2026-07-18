@@ -1,16 +1,24 @@
 "use client";
 
 import Image from "next/image";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { PanelView } from "@/components/editor/panels/assets/views/base-view";
 import { MediaDragOverlay } from "@/components/editor/panels/assets/drag-overlay";
 import { DraggableItem } from "@/components/editor/panels/assets/draggable-item";
+import {
+	FolderBreadcrumb,
+	FolderTile,
+	type FolderTileDragHandlers,
+} from "@/components/editor/panels/assets/views/folder-tile";
 import { Button } from "@/components/ui/button";
 import {
 	ContextMenu,
 	ContextMenuContent,
 	ContextMenuItem,
+	ContextMenuSub,
+	ContextMenuSubContent,
+	ContextMenuSubTrigger,
 	ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import {
@@ -32,6 +40,17 @@ import { useRevealItem } from "@/hooks/use-reveal-item";
 import { getDragData } from "@/lib/drag-data";
 import { addItemsToProjectMedia } from "@/lib/studio/add-to-editor";
 import { processMediaAssets } from "@/lib/media/processing";
+import {
+	CreateFolderCommand,
+	DeleteFolderCommand,
+	MoveAssetToFolderCommand,
+	RenameFolderCommand,
+} from "@/lib/commands/media";
+import {
+	extractDroppedEntries,
+	filesFromDirectoryInput,
+	type DroppedEntry,
+} from "@/lib/media/folder-upload";
 import { buildElementFromMedia } from "@/lib/timeline/element-utils";
 import {
 	type MediaSortKey,
@@ -41,7 +60,7 @@ import {
 	useAssetsPanelStore,
 } from "@/stores/assets-panel-store";
 import { useSearchStore } from "@/stores/search-store";
-import type { MediaAsset } from "@/types/assets";
+import type { MediaAsset, MediaFolder } from "@/types/assets";
 import {
 	extractAndAddFrame,
 	firstFrameSourceTime,
@@ -54,6 +73,8 @@ import { downloadMediaAsset } from "@/lib/media-download";
 import { cn } from "@/utils/ui";
 import {
 	CloudUploadIcon,
+	FolderAddIcon,
+	FolderUploadIcon,
 	GridViewIcon,
 	LeftToRightListDashIcon,
 	SortingOneNineIcon,
@@ -63,6 +84,7 @@ import {
 	SparklesIcon,
 	ImageCropIcon,
 	Download01Icon,
+	Folder03Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 
@@ -81,6 +103,26 @@ export function mediaAssetSignature({
 	return `${name}::${size}`;
 }
 
+/**
+ * Synchronous "does this drag carry at least one directory?" check via the
+ * (webkit-originated, now broadly supported) `DataTransferItem.webkitGetAsEntry`
+ * API. Deliberately synchronous and called at `drop` time only — several
+ * browsers only populate `dataTransfer.items` entries reliably by drop, not
+ * during `dragover`, and `webkitGetAsEntry()` itself must be called
+ * synchronously within the originating event (it returns null once the task
+ * queue has turned over). A false result here is always safe: the caller
+ * falls through to the existing flat-file `dragProps.onDrop` path.
+ */
+function hasDirectoryEntry(dataTransfer: DataTransfer): boolean {
+	const items = dataTransfer.items;
+	if (!items) return false;
+	for (let i = 0; i < items.length; i++) {
+		const entry = items[i]?.webkitGetAsEntry?.();
+		if (entry?.isDirectory) return true;
+	}
+	return false;
+}
+
 export function MediaView() {
 	const editor = useEditor();
 	const mediaFiles = editor.media.getAssets();
@@ -96,6 +138,8 @@ export function MediaView() {
 		setMediaSort,
 		mediaTypeFilter,
 		setMediaTypeFilter,
+		currentFolderId,
+		setCurrentFolderId,
 	} = useAssetsPanelStore();
 	const { highlightedId, registerElement } = useRevealItem(
 		highlightMediaId,
@@ -104,6 +148,61 @@ export function MediaView() {
 
 	const [isProcessing, setIsProcessing] = useState(false);
 	const [progress, setProgress] = useState(0);
+
+	// Folder nav is per-project, in-memory state (assets-panel-store). Nothing
+	// unmounts MediaView on a client-side project switch (EditorCore is a
+	// reused singleton — see stores/reset-project-scoped-stores.ts), so without
+	// this effect a folder id from the PREVIOUS project would bleed into the
+	// newly-opened one and hide everything (no folder in the new project shares
+	// that id). Handled locally here rather than in the shared
+	// reset-project-scoped-stores.ts seam, which this campaign doesn't own.
+	const activeProjectId = activeProject?.metadata.id ?? null;
+	const previousProjectIdRef = useRef(activeProjectId);
+	useEffect(() => {
+		if (previousProjectIdRef.current !== activeProjectId) {
+			previousProjectIdRef.current = activeProjectId;
+			setCurrentFolderId(null);
+		}
+	}, [activeProjectId, setCurrentFolderId]);
+
+	// Folders are a project-level list, mirroring how `mediaFiles` above reads
+	// `editor.media.getAssets()` directly each render (no local memo) — the
+	// manager returns its live array reference, and `useEditor()` already
+	// re-renders this component on any `editor.project` change. The `?? []`
+	// fallback also covers a project persisted before folders existed (no
+	// migration needed — it just reads back as "everything's at Root").
+	const folders: MediaFolder[] = editor.project.getMediaFolders?.() ?? [];
+
+	const foldersInCurrentView = useMemo(
+		() => folders.filter((f) => (f.parentId ?? null) === currentFolderId),
+		[folders, currentFolderId],
+	);
+
+	/** Direct-subfolder count per parent id, used for a folder tile's item count. */
+	const folderChildCounts = useMemo(() => {
+		const counts = new Map<string, number>();
+		for (const f of folders) {
+			if (f.parentId) counts.set(f.parentId, (counts.get(f.parentId) ?? 0) + 1);
+		}
+		return counts;
+	}, [folders]);
+
+	/** "Root / Folder / Subfolder" chain for the current folder, cycle-safe. */
+	const breadcrumbChain = useMemo(() => {
+		const byId = new Map(folders.map((f) => [f.id, f]));
+		const chain: MediaFolder[] = [];
+		const visited = new Set<string>();
+		let cursor = currentFolderId;
+		while (cursor) {
+			if (visited.has(cursor)) break;
+			visited.add(cursor);
+			const folder = byId.get(cursor);
+			if (!folder) break;
+			chain.unshift(folder);
+			cursor = folder.parentId;
+		}
+		return chain;
+	}, [folders, currentFolderId]);
 
 	const processFiles = async ({ files }: { files: FileList }) => {
 		if (!files || files.length === 0) return;
@@ -222,7 +321,251 @@ export function MediaView() {
 			else toast.error("Could not save to assets.");
 			return;
 		}
+		if (hasDirectoryEntry(e.dataTransfer)) {
+			e.preventDefault();
+			if (!activeProject) {
+				toast.error("No active project");
+				return;
+			}
+			const entries = await extractDroppedEntries(e.dataTransfer);
+			await importDroppedFolderEntries(entries);
+			return;
+		}
 		dragProps.onDrop(e);
+	};
+
+	// ---- Folders (C33) --------------------------------------------------
+
+	const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
+	const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
+	const [folderNameDraft, setFolderNameDraft] = useState("");
+
+	const handleCreateFolder = () => {
+		if (!activeProject) {
+			toast.error("No active project");
+			return;
+		}
+		const command = new CreateFolderCommand(activeProject.metadata.id, {
+			name: "New folder",
+			parentId: currentFolderId,
+		});
+		editor.command.execute({ command });
+		// Drop the fresh folder straight into rename mode (pre-selected text)
+		// instead of a separate name-prompt dialog — same "type over the
+		// default, Enter to commit" pattern as the label inline-edit above.
+		setEditingFolderId(command.getFolderId());
+		setFolderNameDraft("New folder");
+	};
+
+	const handleStartFolderRename = (folder: MediaFolder) => {
+		setEditingFolderId(folder.id);
+		setFolderNameDraft(folder.name);
+	};
+
+	const handleCancelFolderRename = () => {
+		setEditingFolderId(null);
+	};
+
+	const handleCommitFolderRename = () => {
+		if (!editingFolderId || !activeProject) {
+			setEditingFolderId(null);
+			return;
+		}
+		const trimmed = folderNameDraft.trim();
+		const folder = folders.find((f) => f.id === editingFolderId);
+		if (trimmed && folder && trimmed !== folder.name) {
+			const command = new RenameFolderCommand(
+				activeProject.metadata.id,
+				editingFolderId,
+				trimmed,
+			);
+			editor.command.execute({ command });
+		}
+		setEditingFolderId(null);
+	};
+
+	const handleDeleteFolder = (folder: MediaFolder) => {
+		if (!activeProject) {
+			toast.error("No active project");
+			return;
+		}
+		const confirmed = window.confirm(
+			`Delete "${folder.name}"? Nothing inside it is deleted — its assets and subfolders move back out of the folder.`,
+		);
+		if (!confirmed) return;
+		const command = new DeleteFolderCommand(
+			activeProject.metadata.id,
+			folder.id,
+		);
+		editor.command.execute({ command });
+	};
+
+	const handleMoveAssetToFolder = ({
+		assetId,
+		folderId,
+	}: {
+		assetId: string;
+		folderId: string | null;
+	}) => {
+		if (!activeProject) {
+			toast.error("No active project");
+			return;
+		}
+		const command = new MoveAssetToFolderCommand(
+			activeProject.metadata.id,
+			assetId,
+			folderId,
+		);
+		editor.command.execute({ command });
+	};
+
+	const makeFolderDragHandlers = (folder: MediaFolder) => ({
+		onDragOver: (e: React.DragEvent) => {
+			const dragData = getDragData({ dataTransfer: e.dataTransfer });
+			if (dragData?.type !== "media") return;
+			e.preventDefault();
+			e.dataTransfer.dropEffect = "move";
+		},
+		onDragEnter: (e: React.DragEvent) => {
+			const dragData = getDragData({ dataTransfer: e.dataTransfer });
+			if (dragData?.type !== "media") return;
+			e.preventDefault();
+			setDragOverFolderId(folder.id);
+		},
+		onDragLeave: () => {
+			setDragOverFolderId((current) =>
+				current === folder.id ? null : current,
+			);
+		},
+		onDrop: (e: React.DragEvent) => {
+			const dragData = getDragData({ dataTransfer: e.dataTransfer });
+			setDragOverFolderId(null);
+			if (dragData?.type !== "media") return;
+			e.preventDefault();
+			e.stopPropagation();
+			handleMoveAssetToFolder({ assetId: dragData.id, folderId: folder.id });
+		},
+	});
+
+	// ---- Folder upload (C33 / Worker C's folder-upload contract) --------
+
+	const directoryInputRef = useRef<HTMLInputElement>(null);
+
+	useEffect(() => {
+		const input = directoryInputRef.current;
+		if (!input) return;
+		// Non-standard attributes with no first-class React/JSX prop — set via
+		// the DOM directly, same technique as the other file inputs' imperative
+		// `.click()` trigger below.
+		input.setAttribute("webkitdirectory", "");
+		input.setAttribute("directory", "");
+	}, []);
+
+	const openDirectoryPicker = () => directoryInputRef.current?.click();
+
+	/**
+	 * Shared tail for BOTH folder-import entry points (the directory <input>
+	 * and a Finder folder dropped on the panel): build the folder tree from
+	 * the distinct `path`s (deduping a repeated prefix to one created folder,
+	 * scoped to THIS batch only — see CreateFolderCommand contract), then run
+	 * the SAME `processMediaAssets` + signature-dedupe loop `processFiles`
+	 * uses above, one file at a time (so a file that fails/gets skipped never
+	 * throws off which folder the NEXT file lands in — `processMediaAssets`
+	 * can return fewer assets than files went in). Each imported asset is
+	 * then moved into its leaf folder via `MoveAssetToFolderCommand`.
+	 */
+	const importDroppedFolderEntries = async (entries: DroppedEntry[]) => {
+		if (entries.length === 0) return;
+		if (!activeProject) {
+			toast.error("No active project");
+			return;
+		}
+		const projectId = activeProject.metadata.id;
+
+		setIsProcessing(true);
+		setProgress(0);
+		try {
+			const folderIdCache = new Map<string, string>();
+			const resolveFolderId = (path: string[]): string | null => {
+				let parentId = currentFolderId;
+				let key = "";
+				for (const segment of path) {
+					key = `${key}/${segment}`;
+					let folderId = folderIdCache.get(key);
+					if (!folderId) {
+						const command = new CreateFolderCommand(projectId, {
+							name: segment,
+							parentId,
+						});
+						editor.command.execute({ command });
+						folderId = command.getFolderId();
+						folderIdCache.set(key, folderId);
+					}
+					parentId = folderId;
+				}
+				return parentId;
+			};
+
+			const existingSignatures = new Set(
+				mediaFiles.map((asset) =>
+					mediaAssetSignature({ name: asset.name, size: asset.file.size }),
+				),
+			);
+			const seenInBatch = new Set<string>();
+
+			let completed = 0;
+			for (const entry of entries) {
+				const folderId = resolveFolderId(entry.path);
+
+				const [processed] = await processMediaAssets({ files: [entry.file] });
+				completed += 1;
+				setProgress(Math.round((completed / entries.length) * 100));
+				// Unsupported/corrupt — processMediaAssets already toasted why.
+				if (!processed) continue;
+
+				const signature = mediaAssetSignature({
+					name: processed.name,
+					size: processed.file.size,
+				});
+				if (existingSignatures.has(signature) || seenInBatch.has(signature)) {
+					toast.info(
+						`"${processed.name}" looks like a duplicate of an asset already in your library — imported anyway.`,
+					);
+				}
+				seenInBatch.add(signature);
+
+				const newAssetId = await editor.media.addMediaAsset({
+					projectId,
+					asset: processed,
+				});
+				if (folderId) {
+					const moveCommand = new MoveAssetToFolderCommand(
+						projectId,
+						newAssetId,
+						folderId,
+					);
+					editor.command.execute({ command: moveCommand });
+				}
+			}
+		} catch (error) {
+			console.error("Error processing folder upload:", error);
+			toast.error("Failed to process the uploaded folder");
+		} finally {
+			setIsProcessing(false);
+			setProgress(0);
+		}
+	};
+
+	const handleDirectoryInputChange = (
+		event: React.ChangeEvent<HTMLInputElement>,
+	) => {
+		const files = event.target.files;
+		if (files && files.length > 0) {
+			void importDroppedFolderEntries(filesFromDirectoryInput(files));
+		}
+		if (event.target) {
+			event.target.value = "";
+		}
 	};
 
 	const handleRemove = async ({
@@ -253,9 +596,34 @@ export function MediaView() {
 		}
 	};
 
-	const nonEphemeralMedia = useMemo(
+	const nonEphemeralMediaAll = useMemo(
 		() => mediaFiles.filter((item) => !item.ephemeral),
 		[mediaFiles],
+	);
+
+	/** Direct-asset count per folder id, computed over the WHOLE library (not
+	 *  folder-scoped) — every folder tile needs its own count regardless of
+	 *  which folder is currently open. */
+	const folderAssetCounts = useMemo(() => {
+		const counts = new Map<string, number>();
+		for (const item of nonEphemeralMediaAll) {
+			if (item.folderId) {
+				counts.set(item.folderId, (counts.get(item.folderId) ?? 0) + 1);
+			}
+		}
+		return counts;
+	}, [nonEphemeralMediaAll]);
+
+	// Scope the grid to the current folder (root = items with no folderId).
+	// Filter tabs / sort below all operate on this sub-scope, matching how a
+	// real file browser's type filter reads "within this folder", not "in the
+	// whole library".
+	const nonEphemeralMedia = useMemo(
+		() =>
+			nonEphemeralMediaAll.filter(
+				(item) => (item.folderId ?? null) === currentFolderId,
+			),
+		[nonEphemeralMediaAll, currentFolderId],
 	);
 
 	const typeCounts = useMemo(() => {
@@ -315,6 +683,13 @@ export function MediaView() {
 	return (
 		<>
 			<input {...fileInputProps} />
+			<input
+				ref={directoryInputRef}
+				type="file"
+				multiple
+				style={{ display: "none" }}
+				onChange={handleDirectoryInputChange}
+			/>
 
 			<PanelView
 				title="Assets"
@@ -327,6 +702,8 @@ export function MediaView() {
 						sortOrder={mediaSortOrder}
 						onSort={handleSort}
 						onImport={openFilePicker}
+						onNewFolder={handleCreateFolder}
+						onUploadFolder={openDirectoryPicker}
 					/>
 				}
 				className={cn(
@@ -338,6 +715,11 @@ export function MediaView() {
 				onDragLeave={handlePanelDragLeave}
 				onDrop={handlePanelDrop}
 			>
+				<FolderBreadcrumb
+					chain={breadcrumbChain}
+					onNavigate={setCurrentFolderId}
+				/>
+
 				{/* Type filter tabs */}
 				{nonEphemeralMedia.length > 0 && !isDragOver && (
 					<MediaTypeFilterBar
@@ -347,7 +729,9 @@ export function MediaView() {
 					/>
 				)}
 
-				{isDragOver || filteredMediaItems.length === 0 ? (
+				{isDragOver ||
+				(filteredMediaItems.length === 0 &&
+					foldersInCurrentView.length === 0) ? (
 					<MediaDragOverlay
 						isVisible={true}
 						isProcessing={isProcessing}
@@ -362,6 +746,21 @@ export function MediaView() {
 						onRemove={handleRemove}
 						highlightedId={highlightedId}
 						registerElement={registerElement}
+						folders={foldersInCurrentView}
+						allFolders={folders}
+						folderAssetCounts={folderAssetCounts}
+						folderChildCounts={folderChildCounts}
+						onNavigateToFolder={setCurrentFolderId}
+						editingFolderId={editingFolderId}
+						folderNameDraft={folderNameDraft}
+						onFolderDraftChange={setFolderNameDraft}
+						onCommitFolderRename={handleCommitFolderRename}
+						onCancelFolderRename={handleCancelFolderRename}
+						onStartFolderRename={handleStartFolderRename}
+						onDeleteFolder={handleDeleteFolder}
+						dragOverFolderId={dragOverFolderId}
+						makeFolderDragHandlers={makeFolderDragHandlers}
+						onMoveAssetToFolder={handleMoveAssetToFolder}
 					/>
 				)}
 			</PanelView>
@@ -451,11 +850,21 @@ function MediaItemWithContextMenu({
 	children,
 	onRemove,
 	onSetLabel,
+	folders,
+	onMoveToFolder,
 }: {
 	item: MediaAsset;
 	children: React.ReactNode;
 	onRemove: ({ event, id }: { event: React.MouseEvent; id: string }) => void;
 	onSetLabel: (id: string) => void;
+	folders: MediaFolder[];
+	onMoveToFolder: ({
+		assetId,
+		folderId,
+	}: {
+		assetId: string;
+		folderId: string | null;
+	}) => void;
 }) {
 	const requestFindSimilar = useSearchStore((s) => s.requestFindSimilar);
 	const setActiveTab = useAssetsPanelStore((s) => s.setActiveTab);
@@ -571,6 +980,36 @@ function MediaItemWithContextMenu({
 				>
 					Download
 				</ContextMenuItem>
+				{folders.length > 0 && (
+					<ContextMenuSub>
+						<ContextMenuSubTrigger icon={<HugeiconsIcon icon={Folder03Icon} />}>
+							Move to folder
+						</ContextMenuSubTrigger>
+						<ContextMenuSubContent>
+							{item.folderId && (
+								<ContextMenuItem
+									onClick={() =>
+										onMoveToFolder({ assetId: item.id, folderId: null })
+									}
+								>
+									Root
+								</ContextMenuItem>
+							)}
+							{folders
+								.filter((folder) => folder.id !== item.folderId)
+								.map((folder) => (
+									<ContextMenuItem
+										key={folder.id}
+										onClick={() =>
+											onMoveToFolder({ assetId: item.id, folderId: folder.id })
+										}
+									>
+										{folder.name}
+									</ContextMenuItem>
+								))}
+						</ContextMenuSubContent>
+					</ContextMenuSub>
+				)}
 				<ContextMenuItem
 					variant="destructive"
 					onClick={(event) => onRemove({ event, id: item.id })}
@@ -588,12 +1027,50 @@ function MediaItemList({
 	onRemove,
 	highlightedId,
 	registerElement,
+	folders,
+	allFolders,
+	folderAssetCounts,
+	folderChildCounts,
+	onNavigateToFolder,
+	editingFolderId,
+	folderNameDraft,
+	onFolderDraftChange,
+	onCommitFolderRename,
+	onCancelFolderRename,
+	onStartFolderRename,
+	onDeleteFolder,
+	dragOverFolderId,
+	makeFolderDragHandlers,
+	onMoveAssetToFolder,
 }: {
 	items: MediaAsset[];
 	mode: MediaViewMode;
 	onRemove: ({ event, id }: { event: React.MouseEvent; id: string }) => void;
 	highlightedId: string | null;
 	registerElement: (id: string, element: HTMLElement | null) => void;
+	/** Folders whose parent is the CURRENTLY OPEN folder — what's rendered as tiles. */
+	folders: MediaFolder[];
+	/** Every folder in the project — feeds each asset's "Move to folder" submenu. */
+	allFolders: MediaFolder[];
+	folderAssetCounts: Map<string, number>;
+	folderChildCounts: Map<string, number>;
+	onNavigateToFolder: (folderId: string | null) => void;
+	editingFolderId: string | null;
+	folderNameDraft: string;
+	onFolderDraftChange: (value: string) => void;
+	onCommitFolderRename: () => void;
+	onCancelFolderRename: () => void;
+	onStartFolderRename: (folder: MediaFolder) => void;
+	onDeleteFolder: (folder: MediaFolder) => void;
+	dragOverFolderId: string | null;
+	makeFolderDragHandlers: (folder: MediaFolder) => FolderTileDragHandlers;
+	onMoveAssetToFolder: ({
+		assetId,
+		folderId,
+	}: {
+		assetId: string;
+		folderId: string | null;
+	}) => void;
 }) {
 	const editor = useEditor();
 	const activeProject = editor.project.getActive();
@@ -652,12 +1129,55 @@ function MediaItemList({
 					: undefined
 			}
 		>
+			{/* Folder tiles first — this folder's contents, subfolders before assets,
+			    same convention as a desktop file browser. */}
+			{folders.map((folder) => {
+				const folderTile = (
+					<FolderTile
+						folder={folder}
+						assetCount={folderAssetCounts.get(folder.id) ?? 0}
+						subfolderCount={folderChildCounts.get(folder.id) ?? 0}
+						itemCount={
+							(folderAssetCounts.get(folder.id) ?? 0) +
+							(folderChildCounts.get(folder.id) ?? 0)
+						}
+						variant={isGrid ? "card" : "compact"}
+						isEditing={editingFolderId === folder.id}
+						editingDraft={folderNameDraft}
+						onDraftChange={onFolderDraftChange}
+						onCommitRename={onCommitFolderRename}
+						onCancelRename={onCancelFolderRename}
+						onNavigate={() => onNavigateToFolder(folder.id)}
+						onStartRename={() => onStartFolderRename(folder)}
+						onDelete={() => onDeleteFolder(folder)}
+						isDropTarget={dragOverFolderId === folder.id}
+						dragHandlers={makeFolderDragHandlers(folder)}
+					/>
+				);
+
+				if (!isGrid) {
+					return <div key={folder.id}>{folderTile}</div>;
+				}
+
+				return (
+					<MasonryCell
+						key={folder.id}
+						colSpan={1}
+						registerRef={() => undefined}
+					>
+						{folderTile}
+					</MasonryCell>
+				);
+			})}
+
 			{items.map((item) => {
 				const content = (
 					<MediaItemWithContextMenu
 						item={item}
 						onRemove={onRemove}
 						onSetLabel={handleStartLabelEdit}
+						folders={allFolders}
+						onMoveToFolder={onMoveAssetToFolder}
 					>
 						<div className={isGrid ? "flex flex-col" : "flex items-center"}>
 							<MediaAssetDraggable
@@ -992,6 +1512,8 @@ function MediaActions({
 	sortOrder,
 	onSort,
 	onImport,
+	onNewFolder,
+	onUploadFolder,
 }: {
 	mediaViewMode: MediaViewMode;
 	setMediaViewMode: (mode: MediaViewMode) => void;
@@ -1000,6 +1522,8 @@ function MediaActions({
 	sortOrder: MediaSortOrder;
 	onSort: ({ key }: { key: MediaSortKey }) => void;
 	onImport: () => void;
+	onNewFolder: () => void;
+	onUploadFolder: () => void;
 }) {
 	return (
 		<div className="flex gap-1.5">
@@ -1028,6 +1552,38 @@ function MediaActions({
 								? "Switch to list view"
 								: "Switch to grid view"}
 						</p>
+					</TooltipContent>
+				</Tooltip>
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<Button
+							size="icon"
+							variant="ghost"
+							onClick={onNewFolder}
+							disabled={isProcessing}
+							className="items-center justify-center"
+						>
+							<HugeiconsIcon icon={FolderAddIcon} />
+						</Button>
+					</TooltipTrigger>
+					<TooltipContent>
+						<p>New folder</p>
+					</TooltipContent>
+				</Tooltip>
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<Button
+							size="icon"
+							variant="ghost"
+							onClick={onUploadFolder}
+							disabled={isProcessing}
+							className="items-center justify-center"
+						>
+							<HugeiconsIcon icon={FolderUploadIcon} />
+						</Button>
+					</TooltipTrigger>
+					<TooltipContent>
+						<p>Upload folder</p>
 					</TooltipContent>
 				</Tooltip>
 				<Tooltip>

@@ -138,6 +138,16 @@ interface AssetsPanelStore {
 	setMediaSort: (key: MediaSortKey, order: MediaSortOrder) => void;
 	mediaTypeFilter: MediaTypeFilter;
 	setMediaTypeFilter: (filter: MediaTypeFilter) => void;
+
+	/**
+	 * Folder navigation (C33). `null` = Root. In-memory only — deliberately
+	 * absent from `partialize` below, so a reload always lands back at Root
+	 * rather than resuming deep inside a folder whose id may no longer exist.
+	 * Project-switch reset is handled locally by `MediaView` (assets.tsx),
+	 * not here, so this store doesn't need to know about project lifecycle.
+	 */
+	currentFolderId: string | null;
+	setCurrentFolderId: (folderId: string | null) => void;
 }
 
 export const useAssetsPanelStore = create<AssetsPanelStore>()(
@@ -164,6 +174,8 @@ export const useAssetsPanelStore = create<AssetsPanelStore>()(
 				set({ mediaSortBy: key, mediaSortOrder: order }),
 			mediaTypeFilter: "all",
 			setMediaTypeFilter: (filter) => set({ mediaTypeFilter: filter }),
+			currentFolderId: null,
+			setCurrentFolderId: (folderId) => set({ currentFolderId: folderId }),
 		}),
 		{
 			name: "assets-panel",
