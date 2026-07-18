@@ -68,7 +68,6 @@ import { MarkersPanel } from "./markers-panel";
 
 const TRACKS_CONTAINER_MAX_HEIGHT = 800;
 const FALLBACK_CONTAINER_WIDTH = 1000;
-const EMPTY_TIMELINE_HEIGHT = 160;
 
 export function Timeline() {
 	const tracksContainerHeight = { min: 0, max: TRACKS_CONTAINER_MAX_HEIGHT };
@@ -77,6 +76,9 @@ export function Timeline() {
 	const editor = useEditor();
 	const timeline = editor.timeline;
 	const tracks = timeline.getTracks();
+	// BUG28: every real project has at least one (empty) main track via
+	// ensureMainTrack, so "empty timeline" means no elements on any track.
+	const isTimelineEmpty = tracks.every((track) => track.elements.length === 0);
 	const seek = (time: number) => editor.playback.seek({ time });
 
 	const timelineRef = useRef<HTMLDivElement>(null);
@@ -382,24 +384,25 @@ export function Timeline() {
 								<div
 									className="relative"
 									style={{
-										height:
-											tracks.length === 0
-												? `${EMPTY_TIMELINE_HEIGHT}px`
-												: `${Math.max(
-														tracksContainerHeight.min,
-														Math.min(
-															tracksContainerHeight.max,
-															getTotalTracksHeight({ tracks }),
-														),
-													)}px`,
+										height: `${Math.max(
+											tracksContainerHeight.min,
+											Math.min(
+												tracksContainerHeight.max,
+												getTotalTracksHeight({ tracks }),
+											),
+										)}px`,
 									}}
 								>
-									{tracks.length === 0 ? (
-										<div className="flex h-full items-center justify-center px-6 text-center">
+									{/* BUG28: quiet hint over the (element-less) tracks area. */}
+									{isTimelineEmpty && (
+										<div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center px-6 text-center">
 											<p className="text-2xs text-muted-foreground/60">
 												Drag media here or generate a clip to begin
 											</p>
 										</div>
+									)}
+									{tracks.length === 0 ? (
+										<div />
 									) : (
 										[...tracks]
 											.map((track, index) => ({ track, index }))
