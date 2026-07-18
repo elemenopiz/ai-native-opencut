@@ -474,12 +474,36 @@ export interface LedgerEntry {
 	reason: string;
 	refType: string | null;
 	refId: string | null;
+	/** Free-form context written at reserve/settle/grant time (e.g. the routed
+	 *  `backendId`, an image `count`, an audio `action`) — already populated by
+	 *  every studio charge; the history route reads it to render a
+	 *  type-specific label instead of a bare "Generation". Never money-bearing
+	 *  itself, so it's safe to surface read-only. */
+	metadata: unknown;
 	createdAt: Date;
+}
+
+/** A settle row's `backendId` (the label source) lives on its own metadata for
+ *  SYNC charges, but the ASYNC completion path (video/audio poll routes) settles
+ *  with no metadata — there the backendId is only on the delta=0 reserve marker.
+ *  Read-only helper: does this metadata blob already carry a string backendId? */
+function hasBackendId(metadata: unknown): boolean {
+	return (
+		typeof (metadata as { backendId?: unknown } | null)?.backendId === "string"
+	);
 }
 
 /**
  * Recent ledger history for a user, newest first. Excludes delta=0 reserve
  * markers — the history view shows actual credit movements (grants + charges).
+ *
+ * DISPLAY-ONLY ENRICHMENT: a settle row surfaced here inherits the matching
+ * reserve marker's `metadata` when its own lacks a `backendId`. The async
+ * video/audio poll routes settle with no metadata, so without this the (common)
+ * async generations would show a bare "Generation" while syncs showed a label.
+ * This is a pure READ join over rows already fetched — the reserve markers are
+ * in `rows` before the delta filter drops them — so it touches no write path,
+ * amount, or schema; it only repopulates the `metadata` we return for labelling.
  */
 export async function history(
 	userId: string,
@@ -496,13 +520,30 @@ export async function history(
 			reason: creditLedger.reason,
 			refType: creditLedger.refType,
 			refId: creditLedger.refId,
+			metadata: creditLedger.metadata,
 			createdAt: creditLedger.createdAt,
 		})
 		.from(creditLedger)
 		.where(eq(creditLedger.userId, userId))
 		.orderBy(desc(creditLedger.createdAt));
 
+	// Map each charge's refId to the metadata recorded on its reserve marker, so
+	// a settle row missing a backendId (async path) can borrow it for labelling.
+	const reserveMetaByRef = new Map<string, unknown>();
+	for (const r of rows) {
+		if (r.reason === "reserve" && r.refId && hasBackendId(r.metadata)) {
+			reserveMetaByRef.set(r.refId, r.metadata);
+		}
+	}
+
 	// Drop reserve markers (delta 0), then page in memory. Volumes per user are
 	// small this phase; a keyset query can replace this later.
-	return rows.filter((r) => r.delta !== 0).slice(offset, offset + limit);
+	return rows
+		.filter((r) => r.delta !== 0)
+		.map((r) => {
+			if (hasBackendId(r.metadata) || !r.refId) return r;
+			const reserveMeta = reserveMetaByRef.get(r.refId);
+			return reserveMeta ? { ...r, metadata: reserveMeta } : r;
+		})
+		.slice(offset, offset + limit);
 }
