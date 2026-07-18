@@ -53,7 +53,7 @@ function TaskRow({ task }: { task: BackgroundTask }) {
 			{task.status === "completed" && (
 				<HugeiconsIcon
 					icon={Tick01Icon}
-					className="size-3.5 text-green-500 shrink-0"
+					className="size-3.5 text-constructive shrink-0"
 				/>
 			)}
 			{task.status === "error" && (
@@ -65,18 +65,18 @@ function TaskRow({ task }: { task: BackgroundTask }) {
 
 			<div className="flex-1 min-w-0">
 				<div className="flex items-center gap-1.5">
-					<span className="text-[11px] font-medium truncate">{task.label}</span>
-					<span className="text-[10px] text-muted-foreground tabular-nums shrink-0">
+					<span className="text-2xs font-medium truncate">{task.label}</span>
+					<span className="text-2xs text-muted-foreground tabular-nums shrink-0">
 						{elapsed}
 					</span>
 				</div>
 				{task.status === "running" && task.progress && (
-					<p className="text-[10px] text-muted-foreground truncate">
+					<p className="text-2xs text-muted-foreground truncate">
 						{task.progress}
 					</p>
 				)}
 				{task.status === "error" && task.error && (
-					<p className="text-[10px] text-red-400 truncate">{task.error}</p>
+					<p className="text-2xs text-red-400 truncate">{task.error}</p>
 				)}
 			</div>
 
@@ -122,14 +122,17 @@ export function BackgroundTasksWidget() {
 				type="button"
 				onClick={() => setMinimized(!isMinimized)}
 				className={cn(
-					"flex items-center gap-1.5 rounded-full border bg-surface-overlay px-2.5 py-1.5 text-[11px] font-medium text-foreground shadow-float transition-colors hover:bg-popover-hover",
+					"flex items-center gap-1.5 rounded-full border bg-surface-overlay px-2.5 py-1.5 text-2xs font-medium text-foreground shadow-float transition-colors hover:bg-popover-hover",
 					isActive && "glow-generation",
 				)}
 			>
 				{isActive ? (
 					<Spinner className="size-3" />
 				) : (
-					<HugeiconsIcon icon={Tick01Icon} className="size-3 text-green-500" />
+					<HugeiconsIcon
+						icon={Tick01Icon}
+						className="size-3 text-constructive"
+					/>
 				)}
 				<span className="tabular-nums">
 					{isActive ? runningCount : tasks.length}
@@ -155,7 +158,7 @@ export function BackgroundTasksWidget() {
 							<Button
 								variant="ghost"
 								size="sm"
-								className="h-5 px-1.5 text-[10px] text-muted-foreground"
+								className="h-5 px-1.5 text-2xs text-muted-foreground"
 								onClick={clearCompleted}
 							>
 								Clear
