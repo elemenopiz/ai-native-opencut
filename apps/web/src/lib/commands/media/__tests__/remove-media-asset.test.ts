@@ -27,18 +27,21 @@ import type {
  * asset-delete/undo/redo round trip is verified through the public API only.
  */
 
-type FakeEditor = EditorCore & {
-	timeline: {
-		getTracks: () => TimelineTrack[];
-		updateTracks: (tracks: TimelineTrack[]) => void;
-	};
-	selection: {
-		getSelectedElements: () => { trackId: string; elementId: string }[];
-		setSelectedElements: (args: {
-			elements: { trackId: string; elementId: string }[];
-		}) => void;
-	};
-};
+/** The minimal timeline/selection surface the command actually touches —
+ * assigned through `as unknown as` (same idiom as the command/media fields
+ * below) because the fakes deliberately implement only this slice of the real
+ * managers. */
+interface FakeTimeline {
+	getTracks: () => TimelineTrack[];
+	updateTracks: (tracks: TimelineTrack[]) => void;
+}
+interface FakeSelection {
+	getSelectedElements: () => { trackId: string; elementId: string }[];
+	setSelectedElements: (args: {
+		elements: { trackId: string; elementId: string }[];
+	}) => void;
+}
+type FakeEditor = EditorCore;
 
 const originalGetInstance = EditorCore.getInstance;
 
@@ -63,13 +66,13 @@ function makeEditor({ tracks }: { tracks: TimelineTrack[] }): FakeEditor {
 	const editor = {} as FakeEditor;
 	(editor as unknown as { command: CommandManager }).command =
 		new CommandManager();
-	editor.timeline = {
+	(editor as unknown as { timeline: FakeTimeline }).timeline = {
 		getTracks: () => currentTracks,
 		updateTracks: (next) => {
 			currentTracks = next;
 		},
 	};
-	editor.selection = {
+	(editor as unknown as { selection: FakeSelection }).selection = {
 		getSelectedElements: () => selection,
 		setSelectedElements: ({ elements }) => {
 			selection = elements;
