@@ -10,26 +10,23 @@ export type DroppedEntry = {
 	path: string[];
 };
 
-// webkitRelativePath is non-standard but universally supported by browsers
-// that implement <input webkitdirectory>. Extend the File interface locally
-// rather than reaching for `as any` at call sites.
-interface FileWithRelativePath extends File {
-	readonly webkitRelativePath?: string;
-}
-
 /**
  * Reads each file's `webkitRelativePath` (e.g. "Trip/Day1/clip.mp4") into a
  * folder-segment path (["Trip", "Day1"]). Files without a relative path
  * (or with one that has no directory component) get path [].
+ *
+ * `webkitRelativePath` is typed non-optional on `File` in lib.dom, but
+ * fabricated File objects (tests, non-picker code paths) can lack it at
+ * runtime — `pathFromRelativePath` treats undefined/"" identically.
  */
 export function filesFromDirectoryInput(files: FileList): DroppedEntry[] {
 	const entries: DroppedEntry[] = [];
 
 	for (let i = 0; i < files.length; i++) {
-		const file = files[i] as FileWithRelativePath;
+		const file = files[i];
 		if (!file) continue;
 
-		const relativePath = file.webkitRelativePath;
+		const relativePath: string | undefined = file.webkitRelativePath;
 		entries.push({ file, path: pathFromRelativePath(relativePath) });
 	}
 
@@ -75,9 +72,13 @@ interface FileSystemDirectoryEntryLike extends FileSystemEntryLike {
 	createReader(): FileSystemDirectoryReaderLike;
 }
 
-interface DataTransferItemWithEntry extends DataTransferItem {
+// lib.dom types `DataTransferItem.webkitGetAsEntry` non-optional, but test
+// fabrications (and defensive runtime checks) treat it as possibly absent —
+// an intersection (not `extends`) sidesteps the declaration conflict while
+// keeping the `-Like` structural types (which `FileSystemEntry` satisfies).
+type DataTransferItemWithEntry = Omit<DataTransferItem, "webkitGetAsEntry"> & {
 	webkitGetAsEntry?: () => FileSystemEntryLike | null;
-}
+};
 
 function isDirectoryEntry(
 	entry: FileSystemEntryLike,
