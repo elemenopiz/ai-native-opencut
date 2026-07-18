@@ -131,3 +131,29 @@ commits on `task/bug23-compositor-parity`:
   probe server recipe, fix-bearing E2E build in worker-1's worktree) for a dedicated bench
   session. Prior flag-ON numbers remain invalid (measured a hidden canvas); post-BUG23 the
   next bench will be the first meaningful flag-ON measurement. Flag stays OFF regardless.
+- 2026-07-18 18:2x CLOSE-OUT: worker 2 returned clean — 3 parity commits on
+  task/c17-parity-gaps (c22bd937 gap 7, 9975eb2e gap 5, b2ac5b33 gap 4), single-file, diff
+  reviewed by orchestrator (overlays are parent-relative, no fitScale dependency ⇒ correct in
+  worker mode). Merged @6f06d985. Post-merge battery: typecheck 0 · lint 333e/224w (no-worse)
+  · full suite 2175/5/12 = exact baseline. Worker 2's gitnexus impact on WorkerPreviewCanvas
+  returned generic HIGH (top-level render-chain rating); edits are additive and flag-ON-only,
+  and this branch parks for L0 review regardless. Probe server stopped; territory released.
+
+## Final per-gap status (evidence-doc §d numbering)
+
+| gap | what | status | tier |
+|---|---|---|---|
+| BUG23 | overlay opaque-black clear | FIXED @d46e06a4 | verified locally (both-path pixel probe + screenshots, `bug23-fix/`) |
+| 7 | proxy-settle sharpening | LANDED @c22bd937 (merged @6f06d985) | merged (typecheck/lint/suite green; not browser-driven — needs rebuild) |
+| 5 | LayoutGuideOverlay | LANDED @9975eb2e | merged (same) |
+| 4 | BookmarkNoteOverlay | LANDED @b2ac5b33 | merged (same) |
+| 1 | zoom/pan/fit dead | FILED BUG110 | — |
+| 2 | interaction overlay absent | FILED BUG111 | — |
+| 3 | context menu absent | FILED BUG112 | — |
+| 6+8 | quality-downscale + backing-store guard | FILED BUG113 | — |
+| 9+10 | scopes composite-fidelity + mask-in-worker risk | FILED BUG114 | — |
+
+DoD met: BUG23 fixed with both-paths evidence (verified locally); 10 gaps landed-or-filed;
+typecheck 0; lint no-worse; no new full-suite fails. Branch `campaign/compositor-endgame`
+PARKED for L0 diff review (BUG23 diff = CRITICAL-radius CanvasRenderer) — NOT merged to main,
+not pushed. Flag remains OFF.
