@@ -365,7 +365,7 @@ function TranslationView({
 									: "text-muted-foreground hover:bg-accent hover:text-foreground",
 							)}
 						>
-							<span className="text-[10px] font-mono tabular-nums text-muted-foreground mr-2">
+							<span className="text-2xs font-mono tabular-nums text-muted-foreground mr-2">
 								{formatTimestamp(seg.start)}
 							</span>
 							{seg.text}

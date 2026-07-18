@@ -307,7 +307,7 @@ export function BackgroundRemovalDialog({
 									</div>
 								</div>
 							</div>
-							<div className="flex justify-between text-[10px] text-muted-foreground">
+							<div className="flex justify-between text-2xs text-muted-foreground">
 								<span>Original</span>
 								<span>Background Removed</span>
 							</div>

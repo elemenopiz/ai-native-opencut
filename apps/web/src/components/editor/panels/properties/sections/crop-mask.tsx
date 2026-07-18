@@ -345,7 +345,7 @@ export function CropMaskSection({
 										type="button"
 										variant={mask?.type === shape.type ? "secondary" : "ghost"}
 										size="sm"
-										className="h-7 min-w-[3.5rem] flex-1 basis-[30%] text-[10px]"
+										className="h-7 min-w-[3.5rem] flex-1 basis-[30%] text-2xs"
 										onClick={() => setMaskShape(shape.type)}
 									>
 										{shape.label}
@@ -471,7 +471,7 @@ export function CropMaskSection({
 										type="button"
 										variant={resolvedMask.inverted ? "secondary" : "ghost"}
 										size="sm"
-										className="h-7 text-[10px]"
+										className="h-7 text-2xs"
 										onClick={() =>
 											updateMask({ inverted: !resolvedMask.inverted })
 										}
@@ -489,7 +489,7 @@ export function CropMaskSection({
 											type="button"
 											variant={isDrawing ? "secondary" : "ghost"}
 											size="sm"
-											className="h-7 flex-1 text-[10px]"
+											className="h-7 flex-1 text-2xs"
 											onClick={() => toggleDrawing(element.id)}
 										>
 											{isDrawing ? "Done" : "Draw"}
@@ -498,7 +498,7 @@ export function CropMaskSection({
 											type="button"
 											variant="ghost"
 											size="sm"
-											className="h-7 flex-1 text-[10px]"
+											className="h-7 flex-1 text-2xs"
 											onClick={closePenPath}
 											disabled={
 												customMask.points.length < 3 || customMask.closed
@@ -510,7 +510,7 @@ export function CropMaskSection({
 											type="button"
 											variant="ghost"
 											size="sm"
-											className="h-7 flex-1 text-[10px]"
+											className="h-7 flex-1 text-2xs"
 											onClick={deleteSelectedPenPoints}
 											disabled={selectedPointIds.length === 0}
 										>
@@ -518,7 +518,7 @@ export function CropMaskSection({
 										</Button>
 									</div>
 								</SectionField>
-								<p className="px-1 text-[10px] text-muted-foreground">
+								<p className="px-1 text-2xs text-muted-foreground">
 									{customMask.points.length} point
 									{customMask.points.length === 1 ? "" : "s"}
 									{customMask.closed
@@ -582,7 +582,7 @@ export function CropMaskSection({
 										type="button"
 										variant={customMask.inverted ? "secondary" : "ghost"}
 										size="sm"
-										className="h-7 text-[10px]"
+										className="h-7 text-2xs"
 										onClick={() =>
 											updateMask({ inverted: !customMask.inverted })
 										}
@@ -640,7 +640,7 @@ export function CropMaskSection({
 															: "ghost"
 													}
 													size="sm"
-													className="h-7 flex-1 text-[10px]"
+													className="h-7 flex-1 text-2xs"
 													onClick={() =>
 														updateMask({ fontWeight: weight.value })
 													}
@@ -720,7 +720,7 @@ export function CropMaskSection({
 										type="button"
 										variant={textMask.inverted ? "secondary" : "ghost"}
 										size="sm"
-										className="h-7 text-[10px]"
+										className="h-7 text-2xs"
 										onClick={() => updateMask({ inverted: !textMask.inverted })}
 									>
 										{textMask.inverted ? "Inverted" : "Normal"}

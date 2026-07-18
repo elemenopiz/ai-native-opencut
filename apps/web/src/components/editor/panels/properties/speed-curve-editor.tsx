@@ -300,14 +300,14 @@ export function SpeedCurveEditor({ element, trackId }: SpeedCurveEditorProps) {
 	return (
 		<div className="space-y-2">
 			<div className="flex items-center justify-between">
-				<span className="text-[11px] font-medium text-muted-foreground">
+				<span className="text-2xs font-medium text-muted-foreground">
 					Speed Curve
 				</span>
 				{hasKeyframes && (
 					<button
 						type="button"
 						onClick={handleRemoveKeyframes}
-						className="text-[10px] text-muted-foreground hover:text-foreground"
+						className="text-2xs text-muted-foreground hover:text-foreground"
 					>
 						Reset
 					</button>
@@ -328,14 +328,14 @@ export function SpeedCurveEditor({ element, trackId }: SpeedCurveEditorProps) {
 						key={preset.name}
 						type="button"
 						onClick={() => applyPreset(preset)}
-						className="text-[10px] px-2 py-1 rounded border hover:bg-accent/50"
+						className="text-2xs px-2 py-1 rounded border hover:bg-accent/50"
 					>
 						{preset.name}
 					</button>
 				))}
 			</div>
 
-			<p className="text-[10px] text-muted-foreground">
+			<p className="text-2xs text-muted-foreground">
 				Click on the curve to add speed keyframes. Presets apply common speed
 				ramp patterns.
 			</p>

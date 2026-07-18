@@ -148,7 +148,7 @@ export function ModelWizard({
 							<div className="flex items-center gap-1.5 flex-1">
 								<div
 									className={cn(
-										"flex items-center justify-center size-6 rounded-full text-[10px] font-medium border transition-colors",
+										"flex items-center justify-center size-6 rounded-full text-2xs font-medium border transition-colors",
 										i < currentStepIndex &&
 											"bg-primary text-primary-foreground border-primary",
 										i === currentStepIndex &&
@@ -168,7 +168,7 @@ export function ModelWizard({
 								</div>
 								<span
 									className={cn(
-										"text-[10px] hidden sm:inline",
+										"text-2xs hidden sm:inline",
 										i === currentStepIndex
 											? "text-foreground font-medium"
 											: "text-muted-foreground",
@@ -320,7 +320,7 @@ export function ModelWizard({
 														{tier.recommended && (
 															<Badge
 																variant="default"
-																className="text-[10px] px-1.5 py-0"
+																className="text-2xs px-1.5 py-0"
 															>
 																Recommended
 															</Badge>
@@ -328,7 +328,7 @@ export function ModelWizard({
 														{!canRun && (
 															<Badge
 																variant="destructive"
-																className="text-[10px] px-1.5 py-0"
+																className="text-2xs px-1.5 py-0"
 															>
 																Insufficient hardware
 															</Badge>
@@ -347,7 +347,7 @@ export function ModelWizard({
 													<Badge
 														key={model.id}
 														variant="secondary"
-														className="text-[10px]"
+														className="text-2xs"
 													>
 														{model.name}
 													</Badge>
@@ -374,7 +374,7 @@ export function ModelWizard({
 											<span className="text-xs font-medium">
 												{model.name}
 											</span>
-											<span className="text-[10px] text-muted-foreground">
+											<span className="text-2xs text-muted-foreground">
 												{formatSize(model.sizeMb)}
 											</span>
 										</div>
@@ -386,12 +386,12 @@ export function ModelWizard({
 												/>
 											)}
 											{model.status === "downloading" && (
-												<span className="text-[10px] text-muted-foreground tabular-nums">
+												<span className="text-2xs text-muted-foreground tabular-nums">
 													{Math.round(model.progress)}%
 												</span>
 											)}
 											{model.status === "error" && (
-												<span className="text-[10px] text-destructive">
+												<span className="text-2xs text-destructive">
 													Error
 												</span>
 											)}
@@ -408,7 +408,7 @@ export function ModelWizard({
 										)}
 									/>
 									{model.error && (
-										<p className="text-[10px] text-destructive">
+										<p className="text-2xs text-destructive">
 											{model.error}
 										</p>
 									)}
