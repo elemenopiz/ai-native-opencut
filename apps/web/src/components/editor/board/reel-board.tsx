@@ -8,7 +8,13 @@ import {
 	StarIcon,
 } from "@hugeicons/core-free-icons";
 import { Dialog as DialogPrimitive } from "radix-ui";
-import { useCallback, useEffect, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
 import { toast } from "sonner";
 import { cn } from "@/utils/ui";
 import { useEditor } from "@/hooks/use-editor";
@@ -46,6 +52,18 @@ export function ReelBoard() {
 	// before the first resolves — e.g. two Stars = two duplicate assets plus a
 	// racing DELETE, or two 1080p clicks = two independently-billed renders.
 	const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
+
+	// Board items carry no known width/height up front (unlike library media
+	// assets) — the true aspect ratio only becomes known once the video/image
+	// itself loads (see DraftCard's onLoadedMetadata/onLoad). This map is fed
+	// by that callback so the masonry grid below can decide column span
+	// per-item as ratios resolve, one at a time.
+	const [aspectRatios, setAspectRatios] = useState<Record<string, number>>({});
+	const handleAspectRatioChange = useCallback((id: string, ratio: number) => {
+		setAspectRatios((prev) =>
+			prev[id] === ratio ? prev : { ...prev, [id]: ratio },
+		);
+	}, []);
 
 	const withPending = useCallback(
 		(id: string, fn: () => Promise<void>) => {
@@ -121,23 +139,65 @@ export function ReelBoard() {
 						{items.length === 0 ? (
 							<BoardEmptyState onDismiss={() => setOpen(false)} />
 						) : (
-							<div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
-								{items.map((item) => (
-									<DraftCard
-										key={item.id}
-										item={item}
-										pending={pendingIds.has(item.id)}
-										onStar={() =>
-											withPending(item.id, () => promoteToAssets(item))
-										}
-										onDismiss={() => withPending(item.id, () => dismiss(item))}
-										onPromote={
-											item.kind === "take" && item.take?.resolution !== "1080p"
-												? () => withPending(item.id, () => promoteTo1080p(item))
-												: undefined
-										}
-									/>
-								))}
+							// Pinterest-style masonry, same technique as the Assets grid
+							// (apps/web/src/components/editor/panels/assets/views/assets.tsx):
+							// a dense CSS grid with a fine-grained row unit, where each cell
+							// spans however many rows its OWN measured content height needs
+							// (see BoardMasonryCell) instead of every tile in a row being
+							// stretched to the tallest one. `dense` flow lets a following
+							// short/portrait tile backfill the gap a wide one leaves behind.
+							<div
+								style={{
+									display: "grid",
+									gridTemplateColumns: `repeat(auto-fill, minmax(${BOARD_MASONRY_MIN_COL_PX}px, 1fr))`,
+									gridAutoRows: `${BOARD_MASONRY_ROW_UNIT_PX}px`,
+									gridAutoFlow: "dense",
+									// Column gap comes from the grid; the vertical gap is added
+									// as exact padding inside each cell (see BoardMasonryCell)
+									// so it can't stack with row-span rounding into an
+									// oversized gap.
+									columnGap: `${BOARD_MASONRY_GAP_PX}px`,
+									rowGap: 0,
+								}}
+							>
+								{items.map((item) => {
+									// Landscape (wider than tall) gets two columns; portrait/
+									// square gets one — same threshold the Assets grid uses.
+									// Ratio defaults to 16:9 (single column) until the item's
+									// own media reports its natural size.
+									const ratio = Math.min(
+										Math.max(aspectRatios[item.id] ?? 16 / 9, 0.5),
+										2,
+									);
+									const colSpan =
+										ratio >= BOARD_LANDSCAPE_RATIO_THRESHOLD ? 2 : 1;
+
+									return (
+										<BoardMasonryCell key={item.id} colSpan={colSpan}>
+											<DraftCard
+												item={item}
+												pending={pendingIds.has(item.id)}
+												aspectRatio={ratio}
+												onAspectRatioChange={(r) =>
+													handleAspectRatioChange(item.id, r)
+												}
+												onStar={() =>
+													withPending(item.id, () => promoteToAssets(item))
+												}
+												onDismiss={() =>
+													withPending(item.id, () => dismiss(item))
+												}
+												onPromote={
+													item.kind === "take" &&
+													item.take?.resolution !== "1080p"
+														? () =>
+																withPending(item.id, () => promoteTo1080p(item))
+														: undefined
+												}
+											/>
+										</BoardMasonryCell>
+									);
+								})}
 							</div>
 						)}
 					</div>
@@ -175,12 +235,19 @@ function BoardEmptyState({ onDismiss }: { onDismiss: () => void }) {
 function DraftCard({
 	item,
 	pending,
+	aspectRatio,
+	onAspectRatioChange,
 	onStar,
 	onDismiss,
 	onPromote,
 }: {
 	item: BoardItem;
 	pending: boolean;
+	/** Current (possibly still-default 16:9) render ratio — owned by the
+	 *  parent so the masonry grid's column span can react to it too. */
+	aspectRatio: number;
+	/** Fires once the underlying video/image reports its true natural size. */
+	onAspectRatioChange: (ratio: number) => void;
 	onStar: () => void;
 	onDismiss: () => void;
 	onPromote?: () => void;
@@ -193,14 +260,6 @@ function DraftCard({
 		!item.take?.videoUrl;
 	const prompt =
 		(item.kind === "take" ? item.set?.prompt : item.image?.prompt) ?? "";
-
-	// Board items don't carry known dimensions up front, so measure the media
-	// itself once it loads and render the tile at its true aspect ratio —
-	// matching the Assets grid — instead of forcing 16:9 and cropping portrait
-	// content. Clamp to a sane range so an extreme shape can't blow out the
-	// grid row height.
-	const [naturalRatio, setNaturalRatio] = useState<number | null>(null);
-	const aspectRatio = Math.min(Math.max(naturalRatio ?? 16 / 9, 0.5), 2);
 
 	return (
 		<div
@@ -219,7 +278,7 @@ function DraftCard({
 						onLoadedMetadata={(e) => {
 							const { videoWidth, videoHeight } = e.currentTarget;
 							if (videoWidth && videoHeight) {
-								setNaturalRatio(videoWidth / videoHeight);
+								onAspectRatioChange(videoWidth / videoHeight);
 							}
 						}}
 					/>
@@ -231,7 +290,7 @@ function DraftCard({
 						onLoad={(e) => {
 							const { naturalWidth, naturalHeight } = e.currentTarget;
 							if (naturalWidth && naturalHeight) {
-								setNaturalRatio(naturalWidth / naturalHeight);
+								onAspectRatioChange(naturalWidth / naturalHeight);
 							}
 						}}
 					/>
@@ -290,6 +349,72 @@ function DraftCard({
 					</div>
 				</div>
 			)}
+		</div>
+	);
+}
+
+// Masonry tuning — same technique and constant shapes as the Assets grid's
+// MasonryCell (apps/web/src/components/editor/panels/assets/views/assets.tsx),
+// just re-tuned for Board's own tile size: it fills the whole viewport with
+// ~220px cards instead of a narrow side panel's 4-column layout. The column
+// gap comes from the grid; the vertical gap is padding inside each cell (grid
+// row gap stays 0 so it can't compound with row-span rounding). A 1px row
+// unit removes rounding slack.
+const BOARD_MASONRY_MIN_COL_PX = 220;
+const BOARD_MASONRY_GAP_PX = 16;
+const BOARD_MASONRY_ROW_UNIT_PX = 1;
+const BOARD_LANDSCAPE_RATIO_THRESHOLD = 1.2;
+
+// One masonry cell. It measures its own natural content height and spans
+// however many grid rows are needed to contain it, so the CSS grid packs
+// like Pinterest (mixed heights) instead of aligning every item in a row to
+// a shared height. A ResizeObserver re-measures when the column width — and
+// thus the aspect-ratio-driven height — changes, keeping spans correct as
+// the dialog resizes or an item's aspect ratio resolves after media load.
+function BoardMasonryCell({
+	colSpan,
+	children,
+}: {
+	colSpan: number;
+	children: React.ReactNode;
+}) {
+	const innerRef = useRef<HTMLDivElement>(null);
+	const [rowSpan, setRowSpan] = useState(1);
+
+	// Measure before paint so the cell is never shown collapsed to one row
+	// (which would briefly stack items on top of each other).
+	useLayoutEffect(() => {
+		const element = innerRef.current;
+		if (!element) return;
+
+		const update = () => {
+			// Height includes the cell's bottom padding (the vertical gap), so the
+			// span covers content + gap with the row gap left at 0.
+			const height = element.getBoundingClientRect().height;
+			if (height <= 0) return;
+			const span = Math.ceil(height / BOARD_MASONRY_ROW_UNIT_PX);
+			setRowSpan(Math.max(1, span));
+		};
+
+		update();
+		const observer = new ResizeObserver(update);
+		observer.observe(element);
+		return () => observer.disconnect();
+	}, []);
+
+	return (
+		<div
+			style={{
+				gridColumn: `span ${colSpan}`,
+				gridRow: `span ${rowSpan}`,
+			}}
+		>
+			<div
+				ref={innerRef}
+				style={{ paddingBottom: `${BOARD_MASONRY_GAP_PX}px` }}
+			>
+				{children}
+			</div>
 		</div>
 	);
 }
