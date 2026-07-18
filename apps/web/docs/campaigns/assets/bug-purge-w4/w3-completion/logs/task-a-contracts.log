@@ -1,0 +1,22 @@
+
+Running 2 tests using 1 worker
+
+[Contract1] imported: {"id":"10b64424-1c57-4798-9ce2-c0474a08ee84","name":"tiny-tone.wav","type":"audio"}
+[Contract1] before delete: {"assets":["10b64424-1c57-4798-9ce2-c0474a08ee84"],"clips":["tiny-tone.wav"]}
+[Contract1] after delete: {"assets":[],"clips":[]}
+[Contract1] asset removed from panel=true clip removed from timeline=true
+[Contract1] after Cmd+Z: {"assets":["10b64424-1c57-4798-9ce2-c0474a08ee84"],"clips":["tiny-tone.wav"]}
+[Contract1] asset restored=true clip restored=true
+[Contract1] decodability probe after undo: {"ok":true,"duration":1}
+[Contract1] OVERALL VERDICT: PASS
+  ✓  1 [chrome] › e2e/hunt/w3-taska.w3.e2e.ts:179:5 › Contract1: delete audio asset then Cmd+Z restores asset, clip, and decodability (4.6s)
+[Contract2] before any recording: {"assetCount":0,"clipCount":0}
+[Contract2] Discard button visible while recording: true
+[Contract2] after discard: {"assetCount":0,"clipCount":0}
+[Contract2] discard clean: noNewAssets=true noNewClips=true
+[Contract2] after stop: {"assetCount":1,"clipCount":1}
+[Contract2] exactly one new asset after stop: true
+[Contract2] OVERALL VERDICT: PASS
+  ✓  2 [chrome] › e2e/hunt/w3-taska.w3.e2e.ts:318:5 › Contract2: record->discard yields zero new assets, record->stop yields exactly one (6.5s)
+
+  2 passed (12.2s)

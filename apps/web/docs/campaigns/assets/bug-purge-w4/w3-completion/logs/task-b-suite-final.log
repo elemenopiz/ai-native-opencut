@@ -1,0 +1,220 @@
+    "hasVisibleRing": true
+  },
+  {
+    "step": 17,
+    "tag": "BUTTON",
+    "role": null,
+    "text": "Multicam",
+    "outline": "oklab(0.616703 0.0000280142 0.0000123084 / 0.5) none 1px",
+    "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklab(0.677915 -0.0691806 -0.16585 / 0.2) 0px 0px 0px 1px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+    "hasVisibleRing": true
+  },
+  {
+    "step": 18,
+    "tag": "BUTTON",
+    "role": null,
+    "text": "Templates",
+    "outline": "oklab(0.616703 0.0000280142 0.0000123084 / 0.5) none 1px",
+    "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklab(0.677915 -0.0691806 -0.16585 / 0.2) 0px 0px 0px 1px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+    "hasVisibleRing": true
+  },
+  {
+    "step": 19,
+    "tag": "BUTTON",
+    "role": null,
+    "text": "Search",
+    "outline": "oklab(0.616703 0.0000280142 0.0000123084 / 0.5) none 1px",
+    "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklab(0.677915 -0.0691806 -0.16585 / 0.2) 0px 0px 0px 1px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+    "hasVisibleRing": true
+  },
+  {
+    "step": 20,
+    "tag": "BUTTON",
+    "role": null,
+    "text": "Brand Kit",
+    "outline": "oklab(0.616703 0.0000280142 0.0000123084 / 0.5) none 1px",
+    "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklab(0.677915 -0.0691806 -0.16585 / 0.2) 0px 0px 0px 1px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+    "hasVisibleRing": true
+  },
+  {
+    "step": 21,
+    "tag": "BUTTON",
+    "role": null,
+    "text": "Settings",
+    "outline": "oklab(0.616703 0.0000280142 0.0000123084 / 0.5) none 1px",
+    "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklab(0.677915 -0.0691806 -0.16585 / 0.2) 0px 0px 0px 1px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+    "hasVisibleRing": true
+  },
+  {
+    "step": 22,
+    "tag": "BUTTON",
+    "role": null,
+    "text": "Scroll down for more tabs",
+    "outline": "oklab(0.616703 0.0000280142 0.0000123084 / 0.5) auto 1px",
+    "boxShadow": "none",
+    "hasVisibleRing": true
+  },
+  {
+    "step": 23,
+    "tag": "BUTTON",
+    "role": null,
+    "text": "",
+    "outline": "oklab(0.616703 0.0000280142 0.0000123084 / 0.5) none 1px",
+    "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklab(0.677915 -0.0691806 -0.16585 / 0.2) 0px 0px 0px 1px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+    "hasVisibleRing": true
+  },
+  {
+    "step": 24,
+    "tag": "BUTTON",
+    "role": null,
+    "text": "",
+    "outline": "oklab(0.616703 0.0000280142 0.0000123084 / 0.5) none 1px",
+    "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklab(0.677915 -0.0691806 -0.16585 / 0.2) 0px 0px 0px 1px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+    "hasVisibleRing": true
+  },
+  {
+    "step": 25,
+    "tag": "BUTTON",
+    "role": null,
+    "text": "Import",
+    "outline": "oklab(0.616703 0.0000280142 0.0000123084 / 0.5) none 1px",
+    "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklab(0.677915 -0.0691806 -0.16585 / 0.2) 0px 0px 0px 1px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+    "hasVisibleRing": true
+  },
+  {
+    "step": 26,
+    "tag": "BUTTON",
+    "role": null,
+    "text": "Drag and drop videos, photos, and audio ",
+    "outline": "oklab(0.616703 0.0000280142 0.0000123084 / 0.5) auto 1px",
+    "boxShadow": "none",
+    "hasVisibleRing": true
+  },
+  {
+    "step": 27,
+    "tag": "DIV",
+    "role": "separator",
+    "text": "",
+    "outline": "oklab(0.599867 0.0000273287 0.0000119805 / 0.5) none 1px",
+    "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgb(255, 255, 255) 0px 0px 0px 1px, rgb(128, 128, 128) 0px 0px 0px 2px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+    "hasVisibleRing": true
+  },
+  {
+    "step": 28,
+    "tag": "BUTTON",
+    "role": null,
+    "text": "16:9",
+    "outline": "oklab(0.616703 0.0000280142 0.0000123084 / 0.5) auto 1px",
+    "boxShadow": "none",
+    "hasVisibleRing": true
+  },
+  {
+    "step": 29,
+    "tag": "BUTTON",
+    "role": null,
+    "text": "9:16",
+    "outline": "oklab(0.616703 0.0000280142 0.0000123084 / 0.5) auto 1px",
+    "boxShadow": "none",
+    "hasVisibleRing": true
+  },
+  {
+    "step": 30,
+    "tag": "BUTTON",
+    "role": null,
+    "text": "1:1",
+    "outline": "oklab(0.616703 0.0000280142 0.0000123084 / 0.5) auto 1px",
+    "boxShadow": "none",
+    "hasVisibleRing": true
+  },
+  {
+    "step": 31,
+    "tag": "BUTTON",
+    "role": null,
+    "text": "4:3",
+    "outline": "oklab(0.616703 0.0000280142 0.0000123084 / 0.5) auto 1px",
+    "boxShadow": "none",
+    "hasVisibleRing": true
+  },
+  {
+    "step": 32,
+    "tag": "BUTTON",
+    "role": null,
+    "text": "",
+    "outline": "oklab(0.616703 0.0000280142 0.0000123084 / 0.5) none 1px",
+    "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklab(0.677915 -0.0691806 -0.16585 / 0.2) 0px 0px 0px 1px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+    "hasVisibleRing": true
+  },
+  {
+    "step": 33,
+    "tag": "BUTTON",
+    "role": null,
+    "text": "00:00:00:00",
+    "outline": "oklab(0.616703 0.0000280142 0.0000123084 / 0.5) auto 1px",
+    "boxShadow": "none",
+    "hasVisibleRing": true
+  },
+  {
+    "step": 34,
+    "tag": "BUTTON",
+    "role": null,
+    "text": "",
+    "outline": "oklab(0.616703 0.0000280142 0.0000123084 / 0.5) none 1px",
+    "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklab(0.677915 -0.0691806 -0.16585 / 0.2) 0px 0px 0px 1px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+    "hasVisibleRing": true
+  },
+  {
+    "step": 35,
+    "tag": "BUTTON",
+    "role": null,
+    "text": "Auto",
+    "outline": "oklab(0.616703 0.0000280142 0.0000123084 / 0.5) none 1px",
+    "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklab(0.677915 -0.0691806 -0.16585 / 0.2) 0px 0px 0px 1px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+    "hasVisibleRing": true
+  },
+  {
+    "step": 36,
+    "tag": "BUTTON",
+    "role": null,
+    "text": "",
+    "outline": "oklab(0.616703 0.0000280142 0.0000123084 / 0.5) none 1px",
+    "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklab(0.677915 -0.0691806 -0.16585 / 0.2) 0px 0px 0px 1px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+    "hasVisibleRing": true
+  },
+  {
+    "step": 37,
+    "tag": "BUTTON",
+    "role": null,
+    "text": "Fit",
+    "outline": "oklab(0.616703 0.0000280142 0.0000123084 / 0.5) none 1px",
+    "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklab(0.677915 -0.0691806 -0.16585 / 0.2) 0px 0px 0px 1px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+    "hasVisibleRing": true
+  },
+  {
+    "step": 38,
+    "tag": "BUTTON",
+    "role": null,
+    "text": "",
+    "outline": "oklab(0.616703 0.0000280142 0.0000123084 / 0.5) none 1px",
+    "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklab(0.677915 -0.0691806 -0.16585 / 0.2) 0px 0px 0px 1px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+    "hasVisibleRing": true
+  },
+  {
+    "step": 39,
+    "tag": "DIV",
+    "role": "separator",
+    "text": "",
+    "outline": "oklab(0.599867 0.0000273287 0.0000119805 / 0.5) none 1px",
+    "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgb(255, 255, 255) 0px 0px 0px 1px, rgb(128, 128, 128) 0px 0px 0px 2px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+    "hasVisibleRing": true
+  }
+]
+[B5] 40 focusable stops visited; 1 had NO detectable outline/box-shadow: ["INPUT \"Project name\""]
+  ✓  5 [chrome] › e2e/hunt/w3-taskb.w3.e2e.ts:243:5 › B5: keyboard Tab walk shows a visible focus ring on primitives (3.8s)
+[B6] bridge-seeded generating+failed slots: {"ok":true}
+[B6] elements carrying glow-generation class: ["Generating…"]
+  ✓  6 [chrome] › e2e/hunt/w3-taskb.w3.e2e.ts:317:5 › B6: generation-glow class present only on a generating slot, not a failed one (2.0s)
+[B7] width=1280 sampled small-text elements; vertically-clipped candidates: []
+[B7] width=1680 sampled small-text elements; vertically-clipped candidates: []
+  ✓  7 [chrome] › e2e/hunt/w3-taskb.w3.e2e.ts:413:5 › B7: micro-type legibility at 1280 and 1680 viewport widths (3.3s)
+
+  7 passed (18.9s)
