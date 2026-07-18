@@ -209,7 +209,7 @@ function ScopeSection({
 				<div className="flex items-center justify-between gap-3">
 					<div className="flex min-w-0 flex-col gap-0.5">
 						<Label className="text-xs">Replace clip source</Label>
-						<span className="text-[10px] text-muted-foreground">
+						<span className="text-2xs text-muted-foreground">
 							{replaceSource
 								? "Rerun/Edit results replace this clip automatically."
 								: "Rerun/Edit results land as a new take for review."}
@@ -263,11 +263,11 @@ function ActionsSection({
 						<div className="flex items-center gap-1.5 opacity-60">
 							<select
 								disabled
-								className="h-7 rounded-md border border-input bg-transparent px-2 text-[11px] text-muted-foreground"
+								className="h-7 rounded-md border border-input bg-transparent px-2 text-2xs text-muted-foreground"
 							>
 								<option>2x</option>
 							</select>
-							<Badge variant="secondary" className="text-[9px]">
+							<Badge variant="secondary" className="text-3xs">
 								Coming soon
 							</Badge>
 						</div>
@@ -316,7 +316,7 @@ function ActionRow({
 		<div className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/20 px-3 py-2">
 			<div className="flex min-w-0 flex-col gap-0.5">
 				<span className="text-xs font-medium">{title}</span>
-				<span className="truncate text-[10px] text-muted-foreground">
+				<span className="truncate text-2xs text-muted-foreground">
 					{description}
 				</span>
 			</div>
@@ -402,7 +402,7 @@ function SpecSection({
 								type="button"
 								onClick={() => commit({ orientation: o.value })}
 								className={cn(
-									"flex-1 flex flex-col items-center gap-0.5 py-1.5 rounded-md text-[11px] font-medium border transition-colors",
+									"flex-1 flex flex-col items-center gap-0.5 py-1.5 rounded-md text-2xs font-medium border transition-colors",
 									spec.orientation === o.value
 										? "bg-primary text-primary-foreground border-primary"
 										: "border-border text-muted-foreground hover:border-foreground",
@@ -489,7 +489,7 @@ function SpecSection({
 				<div className="flex items-center justify-between rounded-md border border-border bg-muted/40 px-3 py-2">
 					<div className="flex flex-col">
 						<span className="text-xs font-medium">Estimated cost</span>
-						<span className="text-[10px] text-muted-foreground">
+						<span className="text-2xs text-muted-foreground">
 							{spec.duration}s · {spec.resolution}
 							{rendersStill && " · +1 still"}
 						</span>
@@ -527,7 +527,7 @@ function TakesSection({
 			<SectionHeader>
 				<SectionTitle>Takes</SectionTitle>
 				{takes.length > 0 && (
-					<Badge variant="secondary" className="ml-2 text-[10px]">
+					<Badge variant="secondary" className="ml-2 text-2xs">
 						{takes.length}
 					</Badge>
 				)}
@@ -614,25 +614,25 @@ function TakeThumb({
 				) : generating ? (
 					<span className="flex size-full flex-col items-center justify-center gap-1 text-muted-foreground">
 						<span className="size-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-						<span className="text-[10px]">Generating…</span>
+						<span className="text-2xs">Generating…</span>
 					</span>
 				) : failed ? (
 					<span className="flex size-full flex-col items-center justify-center gap-0.5 px-1 text-center text-destructive">
-						<span className="text-[10px] font-medium">Failed</span>
+						<span className="text-2xs font-medium">Failed</span>
 						{take.error && (
-							<span className="line-clamp-2 text-[9px] text-muted-foreground">
+							<span className="line-clamp-2 text-3xs text-muted-foreground">
 								{take.error}
 							</span>
 						)}
 					</span>
 				) : (
-					<span className="flex size-full items-center justify-center text-[10px] text-muted-foreground">
+					<span className="flex size-full items-center justify-center text-2xs text-muted-foreground">
 						No preview
 					</span>
 				)}
 
 				{active && (
-					<span className="absolute left-1 top-1 rounded bg-primary px-1 text-[9px] font-semibold text-primary-foreground">
+					<span className="absolute left-1 top-1 rounded bg-primary px-1 text-3xs font-semibold text-primary-foreground">
 						Active
 					</span>
 				)}
@@ -656,7 +656,7 @@ function TakeThumb({
 
 			{/* Seed badge */}
 			{take.seed != null && (
-				<span className="mt-1 block truncate text-center font-mono text-[9px] text-muted-foreground">
+				<span className="mt-1 block truncate text-center font-mono text-3xs text-muted-foreground">
 					#{take.seed}
 				</span>
 			)}

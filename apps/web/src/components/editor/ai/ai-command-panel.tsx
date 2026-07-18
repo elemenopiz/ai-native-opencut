@@ -8,6 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
+import { Kbd } from "@/components/ui/kbd";
 import {
 	ArrowUp01Icon,
 	Cancel01Icon,
@@ -160,9 +161,7 @@ export function AICommandPanel({
 				e.preventDefault();
 				const newIndex = historyIndex - 1;
 				setHistoryIndex(newIndex);
-				setInputValue(
-					newIndex >= 0 ? (commandHistory[newIndex] ?? "") : "",
-				);
+				setInputValue(newIndex >= 0 ? (commandHistory[newIndex] ?? "") : "");
 			} else if (e.key === "Escape") {
 				e.preventDefault();
 				onClose();
@@ -183,22 +182,18 @@ export function AICommandPanel({
 			{/* Header */}
 			<div className="flex items-center justify-between border-b px-4 py-3">
 				<div className="flex items-center gap-2">
-					<HugeiconsIcon
-						icon={SparklesIcon}
-						className="size-4 text-primary"
-					/>
+					<HugeiconsIcon icon={SparklesIcon} className="size-4 text-primary" />
 					<span className="text-sm font-medium">AI Studio</span>
-					<Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+					<Badge variant="secondary" className="text-2xs px-1.5 py-0">
 						Beta
 					</Badge>
 				</div>
 				<div className="flex items-center gap-1">
-					<kbd className="text-[10px] text-muted-foreground bg-accent rounded px-1 py-0.5">
-						{typeof navigator !== "undefined" &&
-						/Mac/.test(navigator.userAgent)
+					<Kbd>
+						{typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent)
 							? "\u2318K"
 							: "Ctrl+K"}
-					</kbd>
+					</Kbd>
 					<Button
 						variant="ghost"
 						size="icon"
@@ -211,10 +206,7 @@ export function AICommandPanel({
 			</div>
 
 			{/* Messages */}
-			<ScrollArea
-				ref={scrollRef}
-				className="flex-1 min-h-0 px-4 py-3"
-			>
+			<ScrollArea ref={scrollRef} className="flex-1 min-h-0 px-4 py-3">
 				{isEmpty ? (
 					<EmptySuggestions
 						suggestions={suggestions}
@@ -270,7 +262,7 @@ export function AICommandPanel({
 						)}
 					</Button>
 				</div>
-				<p className="text-[9px] text-muted-foreground mt-1.5 text-center">
+				<p className="text-3xs text-muted-foreground mt-1.5 text-center">
 					Press Enter to send &middot; Save responses as ideas
 				</p>
 			</div>
@@ -348,7 +340,7 @@ function MessageBubble({
 				<Button
 					variant="ghost"
 					size="sm"
-					className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground gap-1"
+					className="h-5 px-1.5 text-2xs text-muted-foreground hover:text-foreground gap-1"
 					onClick={() => saveIdea(message.content)}
 				>
 					<HugeiconsIcon icon={Bookmark01Icon} className="size-3" />
@@ -389,7 +381,7 @@ function ActionPreviewCard({
 				<div className="flex items-start justify-between gap-2">
 					<div className="flex-1 min-w-0">
 						<p className="text-xs font-medium truncate">{action.label}</p>
-						<p className="text-[11px] text-muted-foreground mt-0.5">
+						<p className="text-2xs text-muted-foreground mt-0.5">
 							{action.description}
 						</p>
 					</div>
@@ -401,7 +393,7 @@ function ActionPreviewCard({
 									? "secondary"
 									: "outline"
 						}
-						className="text-[10px] shrink-0"
+						className="text-2xs shrink-0"
 					>
 						{action.status === "applied"
 							? "Applied"

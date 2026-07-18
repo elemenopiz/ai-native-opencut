@@ -22,7 +22,7 @@ const PopoverContent = React.forwardRef<
 			align={align}
 			sideOffset={sideOffset}
 			className={cn(
-				"bg-popover text-popover-foreground z-50 w-72 rounded-md border p-4 shadow-[0_0_10px_rgba(0,0,0,0.15)] outline-hidden",
+				"bg-surface-overlay text-popover-foreground z-50 w-72 rounded-xl border p-4 shadow-float outline-hidden",
 				className,
 			)}
 			{...props}
@@ -39,7 +39,7 @@ const PopoverArrow = React.forwardRef<
 		ref={ref}
 		width={width}
 		height={height}
-		className={cn("fill-popover", className)}
+		className={cn("fill-surface-overlay", className)}
 		{...props}
 	/>
 ));

@@ -201,7 +201,7 @@ export function ImageGenDialog({
 								<Label className="text-xs">Enhanced Prompt</Label>
 								<Badge
 									variant="secondary"
-									className="text-[10px] px-1.5 py-0"
+									className="text-2xs px-1.5 py-0"
 								>
 									AI Enhanced
 								</Badge>
@@ -256,7 +256,7 @@ export function ImageGenDialog({
 								>
 									<span className="flex flex-col items-center gap-0.5">
 										<span>{ar.value}</span>
-										<span className="text-[9px] opacity-60">
+										<span className="text-3xs opacity-60">
 											{ar.dimensions}
 										</span>
 									</span>

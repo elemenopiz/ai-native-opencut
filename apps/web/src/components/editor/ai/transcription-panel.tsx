@@ -371,7 +371,7 @@ export function TranscriptionPanel({
 						/>
 						<span className="text-sm font-medium">Transcript</span>
 						{status === "complete" && segments.length > 0 && (
-							<Badge variant="secondary" className="text-[10px]">
+							<Badge variant="secondary" className="text-2xs">
 								{segments.reduce(
 									(acc, s) => acc + s.words.length,
 									0,
@@ -457,7 +457,7 @@ export function TranscriptionPanel({
 				{status === "transcribing" && (
 					<div className="px-4 py-2 border-b">
 						<Progress value={progress} className="h-1.5" />
-						<p className="text-[11px] text-muted-foreground mt-1">
+						<p className="text-2xs text-muted-foreground mt-1">
 							{Math.round(progress)}% complete
 						</p>
 					</div>
@@ -515,7 +515,7 @@ export function TranscriptionPanel({
 
 					return (
 						<div className="flex items-center gap-2 px-4 py-2 border-b flex-wrap">
-							<span className="text-[10px] text-muted-foreground font-medium shrink-0">Speakers:</span>
+							<span className="text-2xs text-muted-foreground font-medium shrink-0">Speakers:</span>
 							{uniqueSpeakers.map((spkId, idx) => {
 								const displayName = speakerNames?.[spkId] ?? spkId;
 								const colorClass = speakerColors[idx % speakerColors.length];
@@ -538,7 +538,7 @@ export function TranscriptionPanel({
 												type="text"
 												value={editingName}
 												onChange={(e) => setEditingName(e.target.value)}
-												className="text-[11px] font-medium bg-primary/10 border border-primary/30 rounded px-1.5 py-0.5 w-24 outline-none focus:ring-1 focus:ring-primary/50"
+												className="text-2xs font-medium bg-primary/10 border border-primary/30 rounded px-1.5 py-0.5 w-24 outline-none focus:ring-1 focus:ring-primary/50"
 												autoFocus
 												onBlur={() => {
 													if (editingName.trim() && onRenameSpeaker) {
@@ -562,7 +562,7 @@ export function TranscriptionPanel({
 											setEditingSpeaker(spkId);
 											setEditingName(displayName);
 										}}
-										className="flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium hover:bg-accent transition-colors"
+										className="flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-2xs font-medium hover:bg-accent transition-colors"
 										title="Click to rename"
 									>
 										<span className={cn("size-2 rounded-full shrink-0", colorClass)} />
@@ -649,7 +649,7 @@ export function TranscriptionPanel({
 															{segment.chapterTitle && (
 																<div className="flex items-center gap-2 mb-2 mt-1">
 																	<div className="h-px flex-1 bg-border" />
-																	<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+																	<span className="text-2xs font-medium text-muted-foreground uppercase tracking-wider">
 																		{
 																			segment.chapterTitle
 																		}
@@ -737,7 +737,7 @@ export function TranscriptionPanel({
 																						type="text"
 																						value={editingName}
 																						onChange={(e) => setEditingName(e.target.value)}
-																						className="text-[11px] font-medium text-primary bg-primary/10 border border-primary/30 rounded px-1.5 py-0.5 w-24 outline-none focus:ring-1 focus:ring-primary/50"
+																						className="text-2xs font-medium text-primary bg-primary/10 border border-primary/30 rounded px-1.5 py-0.5 w-24 outline-none focus:ring-1 focus:ring-primary/50"
 																						autoFocus
 																						onBlur={() => {
 																							if (editingName.trim() && onRenameSpeaker) {
@@ -759,7 +759,7 @@ export function TranscriptionPanel({
 																						setEditingSpeaker(rawId);
 																						setEditingName(speakerNames?.[rawId] ?? rawId);
 																					}}
-																					className="text-[11px] font-medium text-primary hover:text-primary/80 hover:underline decoration-dotted underline-offset-2 transition-colors"
+																					className="text-2xs font-medium text-primary hover:text-primary/80 hover:underline decoration-dotted underline-offset-2 transition-colors"
 																					title="Click to rename speaker"
 																				>
 																					{speakerNames?.[segment.speaker] ?? segment.speaker}
@@ -776,7 +776,7 @@ export function TranscriptionPanel({
 																					segment.startTime,
 																				);
 																			}}
-																			className="text-[10px] text-muted-foreground hover:text-foreground transition-colors tabular-nums"
+																			className="text-2xs text-muted-foreground hover:text-foreground transition-colors tabular-nums"
 																		>
 																			{formatTimestamp(
 																				segment.startTime,
@@ -947,7 +947,7 @@ export function TranscriptionPanel({
 																				silenceBetween.startTime,
 																			)
 																		}
-																		className="text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors font-mono"
+																		className="text-2xs text-muted-foreground/60 hover:text-muted-foreground transition-colors font-mono"
 																	>
 																		[silence:{" "}
 																		{silenceBetween.duration.toFixed(

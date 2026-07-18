@@ -501,14 +501,14 @@ export function BRollSuggestionsPanel({
 					<HugeiconsIcon icon={ViewIcon} className="size-4 text-primary" />
 					<span className="text-xs font-medium">B-Roll Suggestions</span>
 					{suggestions.length > 0 && (
-						<Badge variant="secondary" className="text-[8px] px-1 py-0">
+						<Badge variant="secondary" className="text-3xs px-1 py-0">
 							{suggestions.length}
 						</Badge>
 					)}
 				</div>
 
 				{!hasTranscript ? (
-					<p className="text-[10px] text-muted-foreground">
+					<p className="text-2xs text-muted-foreground">
 						Transcribe your video first to get B-roll suggestions.
 					</p>
 				) : (
@@ -552,7 +552,7 @@ export function BRollSuggestionsPanel({
 										Generating {batchProgress.done}/{batchProgress.total}...
 										<button
 											type="button"
-											className="ml-2 text-[9px] text-destructive hover:underline"
+											className="ml-2 text-3xs text-destructive hover:underline"
 											onClick={(e) => {
 												e.stopPropagation();
 												batchCancelRef.current = true;
@@ -732,7 +732,7 @@ function BRollCard({
 					className="flex items-center justify-center size-5 rounded-full bg-primary/10 text-primary shrink-0 hover:bg-primary/20"
 					title="Jump to segment"
 				>
-					<span className="text-[9px] font-mono font-bold">
+					<span className="text-3xs font-mono font-bold">
 						{suggestion.startTime.toFixed(0)}s
 					</span>
 				</button>
@@ -768,7 +768,7 @@ function BRollCard({
 				<Badge
 					variant="outline"
 					className={cn(
-						"text-[8px] px-1 py-0 shrink-0",
+						"text-3xs px-1 py-0 shrink-0",
 						PRIORITY_BADGE[suggestion.priority],
 					)}
 				>
@@ -791,7 +791,7 @@ function BRollCard({
 								<div className="p-1.5 bg-background border-t">
 									<Button
 										size="sm"
-										className="w-full h-6 text-[10px]"
+										className="w-full h-6 text-2xs"
 										onClick={(e) => {
 											e.stopPropagation();
 											onInsertToTimeline(imageState.imageUrl!);
@@ -810,13 +810,13 @@ function BRollCard({
 
 					{/* Segment text */}
 					<div>
-						<p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-0.5">
+						<p className="text-2xs font-medium text-muted-foreground uppercase tracking-wider mb-0.5">
 							Transcript
 						</p>
 						<p className="text-xs text-muted-foreground italic">
 							&ldquo;{suggestion.segmentText}&rdquo;
 						</p>
-						<p className="text-[10px] text-muted-foreground mt-0.5">
+						<p className="text-2xs text-muted-foreground mt-0.5">
 							{suggestion.startTime.toFixed(1)}s &ndash;{" "}
 							{suggestion.endTime.toFixed(1)}s
 						</p>
@@ -826,7 +826,7 @@ function BRollCard({
 					<div>
 						<div className="flex items-center gap-1 mb-0.5">
 							<HugeiconsIcon icon={ViewIcon} className="size-3 text-primary" />
-							<p className="text-[10px] font-medium text-primary uppercase tracking-wider">
+							<p className="text-2xs font-medium text-primary uppercase tracking-wider">
 								Visual Direction
 							</p>
 						</div>
@@ -841,13 +841,13 @@ function BRollCard({
 									icon={Image01Icon}
 									className="size-3 text-muted-foreground"
 								/>
-								<p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+								<p className="text-2xs font-medium text-muted-foreground uppercase tracking-wider">
 									Image Prompt
 								</p>
 							</div>
 							<button
 								type="button"
-								className="flex items-center gap-0.5 text-[9px] text-primary hover:underline disabled:opacity-50"
+								className="flex items-center gap-0.5 text-3xs text-primary hover:underline disabled:opacity-50"
 								disabled={isEnhancingPrompt}
 								onClick={(e) => {
 									e.stopPropagation();
@@ -875,7 +875,7 @@ function BRollCard({
 								icon={Search01Icon}
 								className="size-3 text-muted-foreground"
 							/>
-							<p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+							<p className="text-2xs font-medium text-muted-foreground uppercase tracking-wider">
 								Stock Footage
 							</p>
 						</div>
@@ -884,7 +884,7 @@ function BRollCard({
 								<Badge
 									key={kw}
 									variant="secondary"
-									className="text-[9px] px-1.5 py-0"
+									className="text-3xs px-1.5 py-0"
 								>
 									{kw}
 								</Badge>
@@ -895,7 +895,7 @@ function BRollCard({
 					{/* Pexels search results */}
 					{pexelsPhotos && pexelsPhotos.length > 0 && (
 						<div>
-							<p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">
+							<p className="text-2xs font-medium text-muted-foreground uppercase tracking-wider mb-1">
 								Stock Results
 							</p>
 							<div className="grid grid-cols-3 gap-1">
@@ -918,7 +918,7 @@ function BRollCard({
 									</button>
 								))}
 							</div>
-							<p className="text-[9px] text-muted-foreground mt-1">
+							<p className="text-3xs text-muted-foreground mt-1">
 								Click a photo to insert it at {suggestion.startTime.toFixed(1)}s
 							</p>
 						</div>
@@ -926,8 +926,8 @@ function BRollCard({
 
 					{/* Mood */}
 					<div className="flex items-center gap-1.5">
-						<p className="text-[10px] text-muted-foreground">Mood:</p>
-						<Badge variant="outline" className="text-[9px] px-1.5 py-0">
+						<p className="text-2xs text-muted-foreground">Mood:</p>
+						<Badge variant="outline" className="text-3xs px-1.5 py-0">
 							{suggestion.mood}
 						</Badge>
 					</div>
@@ -938,7 +938,7 @@ function BRollCard({
 							{imageState.status === "done" && !imageState.inserted ? (
 								<Button
 									size="sm"
-									className="flex-1 h-7 text-[10px]"
+									className="flex-1 h-7 text-2xs"
 									onClick={(e) => {
 										e.stopPropagation();
 										onInsertToTimeline(imageState.imageUrl!);
@@ -954,7 +954,7 @@ function BRollCard({
 								<Button
 									size="sm"
 									variant="outline"
-									className="flex-1 h-7 text-[10px]"
+									className="flex-1 h-7 text-2xs"
 									disabled
 								>
 									<HugeiconsIcon icon={Tick01Icon} className="size-3 mr-1" />
@@ -964,7 +964,7 @@ function BRollCard({
 								<Button
 									size="sm"
 									variant="default"
-									className="flex-1 h-7 text-[10px]"
+									className="flex-1 h-7 text-2xs"
 									disabled={imageState.status === "generating"}
 									onClick={(e) => {
 										e.stopPropagation();
@@ -990,7 +990,7 @@ function BRollCard({
 							<Button
 								size="sm"
 								variant="outline"
-								className="flex-1 h-7 text-[10px]"
+								className="flex-1 h-7 text-2xs"
 								disabled={isSearchingStock}
 								onClick={(e) => {
 									e.stopPropagation();
@@ -1009,7 +1009,7 @@ function BRollCard({
 							<Button
 								size="sm"
 								variant="ghost"
-								className="w-full h-6 text-[9px] text-muted-foreground"
+								className="w-full h-6 text-3xs text-muted-foreground"
 								disabled={imageState.status === "generating"}
 								onClick={(e) => {
 									e.stopPropagation();
@@ -1033,7 +1033,7 @@ function BRollCard({
 									<Button
 										size="sm"
 										variant="outline"
-										className="w-full h-7 text-[10px]"
+										className="w-full h-7 text-2xs"
 										disabled={
 											videoGenState.status === "generating" ||
 											videoGenState.status === "polling"

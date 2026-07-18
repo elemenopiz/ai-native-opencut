@@ -127,7 +127,7 @@ export function AudioEffectsChainPanel({
 								)}
 								onClick={() => handleToggle(effect.id)}
 							/>
-							<span className="text-[11px] font-medium flex-1">{def.name}</span>
+							<span className="text-2xs font-medium flex-1">{def.name}</span>
 							<button
 								type="button"
 								onClick={() => handleRemove(effect.id)}
@@ -138,7 +138,7 @@ export function AudioEffectsChainPanel({
 						</div>
 						{def.params.map((param) => (
 							<div key={param.key} className="space-y-0.5">
-								<div className="flex justify-between text-[9px] text-muted-foreground">
+								<div className="flex justify-between text-3xs text-muted-foreground">
 									<span>{param.label}</span>
 									<span className="font-mono">
 										{effect.params[param.key]?.toFixed(param.step < 1 ? 1 : 0)}
@@ -168,7 +168,7 @@ export function AudioEffectsChainPanel({
 							key={def.type}
 							variant="outline"
 							size="sm"
-							className="h-6 text-[9px]"
+							className="h-6 text-3xs"
 							onClick={() => handleAdd(def.type)}
 						>
 							<HugeiconsIcon icon={Add01Icon} className="size-3 mr-1" />

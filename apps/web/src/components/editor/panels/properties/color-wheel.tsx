@@ -153,7 +153,7 @@ export function ColorWheel({
 			</div>
 			<button
 				type="button"
-				className="text-[9px] text-muted-foreground hover:text-foreground"
+				className="text-3xs text-muted-foreground hover:text-foreground"
 				onClick={() => {
 					onPreview(NEUTRAL);
 					onCommit();

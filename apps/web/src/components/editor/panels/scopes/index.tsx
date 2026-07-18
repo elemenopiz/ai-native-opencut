@@ -12,7 +12,12 @@ import {
 	type ScopeSummary,
 } from "@/lib/color/scopes";
 import { useAutoColorCorrection } from "@/hooks/use-auto-color-correction";
-import { drawHistogram, drawVectorscope, drawWaveform } from "./draw";
+import {
+	drawHistogram,
+	drawIdleGraticule,
+	drawVectorscope,
+	drawWaveform,
+} from "./draw";
 import { Button } from "@/components/ui/button";
 import {
 	Select,
@@ -67,6 +72,21 @@ export function ScopesPanel() {
 		canvas.width = Math.round(width * dpr);
 		canvas.height = Math.round(height * dpr);
 	}, [width, height]);
+
+	// Idle graticule: before the first sampled frame (or while resizing in
+	// that state) the tick loop below never touches the canvas, since it
+	// bails whenever there's no preview source yet. Paint quiet reference
+	// lines instead of leaving it a dead black rect. Once `summary` is set
+	// for the first time this effect stops running for good — the tick
+	// loop owns the canvas from there on.
+	useEffect(() => {
+		if (summary) return;
+		const canvas = canvasRef.current;
+		if (!canvas || canvas.width === 0 || canvas.height === 0) return;
+		const ctx = canvas.getContext("2d");
+		if (!ctx) return;
+		drawIdleGraticule({ ctx, width: canvas.width, height: canvas.height });
+	}, [summary, width, height]);
 
 	// Throttled sample + draw loop; pauses while the tab/panel is hidden.
 	useEffect(() => {
@@ -179,8 +199,11 @@ export function ScopesPanel() {
 
 			{/* Auto color-correction, driven by the same measurements */}
 			<div className="flex shrink-0 items-center gap-2 border-t p-2">
+				{/* Demoted to `outline` so the filled `primary` Auto Correct button
+					reads as the one actionable choice — the Look picker is a quiet
+					input to that action, not a competing CTA. */}
 				<Select value={lookProfile} onValueChange={setLookProfile}>
-					<SelectTrigger className="h-8 flex-1 text-xs">
+					<SelectTrigger variant="outline" className="h-8 flex-1 text-xs">
 						<SelectValue placeholder="Look" />
 					</SelectTrigger>
 					<SelectContent>
@@ -193,6 +216,7 @@ export function ScopesPanel() {
 					</SelectContent>
 				</Select>
 				<Button
+					variant="primary"
 					size="sm"
 					className="h-8 text-xs"
 					disabled={isCorrecting}

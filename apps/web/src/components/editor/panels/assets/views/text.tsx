@@ -76,7 +76,13 @@ const TEXT_PRESETS: TextPreset[] = [
 			fontSize: 30,
 			fontWeight: "bold",
 			fontFamily: "Inter",
-			color: "#EF4444",
+			// Documented exception (DIRECTION-LOCKED.md): "the red IMPACT preset joins
+			// the system" — the one non-blue hue in the product. This is a literal
+			// mirror of `--destructive` (globals.css), not a `var()` reference: the
+			// value is baked into the timeline element's data and re-rendered by the
+			// canvas compositor (text-node.ts `ctx.fillStyle`), which cannot resolve
+			// CSS custom properties. Keep in sync if `--destructive` ever changes.
+			color: "hsl(0, 83%, 50%)",
 		},
 	},
 	{
@@ -196,7 +202,9 @@ export function TextView() {
 					!file.name.endsWith(".woff") &&
 					!file.name.endsWith(".woff2")
 				) {
-					toast.error(`${file.name}: unsupported format. Use TTF, OTF, WOFF, or WOFF2.`);
+					toast.error(
+						`${file.name}: unsupported format. Use TTF, OTF, WOFF, or WOFF2.`,
+					);
 					continue;
 				}
 
@@ -218,8 +226,12 @@ export function TextView() {
 				setUploadedFonts(updated);
 				try {
 					localStorage.setItem("byorn:custom-fonts", JSON.stringify(updated));
-				} catch { /* ignore */ }
-				toast.success(`Loaded ${loaded.length} font${loaded.length > 1 ? "s" : ""}: ${loaded.join(", ")}`);
+				} catch {
+					/* ignore */
+				}
+				toast.success(
+					`Loaded ${loaded.length} font${loaded.length > 1 ? "s" : ""}: ${loaded.join(", ")}`,
+				);
 			}
 
 			// Reset input
@@ -234,7 +246,7 @@ export function TextView() {
 				{/* Text presets */}
 				<div className="flex flex-col gap-2">
 					<Label className="text-xs font-medium">Text presets</Label>
-					<div className="grid grid-cols-2 gap-1.5">
+					<div className="grid grid-cols-2 gap-2">
 						{TEXT_PRESETS.map((preset) => (
 							<DraggableItem
 								key={preset.id}
@@ -244,7 +256,10 @@ export function TextView() {
 										<span
 											className="select-none truncate"
 											style={{
-												fontSize: Math.min(14, (preset.config.fontSize ?? 10) * 0.8),
+												fontSize: Math.min(
+													14,
+													(preset.config.fontSize ?? 10) * 0.8,
+												),
 												fontWeight: preset.config.fontWeight ?? "normal",
 												color: preset.config.color ?? "#ffffff",
 												fontFamily: preset.config.fontFamily ?? "Inter",
@@ -298,7 +313,10 @@ export function TextView() {
 							{uploadedFonts.map((font) => (
 								<span
 									key={font}
-									className="text-[10px] rounded-full border px-2 py-0.5 text-muted-foreground"
+									// Shared tag-chip recipe (also used by Templates' tags and
+									// Sounds' tags/popular-tags) — one pill treatment across
+									// the left rail instead of four.
+									className="text-3xs rounded-full bg-muted/60 px-2 py-0.5 text-muted-foreground"
 									style={{ fontFamily: font }}
 								>
 									{font}

@@ -66,7 +66,7 @@ export function MarkersPanel({ className }: { className?: string }) {
 						Markers ({markers.length})
 					</span>
 				</div>
-				<Button size="sm" variant="ghost" className="h-6 text-[10px]" onClick={handleAdd}>
+				<Button size="sm" variant="ghost" className="h-6 text-2xs" onClick={handleAdd}>
 					Add
 				</Button>
 			</div>
@@ -74,7 +74,7 @@ export function MarkersPanel({ className }: { className?: string }) {
 			<ScrollArea className="flex-1 min-h-0">
 				<div className="px-3 py-2 space-y-1">
 					{sortedMarkers.length === 0 && (
-						<p className="text-[10px] text-muted-foreground text-center py-4">
+						<p className="text-2xs text-muted-foreground text-center py-4">
 							Press M to add a marker at the playhead
 						</p>
 					)}
@@ -126,7 +126,7 @@ function MarkerItem({
 				<button
 					type="button"
 					onClick={onSeek}
-					className="text-[10px] font-mono text-primary hover:underline"
+					className="text-2xs font-mono text-primary hover:underline"
 				>
 					{timeStr}
 				</button>
@@ -167,7 +167,7 @@ function MarkerItem({
 				/>
 			) : (
 				<p
-					className="text-[10px] text-muted-foreground cursor-pointer truncate"
+					className="text-2xs text-muted-foreground cursor-pointer truncate"
 					onClick={onStartEdit}
 				>
 					{marker.note || "Click to add note..."}

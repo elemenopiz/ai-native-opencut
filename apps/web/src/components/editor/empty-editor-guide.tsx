@@ -42,7 +42,16 @@ const GUIDE_STEPS: GuideStep[] = [
 
 /**
  * Shows a visual guide when the editor has no content.
- * Replaces the empty Properties panel for first-time users.
+ *
+ * BUG27: this used to be swapped in for the entire right panel (Generate /
+ * Properties / Scopes — the composer), unmounting it while the guide was up.
+ * It now renders as a dismissible floating card anchored INSIDE the
+ * main-content row (see `app/editor/[project_id]/page.tsx` — absolute within
+ * that panel, never `fixed` to the screen), so the composer stays visible
+ * and it structurally cannot occlude the timeline row below. Sized to its
+ * content — not `h-full` — with a bounded max-height relative to its
+ * containing block + its own scroll so a long Ideas board can't push the
+ * dismiss button out of reach.
  */
 export function EmptyEditorGuide({
 	className,
@@ -57,7 +66,13 @@ export function EmptyEditorGuide({
 	return (
 		<div
 			className={cn(
-				"flex flex-col items-center h-full px-6 py-8 gap-6 overflow-hidden",
+				// Campaign floating-surface recipe (W1 token pass): bg-surface-overlay
+				// + shadow-float + rounded-xl + border. These utilities are inert on
+				// this branch until W1 merges — intentional, per the L1 review.
+				// Max-height is relative to the containing block (the main-content
+				// row this card is now absolutely positioned inside), not the
+				// viewport.
+				"bg-surface-overlay shadow-float flex max-h-[calc(100%-1rem)] flex-col items-center gap-6 overflow-y-auto rounded-xl border px-6 py-8",
 				className,
 			)}
 		>

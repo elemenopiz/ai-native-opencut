@@ -1,10 +1,16 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { useAssetsPanelStore, tabs, TAB_KEYS, type Tab } from "@/stores/assets-panel-store";
+import {
+	useAssetsPanelStore,
+	tabs,
+	TAB_KEYS,
+	type Tab,
+} from "@/stores/assets-panel-store";
 import { useVersionStore } from "@/stores/version-store";
 import { ACTIONS, type TAction } from "@/lib/actions/definitions";
 import { invokeAction } from "@/lib/actions/registry";
+import { Kbd } from "@/components/ui/kbd";
 
 // ─── Command registry ─────────────────────────────────────────────────────
 
@@ -92,7 +98,8 @@ function buildCommands(
 
 	// 3. Editor actions (from ACTIONS registry)
 	for (const [key, def] of Object.entries(ACTIONS)) {
-		const shortcut = (def as { defaultShortcuts?: readonly string[] }).defaultShortcuts?.[0];
+		const shortcut = (def as { defaultShortcuts?: readonly string[] })
+			.defaultShortcuts?.[0];
 		commands.push({
 			id: `action-${key}`,
 			label: def.description,
@@ -118,9 +125,19 @@ function buildCommands(
 		{
 			id: "feature-director",
 			label: "Director",
-			description: "AI orchestrator — storyboard, brainstorm, and direct the reel",
+			description:
+				"AI orchestrator — storyboard, brainstorm, and direct the reel",
 			category: "Features",
-			keywords: ["director", "ai", "studio", "agent", "storyboard", "brainstorm", "generate", "magic"],
+			keywords: [
+				"director",
+				"ai",
+				"studio",
+				"agent",
+				"storyboard",
+				"brainstorm",
+				"generate",
+				"magic",
+			],
 			action: () => setActiveTab("director"),
 		},
 		{
@@ -136,7 +153,16 @@ function buildCommands(
 			label: "Effects, Filters & Adjustment",
 			description: "Visual effects, color grading, and adjustments",
 			category: "Features",
-			keywords: ["effect", "filter", "color", "visual", "grade", "adjustment", "brightness", "contrast"],
+			keywords: [
+				"effect",
+				"filter",
+				"color",
+				"visual",
+				"grade",
+				"adjustment",
+				"brightness",
+				"contrast",
+			],
 			action: () => setActiveTab("visuals"),
 		},
 		{
@@ -144,7 +170,16 @@ function buildCommands(
 			label: "Audio: Sounds, Voiceover & Podcast",
 			description: "Sound effects, AI voiceover, and podcast clips",
 			category: "Features",
-			keywords: ["sound", "voice", "voiceover", "tts", "podcast", "clip", "audio", "music"],
+			keywords: [
+				"sound",
+				"voice",
+				"voiceover",
+				"tts",
+				"podcast",
+				"clip",
+				"audio",
+				"music",
+			],
 			action: () => setActiveTab("audio"),
 		},
 		{
@@ -273,7 +308,11 @@ export function CommandPalette() {
 	// Global keyboard listener for Cmd+Shift+P
 	useEffect(() => {
 		function handleKeyDown(e: KeyboardEvent) {
-			if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "p") {
+			if (
+				(e.metaKey || e.ctrlKey) &&
+				e.shiftKey &&
+				e.key.toLowerCase() === "p"
+			) {
 				e.preventDefault();
 				setOpen((prev) => !prev);
 			}
@@ -285,13 +324,10 @@ export function CommandPalette() {
 		return () => window.removeEventListener("keydown", handleKeyDown);
 	}, [open]);
 
-	const execute = useCallback(
-		(cmd: Command) => {
-			cmd.action();
-			setOpen(false);
-		},
-		[],
-	);
+	const execute = useCallback((cmd: Command) => {
+		cmd.action();
+		setOpen(false);
+	}, []);
 
 	const handleKeyDown = useCallback(
 		(e: React.KeyboardEvent) => {
@@ -346,8 +382,19 @@ export function CommandPalette() {
 							fill="none"
 							className="text-muted-foreground flex-shrink-0"
 						>
-							<circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="1.5" />
-							<path d="M11 11l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+							<circle
+								cx="7"
+								cy="7"
+								r="5"
+								stroke="currentColor"
+								strokeWidth="1.5"
+							/>
+							<path
+								d="M11 11l3 3"
+								stroke="currentColor"
+								strokeWidth="1.5"
+								strokeLinecap="round"
+							/>
 						</svg>
 						<input
 							ref={inputRef}
@@ -359,16 +406,11 @@ export function CommandPalette() {
 							autoComplete="off"
 							spellCheck={false}
 						/>
-						<kbd className="text-[10px] text-muted-foreground/50 px-1.5 py-0.5 rounded border border-border/50 bg-muted/30">
-							ESC
-						</kbd>
+						<Kbd>ESC</Kbd>
 					</div>
 
 					{/* Results */}
-					<div
-						ref={listRef}
-						className="max-h-[50vh] overflow-y-auto py-1"
-					>
+					<div ref={listRef} className="max-h-[50vh] overflow-y-auto py-1">
 						{results.length === 0 ? (
 							<div className="px-4 py-6 text-center text-sm text-muted-foreground/60">
 								No results for &quot;{query}&quot;
@@ -404,9 +446,9 @@ export function CommandPalette() {
 													)}
 												</div>
 												{cmd.description?.startsWith("Shortcut:") && (
-													<kbd className="text-[10px] text-muted-foreground/50 px-1.5 py-0.5 rounded border border-border/50 bg-muted/30 flex-shrink-0">
+													<Kbd className="flex-shrink-0">
 														{cmd.description.replace("Shortcut: ", "")}
-													</kbd>
+													</Kbd>
 												)}
 											</button>
 										);
@@ -419,22 +461,13 @@ export function CommandPalette() {
 					{/* Footer hint */}
 					<div className="px-4 py-2 border-t border-border/50 flex items-center gap-3 text-[10px] text-muted-foreground/50">
 						<span>
-							<kbd className="px-1 py-0.5 rounded border border-border/50 bg-muted/30">
-								Up/Down
-							</kbd>{" "}
-							navigate
+							<Kbd>Up/Down</Kbd> navigate
 						</span>
 						<span>
-							<kbd className="px-1 py-0.5 rounded border border-border/50 bg-muted/30">
-								Enter
-							</kbd>{" "}
-							select
+							<Kbd>Enter</Kbd> select
 						</span>
 						<span>
-							<kbd className="px-1 py-0.5 rounded border border-border/50 bg-muted/30">
-								Esc
-							</kbd>{" "}
-							close
+							<Kbd>Esc</Kbd> close
 						</span>
 					</div>
 				</div>

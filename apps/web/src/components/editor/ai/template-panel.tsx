@@ -713,7 +713,7 @@ export function TemplatePanel({ className }: TemplatePanelProps) {
 				</Button>
 
 				{isGenerating && (
-					<p className="text-[10px] text-muted-foreground text-center">
+					<p className="text-2xs text-muted-foreground text-center">
 						You can switch tabs — the template generates in the background.
 					</p>
 				)}
@@ -786,7 +786,7 @@ export function TemplatePanel({ className }: TemplatePanelProps) {
 					{templateHistory.length > 0 && (
 						<button
 							type="button"
-							className="text-[9px] text-muted-foreground hover:text-destructive mt-3 w-full text-center"
+							className="text-3xs text-muted-foreground hover:text-destructive mt-3 w-full text-center"
 							onClick={() => {
 								clearTemplateHistory();
 								setTemplateHistory([]);
@@ -841,15 +841,15 @@ function TemplateHistoryCard({
 				className="px-3 py-2 flex items-center gap-2 cursor-pointer hover:bg-accent/50"
 				onClick={onToggle}
 			>
-				<span className="text-[10px]">{isExpanded ? "▾" : "▸"}</span>
+				<span className="text-2xs">{isExpanded ? "▾" : "▸"}</span>
 				<div className="flex-1 min-w-0">
 					<p className="text-xs font-medium truncate">{t.title}</p>
 				</div>
 				<div className="flex items-center gap-1 shrink-0">
-					<Badge variant="secondary" className="text-[8px] px-1 py-0">
+					<Badge variant="secondary" className="text-3xs px-1 py-0">
 						{t.total_duration}s
 					</Badge>
-					<Badge variant="secondary" className="text-[8px] px-1 py-0">
+					<Badge variant="secondary" className="text-3xs px-1 py-0">
 						{t.segments.length} seg
 					</Badge>
 					{stored.imported && (
@@ -866,7 +866,7 @@ function TemplateHistoryCard({
 				<div className="px-3 pb-3 border-t space-y-2 pt-2">
 					{/* Style & info */}
 					<div className="flex items-center gap-1.5">
-						<Badge variant="outline" className="text-[9px] px-1 py-0">
+						<Badge variant="outline" className="text-3xs px-1 py-0">
 							{t.style}
 						</Badge>
 						{t.background_audio && (
@@ -875,7 +875,7 @@ function TemplateHistoryCard({
 									icon={MusicNote03Icon}
 									className="size-3 text-muted-foreground"
 								/>
-								<span className="text-[9px] text-muted-foreground">
+								<span className="text-3xs text-muted-foreground">
 									{t.background_audio.mood}
 								</span>
 							</div>
@@ -918,7 +918,7 @@ function TemplateHistoryCard({
 							</Button>
 						)}
 						{stored.imported && (
-							<div className="flex items-center gap-1 text-[10px] text-green-500 justify-center">
+							<div className="flex items-center gap-1 text-2xs text-green-500 justify-center">
 								<HugeiconsIcon icon={Tick01Icon} className="size-3" />
 								Added to Timeline
 							</div>
@@ -927,7 +927,7 @@ function TemplateHistoryCard({
 							<Button
 								variant="outline"
 								size="sm"
-								className="flex-1 h-6 text-[9px]"
+								className="flex-1 h-6 text-3xs"
 								onClick={(e) => {
 									e.stopPropagation();
 									onSaveToIdeas();
@@ -938,7 +938,7 @@ function TemplateHistoryCard({
 							<Button
 								variant="ghost"
 								size="sm"
-								className="h-6 text-[9px] text-muted-foreground hover:text-destructive"
+								className="h-6 text-3xs text-muted-foreground hover:text-destructive"
 								onClick={(e) => {
 									e.stopPropagation();
 									onRemove();
@@ -969,7 +969,7 @@ function SegmentCard({ segment }: { segment: ReelTemplateSegment }) {
 				onClick={() => setExpanded(!expanded)}
 			>
 				<div className="flex items-center justify-center size-5 rounded-full bg-primary/10 text-primary shrink-0">
-					<span className="text-[10px] font-bold">{segment.order}</span>
+					<span className="text-2xs font-bold">{segment.order}</span>
 				</div>
 				<div className="flex-1 min-w-0">
 					<p className="text-xs font-medium truncate">{segment.title}</p>
@@ -979,7 +979,7 @@ function SegmentCard({ segment }: { segment: ReelTemplateSegment }) {
 						icon={Clock01Icon}
 						className="size-3 text-muted-foreground"
 					/>
-					<span className="text-[10px] text-muted-foreground">
+					<span className="text-2xs text-muted-foreground">
 						{segment.start_time}s – {segment.end_time}s
 					</span>
 				</div>
@@ -1013,14 +1013,14 @@ function SegmentCard({ segment }: { segment: ReelTemplateSegment }) {
 									icon={SparklesIcon}
 									className="size-3 text-primary"
 								/>
-								<p className="text-[10px] font-medium text-primary uppercase tracking-wider">
+								<p className="text-2xs font-medium text-primary uppercase tracking-wider">
 									Key Message
 								</p>
 							</div>
 							<p className="text-xs font-semibold">{segment.key_message}</p>
 						</div>
 					) : (
-						<p className="text-[10px] text-muted-foreground/50 italic">
+						<p className="text-2xs text-muted-foreground/50 italic">
 							No key message generated
 						</p>
 					)}
@@ -1031,7 +1031,7 @@ function SegmentCard({ segment }: { segment: ReelTemplateSegment }) {
 									icon={Mic01Icon}
 									className="size-3 text-muted-foreground"
 								/>
-								<p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+								<p className="text-2xs font-medium text-muted-foreground uppercase tracking-wider">
 									Voiceover Script
 								</p>
 							</div>
@@ -1046,11 +1046,11 @@ function SegmentCard({ segment }: { segment: ReelTemplateSegment }) {
 									icon={Mic01Icon}
 									className="size-3 text-muted-foreground/40"
 								/>
-								<p className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider">
+								<p className="text-2xs font-medium text-muted-foreground/40 uppercase tracking-wider">
 									Voiceover Script
 								</p>
 							</div>
-							<p className="text-[10px] text-muted-foreground/50 italic">
+							<p className="text-2xs text-muted-foreground/50 italic">
 								No voiceover script — try regenerating or edit manually
 							</p>
 						</div>
@@ -1062,7 +1062,7 @@ function SegmentCard({ segment }: { segment: ReelTemplateSegment }) {
 									icon={ViewIcon}
 									className="size-3 text-muted-foreground"
 								/>
-								<p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+								<p className="text-2xs font-medium text-muted-foreground uppercase tracking-wider">
 									Visual Direction
 								</p>
 							</div>
@@ -1077,11 +1077,11 @@ function SegmentCard({ segment }: { segment: ReelTemplateSegment }) {
 									icon={ViewIcon}
 									className="size-3 text-muted-foreground/40"
 								/>
-								<p className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider">
+								<p className="text-2xs font-medium text-muted-foreground/40 uppercase tracking-wider">
 									Visual Direction
 								</p>
 							</div>
-							<p className="text-[10px] text-muted-foreground/50 italic">
+							<p className="text-2xs text-muted-foreground/50 italic">
 								No visual description — try regenerating or edit manually
 							</p>
 						</div>
@@ -1093,7 +1093,7 @@ function SegmentCard({ segment }: { segment: ReelTemplateSegment }) {
 									icon={MusicNote03Icon}
 									className="size-3 text-muted-foreground"
 								/>
-								<p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+								<p className="text-2xs font-medium text-muted-foreground uppercase tracking-wider">
 									Audio Mood
 								</p>
 							</div>

@@ -44,7 +44,7 @@ export function RecordButton() {
 			{state.isRecording && (
 				<div className="flex items-center gap-1 px-1 text-red-500">
 					<span className="size-1.5 animate-pulse rounded-full bg-red-500" />
-					<span className="font-mono text-[10px] tabular-nums">
+					<span className="font-mono text-2xs tabular-nums">
 						{formatElapsed(state.duration)}
 					</span>
 				</div>
