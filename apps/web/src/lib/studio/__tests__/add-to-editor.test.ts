@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { EditorCore } from "@/core";
 import { addItemsToProjectMedia } from "@/lib/studio/add-to-editor";
 
@@ -20,21 +22,31 @@ import { addItemsToProjectMedia } from "@/lib/studio/add-to-editor";
  * prevented this file's mock from breaking normalize-media.test.ts's real
  * `processMediaAssets` assertions whenever both ran together.
  *
- * It turns out no mock is needed at all: `getMediaTypeFromFile` classifies a
- * File purely by its `type` MIME prefix (no decode), and `processMediaAssets`
- * wraps every actual decode step (probe / getVideoInfo / thumbnail) in an
- * inner try/catch that only `console.warn`s — so for any File whose `type`
- * starts with `video/`, `image/`, or `audio/`, it always pushes a processed
- * asset (with degraded metadata) rather than throwing, even with garbage
- * bytes and no WebCodecs/canvas under bun (verified by hand: a 3-byte
- * "video/mp4" File still yields one asset). And since `addItemsToProjectMedia`
- * itself coerces the downloaded blob's type to a valid prefix for `item.kind`
- * before handing it to `processMediaAssets`, the "processing produced no
- * asset" branch is not realistically reachable from this function's own call
- * site anyway — so a real `processMediaAssets` call exercises this test's
- * actual contract (the per-item try/catch/count loop) faithfully with zero
- * mocking risk. The two genuinely reachable failure modes below are the proxy
- * download failing and `editor.media.addMediaAsset` rejecting.
+ * BUG55 (C26 @7b671e15) made `processMediaAssets` correctly SKIP a file whose
+ * probe is genuinely unreadable (`isUnreadableVideoProbe`: unparseable OR no
+ * video track at all) instead of pushing a phantom asset — so the 3-byte
+ * garbage "video/mp4" File this suite used to rely on no longer yields an
+ * asset (mediabunny can't find a video track in 3 random bytes, so it's
+ * correctly treated as unreadable and skipped). Fixed by feeding the fetch
+ * stub the bytes of a REAL, tiny, byte-valid H.264 MP4 fixture instead of
+ * garbage. Verified by hand under plain bun (no WebCodecs/VideoDecoder
+ * global, same as this test run): mediabunny parses the container and reports
+ * a real `videoCodec` ("avc") and `parseable: true` even though
+ * `canDecode()` is false — so `isUnreadableVideoProbe` (parseable + codec
+ * present) stays false, `processMediaAssets` does NOT skip it, and
+ * `getVideoInfo` (container-metadata only, no actual frame decode) still
+ * succeeds, so exactly one processed asset is pushed. `generateThumbnail`
+ * (real frame decode) predictably fails under bun with no WebCodecs, but
+ * that's caught by processing.ts's own try/catch and doesn't block the push
+ * — matching the "degraded metadata, never throws" contract this suite
+ * exists to protect. Since `addItemsToProjectMedia` itself coerces the
+ * downloaded blob's type to a valid prefix for `item.kind` before handing it
+ * to `processMediaAssets`, the "processing produced no asset" branch remains
+ * unreachable from this function's own call site with a real fixture — so a
+ * real `processMediaAssets` call exercises this test's actual contract (the
+ * per-item try/catch/count loop) faithfully with zero mocking risk. The two
+ * genuinely reachable failure modes below are the proxy download failing and
+ * `editor.media.addMediaAsset` rejecting.
  *
  * `global.fetch` backs `fetchWithTimeout`'s proxy download and is restored in
  * afterEach per the 44b4e1ca leak-prevention pattern: mock.restore() /
@@ -48,9 +60,25 @@ afterEach(() => {
 	globalThis.fetch = originalFetch;
 });
 
+// Real, tiny (~193KB), byte-valid H.264 MP4 — same fixture the w2 e2e suite
+// uses (e2e/fixtures/w2/tiny_640x360_h264.mp4). mediabunny can demux its
+// container and report a real codec without needing WebCodecs, which is what
+// keeps processMediaAssets's probe from treating it as unreadable (see the
+// file header).
+const VALID_MP4_BYTES = readFileSync(
+	join(
+		import.meta.dir,
+		"..",
+		"..",
+		"..",
+		"..",
+		"e2e/fixtures/w2/tiny_640x360_h264.mp4",
+	),
+);
+
 function okBlobFetch(): typeof fetch {
 	return (async () =>
-		new Response(new Blob([new Uint8Array([1, 2, 3])], { type: "video/mp4" }), {
+		new Response(new Blob([VALID_MP4_BYTES], { type: "video/mp4" }), {
 			status: 200,
 		})) as unknown as typeof fetch;
 }
@@ -94,7 +122,7 @@ describe("addItemsToProjectMedia", () => {
 			// First item's proxy download succeeds; the second's fails.
 			if (calls === 1) {
 				return new Response(
-					new Blob([new Uint8Array([1, 2, 3])], { type: "video/mp4" }),
+					new Blob([VALID_MP4_BYTES], { type: "video/mp4" }),
 					{ status: 200 },
 				);
 			}

@@ -1,9 +1,8 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { EditorCore } from "@/core";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { CommandManager } from "@/core/managers/commands";
-import { MediaManager } from "@/core/managers/media-manager";
-import { RemoveMediaAssetCommand } from "@/lib/commands/media";
 import { DEFAULT_TRANSFORM } from "@/constants/timeline-constants";
+import type { EditorCore } from "@/core";
+import type { MediaManager } from "@/core/managers/media-manager";
 import type { MediaAsset } from "@/types/assets";
 import type {
 	ImageElement,
@@ -25,7 +24,41 @@ import type {
  * `editor.media.removeMediaAsset(...)` walks the exact path the Assets panel
  * uses (`handleRemove` in assets.tsx calls this same method), and the
  * asset-delete/undo/redo round trip is verified through the public API only.
+ *
+ * Order-dependence note: `EditorCore` (from "@/core") and
+ * `RemoveMediaAssetCommand` (from "@/lib/commands/media") both transitively
+ * import `@/core/managers/media-manager`, which statically imports the real
+ * `@/services/proxy` barrel (chaining into proxy-encoder-controller.ts →
+ * proxy-generator.ts). If those were ordinary static `import` statements
+ * here, the real chain would get cached in bun test's module registry before
+ * any `mock.module()` call below could take effect — defeating
+ * proxy-encoder-controller.test.ts's own `mock.module()` mock if that file
+ * runs later in the same `bun test` invocation. So: mock the barrel first,
+ * then import everything that reaches it dynamically (mirrors the barrel
+ * mock + "Import AFTER the mocks" convention already used in
+ * media-manager-decode-reprobe.test.ts). Proxy generation itself is never
+ * exercised by these tests — the mock only exists to keep the module graph
+ * mock-friendly for other files in the run.
  */
+mock.module("@/services/proxy", () => ({
+	generateProxyOffThread: async () => ({
+		file: new File([new Uint8Array([1])], "proxy.mp4", { type: "video/mp4" }),
+		width: 1280,
+		height: 720,
+	}),
+	// media-manager statically imports this alongside generateProxyOffThread;
+	// the mock must re-export it or the ESM binding fails at import time.
+	isProxyCancelledError: (error: unknown) =>
+		error instanceof Error &&
+		(error.message === "Proxy generation cancelled" ||
+			error.name === "AbortError"),
+}));
+
+const { EditorCore: EditorCoreClass } = await import("@/core");
+const { MediaManager: MediaManagerClass } = await import(
+	"@/core/managers/media-manager"
+);
+const { RemoveMediaAssetCommand } = await import("@/lib/commands/media");
 
 /** The minimal timeline/selection surface the command actually touches —
  * assigned through `as unknown as` (same idiom as the command/media fields
@@ -43,11 +76,13 @@ interface FakeSelection {
 }
 type FakeEditor = EditorCore;
 
-const originalGetInstance = EditorCore.getInstance;
+const originalGetInstance = EditorCoreClass.getInstance;
 
 function restoreEditorCore(): void {
 	(
-		EditorCore as unknown as { getInstance: typeof EditorCore.getInstance }
+		EditorCoreClass as unknown as {
+			getInstance: typeof EditorCoreClass.getInstance;
+		}
 	).getInstance = originalGetInstance;
 }
 
@@ -78,12 +113,13 @@ function makeEditor({ tracks }: { tracks: TimelineTrack[] }): FakeEditor {
 			selection = elements;
 		},
 	};
-	(editor as unknown as { media: MediaManager }).media = new MediaManager(
+	(editor as unknown as { media: MediaManager }).media = new MediaManagerClass(
 		editor,
 	);
 
-	(EditorCore as unknown as { getInstance: () => EditorCore }).getInstance =
-		() => editor;
+	(
+		EditorCoreClass as unknown as { getInstance: () => EditorCore }
+	).getInstance = () => editor;
 
 	return editor;
 }

@@ -1,0 +1,6 @@
+# Root-level bun test config so `bun test` from the repo root (the documented
+# battery invocation) applies the same env preload as apps/web/bunfig.toml.
+# Without this, root runs skip apps/web/.env.local and route/webhook modules
+# that parse @byorn/env at import throw ZodError (DATABASE_URL/BETTER_AUTH_SECRET).
+[test]
+preload = ["./apps/web/scripts/test-env-preload.ts"]

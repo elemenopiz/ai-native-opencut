@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, mock } from "bun:test";
-import { EditorCore } from "@/core";
 import { CommandManager } from "@/core/managers/commands";
+import type { EditorCore } from "@/core";
 import type { MediaAsset } from "@/types/assets";
 
 /**
@@ -76,16 +76,47 @@ mock.module("@/services/storage/user-memory-store", () => ({
 	},
 	clearAllUserMediaMemory: async () => {},
 	listUserMediaMemory: async () => [],
+	// Not exercised by this suite (only ProjectManager's bible-seed flow calls
+	// these), but ProjectManager is on the same @/core import chain as
+	// MediaManager (both are constructed in EditorCore's constructor), so its
+	// static import of these two names must resolve against this mock too —
+	// see the file-header note on mirroring each store's FULL export surface.
+	promoteBibleToUserMemory: async () => {},
+	seedProjectBibleFromUserMemory: async () => undefined,
+}));
+
+// Proxy-generation abort/cancel is exercised indirectly via removeMediaAsset
+// (RemoveMediaAssetCommand.execute() calls editor.media.cancelProxyGeneration,
+// which only aborts a locally-held AbortController — none of this suite's
+// tests reach generateProxyOffThread itself). Mock the barrel anyway: media-
+// manager.ts statically imports it, and `import { EditorCore } from "@/core"`
+// would otherwise transitively cache the REAL @/services/proxy chain
+// (-> proxy-encoder-controller.ts -> proxy-generator.ts) in bun test's
+// shared module registry, defeating proxy-encoder-controller.test.ts's own
+// mock.module() if that file runs later in the same `bun test` invocation.
+mock.module("@/services/proxy", () => ({
+	generateProxyOffThread: async () => ({
+		file: new File([new Uint8Array([1])], "proxy.mp4", { type: "video/mp4" }),
+		width: 1280,
+		height: 720,
+	}),
+	isProxyCancelledError: (error: unknown) =>
+		error instanceof Error &&
+		(error.message === "Proxy generation cancelled" ||
+			error.name === "AbortError"),
 }));
 
 // Import AFTER the mocks so the manager binds the stubs (repo convention).
+const { EditorCore: EditorCoreClass } = await import("@/core");
 const { MediaManager } = await import("@/core/managers/media-manager");
 
-const originalGetInstance = EditorCore.getInstance;
+const originalGetInstance = EditorCoreClass.getInstance;
 
 afterEach(() => {
 	(
-		EditorCore as unknown as { getInstance: typeof EditorCore.getInstance }
+		EditorCoreClass as unknown as {
+			getInstance: typeof EditorCoreClass.getInstance;
+		}
 	).getInstance = originalGetInstance;
 });
 
@@ -114,8 +145,9 @@ function makeEditor(): {
 	const manager = new MediaManager(editor);
 	(editor as unknown as { media: typeof manager }).media = manager;
 
-	(EditorCore as unknown as { getInstance: () => EditorCore }).getInstance =
-		() => editor;
+	(
+		EditorCoreClass as unknown as { getInstance: () => EditorCore }
+	).getInstance = () => editor;
 
 	return { editor, manager };
 }
