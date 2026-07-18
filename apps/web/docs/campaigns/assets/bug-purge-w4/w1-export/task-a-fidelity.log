@@ -1,0 +1,647 @@
+$ playwright test -c playwright.export-fidelity.config.ts
+[WebServer] $ next start
+[WebServer] ▲ Next.js 16.1.3
+[WebServer] - Local:         http://localhost:3213
+[WebServer] - Network:       http://192.168.1.4:3213
+[WebServer] 
+[WebServer] ✓ Starting...
+[WebServer] ⚠ Warning: Next.js inferred your workspace root, but it may not be correct.
+[WebServer]  We detected multiple lockfiles and selected the directory of /Users/zsha/Documents/ai-native-opencut/bun.lock as the root directory.
+[WebServer]  To silence this warning, set `outputFileTracingRoot` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
+[WebServer]    See https://nextjs.org/docs/app/api-reference/config/next-config-js/output#caveats for more information.
+[WebServer]  Detected additional lockfiles: 
+[WebServer]    * /Users/zsha/Documents/ai-native-opencut/.claude/worktrees/agent-ab0d8103b7db5d6c6/bun.lock
+[WebServer] 
+[WebServer] ✓ Ready in 2.2s
+
+Running 7 tests using 1 worker
+
+[fidelity-matrix] static-volume.mp4 ffprobe:
+{
+  "streams": [
+    {
+      "index": 0,
+      "codec_name": "aac",
+      "codec_long_name": "AAC (Advanced Audio Coding)",
+      "profile": "LC",
+      "codec_type": "audio",
+      "codec_tag_string": "mp4a",
+      "codec_tag": "0x6134706d",
+      "mime_codec_string": "mp4a.40.2",
+      "sample_fmt": "fltp",
+      "sample_rate": "44100",
+      "channels": 2,
+      "channel_layout": "stereo",
+      "bits_per_sample": 0,
+      "initial_padding": 0,
+      "id": "0x1",
+      "r_frame_rate": "0/0",
+      "avg_frame_rate": "0/0",
+      "time_base": "1/44100",
+      "start_pts": 0,
+      "start_time": "0.000000",
+      "duration_ts": 180224,
+      "duration": "4.086712",
+      "bit_rate": "34883",
+      "nb_frames": "176",
+      "extradata_size": 2,
+      "disposition": {
+        "default": 1,
+        "dub": 0,
+        "original": 0,
+        "comment": 0,
+        "lyrics": 0,
+        "karaoke": 0,
+        "forced": 0,
+        "hearing_impaired": 0,
+        "visual_impaired": 0,
+        "clean_effects": 0,
+        "attached_pic": 0,
+        "timed_thumbnails": 0,
+        "non_diegetic": 0,
+        "captions": 0,
+        "descriptions": 0,
+        "metadata": 0,
+        "dependent": 0,
+        "still_image": 0,
+        "multilayer": 0
+      },
+      "tags": {
+        "creation_time": "2026-07-18T07:59:20.000000Z",
+        "language": "und",
+        "handler_name": "MediabunnySoundHandler"
+      }
+    }
+  ],
+  "format": {
+    "filename": "/var/folders/qh/z9qblpbd0fggv5cp468bxygh0000gn/T/byorn-fidelity-o2dwio/static-volume.mp4",
+    "nb_streams": 1,
+    "nb_programs": 0,
+    "nb_stream_groups": 0,
+    "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+    "format_long_name": "QuickTime / MOV",
+    "start_time": "0.000000",
+    "duration": "4.086712",
+    "size": "19146",
+    "bit_rate": "37479",
+    "probe_score": 100,
+    "tags": {
+      "major_brand": "isom",
+      "minor_version": "512",
+      "compatible_brands": "isommp41",
+      "creation_time": "2026-07-18T07:59:20.000000Z"
+    }
+  }
+}
+[static-volume] measured: RMS(A, vol=0.25)=0.15005 RMS(B, vol=1.0)=0.59985 ratio(A/B)=0.2501 (expected ~0.25 if per-clip volume is honored; ~1.0 is BUG32 evidence — volume dropped by the export mixdown)
+  ✓  1 [chrome] › e2e/export-fidelity/fidelity-matrix.e2e.ts:63:6 › export fidelity matrix — preview vs export (campaign C24) › static per-clip volume: 0.25x clip mixes quieter than a 1.0x sibling from the same source (31.7s)
+[fidelity-matrix] mute.mp4 ffprobe:
+{
+  "streams": [
+    {
+      "index": 0,
+      "codec_name": "aac",
+      "codec_long_name": "AAC (Advanced Audio Coding)",
+      "profile": "LC",
+      "codec_type": "audio",
+      "codec_tag_string": "mp4a",
+      "codec_tag": "0x6134706d",
+      "mime_codec_string": "mp4a.40.2",
+      "sample_fmt": "fltp",
+      "sample_rate": "44100",
+      "channels": 2,
+      "channel_layout": "stereo",
+      "bits_per_sample": 0,
+      "initial_padding": 0,
+      "id": "0x1",
+      "r_frame_rate": "0/0",
+      "avg_frame_rate": "0/0",
+      "time_base": "1/44100",
+      "start_pts": 0,
+      "start_time": "0.000000",
+      "duration_ts": 180224,
+      "duration": "4.086712",
+      "bit_rate": "17555",
+      "nb_frames": "176",
+      "extradata_size": 2,
+      "disposition": {
+        "default": 1,
+        "dub": 0,
+        "original": 0,
+        "comment": 0,
+        "lyrics": 0,
+        "karaoke": 0,
+        "forced": 0,
+        "hearing_impaired": 0,
+        "visual_impaired": 0,
+        "clean_effects": 0,
+        "attached_pic": 0,
+        "timed_thumbnails": 0,
+        "non_diegetic": 0,
+        "captions": 0,
+        "descriptions": 0,
+        "metadata": 0,
+        "dependent": 0,
+        "still_image": 0,
+        "multilayer": 0
+      },
+      "tags": {
+        "creation_time": "2026-07-18T07:59:34.000000Z",
+        "language": "und",
+        "handler_name": "MediabunnySoundHandler"
+      }
+    }
+  ],
+  "format": {
+    "filename": "/var/folders/qh/z9qblpbd0fggv5cp468bxygh0000gn/T/byorn-fidelity-vPIhLn/mute.mp4",
+    "nb_streams": 1,
+    "nb_programs": 0,
+    "nb_stream_groups": 0,
+    "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+    "format_long_name": "QuickTime / MOV",
+    "start_time": "0.000000",
+    "duration": "4.086712",
+    "size": "10294",
+    "bit_rate": "20151",
+    "probe_score": 100,
+    "tags": {
+      "major_brand": "isom",
+      "minor_version": "512",
+      "compatible_brands": "isommp41",
+      "creation_time": "2026-07-18T07:59:34.000000Z"
+    }
+  }
+}
+[mute] measured: RMS(muted)=0.000000 RMS(unmuted)=0.59995
+  ✓  2 [chrome] › e2e/export-fidelity/fidelity-matrix.e2e.ts:125:6 › export fidelity matrix — preview vs export (campaign C24) › muted clip is silent in export while a sibling unmuted clip isn't (5.2s)
+[fidelity-matrix] volume-automation.mp4 ffprobe:
+{
+  "streams": [
+    {
+      "index": 0,
+      "codec_name": "aac",
+      "codec_long_name": "AAC (Advanced Audio Coding)",
+      "profile": "LC",
+      "codec_type": "audio",
+      "codec_tag_string": "mp4a",
+      "codec_tag": "0x6134706d",
+      "mime_codec_string": "mp4a.40.2",
+      "sample_fmt": "fltp",
+      "sample_rate": "44100",
+      "channels": 2,
+      "channel_layout": "stereo",
+      "bits_per_sample": 0,
+      "initial_padding": 0,
+      "id": "0x1",
+      "r_frame_rate": "0/0",
+      "avg_frame_rate": "0/0",
+      "time_base": "1/44100",
+      "start_pts": 0,
+      "start_time": "0.000000",
+      "duration_ts": 180224,
+      "duration": "4.086712",
+      "bit_rate": "28813",
+      "nb_frames": "176",
+      "extradata_size": 2,
+      "disposition": {
+        "default": 1,
+        "dub": 0,
+        "original": 0,
+        "comment": 0,
+        "lyrics": 0,
+        "karaoke": 0,
+        "forced": 0,
+        "hearing_impaired": 0,
+        "visual_impaired": 0,
+        "clean_effects": 0,
+        "attached_pic": 0,
+        "timed_thumbnails": 0,
+        "non_diegetic": 0,
+        "captions": 0,
+        "descriptions": 0,
+        "metadata": 0,
+        "dependent": 0,
+        "still_image": 0,
+        "multilayer": 0
+      },
+      "tags": {
+        "creation_time": "2026-07-18T07:59:46.000000Z",
+        "language": "und",
+        "handler_name": "MediabunnySoundHandler"
+      }
+    }
+  ],
+  "format": {
+    "filename": "/var/folders/qh/z9qblpbd0fggv5cp468bxygh0000gn/T/byorn-fidelity-N3r6EK/volume-automation.mp4",
+    "nb_streams": 1,
+    "nb_programs": 0,
+    "nb_stream_groups": 0,
+    "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+    "format_long_name": "QuickTime / MOV",
+    "start_time": "0.000000",
+    "duration": "4.086712",
+    "size": "16045",
+    "bit_rate": "31409",
+    "probe_score": 100,
+    "tags": {
+      "major_brand": "isom",
+      "minor_version": "512",
+      "compatible_brands": "isommp41",
+      "creation_time": "2026-07-18T07:59:46.000000Z"
+    }
+  }
+}
+[volume-automation] measured: RMS(first second)=0.60393 RMS(last second)=0.11405 ratio=5.2951 (expected >4x if volume automation is honored; ~1.0 is BUG32 evidence — keyframed volume automation dropped by the export mixdown)
+  ✓  3 [chrome] › e2e/export-fidelity/fidelity-matrix.e2e.ts:179:6 › export fidelity matrix — preview vs export (campaign C24) › volume automation ramp (1 -> 0 across 4s) attenuates the tail relative to the head (11.9s)
+[fidelity-matrix] audio-only.mp4 ffprobe:
+{
+  "streams": [
+    {
+      "index": 0,
+      "codec_name": "aac",
+      "codec_long_name": "AAC (Advanced Audio Coding)",
+      "profile": "LC",
+      "codec_type": "audio",
+      "codec_tag_string": "mp4a",
+      "codec_tag": "0x6134706d",
+      "mime_codec_string": "mp4a.40.2",
+      "sample_fmt": "fltp",
+      "sample_rate": "44100",
+      "channels": 2,
+      "channel_layout": "stereo",
+      "bits_per_sample": 0,
+      "initial_padding": 0,
+      "id": "0x1",
+      "r_frame_rate": "0/0",
+      "avg_frame_rate": "0/0",
+      "time_base": "1/44100",
+      "start_pts": 0,
+      "start_time": "0.000000",
+      "duration_ts": 136192,
+      "duration": "3.088254",
+      "bit_rate": "32468",
+      "nb_frames": "133",
+      "extradata_size": 2,
+      "disposition": {
+        "default": 1,
+        "dub": 0,
+        "original": 0,
+        "comment": 0,
+        "lyrics": 0,
+        "karaoke": 0,
+        "forced": 0,
+        "hearing_impaired": 0,
+        "visual_impaired": 0,
+        "clean_effects": 0,
+        "attached_pic": 0,
+        "timed_thumbnails": 0,
+        "non_diegetic": 0,
+        "captions": 0,
+        "descriptions": 0,
+        "metadata": 0,
+        "dependent": 0,
+        "still_image": 0,
+        "multilayer": 0
+      },
+      "tags": {
+        "creation_time": "2026-07-18T07:59:51.000000Z",
+        "language": "und",
+        "handler_name": "MediabunnySoundHandler"
+      }
+    }
+  ],
+  "format": {
+    "filename": "/var/folders/qh/z9qblpbd0fggv5cp468bxygh0000gn/T/byorn-fidelity-gCCSK0/audio-only.mp4",
+    "nb_streams": 1,
+    "nb_programs": 0,
+    "nb_stream_groups": 0,
+    "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+    "format_long_name": "QuickTime / MOV",
+    "start_time": "0.000000",
+    "duration": "3.088254",
+    "size": "13696",
+    "bit_rate": "35478",
+    "probe_score": 100,
+    "tags": {
+      "major_brand": "isom",
+      "minor_version": "512",
+      "compatible_brands": "isommp41",
+      "creation_time": "2026-07-18T07:59:51.000000Z"
+    }
+  }
+}
+[audio-only] measured ffprobe streams: video=0 ([]) audio=1 (expected video=0 if the exporter skips a visual track for an audio-only project; a 1920x1080 h264 video stream here is BUG17 evidence)
+  ✓  4 [chrome] › e2e/export-fidelity/fidelity-matrix.e2e.ts:242:6 › export fidelity matrix — preview vs export (campaign C24) › audio-only project (zero visual elements) exports with no video stream (10.7s)
+[fidelity-matrix] speed-pitch.mp4 ffprobe:
+{
+  "streams": [
+    {
+      "index": 0,
+      "codec_name": "aac",
+      "codec_long_name": "AAC (Advanced Audio Coding)",
+      "profile": "LC",
+      "codec_type": "audio",
+      "codec_tag_string": "mp4a",
+      "codec_tag": "0x6134706d",
+      "mime_codec_string": "mp4a.40.2",
+      "sample_fmt": "fltp",
+      "sample_rate": "44100",
+      "channels": 2,
+      "channel_layout": "stereo",
+      "bits_per_sample": 0,
+      "initial_padding": 0,
+      "id": "0x1",
+      "r_frame_rate": "0/0",
+      "avg_frame_rate": "0/0",
+      "time_base": "1/44100",
+      "start_pts": 0,
+      "start_time": "0.000000",
+      "duration_ts": 92160,
+      "duration": "2.089796",
+      "bit_rate": "118005",
+      "nb_frames": "90",
+      "extradata_size": 2,
+      "disposition": {
+        "default": 1,
+        "dub": 0,
+        "original": 0,
+        "comment": 0,
+        "lyrics": 0,
+        "karaoke": 0,
+        "forced": 0,
+        "hearing_impaired": 0,
+        "visual_impaired": 0,
+        "clean_effects": 0,
+        "attached_pic": 0,
+        "timed_thumbnails": 0,
+        "non_diegetic": 0,
+        "captions": 0,
+        "descriptions": 0,
+        "metadata": 0,
+        "dependent": 0,
+        "still_image": 0,
+        "multilayer": 0
+      },
+      "tags": {
+        "creation_time": "2026-07-18T08:00:03.000000Z",
+        "language": "und",
+        "handler_name": "MediabunnySoundHandler"
+      }
+    }
+  ],
+  "format": {
+    "filename": "/var/folders/qh/z9qblpbd0fggv5cp468bxygh0000gn/T/byorn-fidelity-q0yoqi/speed-pitch.mp4",
+    "nb_streams": 1,
+    "nb_programs": 0,
+    "nb_stream_groups": 0,
+    "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+    "format_long_name": "QuickTime / MOV",
+    "start_time": "0.000000",
+    "duration": "2.089796",
+    "size": "31808",
+    "bit_rate": "121764",
+    "probe_score": 100,
+    "tags": {
+      "major_brand": "isom",
+      "minor_version": "512",
+      "compatible_brands": "isommp41",
+      "creation_time": "2026-07-18T08:00:03.000000Z"
+    }
+  }
+}
+[speed-pitch] measured: ffprobe duration=2.089796s (expected ~2s ±0.7s)
+[speed-pitch] measured: RMS(tail window 1.4-1.9s)=0.59953
+  ✓  5 [chrome] › e2e/export-fidelity/fidelity-matrix.e2e.ts:312:6 › export fidelity matrix — preview vs export (campaign C24) › 2x playbackRate clip: exported duration matches the timeline slot, no half-silence tail (11.7s)
+[fidelity-matrix] audio-separation.mp4 ffprobe:
+{
+  "streams": [
+    {
+      "index": 0,
+      "codec_name": "h264",
+      "codec_long_name": "H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10",
+      "profile": "High",
+      "codec_type": "video",
+      "codec_tag_string": "avc1",
+      "codec_tag": "0x31637661",
+      "mime_codec_string": "avc1.64000b",
+      "width": 128,
+      "height": 128,
+      "coded_width": 128,
+      "coded_height": 128,
+      "has_b_frames": 0,
+      "pix_fmt": "yuv420p",
+      "level": 11,
+      "color_range": "tv",
+      "color_space": "bt709",
+      "color_transfer": "bt709",
+      "color_primaries": "bt709",
+      "chroma_location": "left",
+      "field_order": "progressive",
+      "is_avc": "true",
+      "nal_length_size": "4",
+      "id": "0x1",
+      "r_frame_rate": "26/1",
+      "avg_frame_rate": "26/1",
+      "time_base": "1/26",
+      "start_pts": 0,
+      "start_time": "0.000000",
+      "duration_ts": 104,
+      "duration": "4.000000",
+      "bit_rate": "59384",
+      "bits_per_raw_sample": "8",
+      "nb_frames": "104",
+      "extradata_size": 35,
+      "disposition": {
+        "default": 1,
+        "dub": 0,
+        "original": 0,
+        "comment": 0,
+        "lyrics": 0,
+        "karaoke": 0,
+        "forced": 0,
+        "hearing_impaired": 0,
+        "visual_impaired": 0,
+        "clean_effects": 0,
+        "attached_pic": 0,
+        "timed_thumbnails": 0,
+        "non_diegetic": 0,
+        "captions": 0,
+        "descriptions": 0,
+        "metadata": 0,
+        "dependent": 0,
+        "still_image": 0,
+        "multilayer": 0
+      },
+      "tags": {
+        "creation_time": "2026-07-18T08:00:30.000000Z",
+        "language": "und",
+        "handler_name": "MediabunnyVideoHandler"
+      }
+    },
+    {
+      "index": 1,
+      "codec_name": "aac",
+      "codec_long_name": "AAC (Advanced Audio Coding)",
+      "profile": "LC",
+      "codec_type": "audio",
+      "codec_tag_string": "mp4a",
+      "codec_tag": "0x6134706d",
+      "mime_codec_string": "mp4a.40.2",
+      "sample_fmt": "fltp",
+      "sample_rate": "44100",
+      "channels": 2,
+      "channel_layout": "stereo",
+      "bits_per_sample": 0,
+      "initial_padding": 0,
+      "id": "0x2",
+      "r_frame_rate": "0/0",
+      "avg_frame_rate": "0/0",
+      "time_base": "1/44100",
+      "start_pts": 0,
+      "start_time": "0.000000",
+      "duration_ts": 180224,
+      "duration": "4.086712",
+      "bit_rate": "44448",
+      "nb_frames": "176",
+      "extradata_size": 2,
+      "disposition": {
+        "default": 1,
+        "dub": 0,
+        "original": 0,
+        "comment": 0,
+        "lyrics": 0,
+        "karaoke": 0,
+        "forced": 0,
+        "hearing_impaired": 0,
+        "visual_impaired": 0,
+        "clean_effects": 0,
+        "attached_pic": 0,
+        "timed_thumbnails": 0,
+        "non_diegetic": 0,
+        "captions": 0,
+        "descriptions": 0,
+        "metadata": 0,
+        "dependent": 0,
+        "still_image": 0,
+        "multilayer": 0
+      },
+      "tags": {
+        "creation_time": "2026-07-18T08:00:30.000000Z",
+        "language": "und",
+        "handler_name": "MediabunnySoundHandler"
+      }
+    }
+  ],
+  "format": {
+    "filename": "/var/folders/qh/z9qblpbd0fggv5cp468bxygh0000gn/T/byorn-fidelity-6rmNXn/audio-separation.mp4",
+    "nb_streams": 2,
+    "nb_programs": 0,
+    "nb_stream_groups": 0,
+    "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+    "format_long_name": "QuickTime / MOV",
+    "start_time": "0.000000",
+    "duration": "4.086712",
+    "size": "54719",
+    "bit_rate": "107115",
+    "probe_score": 100,
+    "tags": {
+      "major_brand": "isom",
+      "minor_version": "512",
+      "compatible_brands": "isomavc1mp41",
+      "creation_time": "2026-07-18T08:00:30.000000Z"
+    }
+  }
+}
+[audio-separation] measured: RMS(enabled)=1.00036 RMS(detached)=0.000000
+  ✓  6 [chrome] › e2e/export-fidelity/fidelity-matrix.e2e.ts:371:6 › export fidelity matrix — preview vs export (campaign C24) › video clip with source audio detached is silent in export; an enabled sibling isn't (30.1s)
+[fidelity-matrix] text-overlay.mp4 ffprobe:
+{
+  "streams": [
+    {
+      "index": 0,
+      "codec_name": "h264",
+      "codec_long_name": "H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10",
+      "profile": "High",
+      "codec_type": "video",
+      "codec_tag_string": "avc1",
+      "codec_tag": "0x31637661",
+      "mime_codec_string": "avc1.640028",
+      "width": 1920,
+      "height": 1080,
+      "coded_width": 1920,
+      "coded_height": 1080,
+      "has_b_frames": 0,
+      "pix_fmt": "yuv420p",
+      "level": 40,
+      "color_range": "tv",
+      "color_space": "bt709",
+      "color_transfer": "bt709",
+      "color_primaries": "bt709",
+      "chroma_location": "left",
+      "field_order": "progressive",
+      "is_avc": "true",
+      "nal_length_size": "4",
+      "id": "0x1",
+      "r_frame_rate": "30/1",
+      "avg_frame_rate": "30/1",
+      "time_base": "1/30",
+      "start_pts": 0,
+      "start_time": "0.000000",
+      "duration_ts": 60,
+      "duration": "2.000000",
+      "bit_rate": "80196",
+      "bits_per_raw_sample": "8",
+      "nb_frames": "60",
+      "extradata_size": 35,
+      "disposition": {
+        "default": 1,
+        "dub": 0,
+        "original": 0,
+        "comment": 0,
+        "lyrics": 0,
+        "karaoke": 0,
+        "forced": 0,
+        "hearing_impaired": 0,
+        "visual_impaired": 0,
+        "clean_effects": 0,
+        "attached_pic": 0,
+        "timed_thumbnails": 0,
+        "non_diegetic": 0,
+        "captions": 0,
+        "descriptions": 0,
+        "metadata": 0,
+        "dependent": 0,
+        "still_image": 0,
+        "multilayer": 0
+      },
+      "tags": {
+        "creation_time": "2026-07-18T08:00:43.000000Z",
+        "language": "und",
+        "handler_name": "MediabunnyVideoHandler"
+      }
+    }
+  ],
+  "format": {
+    "filename": "/var/folders/qh/z9qblpbd0fggv5cp468bxygh0000gn/T/byorn-fidelity-9pNehY/text-overlay.mp4",
+    "nb_streams": 1,
+    "nb_programs": 0,
+    "nb_stream_groups": 0,
+    "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+    "format_long_name": "QuickTime / MOV",
+    "start_time": "0.000000",
+    "duration": "2.000000",
+    "size": "20996",
+    "bit_rate": "83984",
+    "probe_score": 100,
+    "tags": {
+      "major_brand": "isom",
+      "minor_version": "512",
+      "compatible_brands": "isomavc1mp41",
+      "creation_time": "2026-07-18T08:00:43.000000Z"
+    }
+  }
+}
+[text-overlay] measured: luma variance at t=1.0s = 11826.038 (a uniform/blank frame has variance ~0; text/edges push it well above 5)
+  ✓  7 [chrome] › e2e/export-fidelity/fidelity-matrix.e2e.ts:436:6 › export fidelity matrix — preview vs export (campaign C24) › text overlay over a solid background produces a non-uniform exported frame (5.3s)
+
+  7 passed (2.2m)
