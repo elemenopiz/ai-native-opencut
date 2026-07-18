@@ -73,13 +73,19 @@ Measured full-suite result WITH the keystone (probe, this session):
    `apps/web/src/lib/commands/media/__tests__/remove-media-asset.test.ts` (+ sibling media-manager real-
    barrel tests if needed), `apps/web/src/lib/studio/__tests__/add-to-editor.test.ts`.
 
-### W2 — CH6 CI auth-flow un-skip (workflow only)
-- `.github/workflows/bun-ci.yml` e2e job: add `services:` for Postgres + an Upstash-REST-compatible Redis
-  (redis + `hiett/serverless-redis-http` a.k.a. srh), point `DATABASE_URL` + `UPSTASH_REDIS_REST_URL/TOKEN`
-  at them, add a drizzle migration step before the e2e run, and replace the now-obsolete "No services:
-  postgres" comment block. Once Upstash is reachable the spec's beforeAll 500-probe returns 401 and
-  `auth-flow.e2e.ts` stops self-skipping. Tier: **merged** (GitHub Actions is not runnable on this host —
-  stated honestly). Owns: `.github/workflows/bun-ci.yml` only.
+### W2 — CH6 CI auth-flow un-skip (workflow only) — DONE, merged to campaign
+- Delivered on `task/w2-ch6-ci-authflow` @1c90b63a (single-file diff, YAML-parse verified, build job
+  byte-identical), merged to campaign. Adds `services:` postgres + redis:7 + srh
+  (`hiett/serverless-redis-http`, same shape as docker-compose.yaml), repoints
+  `UPSTASH_REDIS_REST_URL/TOKEN` at srh (`http://localhost:8079` / CI-literal token), adds a
+  `bun run db:migrate` step before the e2e runs, rewrites the obsolete "No services: postgres" comment.
+  Once Upstash is reachable the spec's beforeAll 500-probe returns 401 and `auth-flow.e2e.ts` stops
+  self-skipping.
+- L1 review fixes @186039b3: postgres:16 → **postgres:17** (docker-compose parity), and DROPPED the srh
+  wget-spider health check (unauthenticated GET → 4xx → `wget --spider` fails → service wedged
+  forever-unhealthy; compose defines no srh healthcheck either).
+- Tier: **merged** — GitHub Actions cannot run on this host; the workflow proves itself only on a real
+  Actions run after the eventual G2 push. Stated honestly, no CI-pass claim.
 
 ---
 
