@@ -4,7 +4,7 @@ import type { MediaAsset } from "@/types/assets";
 import { storageService } from "@/services/storage/service";
 import { generateUUID } from "@/utils/id";
 import { videoCache } from "@/services/video-cache/service";
-import { hasMediaId } from "@/lib/timeline/element-utils";
+import { RemoveMediaAssetCommand } from "@/lib/commands/media";
 import {
 	PROXY_THRESHOLD_WIDTH,
 	PROXY_THRESHOLD_HEIGHT,
@@ -130,6 +130,22 @@ export class MediaManager {
 		}
 	}
 
+	/**
+	 * Deletes a media asset AND its dependent timeline elements as ONE
+	 * reversible command (BUG34) — Ctrl+Z restores the asset (still playable —
+	 * object URLs are no longer revoked on delete, see RemoveMediaAssetCommand)
+	 * and its clips (positions/trims/properties) together, instead of undo
+	 * only bringing back clip shells that point at an already-deleted asset.
+	 *
+	 * This method stays the single choke point for asset delete: it just
+	 * constructs the command and runs it through the same
+	 * `editor.command.execute()` idiom `TimelineManager.deleteElements` uses,
+	 * so the full cascade (storage delete, embedding/transcript/understanding
+	 * cleanup, proxy-generation abort, dependent element + selection cleanup)
+	 * lives in RemoveMediaAssetCommand as a single undo-stack entry. Kept
+	 * `async` to avoid churn at the two call sites even though execute() is
+	 * synchronous under the hood.
+	 */
 	async removeMediaAsset({
 		projectId,
 		id,
@@ -137,66 +153,8 @@ export class MediaManager {
 		projectId: string;
 		id: string;
 	}): Promise<void> {
-		const asset = this.assets.find((asset) => asset.id === id);
-
-		videoCache.clearVideo({ mediaId: id });
-		deleteEmbedding(id).catch(() => undefined);
-		deleteTranscript(id).catch(() => undefined);
-		deleteUnderstanding(id).catch(() => undefined);
-
-		if (asset?.url) {
-			URL.revokeObjectURL(asset.url);
-			if (asset.thumbnailUrl) {
-				URL.revokeObjectURL(asset.thumbnailUrl);
-			}
-			if (asset.proxyUrl) {
-				URL.revokeObjectURL(asset.proxyUrl);
-			}
-		}
-
-		const controller = this.proxyGenerators.get(id);
-		if (controller) {
-			controller.abort();
-			this.proxyGenerators.delete(id);
-		}
-		useBackgroundTasksStore.getState().removeTask(`auto-proxy-${id}`);
-
-		this.assets = this.assets.filter((asset) => asset.id !== id);
-		this.notify();
-
-		const tracks = this.editor.timeline.getTracks();
-		const elementsToRemove: Array<{ trackId: string; elementId: string }> = [];
-
-		for (const track of tracks) {
-			for (const element of track.elements) {
-				if (hasMediaId(element) && element.mediaId === id) {
-					elementsToRemove.push({ trackId: track.id, elementId: element.id });
-				}
-			}
-		}
-
-		if (elementsToRemove.length > 0) {
-			this.editor.timeline.deleteElements({ elements: elementsToRemove });
-			// Drop the now-deleted elements from the selection so it doesn't keep
-			// stale refs to elements that no longer exist.
-			const removed = new Set(
-				elementsToRemove.map((e) => `${e.trackId}:${e.elementId}`),
-			);
-			const selection = this.editor.selection.getSelectedElements();
-			if (selection.some((s) => removed.has(`${s.trackId}:${s.elementId}`))) {
-				this.editor.selection.setSelectedElements({
-					elements: selection.filter(
-						(s) => !removed.has(`${s.trackId}:${s.elementId}`),
-					),
-				});
-			}
-		}
-
-		try {
-			await storageService.deleteMediaAsset({ projectId, id });
-		} catch (error) {
-			console.error("Failed to delete media asset:", error);
-		}
+		const command = new RemoveMediaAssetCommand(projectId, id);
+		this.editor.command.execute({ command });
 	}
 
 	async loadProjectMedia({ projectId }: { projectId: string }): Promise<void> {

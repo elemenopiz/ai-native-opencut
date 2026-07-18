@@ -98,7 +98,34 @@ stop/save UI.
 
 ## Worker log (records the past only)
 
-(empty at dispatch)
+- 2026-07-18: Workers A/B/C dispatched (sonnet, isolated worktrees). GOTCHA logged:
+  spawned worktrees inherit a STALE base branch (`worktree-agent-*` @ef4759c6, 225
+  behind main) — future briefs must include "checkout -b task/<x> main" as step 1.
+- Worker A (BUG34 command): ENDED without committing (died mid-typecheck; L0 relayed).
+  Its uncommitted diff audited by L1: matches the decided design (single history entry,
+  fresh child DeleteElementsCommand, no URL revocation, asset-first undo, transcript
+  capture/restore, cancelProxyGeneration seam) + 8-test round-trip suite at the real
+  seam. Zero drift between its stale base and main on all three files → patch ported
+  verbatim onto `campaign/audio-lifecycle` by L1 (integration, not authorship).
+  Tests: 11/11 new+cleanup pass; full commands+managers suites 120/120 pass. Biome:
+  1 warning, pre-existing on main (verified via stash). GitNexus: impact(removeMediaAsset
+  upstream) = LOW, 2 direct callers, 0 processes; detect_changes = low, only expected
+  symbols. Typecheck: pending (host contention, 6 concurrent tsc fleet-wide).
+- Worker B (recording discard): still running at last check; uncommitted diff in its
+  worktree reviewed read-only by L1 — complete and correct (finalizedRef race guard,
+  onstop detached on discard, discard button in RecordButton + AudioRecordingPanel,
+  toast). NOTE: its worktree contains PRE-EXISTING upscale-branch contamination
+  (untracked files from worktree reuse) — not B's work, must not be merged.
+- Worker C (BUG35): produced ZERO edits in ~80 min → replaced per protocol with a
+  surgical-brief v2 worker (exact 1-conditional change in MediaItem: audio previewRatio
+  = 1; base-branch checkout step included). Original C could not be stopped (task
+  ownership) but is harmless in its own worktree; its output will be discarded.
+- L1 pre-fix browser repro (BUG34) on :3199 (campaign worktree dev server; recipe =
+  symlink main checkout's `apps/web/node_modules` + copy `.env.local`): import
+  tiny-tone.wav → drag to timeline (auto audio track) → context-menu Delete → ⌘Z →
+  clip "tiny-tone.wav" restored on timeline, Assets panel EMPTY. Exactly the user's
+  symptom. Evidence: `assets/audio-lifecycle/bug34-before-undo-clip-back-asset-gone.png`,
+  `bug35-before-assets-grid.png` (audio tile 16:9).
 
 ## Findings / bugs filed (BUG50–54)
 
