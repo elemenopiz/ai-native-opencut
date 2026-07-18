@@ -33,6 +33,13 @@ import { deleteUnderstanding } from "@/services/search/asset-understanding-store
  * built on every `execute()` (including redo(), which just re-runs execute())
  * so it always snapshots the CURRENT track state rather than replaying a
  * stale/already-undone snapshot from a prior run.
+ *
+ * Selection is captured/restored the same way (BUG106): dropping the deleted
+ * elements from the current selection was already un-committed forward-only
+ * behavior here, unlike every sibling command that mutates selection
+ * (`DuplicateElementsCommand`, `SplitElementsCommand`, `MoveElementsCommand`,
+ * `PasteCommand`), which all save a `previousSelection` and restore it on
+ * undo.
  */
 export class RemoveMediaAssetCommand extends Command {
 	/** Full pre-delete asset list, restored verbatim on undo (order-preserving). */
@@ -40,6 +47,15 @@ export class RemoveMediaAssetCommand extends Command {
 	private removedAsset: MediaAsset | null = null;
 	private savedTranscript: AssetTranscript | null = null;
 	private deleteElementsCommand: DeleteElementsCommand | null = null;
+	/** Selection as it stood right before execute() dropped the deleted
+	 * elements from it — restored on undo (BUG106: this command used to only
+	 * clear stale refs forward, unlike every sibling command that mutates
+	 * selection — `DuplicateElementsCommand`, `SplitElementsCommand`,
+	 * `MoveElementsCommand`, `PasteCommand` — which all capture/restore a
+	 * `previousSelection`). `null` means execute() never touched selection
+	 * (nothing was selected, or no dependent elements were removed). */
+	private previousSelection: { trackId: string; elementId: string }[] | null =
+		null;
 	/** Asset was already gone when execute() ran — undo() must stay a no-op. */
 	private missing = false;
 
@@ -108,6 +124,12 @@ export class RemoveMediaAssetCommand extends Command {
 			}
 		}
 
+		// Reset every execute() (not just the first) so a redo whose CURRENT
+		// selection happens not to overlap the removed elements doesn't leave
+		// a stale previousSelection from an earlier run sitting around for
+		// undo to wrongly replay.
+		this.previousSelection = null;
+
 		if (elementsToRemove.length > 0) {
 			const deleteElementsCommand = new DeleteElementsCommand({
 				elements: elementsToRemove,
@@ -116,12 +138,14 @@ export class RemoveMediaAssetCommand extends Command {
 			this.deleteElementsCommand = deleteElementsCommand;
 
 			// Drop the now-deleted elements from the selection so it doesn't
-			// keep stale refs to elements that no longer exist.
+			// keep stale refs to elements that no longer exist — and save the
+			// pre-delete selection so undo can put it back (BUG106).
 			const removed = new Set(
 				elementsToRemove.map((e) => `${e.trackId}:${e.elementId}`),
 			);
 			const selection = editor.selection.getSelectedElements();
 			if (selection.some((s) => removed.has(`${s.trackId}:${s.elementId}`))) {
+				this.previousSelection = selection;
 				editor.selection.setSelectedElements({
 					elements: selection.filter(
 						(s) => !removed.has(`${s.trackId}:${s.elementId}`),
@@ -149,6 +173,16 @@ export class RemoveMediaAssetCommand extends Command {
 		editor.media.setAssets({ assets: this.savedAssets });
 
 		this.deleteElementsCommand?.undo();
+
+		// Restore the selection that stood before execute() dropped the
+		// deleted elements from it (BUG106) — matches the
+		// capture-then-restore convention every sibling selection-mutating
+		// command already follows.
+		if (this.previousSelection) {
+			editor.selection.setSelectedElements({
+				elements: this.previousSelection,
+			});
+		}
 
 		if (this.removedAsset) {
 			storageService

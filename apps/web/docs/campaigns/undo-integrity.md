@@ -87,17 +87,35 @@ Verdict columns filled from worker property-tests. `redo` col: `own` = overrides
 | 31 | ToggleTrackVisibilityCommand | B trk | exec | | | | |
 | 32 | PasteCommand (clipboard) | B trk | exec | | | | |
 | 33 | TracksSnapshotCommand | B trk | exec | | | | |
-| 34 | RemoveMediaAssetCommand | C media | **own** | ✓(C25) | ✓(C25) | ✓ transcript+sel | ✓ |
-| 35 | AddMediaAssetCommand | C media | exec | | | | |
-| 36 | CreateSceneCommand | C scene | exec | | | | |
-| 37 | DeleteSceneCommand | C scene | exec | | | | |
-| 38 | RenameSceneCommand | C scene | exec | | | | |
-| 39 | ToggleBookmarkCommand | C scene | exec | | | | |
-| 40 | MoveBookmarkCommand | C scene | exec | | | | |
-| 41 | UpdateBookmarkCommand | C scene | exec | | | | |
-| 42 | RemoveBookmarkCommand | C scene | exec | | | | |
-| 43 | UpdateProjectSettingsCommand | C proj | exec | | | | |
-| 44 | TranscriptSnapshotCommand | C txn | exec | | | | |
+| 34 | RemoveMediaAssetCommand | C media | **own** | ✓(C25) | ✓(C25) | ✓ transcript+sel¹ | ✓ |
+| 35 | AddMediaAssetCommand | C media | exec | ✓ | ✓ (stable id) | n/a | ✓ |
+| 36 | CreateSceneCommand | C scene | exec | ✓ | ✓² | n/a | ✓ |
+| 37 | DeleteSceneCommand | C scene | exec | ✓ | ✓ | ✓ active-scene ptr | ✓ |
+| 38 | RenameSceneCommand | C scene | exec | ✓ | ✓ | n/a | ✓ |
+| 39 | ToggleBookmarkCommand | C scene | exec | ✓ | ✓ | n/a | ✓ |
+| 40 | MoveBookmarkCommand | C scene | exec | ✓ | ✓ | n/a | ✓ |
+| 41 | UpdateBookmarkCommand | C scene | exec | ✓ | ✓ | n/a | ✓ |
+| 42 | RemoveBookmarkCommand | C scene | exec | ✓ | ✓ | n/a | ✓ |
+| 43 | UpdateProjectSettingsCommand | C proj | exec | ✓ | ✓ | n/a | ✓ |
+| 44 | TranscriptSnapshotCommand | C txn | exec³ | ✓ | ✓ | ✓ speaker-pos⁴ | ✓ |
+
+¹ BUG106 (fixed): selection dropped forward on execute but never restored on
+undo — now captures/restores `previousSelection` like every sibling
+selection-mutating command.
+² BUG107 (fixed): id was re-minted on every execute (including redo), so
+execute→undo→redo produced a scene with a DIFFERENT id than `getSceneId()`
+had returned — now generated once in the constructor.
+³ Inherits `redo()=execute()` like the rest, but is structurally different:
+`before`/`after` are caller-supplied FIXED snapshots (not re-derived from
+current state), so redo trivially replays the same `afterState` regardless
+of intervening state drift — verified directly.
+⁴ BUG109 (fixed): `speakerPositions` restore was an additive per-id merge
+that never cleared a position set after the snapshot — now a full
+`useTranscriptStore.setState()` replace.
+
+Worker C also built `RemoveMediaAssetsCommand` (`lib/commands/media/remove-media-assets.ts`,
+not part of the original 44-command inventory) closing KNOWN HOLE #3 — see
+BUG108 below for its wiring status.
 
 ## Worker partition (by file cluster — no file overlap)
 
@@ -131,11 +149,95 @@ re-runs battery staggered, judges full-suite delta vs baseline **2175 pass / 5 s
 |--------|--------|--------|--------|
 | A | element core | task/c27-element | dispatched |
 | B | kf/fx/track | task/c27-kf-fx | dispatched |
-| C | media/scene/cascade | task/c27-media-cascade | dispatched |
+| C | media/scene/cascade | task/c27-media-cascade | done, awaiting L1 merge |
 
 ## Bugs filed (BUG100–109)
 
-_(none yet)_
+Worker C (BUG106–109), verified in source, all in `lib/commands/**` (owned files):
+
+- **BUG106** — `RemoveMediaAssetCommand.execute()` (`lib/commands/media/remove-media-asset.ts`)
+  drops the deleted elements from the current selection but never captured a
+  `previousSelection` to restore on undo — unlike every sibling command that
+  mutates selection (`DuplicateElementsCommand`, `SplitElementsCommand`,
+  `MoveElementsCommand`/`MoveElementsGroupCommand`, `PasteCommand`, all in
+  `lib/commands/timeline/**`), which all capture/restore one. Repro: select
+  clip A (from asset X) + unrelated clip B → delete asset X → selection is
+  `[B]` (correct, stale ref dropped) → Ctrl+Z → selection stayed `[B]`
+  instead of restoring to `[A, B]`. **FIXED**: added `previousSelection`
+  capture (only when execute() actually touched selection) + restore in
+  `undo()`. Test: `media/__tests__/remove-media-asset.test.ts` "BUG106:" cases
+  (2 new, plus a negative case proving no spurious restore when nothing was
+  selected).
+- **BUG107** — `CreateSceneCommand.execute()` (`lib/commands/scene/create-scene.ts`)
+  called `buildDefaultScene(...)`, which mints its own fresh UUID internally,
+  on every execute — including `redo()` (inherited, `= execute()`). Repro:
+  `execute()` → `getSceneId()` returns id X → `undo()` → `redo()` →
+  `getSceneId()` still reports X but the scene actually created on redo has a
+  DIFFERENT random id Y. Any caller that captured the id after the original
+  execute() (e.g. to switch into the new scene) silently desyncs after an
+  undo/redo cycle — same class as the campaign's redo-idempotency contract
+  point 2 (execute→undo→redo must reproduce the SAME entity, not a new one).
+  Currently latent (no live caller keeps the id across a redo — `createScene`
+  in `ScenesManager` has no callers yet — but the property-test contract
+  requires it regardless). **FIXED**: id now generated once in the
+  constructor (same shape as `AddMediaAssetCommand.assetId`) and threaded
+  into `buildDefaultScene`'s result on every execute. Test:
+  `scene/__tests__/create-scene.test.ts` "BUG107:" case.
+- **BUG108** (KNOWN HOLE #3) — batch/multi-asset delete produces N separate
+  undo-stack entries. Today's only call site (`assets.tsx handleRemove` →
+  `MediaManager.removeMediaAsset`) deletes one asset per
+  `editor.command.execute()` call and the Assets panel has no multi-select
+  delete UI, so this is currently LATENT (not live-reachable) rather than a
+  reproducible today-bug — but any future caller that loops
+  `editor.media.removeMediaAsset()` (a bulk-select UI, or a Director/agent
+  batch-delete verb) reproduces it immediately. **PARTIALLY ADDRESSED**:
+  built + unit-tested `RemoveMediaAssetsCommand` in
+  `lib/commands/media/remove-media-assets.ts` (owned territory) — wraps N
+  `RemoveMediaAssetCommand` children, driven directly
+  (`.execute()`/`.undo()`, never through `editor.command.execute()`, mirroring
+  `RemoveMediaAssetCommand`'s own nested-`DeleteElementsCommand` pattern), so
+  ONE `editor.command.execute({ command: new RemoveMediaAssetsCommand(...) })`
+  call yields exactly one history entry regardless of batch size. 5 tests in
+  `media/__tests__/remove-media-assets.test.ts` (single-entry, full
+  round-trip across tracks, redo, missing-asset-mid-batch, empty-batch).
+  **NOT WIRED**: `MediaManager` (owned by another territory, read-only to
+  Worker C) only exposes single-asset `removeMediaAsset`; there is no batch
+  entry point and no UI multi-select today. FILING for whoever adds
+  multi-select delete: wire it to `new RemoveMediaAssetsCommand(projectId,
+  ids)` through a single `editor.command.execute()` call — do NOT loop
+  `editor.media.removeMediaAsset()`. Severity: LOW (latent, no live repro),
+  but a real trap for the next feature that touches this path.
+- **BUG109** — `restoreTranscriptSnapshot` (`lib/commands/transcript.ts`,
+  used by `TranscriptSnapshotCommand.execute()`/`undo()`) restored
+  `speakerPositions` via `Object.entries(snap.speakerPositions).forEach(([id,
+  pos]) => store.setSpeakerPosition(id, pos))` — an ADD/overwrite-only loop,
+  because the store's only speaker-position setter
+  (`useTranscriptStore.setSpeakerPosition`) merges one id at a time and there
+  is no bulk replacement setter. Repro: snapshot `before` with no positions
+  set → assign a position to speaker A → snapshot `after` → undo (restore
+  `before`) → speaker A's position is NOT cleared, it's still there — undo
+  left stale cross-store state behind, the exact BUG34 class this campaign
+  targets. **FIXED**: replaced the per-id loop with
+  `useTranscriptStore.setState({ speakerPositions: snap.speakerPositions })`
+  — zustand's own store API, not a new store setter, so the fix stays inside
+  the owned `transcript.ts` file. Test:
+  `commands/__tests__/transcript-snapshot.test.ts` "restores speaker names,
+  positions, and translations on undo" (red before the fix, green after).
+
+**Not filed (outside Worker C's owned files, flagged for L1 routing):**
+cascade-hunt turned up one more BUG34-class defect, but its fix location is
+`hooks/actions/use-editor-actions.ts` (`delete-selected` action handler),
+which is UI/hooks territory, not `lib/commands/**` — no BUG10x slot spent on
+it per the "only as needed" instruction; documented instead in the Worker C
+report to L1. Repro: select clip(s) → `delete-selected` action wraps
+`editor.timeline.deleteElements(...)` + a conditional `TranscriptSnapshotCommand`
+push in a `beginTransaction()`/`commitTransaction()` pair (good pattern,
+prior art for BUG108's fix), but ALSO calls
+`editor.selection.clearSelection()` directly inside that same transaction
+window — un-commanded, so it's invisible to the transaction's `BatchCommand`
+and never gets reversed. Ctrl+Z after a multi-select delete restores the
+elements and the transcript but leaves the selection empty instead of
+restoring the pre-delete selection.
 
 ## Merge / battery log
 

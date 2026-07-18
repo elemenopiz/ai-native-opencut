@@ -397,6 +397,139 @@ describe("RemoveMediaAssetCommand — asset-delete/undo cascade (BUG34)", () => 
 		expect(editor.media.getAssets().map((a) => a.id)).toEqual(["m1"]);
 	});
 
+	test("BUG106: undo restores the pre-delete selection (not just clears stale refs forward)", () => {
+		const clip = videoElement({
+			id: "el-1",
+			mediaId: "m1",
+			startTime: 0,
+			duration: 4,
+			trimStart: 0,
+			trimEnd: 0,
+		});
+		const other = videoElement({
+			id: "el-other",
+			mediaId: "m2",
+			startTime: 5,
+			duration: 2,
+			trimStart: 0,
+			trimEnd: 0,
+		});
+		const editor = makeEditor({
+			tracks: [videoTrack({ id: "main", elements: [clip, other] })],
+		});
+		editor.media.setAssets({ assets: [videoAsset("m1"), videoAsset("m2")] });
+
+		// Select both the about-to-be-deleted element AND an unrelated one.
+		editor.selection.setSelectedElements({
+			elements: [
+				{ trackId: "main", elementId: "el-1" },
+				{ trackId: "main", elementId: "el-other" },
+			],
+		});
+
+		editor.media.removeMediaAsset({ projectId: "p1", id: "m1" });
+
+		// Stale ref to the deleted element is dropped immediately.
+		expect(editor.selection.getSelectedElements()).toEqual([
+			{ trackId: "main", elementId: "el-other" },
+		]);
+
+		editor.command.undo();
+
+		// The exact pre-delete selection (both elements) is back.
+		expect(editor.selection.getSelectedElements()).toEqual([
+			{ trackId: "main", elementId: "el-1" },
+			{ trackId: "main", elementId: "el-other" },
+		]);
+	});
+
+	test("BUG106: redo re-drops the deleted element from whatever selection existed at that later execute()", () => {
+		const clip = videoElement({
+			id: "el-1",
+			mediaId: "m1",
+			startTime: 0,
+			duration: 4,
+			trimStart: 0,
+			trimEnd: 0,
+		});
+		const editor = makeEditor({
+			tracks: [videoTrack({ id: "main", elements: [clip] })],
+		});
+		editor.media.setAssets({ assets: [videoAsset("m1")] });
+		editor.selection.setSelectedElements({
+			elements: [{ trackId: "main", elementId: "el-1" }],
+		});
+
+		editor.media.removeMediaAsset({ projectId: "p1", id: "m1" });
+		editor.command.undo();
+		editor.command.redo();
+
+		expect(editor.selection.getSelectedElements()).toEqual([]);
+
+		editor.command.undo();
+		expect(editor.selection.getSelectedElements()).toEqual([
+			{ trackId: "main", elementId: "el-1" },
+		]);
+	});
+
+	test("BUG106 regression: previousSelection is reset every execute() — a redo whose current selection doesn't overlap the removed element must NOT later restore a stale selection from an earlier run", () => {
+		const clip = videoElement({
+			id: "el-1",
+			mediaId: "m1",
+			startTime: 0,
+			duration: 4,
+			trimStart: 0,
+			trimEnd: 0,
+		});
+		const editor = makeEditor({
+			tracks: [videoTrack({ id: "main", elements: [clip] })],
+		});
+		editor.media.setAssets({ assets: [videoAsset("m1")] });
+		editor.selection.setSelectedElements({
+			elements: [{ trackId: "main", elementId: "el-1" }],
+		});
+
+		// First execute(): el-1 is selected, so previousSelection gets set.
+		const command = new RemoveMediaAssetCommand("p1", "m1");
+		command.execute();
+		command.undo();
+
+		// Before redo, something else clears selection entirely — the
+		// re-execute()'s own selection snapshot has nothing overlapping the
+		// removed element, so the mutation branch that sets
+		// previousSelection is skipped THIS time.
+		editor.selection.setSelectedElements({ elements: [] });
+		command.execute();
+
+		expect(editor.selection.getSelectedElements()).toEqual([]);
+
+		// undo() must restore an EMPTY selection (what stood right before
+		// this second execute()) — not the el-1 selection captured on the
+		// FIRST execute(), which would be a stale-state bug.
+		command.undo();
+		expect(editor.selection.getSelectedElements()).toEqual([]);
+	});
+
+	test("selection untouched by delete is left alone (no spurious restore when nothing was selected)", () => {
+		const clip = videoElement({
+			id: "el-1",
+			mediaId: "m1",
+			startTime: 0,
+			duration: 4,
+			trimStart: 0,
+			trimEnd: 0,
+		});
+		const editor = makeEditor({
+			tracks: [videoTrack({ id: "main", elements: [clip] })],
+		});
+		editor.media.setAssets({ assets: [videoAsset("m1")] });
+
+		editor.media.removeMediaAsset({ projectId: "p1", id: "m1" });
+		editor.command.undo();
+
+		expect(editor.selection.getSelectedElements()).toEqual([]);
+	});
+
 	test("direct construction: fresh child DeleteElementsCommand is rebuilt on every execute (redo doesn't replay a stale snapshot)", () => {
 		const clip = videoElement({
 			id: "el-1",
