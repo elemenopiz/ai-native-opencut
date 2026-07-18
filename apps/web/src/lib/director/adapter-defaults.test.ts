@@ -43,12 +43,11 @@
  */
 
 import { afterEach, describe, expect, it, mock } from "bun:test";
-import { EditorCore } from "@/core";
 import { TIMELINE_CONSTANTS } from "@/constants/timeline-constants";
 import { getTransition, registerDefaultTransitions } from "@/lib/transitions";
 import { windowSegments } from "@/lib/search/asset-transcript";
 import { resolveOptions as resolveAutoCutOptions } from "@/lib/auto-cut/engine";
-import { UpdateElementTrimCommand } from "@/lib/commands/timeline/element/update-element-trim";
+import type { EditorCore } from "@/core";
 import type { TimelineTrack } from "@/types/timeline";
 import { makeFakeEditor, type FakeElement } from "./fake-editor";
 import type { GenerateExecutor } from "./types";
@@ -77,8 +76,33 @@ mock.module("@/lib/auto-cut", () => ({
 	analyzeMediaSilence: analyzeMediaSilenceSpy,
 }));
 
-// Import AFTER the mock is registered (repo convention).
+// Order-dependence guard: "./director-api" (via "@/lib/auto-cut/apply" ->
+// TracksSnapshotCommand) and `EditorCore`/`UpdateElementTrimCommand` below
+// all transitively import `@/core/managers/media-manager`, which statically
+// imports the real `@/services/proxy` barrel (chaining into
+// proxy-encoder-controller.ts -> proxy-generator.ts). Plain static/eager
+// imports here would cache the real chain in bun test's shared module
+// registry before proxy-encoder-controller.test.ts's own `mock.module()` can
+// take effect, if that file runs later in the same `bun test` invocation.
+// Proxy generation itself is never exercised here.
+mock.module("@/services/proxy", () => ({
+	generateProxyOffThread: async () => ({
+		file: new File([new Uint8Array([1])], "proxy.mp4", { type: "video/mp4" }),
+		width: 1280,
+		height: 720,
+	}),
+	isProxyCancelledError: (error: unknown) =>
+		error instanceof Error &&
+		(error.message === "Proxy generation cancelled" ||
+			error.name === "AbortError"),
+}));
+
+// Import AFTER the mocks are registered (repo convention).
 const { createDirectorApi } = await import("./director-api");
+const { EditorCore: EditorCoreClass } = await import("@/core");
+const { UpdateElementTrimCommand } = await import(
+	"@/lib/commands/timeline/element/update-element-trim"
+);
 
 const okExecutor: GenerateExecutor = {
 	run: async () => ({ status: "ready", mediaId: "media_ready_1" }),
@@ -247,12 +271,14 @@ afterEach(() => {
  *  the duration of the current test (restored in `afterEach`, and also
  *  restorable early via the returned function). */
 function patchEditorSingleton(editorLike: unknown) {
-	const real = EditorCore.getInstance;
-	(EditorCore as unknown as { getInstance: () => EditorCore }).getInstance =
-		() => editorLike as EditorCore;
+	const real = EditorCoreClass.getInstance;
+	(
+		EditorCoreClass as unknown as { getInstance: () => EditorCore }
+	).getInstance = () => editorLike as EditorCore;
 	restoreGetInstance = () => {
-		(EditorCore as unknown as { getInstance: () => EditorCore }).getInstance =
-			real;
+		(
+			EditorCoreClass as unknown as { getInstance: () => EditorCore }
+		).getInstance = real;
 	};
 }
 

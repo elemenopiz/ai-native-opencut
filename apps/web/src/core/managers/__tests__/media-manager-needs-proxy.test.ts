@@ -1,7 +1,6 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, mock } from "bun:test";
 import type { EditorCore } from "@/core";
 import type { MediaAsset } from "@/types/assets";
-import { MediaManager } from "@/core/managers/media-manager";
 
 /**
  * needsProxy() is the gate for background H.264 proxy generation. Two ways in:
@@ -12,7 +11,32 @@ import { MediaManager } from "@/core/managers/media-manager";
  *   proxy is the guaranteed-portable fallback.
  * H.264 originals and ingest-transcoded ("normalized") assets carry no marker
  * and keep the resolution-only behavior.
+ *
+ * Order-dependence guard: `MediaManager` (from
+ * "@/core/managers/media-manager") statically imports the real
+ * `@/services/proxy` barrel (chaining into proxy-encoder-controller.ts ->
+ * proxy-generator.ts). A plain static import here would cache the real chain
+ * in bun test's shared module registry before
+ * proxy-encoder-controller.test.ts's own `mock.module()` can take effect, if
+ * that file runs later in the same `bun test` invocation. Mock the barrel
+ * and import dynamically, AFTER the mock (mirrors
+ * media-manager-decode-reprobe.test.ts's barrel mock + "Import AFTER the
+ * mocks" convention). `needsProxy()` is a pure function — proxy generation
+ * itself is never exercised here.
  */
+mock.module("@/services/proxy", () => ({
+	generateProxyOffThread: async () => ({
+		file: new File([new Uint8Array([1])], "proxy.mp4", { type: "video/mp4" }),
+		width: 1280,
+		height: 720,
+	}),
+	isProxyCancelledError: (error: unknown) =>
+		error instanceof Error &&
+		(error.message === "Proxy generation cancelled" ||
+			error.name === "AbortError"),
+}));
+
+const { MediaManager } = await import("@/core/managers/media-manager");
 
 function makeEditor(): EditorCore {
 	return {} as unknown as EditorCore;

@@ -1,12 +1,41 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { EditorCore } from "@/core";
+import { afterEach, describe, expect, mock, test } from "bun:test";
+import type { EditorCore } from "@/core";
 import type { TimelineTrack, VideoElement } from "@/types/timeline";
 import { DEFAULT_TRANSFORM } from "@/constants/timeline-constants";
 import {
 	buildGroupResizeMembers,
 	computeGroupResize,
 } from "@/lib/timeline/group-resize";
-import { ResizeElementsCommand } from "@/lib/commands/timeline/element/resize-elements-group";
+
+/**
+ * Order-dependence guard: `EditorCore` (from "@/core") and
+ * `ResizeElementsCommand` (from "@/lib/commands/timeline/element/resize-elements-group")
+ * both transitively import `@/core/managers/media-manager`, which statically
+ * imports the real `@/services/proxy` barrel (chaining into
+ * proxy-encoder-controller.ts -> proxy-generator.ts). Plain static imports
+ * here would cache the real chain in bun test's shared module registry
+ * before proxy-encoder-controller.test.ts's own `mock.module()` can take
+ * effect, if that file runs later in the same `bun test` invocation. Mock
+ * the barrel and import dynamically, AFTER the mock (mirrors
+ * media-manager-decode-reprobe.test.ts's barrel mock + "Import AFTER the
+ * mocks" convention). Proxy generation itself is never exercised here.
+ */
+mock.module("@/services/proxy", () => ({
+	generateProxyOffThread: async () => ({
+		file: new File([new Uint8Array([1])], "proxy.mp4", { type: "video/mp4" }),
+		width: 1280,
+		height: 720,
+	}),
+	isProxyCancelledError: (error: unknown) =>
+		error instanceof Error &&
+		(error.message === "Proxy generation cancelled" ||
+			error.name === "AbortError"),
+}));
+
+const { EditorCore: EditorCoreClass } = await import("@/core");
+const { ResizeElementsCommand } = await import(
+	"@/lib/commands/timeline/element/resize-elements-group"
+);
 
 type MockEditor = {
 	timeline: {
@@ -15,11 +44,11 @@ type MockEditor = {
 	};
 };
 
-const originalGetInstance = EditorCore.getInstance;
+const originalGetInstance = EditorCoreClass.getInstance;
 
 function mockEditorCore({ editor }: { editor: MockEditor }): void {
 	(
-		EditorCore as unknown as {
+		EditorCoreClass as unknown as {
 			getInstance: () => EditorCore;
 		}
 	).getInstance = () => editor as unknown as EditorCore;
@@ -27,8 +56,8 @@ function mockEditorCore({ editor }: { editor: MockEditor }): void {
 
 function restoreEditorCore(): void {
 	(
-		EditorCore as unknown as {
-			getInstance: typeof EditorCore.getInstance;
+		EditorCoreClass as unknown as {
+			getInstance: typeof EditorCoreClass.getInstance;
 		}
 	).getInstance = originalGetInstance;
 }

@@ -3,26 +3,56 @@
  * command-stack `applyAutoCut` single-undo test. The analysis engine is never
  * called here; segments are hand-authored mocks in SOURCE seconds.
  */
-import { afterEach, describe, expect, test } from "bun:test";
-import { EditorCore } from "@/core";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { CommandManager } from "@/core/managers/commands";
 import { DEFAULT_TRANSFORM } from "@/constants/timeline-constants";
+import type { EditorCore } from "@/core";
 import type { TimelineTrack, VideoElement } from "@/types/timeline";
-import { applyAutoCut, planAutoCut } from "./apply";
 import type { EditSegment } from "./types";
+
+/**
+ * Order-dependence guard: `EditorCore` (from "@/core") and "./apply" (via
+ * `TracksSnapshotCommand` from "@/lib/commands/timeline") both transitively
+ * import `@/core/managers/media-manager`, which statically imports the real
+ * `@/services/proxy` barrel (chaining into proxy-encoder-controller.ts ->
+ * proxy-generator.ts). Plain static imports here would cache the real chain
+ * in bun test's shared module registry before
+ * proxy-encoder-controller.test.ts's own `mock.module()` can take effect, if
+ * that file runs later in the same `bun test` invocation. Mock the barrel
+ * and import dynamically, AFTER the mock (mirrors
+ * media-manager-decode-reprobe.test.ts's barrel mock + "Import AFTER the
+ * mocks" convention). Proxy generation itself is never exercised here.
+ */
+mock.module("@/services/proxy", () => ({
+	generateProxyOffThread: async () => ({
+		file: new File([new Uint8Array([1])], "proxy.mp4", { type: "video/mp4" }),
+		width: 1280,
+		height: 720,
+	}),
+	isProxyCancelledError: (error: unknown) =>
+		error instanceof Error &&
+		(error.message === "Proxy generation cancelled" ||
+			error.name === "AbortError"),
+}));
+
+const { EditorCore: EditorCoreClass } = await import("@/core");
+const { applyAutoCut, planAutoCut } = await import("./apply");
 
 // ── EditorCore.getInstance mock (TracksSnapshotCommand reaches for it) ────────
 
-const originalGetInstance = EditorCore.getInstance;
+const originalGetInstance = EditorCoreClass.getInstance;
 
 function mockEditorCore(editor: unknown): void {
-	(EditorCore as unknown as { getInstance: () => EditorCore }).getInstance =
-		() => editor as EditorCore;
+	(
+		EditorCoreClass as unknown as { getInstance: () => EditorCore }
+	).getInstance = () => editor as EditorCore;
 }
 
 afterEach(() => {
 	(
-		EditorCore as unknown as { getInstance: typeof EditorCore.getInstance }
+		EditorCoreClass as unknown as {
+			getInstance: typeof EditorCoreClass.getInstance;
+		}
 	).getInstance = originalGetInstance;
 });
 
