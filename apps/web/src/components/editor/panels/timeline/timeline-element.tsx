@@ -1261,6 +1261,12 @@ const ELEMENT_CONTENT_RENDERERS: Record<
 						<AudioWaveform
 							audioBuffer={audioBuffer}
 							audioUrl={audioUrl}
+							// Re-window the waveform to this clip's actual trimmed range
+							// (BUG170) — without these, splitting or trim-dragging a clip
+							// leaves the waveform showing the pre-split/pre-trim source.
+							trimStart={audioElement.trimStart}
+							duration={audioElement.duration}
+							playbackRate={audioElement.playbackRate}
 							height={24}
 							className="w-full"
 						/>
