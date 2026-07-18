@@ -1,5 +1,6 @@
-import { describe, expect, it, mock } from "bun:test";
-import type { EditorCore } from "@/core";
+import { afterEach, describe, expect, it, mock } from "bun:test";
+import { EditorCore } from "@/core";
+import { CommandManager } from "@/core/managers/commands";
 import type { MediaAsset } from "@/types/assets";
 
 /**
@@ -13,6 +14,14 @@ import type { MediaAsset } from "@/types/assets";
  * leaks across test files in one process, so any export another file touches
  * must exist here too. storageService is NOT mocked (service.test.ts tests the
  * real one); media-manager's own try/catch absorbs its headless failures.
+ *
+ * BUG34: `removeMediaAsset` now runs the whole delete cascade through
+ * `RemoveMediaAssetCommand`, which reaches for `EditorCore.getInstance()`
+ * internally (the idiom every command in the codebase uses — see
+ * `remove-media-asset.test.ts` for the full undo/redo round-trip coverage).
+ * `makeEditor()` below mirrors the real EditorCore wiring: `editor.media` IS
+ * the exact MediaManager instance under test, and `EditorCore.getInstance` is
+ * monkey-patched to return this fake editor for the duration of each test.
  */
 
 const deletedEmbeddings: string[] = [];
@@ -72,17 +81,43 @@ mock.module("@/services/storage/user-memory-store", () => ({
 // Import AFTER the mocks so the manager binds the stubs (repo convention).
 const { MediaManager } = await import("@/core/managers/media-manager");
 
-function makeEditor(): EditorCore {
-	return {
+const originalGetInstance = EditorCore.getInstance;
+
+afterEach(() => {
+	(
+		EditorCore as unknown as { getInstance: typeof EditorCore.getInstance }
+	).getInstance = originalGetInstance;
+});
+
+/**
+ * Wires a fake editor exactly the way the real EditorCore singleton wires
+ * itself: `editor.media` IS the MediaManager instance the test drives, so
+ * `RemoveMediaAssetCommand` (which fetches `EditorCore.getInstance()`
+ * internally) mutates the same manager `removeMediaAsset` was called on.
+ */
+function makeEditor(): {
+	editor: EditorCore;
+	manager: InstanceType<typeof MediaManager>;
+} {
+	const editor = {
 		timeline: {
 			getTracks: () => [],
-			deleteElements: () => {},
+			updateTracks: () => {},
 		},
 		selection: {
 			getSelectedElements: () => [],
 			setSelectedElements: () => {},
 		},
+		command: new CommandManager(),
 	} as unknown as EditorCore;
+
+	const manager = new MediaManager(editor);
+	(editor as unknown as { media: typeof manager }).media = manager;
+
+	(EditorCore as unknown as { getInstance: () => EditorCore }).getInstance =
+		() => editor;
+
+	return { editor, manager };
 }
 
 function asset(id: string): MediaAsset {
@@ -107,7 +142,7 @@ function resetSpies() {
 describe("media deletion cleans up every per-asset index layer", () => {
 	it("removeMediaAsset drops the embedding, transcript, AND understanding rows", async () => {
 		resetSpies();
-		const manager = new MediaManager(makeEditor());
+		const { manager } = makeEditor();
 		manager.setAssets({ assets: [asset("m1"), asset("m2")] });
 
 		await manager.removeMediaAsset({ projectId: "p1", id: "m1" });
@@ -123,7 +158,7 @@ describe("media deletion cleans up every per-asset index layer", () => {
 
 	it("clearProjectMedia drops all three layers for every asset", async () => {
 		resetSpies();
-		const manager = new MediaManager(makeEditor());
+		const { manager } = makeEditor();
 		manager.setAssets({ assets: [asset("m1"), asset("m2")] });
 
 		await manager.clearProjectMedia({ projectId: "p1" });
@@ -138,7 +173,7 @@ describe("media deletion cleans up every per-asset index layer", () => {
 
 	it("clearAllAssets (project switch / unload) deletes NOTHING from the stores", async () => {
 		resetSpies();
-		const manager = new MediaManager(makeEditor());
+		const { manager } = makeEditor();
 		manager.setAssets({ assets: [asset("m1")] });
 
 		manager.clearAllAssets();

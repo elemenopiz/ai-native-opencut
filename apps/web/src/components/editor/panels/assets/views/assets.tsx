@@ -389,7 +389,10 @@ function MediaAssetDraggable({
 	// a sane range so an extreme panorama can't blow out the grid row height.
 	const naturalRatio =
 		item.width && item.height ? item.width / item.height : 16 / 9;
-	const previewRatio = Math.min(Math.max(naturalRatio, 0.5), 2);
+	// BUG35: audio assets have no width/height and fell into the 16:9 fallback,
+	// rendering as a wide card instead of the expected square tile.
+	const previewRatio =
+		item.type === "audio" ? 1 : Math.min(Math.max(naturalRatio, 0.5), 2);
 
 	const addElementAtTime = ({
 		asset,

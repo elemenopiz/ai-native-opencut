@@ -37,6 +37,12 @@ mock.module("@/services/video-cache/service", () => ({
 		warm: async ({ mediaId, time }: { mediaId: string; time: number }) => {
 			warmCalls.push({ mediaId, time });
 		},
+		// bun mock.module is process-global: this partial videoCache leaks into
+		// every later test file in the same run. Any public method a sibling
+		// test path touches must exist here too (see C8 order-dependence chore;
+		// this exact gap broke remove-media-asset.test.ts in full-suite order).
+		clearVideo: () => {},
+		clearAll: () => {},
 	},
 }));
 

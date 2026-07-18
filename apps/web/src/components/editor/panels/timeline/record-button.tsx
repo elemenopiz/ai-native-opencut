@@ -6,7 +6,7 @@ import {
 } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Mic01Icon } from "@hugeicons/core-free-icons";
+import { Mic01Icon, Cancel01Icon } from "@hugeicons/core-free-icons";
 import { cn } from "@/utils/ui";
 import { useAudioRecording } from "@/hooks/use-audio-recording";
 
@@ -17,8 +17,13 @@ function formatElapsed(seconds: number): string {
 }
 
 export function RecordButton() {
-	const { state, startRecording, stopRecording, addToTimeline } =
-		useAudioRecording();
+	const {
+		state,
+		startRecording,
+		stopRecording,
+		discardRecording,
+		addToTimeline,
+	} = useAudioRecording();
 	const recordingCountRef = useRef(1);
 
 	const handleClick = useCallback(async () => {
@@ -43,6 +48,22 @@ export function RecordButton() {
 						{formatElapsed(state.duration)}
 					</span>
 				</div>
+			)}
+			{state.isRecording && (
+				<Tooltip delayDuration={200}>
+					<TooltipTrigger asChild>
+						<Button
+							variant="text"
+							size="icon"
+							aria-label="Discard recording"
+							onClick={() => discardRecording()}
+							className="rounded-sm text-muted-foreground hover:text-red-500"
+						>
+							<HugeiconsIcon icon={Cancel01Icon} />
+						</Button>
+					</TooltipTrigger>
+					<TooltipContent>Discard recording</TooltipContent>
+				</Tooltip>
 			)}
 			<Tooltip delayDuration={200}>
 				<TooltipTrigger asChild>
