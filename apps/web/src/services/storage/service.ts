@@ -15,8 +15,18 @@ import {
 	migrations,
 	runStorageMigrations,
 } from "@/services/storage/migrations";
-import type { Bookmark, TimelineTrack, TScene } from "@/types/timeline";
-import { ensureVisualElementDefaults } from "@/lib/timeline/element-normalize";
+import type {
+	Bookmark,
+	TimelineElement,
+	TimelineTrack,
+	TrackType,
+	TScene,
+} from "@/types/timeline";
+import {
+	ensureVisualElementDefaults,
+	isPlausibleTimelineElement,
+	requiresMediaIdButMissing,
+} from "@/lib/timeline/element-normalize";
 
 const MIME_TYPES: Record<string, string> = {
 	".mp4": "video/mp4",
@@ -68,6 +78,68 @@ function normalizeBookmarks({ raw }: { raw: unknown }): Bookmark[] {
 			};
 		})
 		.filter((b): b is Bookmark => b !== null);
+}
+
+const KNOWN_TRACK_TYPES: ReadonlySet<TrackType> = new Set([
+	"video",
+	"text",
+	"audio",
+	"sticker",
+	"effect",
+]);
+
+/**
+ * Structural gate for a persisted track. BUG129 — sibling corruption class to
+ * the transform-brick heal: a `null`/non-object track, or one missing a
+ * string `id` or a recognized `type`, reaches `.type`/`.elements` reads in
+ * `deserializeProject` and throws, bricking the *whole scene's* load (every
+ * other track in the scene goes down with it). Dropped by the caller rather
+ * than healed — there's no default id/type safe to fabricate for a track.
+ */
+function isPlausibleTrack(track: unknown): track is TimelineTrack {
+	if (track === null || typeof track !== "object") return false;
+	const candidate = track as Record<string, unknown>;
+	return (
+		typeof candidate.id === "string" &&
+		candidate.id.length > 0 &&
+		typeof candidate.type === "string" &&
+		KNOWN_TRACK_TYPES.has(candidate.type as TrackType)
+	);
+}
+
+/**
+ * Heal one track's persisted `elements` array (BUG129, extending the
+ * transform-brick heal to sibling corruption classes):
+ *  - drop shapes that can't be trusted as elements at all (null, non-object,
+ *    missing `id`, non-string/unrecognized `type` — see
+ *    `isPlausibleTimelineElement`);
+ *  - drop duplicate `id`s, keeping the first — the timeline store and
+ *    command layer address elements by `id` alone, so a dup silently steals
+ *    selection/edits from the first element sharing it. `seenElementIds` is
+ *    threaded across every track in the scene (not reset per-track) because
+ *    ids are meant to be unique scene-wide, not just within one track;
+ *  - drop video/image/upload-audio elements with a missing `mediaId` — they
+ *    can never resolve a source, so they'd render as permanently-invisible,
+ *    still-selectable timeline debris (see `requiresMediaIdButMissing`);
+ *  - then run the existing `ensureVisualElementDefaults` transform/opacity/
+ *    blendMode heal on whatever survives.
+ */
+function healTrackElements({
+	rawElements,
+	seenElementIds,
+}: {
+	rawElements: unknown[];
+	seenElementIds: Set<string>;
+}): TimelineElement[] {
+	const healed: TimelineElement[] = [];
+	for (const raw of rawElements) {
+		if (!isPlausibleTimelineElement(raw)) continue;
+		if (seenElementIds.has(raw.id)) continue;
+		if (requiresMediaIdButMissing(raw)) continue;
+		seenElementIds.add(raw.id);
+		healed.push(ensureVisualElementDefaults({ element: raw }));
+	}
+	return healed;
 }
 
 /** Drop the decoded audio `buffer` from audio elements — re-derived on load, not persisted. */
@@ -148,31 +220,50 @@ export function deserializeProject({
 	serializedProject: SerializedProject;
 }): TProject {
 	const scenes =
-		serializedProject.scenes?.map((scene) => ({
-			id: scene.id,
-			name: scene.name,
-			isMain: scene.isMain,
-			// Heal persisted elements missing visual defaults (transform/opacity/
-			// blendMode) — a malformed element used to crash the project on every
-			// load, permanently bricking it. Healing here makes existing broken
-			// projects loadable again.
-			tracks: (scene.tracks ?? []).map((track) => {
-				const normalizedTrack =
-					track.type === "video"
-						? { ...track, isMain: track.isMain ?? false }
-						: track;
-				return {
-					...normalizedTrack,
-					elements: (normalizedTrack.elements ?? []).map((element) =>
-						ensureVisualElementDefaults({ element }),
-					),
-				} as TimelineTrack;
-			}),
-			bookmarks: normalizeBookmarks({ raw: scene.bookmarks }),
-			markers: scene.markers ?? [],
-			createdAt: new Date(scene.createdAt),
-			updatedAt: new Date(scene.updatedAt),
-		})) ?? [];
+		serializedProject.scenes?.map((scene) => {
+			// Scene-wide (not per-track) — element ids are addressed by id alone
+			// downstream, so dedup must span every track in the scene. See
+			// `healTrackElements`.
+			const seenElementIds = new Set<string>();
+			// `scene.tracks` is typed as an array, but this is untyped persisted
+			// data cast to that type — guard against it being corrupted into
+			// something non-array (would otherwise throw on `.filter`/`.map`
+			// below and brick the whole project's load).
+			const rawTracks = Array.isArray(scene.tracks) ? scene.tracks : [];
+
+			return {
+				id: scene.id,
+				name: scene.name,
+				isMain: scene.isMain,
+				// Heal persisted tracks/elements (BUG129): drop track/element shapes
+				// that can't be trusted (null, non-object, missing id/type — see
+				// `isPlausibleTrack`/`isPlausibleTimelineElement`), drop duplicate
+				// element ids and media elements with no resolvable `mediaId`, then
+				// apply the existing transform/opacity/blendMode heal
+				// (`ensureVisualElementDefaults`) to what survives. A malformed
+				// track or element used to crash the project on every load,
+				// permanently bricking it — healing here makes existing broken
+				// projects loadable again instead of silently producing invisible
+				// garbage.
+				tracks: rawTracks.filter(isPlausibleTrack).map((track) => {
+					const normalizedTrack =
+						track.type === "video"
+							? { ...track, isMain: track.isMain ?? false }
+							: track;
+					const rawElements = Array.isArray(normalizedTrack.elements)
+						? normalizedTrack.elements
+						: [];
+					return {
+						...normalizedTrack,
+						elements: healTrackElements({ rawElements, seenElementIds }),
+					} as TimelineTrack;
+				}),
+				bookmarks: normalizeBookmarks({ raw: scene.bookmarks }),
+				markers: scene.markers ?? [],
+				createdAt: new Date(scene.createdAt),
+				updatedAt: new Date(scene.updatedAt),
+			};
+		}) ?? [];
 
 	return {
 		metadata: {

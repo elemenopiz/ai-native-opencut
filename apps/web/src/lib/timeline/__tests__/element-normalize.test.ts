@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { ensureVisualElementDefaults } from "../element-normalize";
+import {
+	ensureVisualElementDefaults,
+	isPlausibleTimelineElement,
+	requiresMediaIdButMissing,
+} from "../element-normalize";
 import {
 	DEFAULT_TEXT_BACKGROUND,
 	DEFAULT_TEXT_ELEMENT,
@@ -116,5 +120,127 @@ describe("ensureVisualElementDefaults — text heal (B1 crash class)", () => {
 		} as unknown as TimelineElement;
 
 		expect(ensureVisualElementDefaults({ element: audio })).toBe(audio);
+	});
+});
+
+// BUG129 — structural gate ahead of ensureVisualElementDefaults: catches
+// shapes that aren't "an element with missing fields" but aren't an element
+// at all (null, id-less, type-less/unrecognized-type), which used to crash
+// downstream id-keyed lookups and type switches on every load.
+describe("isPlausibleTimelineElement — BUG129 structural gate", () => {
+	test("rejects null and non-object values", () => {
+		expect(isPlausibleTimelineElement(null)).toBe(false);
+		expect(isPlausibleTimelineElement(undefined)).toBe(false);
+		expect(isPlausibleTimelineElement("not an object")).toBe(false);
+		expect(isPlausibleTimelineElement(42)).toBe(false);
+	});
+
+	test("rejects an element missing `id`", () => {
+		expect(isPlausibleTimelineElement({ type: "video" })).toBe(false);
+	});
+
+	test("rejects an element with an empty-string `id`", () => {
+		expect(isPlausibleTimelineElement({ id: "", type: "video" })).toBe(false);
+	});
+
+	test("rejects a non-string `type`", () => {
+		expect(isPlausibleTimelineElement({ id: "el-1", type: 7 })).toBe(false);
+	});
+
+	test("rejects an unrecognized `type` string", () => {
+		expect(isPlausibleTimelineElement({ id: "el-1", type: "hologram" })).toBe(
+			false,
+		);
+	});
+
+	test("accepts every known element type with a valid id", () => {
+		for (const type of [
+			"video",
+			"image",
+			"text",
+			"audio",
+			"sticker",
+			"effect",
+		]) {
+			expect(isPlausibleTimelineElement({ id: "el-1", type })).toBe(true);
+		}
+	});
+});
+
+// BUG129 — a video/image/upload-audio element can never render without a
+// resolvable mediaId; this only catches the structurally-absent case (see
+// the function's doc comment for the full-orphan case, filed as BUG130).
+describe("requiresMediaIdButMissing — BUG129 unrenderable-media gate", () => {
+	test("flags a video element with no mediaId", () => {
+		const el = { id: "v1", type: "video" } as unknown as TimelineElement;
+		expect(requiresMediaIdButMissing(el)).toBe(true);
+	});
+
+	test("flags a video element with an empty-string mediaId", () => {
+		const el = {
+			id: "v1",
+			type: "video",
+			mediaId: "",
+		} as unknown as TimelineElement;
+		expect(requiresMediaIdButMissing(el)).toBe(true);
+	});
+
+	test("does not flag a video element with a mediaId", () => {
+		const el = {
+			id: "v1",
+			type: "video",
+			mediaId: "media-1",
+		} as unknown as TimelineElement;
+		expect(requiresMediaIdButMissing(el)).toBe(false);
+	});
+
+	test("flags an image element with no mediaId", () => {
+		const el = { id: "i1", type: "image" } as unknown as TimelineElement;
+		expect(requiresMediaIdButMissing(el)).toBe(true);
+	});
+
+	test("flags an upload audio element with no mediaId", () => {
+		const el = {
+			id: "a1",
+			type: "audio",
+			sourceType: "upload",
+		} as unknown as TimelineElement;
+		expect(requiresMediaIdButMissing(el)).toBe(true);
+	});
+
+	test("does not flag a library audio element with no mediaId (uses sourceUrl instead)", () => {
+		const el = {
+			id: "a1",
+			type: "audio",
+			sourceType: "library",
+			sourceUrl: "https://example.com/s.mp3",
+		} as unknown as TimelineElement;
+		expect(requiresMediaIdButMissing(el)).toBe(false);
+	});
+
+	test("treats an audio element with a corrupt/missing sourceType as requiring mediaId", () => {
+		const el = { id: "a1", type: "audio" } as unknown as TimelineElement;
+		expect(requiresMediaIdButMissing(el)).toBe(true);
+	});
+
+	test("never flags text/sticker/effect elements (no mediaId concept)", () => {
+		expect(
+			requiresMediaIdButMissing({
+				id: "t1",
+				type: "text",
+			} as unknown as TimelineElement),
+		).toBe(false);
+		expect(
+			requiresMediaIdButMissing({
+				id: "s1",
+				type: "sticker",
+			} as unknown as TimelineElement),
+		).toBe(false);
+		expect(
+			requiresMediaIdButMissing({
+				id: "e1",
+				type: "effect",
+			} as unknown as TimelineElement),
+		).toBe(false);
 	});
 });
