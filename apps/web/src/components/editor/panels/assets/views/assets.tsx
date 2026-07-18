@@ -1226,9 +1226,17 @@ function MediaItemList({
 				}
 
 				// Landscape (wider than tall) gets two columns; portrait/square one.
+				// Audio has no width/height, so it fell into the 16/9 fallback here
+				// too (colSpan 2) — combined with the forced-square `previewRatio`
+				// in MediaAssetDraggable above, that rendered as a two-columns-wide
+				// square: 4x the area of a normal single-column tile. Audio is
+				// never actually landscape, so pin it to one column — this alone
+				// quarters its footprint back down to a normal tile's size and lets
+				// the existing dense packing reflow the grid around it.
 				const ratio =
 					item.width && item.height ? item.width / item.height : 16 / 9;
-				const colSpan = ratio >= LANDSCAPE_RATIO_THRESHOLD ? 2 : 1;
+				const colSpan =
+					item.type !== "audio" && ratio >= LANDSCAPE_RATIO_THRESHOLD ? 2 : 1;
 
 				return (
 					<MasonryCell
@@ -1798,7 +1806,14 @@ function MediaTypeFilterBar({
 	counts: Record<MediaTypeFilter, number>;
 }) {
 	return (
-		<div className="flex items-center gap-1 pb-3">
+		// Scrolls horizontally on its own, independent of the asset grid below —
+		// `overflow-x-auto` + `flex-nowrap` (flex's default) instead of letting
+		// tabs wrap or clip when they overflow the panel width. `shrink-0` on
+		// each tab keeps them at their natural width so they overflow into the
+		// scroll area rather than getting squeezed. Same
+		// `overflow-x-auto scrollbar-hidden` convention as the other horizontal
+		// tab/chip rows in this codebase (e.g. text-editing-panel.tsx).
+		<div className="flex items-center gap-1 overflow-x-auto pb-3 scrollbar-hidden">
 			{FILTER_TABS.map((tab) => {
 				const isActive = filter === tab.key;
 				const count = counts[tab.key];
@@ -1810,7 +1825,7 @@ function MediaTypeFilterBar({
 						type="button"
 						onClick={() => onFilterChange(tab.key)}
 						className={cn(
-							"flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
+							"flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
 							isActive
 								? "bg-primary text-primary-foreground"
 								: "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground",

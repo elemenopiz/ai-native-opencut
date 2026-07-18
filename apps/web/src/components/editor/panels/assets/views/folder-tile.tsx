@@ -148,7 +148,15 @@ export function FolderTile({
 		return (
 			<ContextMenu>
 				<ContextMenuTrigger>
-					<div className="group relative size-28">
+					{/* Sibling asset tiles (MediaAssetDraggable → DraggableItem) size
+					    their card container to `w-full` and let the grid cell's own
+					    width (from MasonryCell's colSpan) drive footprint — a folder
+					    tile fixed at `size-28` ignored that and rendered at a fixed
+					    112px regardless of the actual column width, overflowing a
+					    narrower cell and overlapping its neighbor. Match the sibling
+					    convention so a folder tile always occupies exactly one normal
+					    grid cell, at any position. */}
+					<div className="group relative w-full">
 						<div className="relative flex h-auto w-full flex-col gap-1 p-1">
 							<button
 								type="button"
