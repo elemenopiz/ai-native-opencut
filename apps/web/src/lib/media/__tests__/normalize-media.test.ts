@@ -349,14 +349,16 @@ describe("processMediaAssets — normalize-on-ingest wiring", () => {
 		expect(toastCalls.error[0]).toContain("HEVC");
 	});
 
-	test("unsupported (no video track): warns 'couldn't read a video track', not a codec blame", async () => {
+	test("unsupported (no video track): warns 'couldn't read a video track' AND skips ingest — no phantom asset (BUG55)", async () => {
 		videoTrack = null; // audio-only-in-video-container / unparseable
 
-		const [asset] = await processMediaAssets({ files: [file()] });
+		const assets = await processMediaAssets({ files: [file()] });
 
-		expect(asset).toBeDefined();
-		expect(asset.file.name).toBe("GX010042.mp4");
-		expect(asset.normalized).toBeUndefined();
+		// No usable video track means no duration/dimensions/thumbnail either —
+		// pushing this to the library would just be a phantom tile a user could
+		// drag to the timeline and hit a worse failure downstream. The toast is
+		// the only signal; the file itself is skipped entirely.
+		expect(assets).toHaveLength(0);
 		expect(toastCalls.error).toHaveLength(1);
 		expect(toastCalls.error[0]).toContain("Couldn't read a video track");
 		expect(toastCalls.error[0]).not.toContain("decode");
