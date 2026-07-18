@@ -1,14 +1,55 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { EditorCore } from "@/core";
+import { afterEach, describe, expect, mock, test } from "bun:test";
+import type { EditorCore } from "@/core";
 import type { TimelineTrack, VideoElement } from "@/types/timeline";
 import { DEFAULT_TRANSFORM } from "@/constants/timeline-constants";
-import { UpdateElementDurationCommand } from "@/lib/commands/timeline/element/update-element-duration";
-import { UpdateElementTrimCommand } from "@/lib/commands/timeline/element/update-element-trim";
-import { SplitElementsCommand } from "@/lib/commands/timeline/element/split-elements";
-import { DuplicateElementsCommand } from "@/lib/commands/timeline/element/duplicate-elements";
-import { UpsertKeyframeCommand } from "@/lib/commands/timeline/element/keyframes/upsert-keyframe";
-import { RemoveKeyframeCommand } from "@/lib/commands/timeline/element/keyframes/remove-keyframe";
-import { RetimeKeyframeCommand } from "@/lib/commands/timeline/element/keyframes/retime-keyframe";
+
+/**
+ * Order-dependence guard: `EditorCore` (from "@/core") and every command
+ * class below (from "@/lib/commands/timeline/element/*") transitively
+ * import `@/core/managers/media-manager`, which statically imports the real
+ * `@/services/proxy` barrel (chaining into proxy-encoder-controller.ts ->
+ * proxy-generator.ts). Plain static imports here would cache the real chain
+ * in bun test's shared module registry before
+ * proxy-encoder-controller.test.ts's own `mock.module()` can take effect, if
+ * that file runs later in the same `bun test` invocation. Mock the barrel
+ * and import dynamically, AFTER the mock (mirrors
+ * media-manager-decode-reprobe.test.ts's barrel mock + "Import AFTER the
+ * mocks" convention). Proxy generation itself is never exercised here.
+ */
+mock.module("@/services/proxy", () => ({
+	generateProxyOffThread: async () => ({
+		file: new File([new Uint8Array([1])], "proxy.mp4", { type: "video/mp4" }),
+		width: 1280,
+		height: 720,
+	}),
+	isProxyCancelledError: (error: unknown) =>
+		error instanceof Error &&
+		(error.message === "Proxy generation cancelled" ||
+			error.name === "AbortError"),
+}));
+
+const { EditorCore: EditorCoreClass } = await import("@/core");
+const { UpdateElementDurationCommand } = await import(
+	"@/lib/commands/timeline/element/update-element-duration"
+);
+const { UpdateElementTrimCommand } = await import(
+	"@/lib/commands/timeline/element/update-element-trim"
+);
+const { SplitElementsCommand } = await import(
+	"@/lib/commands/timeline/element/split-elements"
+);
+const { DuplicateElementsCommand } = await import(
+	"@/lib/commands/timeline/element/duplicate-elements"
+);
+const { UpsertKeyframeCommand } = await import(
+	"@/lib/commands/timeline/element/keyframes/upsert-keyframe"
+);
+const { RemoveKeyframeCommand } = await import(
+	"@/lib/commands/timeline/element/keyframes/remove-keyframe"
+);
+const { RetimeKeyframeCommand } = await import(
+	"@/lib/commands/timeline/element/keyframes/retime-keyframe"
+);
 
 type MockEditor = {
 	timeline: {
@@ -25,11 +66,11 @@ type MockEditor = {
 	};
 };
 
-const originalGetInstance = EditorCore.getInstance;
+const originalGetInstance = EditorCoreClass.getInstance;
 
 function mockEditorCore({ editor }: { editor: MockEditor }): void {
 	(
-		EditorCore as unknown as {
+		EditorCoreClass as unknown as {
 			getInstance: () => EditorCore;
 		}
 	).getInstance = () => editor as unknown as EditorCore;
@@ -37,8 +78,8 @@ function mockEditorCore({ editor }: { editor: MockEditor }): void {
 
 function restoreEditorCore(): void {
 	(
-		EditorCore as unknown as {
-			getInstance: typeof EditorCore.getInstance;
+		EditorCoreClass as unknown as {
+			getInstance: typeof EditorCoreClass.getInstance;
 		}
 	).getInstance = originalGetInstance;
 }
@@ -113,7 +154,8 @@ describe("keyframe-aware timeline commands", () => {
 			duration: 3,
 		}).execute();
 
-		const updatedElement = (updatedTracks[0].elements[0] as VideoElement).animations;
+		const updatedElement = (updatedTracks[0].elements[0] as VideoElement)
+			.animations;
 		expect(
 			updatedElement?.channels["transform.scale"]?.keyframes.map(
 				(keyframe) => keyframe.time,
@@ -213,7 +255,9 @@ describe("keyframe-aware timeline commands", () => {
 					},
 				},
 				selection: {
-					getSelectedElements: () => [{ trackId: "track-1", elementId: "element-1" }],
+					getSelectedElements: () => [
+						{ trackId: "track-1", elementId: "element-1" },
+					],
 					setSelectedElements: () => {},
 				},
 			},
@@ -226,7 +270,9 @@ describe("keyframe-aware timeline commands", () => {
 		const originalElement = updatedTracks.find(
 			(track) => track.id === "track-1",
 		)?.elements[0] as VideoElement;
-		const duplicatedTrack = updatedTracks.find((track) => track.id !== "track-1");
+		const duplicatedTrack = updatedTracks.find(
+			(track) => track.id !== "track-1",
+		);
 		const duplicatedElement = duplicatedTrack?.elements[0] as VideoElement;
 
 		expect(duplicatedElement).toBeDefined();
@@ -236,7 +282,8 @@ describe("keyframe-aware timeline commands", () => {
 			),
 		).toEqual([0, 3, 6]);
 		expect(
-			duplicatedElement.animations?.channels["transform.scale"]?.keyframes[0]?.id,
+			duplicatedElement.animations?.channels["transform.scale"]?.keyframes[0]
+				?.id,
 		).not.toBe(
 			originalElement.animations?.channels["transform.scale"]?.keyframes[0]?.id,
 		);
@@ -274,7 +321,9 @@ describe("generic keyframe commands", () => {
 		const updatedElement = updatedTracks[0].elements[0] as VideoElement;
 		const keyframes =
 			updatedElement.animations?.channels["transform.scale"]?.keyframes ?? [];
-		const atTwo = keyframes.find((keyframe) => Math.abs(keyframe.time - 2) < 0.001);
+		const atTwo = keyframes.find(
+			(keyframe) => Math.abs(keyframe.time - 2) < 0.001,
+		);
 		expect(atTwo?.value).toBe(2.5);
 	});
 
@@ -308,7 +357,9 @@ describe("generic keyframe commands", () => {
 		const keyframes =
 			updatedElement.animations?.channels["transform.scale"]?.keyframes ?? [];
 		expect(keyframes).toHaveLength(2);
-		expect(keyframes.find((keyframe) => keyframe.id === "kf-b")).toBeUndefined();
+		expect(
+			keyframes.find((keyframe) => keyframe.id === "kf-b"),
+		).toBeUndefined();
 		expect(updatedElement.transform.scale).toBe(1);
 	});
 
@@ -361,7 +412,9 @@ describe("generic keyframe commands", () => {
 
 		const updatedElement = updatedTracks[0].elements[0] as VideoElement;
 		expect(updatedElement.transform.scale).toBe(1.43);
-		expect(updatedElement.animations?.channels["transform.scale"]).toBeUndefined();
+		expect(
+			updatedElement.animations?.channels["transform.scale"],
+		).toBeUndefined();
 	});
 
 	test("upsert supports non-transform paths like opacity", () => {
@@ -425,9 +478,9 @@ describe("generic keyframe commands", () => {
 		}).execute();
 
 		const updatedElement = updatedTracks[0].elements[0] as VideoElement;
-		const keyframe = updatedElement.animations?.channels["transform.scale"]?.keyframes.find(
-			(existingKeyframe) => existingKeyframe.id === "kf-b",
-		);
+		const keyframe = updatedElement.animations?.channels[
+			"transform.scale"
+		]?.keyframes.find((existingKeyframe) => existingKeyframe.id === "kf-b");
 		expect(keyframe?.time).toBe(4);
 	});
 });

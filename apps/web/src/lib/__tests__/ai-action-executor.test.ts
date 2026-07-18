@@ -1,16 +1,47 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { EditorCore } from "@/core";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { DEFAULT_TRANSFORM } from "@/constants/timeline-constants";
-import { SplitElementsCommand } from "@/lib/commands/timeline/element/split-elements";
-import { executeAction } from "@/lib/ai-action-executor";
+import type { EditorCore } from "@/core";
 import type { EditorAction } from "@/types/ai";
 import type { TimelineTrack, VideoElement } from "@/types/timeline";
 
-const originalGetInstance = EditorCore.getInstance;
+/**
+ * Order-dependence guard: `EditorCore` (from "@/core") and
+ * `SplitElementsCommand` (from "@/lib/commands/timeline/element/split-elements")
+ * both transitively import `@/core/managers/media-manager`, which statically
+ * imports the real `@/services/proxy` barrel (chaining into
+ * proxy-encoder-controller.ts -> proxy-generator.ts). Plain static imports
+ * here would cache the real chain in bun test's shared module registry
+ * before proxy-encoder-controller.test.ts's own `mock.module()` can take
+ * effect, if that file runs later in the same `bun test` invocation. Mock
+ * the barrel and import dynamically, AFTER the mock (mirrors
+ * media-manager-decode-reprobe.test.ts's barrel mock + "Import AFTER the
+ * mocks" convention). Proxy generation itself is never exercised here.
+ */
+mock.module("@/services/proxy", () => ({
+	generateProxyOffThread: async () => ({
+		file: new File([new Uint8Array([1])], "proxy.mp4", { type: "video/mp4" }),
+		width: 1280,
+		height: 720,
+	}),
+	isProxyCancelledError: (error: unknown) =>
+		error instanceof Error &&
+		(error.message === "Proxy generation cancelled" ||
+			error.name === "AbortError"),
+}));
+
+const { EditorCore: EditorCoreClass } = await import("@/core");
+const { SplitElementsCommand } = await import(
+	"@/lib/commands/timeline/element/split-elements"
+);
+const { executeAction } = await import("@/lib/ai-action-executor");
+
+const originalGetInstance = EditorCoreClass.getInstance;
 
 function restoreEditorCore(): void {
 	(
-		EditorCore as unknown as { getInstance: typeof EditorCore.getInstance }
+		EditorCoreClass as unknown as {
+			getInstance: typeof EditorCoreClass.getInstance;
+		}
 	).getInstance = originalGetInstance;
 }
 
@@ -77,8 +108,9 @@ describe("executeAction SPLIT_CLIP", () => {
 				setSelectedElements: () => {},
 			},
 		};
-		(EditorCore as unknown as { getInstance: () => EditorCore }).getInstance =
-			() => editor as unknown as EditorCore;
+		(
+			EditorCoreClass as unknown as { getInstance: () => EditorCore }
+		).getInstance = () => editor as unknown as EditorCore;
 
 		const action: EditorAction = {
 			type: "SPLIT_CLIP",
