@@ -73,10 +73,29 @@ export function FolderTile({
 
 	// Focus + select on entering edit mode — replaces the `autoFocus` attribute
 	// (flagged by lint/a11y/noAutofocus) with the equivalent imperative effect.
+	// BUG120: when edit mode is entered from the context menu, Radix's menu
+	// teardown moves focus AFTER this effect has run (even with
+	// onCloseAutoFocus prevented, unmounting the focused menu item drops focus
+	// to <body>), so retry on the next tick until the input actually holds it.
 	useEffect(() => {
 		if (!isEditing) return;
-		inputRef.current?.focus();
-		inputRef.current?.select();
+		const grab = () => {
+			const input = inputRef.current;
+			if (!input) return;
+			input.focus();
+			input.select();
+		};
+		grab();
+		// Radix's focus restore can land a few hundred ms after close (post
+		// exit-animation), so retry past that window; stop as soon as it sticks.
+		const timers = [80, 250, 450].map((ms) =>
+			window.setTimeout(() => {
+				if (document.activeElement !== inputRef.current) grab();
+			}, ms),
+		);
+		return () => {
+			for (const t of timers) window.clearTimeout(t);
+		};
 	}, [isEditing]);
 
 	const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -204,7 +223,12 @@ export function FolderTile({
 					)}
 				</div>
 			</ContextMenuTrigger>
-			<ContextMenuContent>
+			{/* BUG120: Radix restores focus to the tile trigger when the menu
+			    closes, which lands AFTER Rename mounts+focuses the inline input —
+			    the input's onBlur commit fires immediately and edit mode never
+			    engages. Prevent the close-auto-focus (same idiom the shared
+			    DropdownMenuContent applies globally in ui/dropdown-menu.tsx). */}
+			<ContextMenuContent onCloseAutoFocus={(e) => e.preventDefault()}>
 				<ContextMenuItem onClick={onStartRename}>Rename</ContextMenuItem>
 				<ContextMenuItem variant="destructive" onClick={onDelete}>
 					Delete folder
