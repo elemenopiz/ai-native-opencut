@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { useEditor } from "@/hooks/use-editor";
 import {
 	useKeybindingsListener,
@@ -20,6 +21,46 @@ import { resetProjectScopedStores } from "@/stores/reset-project-scoped-stores";
 interface EditorProviderProps {
 	projectId: string;
 	children: React.ReactNode;
+}
+
+type FlushableSave = { flush: () => Promise<void> };
+type MinimalEventTarget = Pick<
+	EventTarget,
+	"addEventListener" | "removeEventListener"
+>;
+
+/**
+ * BUG127: `beforeunload` only warns — it never persists anything, and on
+ * mobile Safari / backgrounded tabs it may not fire at all before the page
+ * is discarded. `visibilitychange`→hidden and `pagehide` fire reliably in
+ * those cases, so flush any pending (debounced) save right then instead of
+ * leaving up to `debounceMs` of edits exposed to a reload/tab-close.
+ * Best-effort, fire-and-forget: SaveManager.saveNow already swallows its own
+ * errors (BUG125) into `lastError`, so this never throws into an unhandled
+ * rejection.
+ *
+ * Pulled out of the component's useEffect as a plain function — taking
+ * `doc`/`win` as params — so it's unit-testable without a DOM/RTL harness
+ * (none is set up in this repo's `bun test`).
+ */
+export function registerFlushOnHide(
+	save: FlushableSave,
+	doc: MinimalEventTarget & { hidden?: boolean } = document,
+	win: MinimalEventTarget = window,
+): () => void {
+	const flushPendingSave = () => {
+		void save.flush();
+	};
+	const handleVisibilityChange = () => {
+		if (doc.hidden) flushPendingSave();
+	};
+
+	doc.addEventListener("visibilitychange", handleVisibilityChange);
+	win.addEventListener("pagehide", flushPendingSave);
+	return () => {
+		doc.removeEventListener("visibilitychange", handleVisibilityChange);
+		win.removeEventListener("pagehide", flushPendingSave);
+	};
 }
 
 export function EditorProvider({ projectId, children }: EditorProviderProps) {
@@ -152,6 +193,37 @@ function EditorRuntimeBindings({ projectId }: { projectId: string }) {
 		window.addEventListener("beforeunload", handleBeforeUnload);
 		return () => window.removeEventListener("beforeunload", handleBeforeUnload);
 	}, [editor]);
+
+	// BUG127: flush a pending debounced save on tab-hide/pagehide — see
+	// registerFlushOnHide above for rationale and the (unit-tested) wiring.
+	useEffect(() => registerFlushOnHide(editor.save), [editor]);
+
+	// BUG128 (prototype, warn-only): tell the user when this project is open
+	// in another tab, so they don't unknowingly fork edits — no locking or
+	// coordination, just a heads-up. Each tab announces itself on mount; any
+	// tab already open for this project answers back, so both sides toast.
+	// This is a cheap, fully self-contained seam (channel + toast) — a real
+	// multi-tab lock/merge story is out of scope here.
+	useEffect(() => {
+		if (typeof BroadcastChannel === "undefined") return;
+		const channel = new BroadcastChannel(`byorn-project-open:${projectId}`);
+		const warn = () => {
+			toast.warning("This project is also open in another tab.", {
+				description: "Edits in both tabs can conflict — the last save wins.",
+			});
+		};
+		channel.onmessage = (event) => {
+			const type = (event.data as { type?: string } | undefined)?.type;
+			if (type === "hello") {
+				warn();
+				channel.postMessage({ type: "hello-ack" });
+			} else if (type === "hello-ack") {
+				warn();
+			}
+		};
+		channel.postMessage({ type: "hello" });
+		return () => channel.close();
+	}, [projectId]);
 
 	// Local AI defers to the editor: gate in-browser inference (background
 	// CLIP indexing) on playback/scrub/export being idle. attach() returns
