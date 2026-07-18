@@ -13,7 +13,7 @@
 | # | Item | Why now | Status |
 |---|---|---|---|
 | G1 | **B3 hands-on verify ON prod** — seed owner credits, then run `docs/beta-b3-verification-runbook.md`: real export → play the file + one paid Director gen with reserve→settle observed | The last beta gate; beta ≈2026-07-19 | gated(user) |
-| G2 | **Push to origin — DEFERRED BY USER DIRECTIVE (2026-07-18): LOCAL-ONLY BUILD MODE.** Nothing gets pushed until the user explicitly reopens this. Do NOT surface push asks at checkpoints; keep the release-notes/risk-audit packet quietly maintained so the eventual push is turnkey. (Local `main` was 207+ commits ahead at last count; push = prod deploy when it happens) | User is dogfooding local builds for now | deferred(user 2026-07-18) |
+| G2 | **PUSHED 2026-07-19 ~00:10 (USER-AUTHORIZED: "go except just push to git")** — 399 commits / +56,664−1,709 across 593 files deployed to prod via Vercel git-link. Next: G1 B3 hands-on prod verify is NOW the live gate; instant Vercel rollback available (no migrations in delta) | pushed | done(user 2026-07-19) |
 | G3 | Resend sender-domain verification — reset/verify emails are log-only in prod | Strangers can't reset passwords | gated(user) |
 | G4 | Provider spend caps on dashboards (BytePlus $25 pool, Gemini, Kimi, fal if upscale lands) | Courtesy-credit chunks make runaway spend possible | gated(user) |
 | G5 | Rotate the Vercel token used during B2 | Standing hygiene item from the deploy | gated(user) |
