@@ -57,9 +57,9 @@ Landed on campaign tip; typecheck exit 0 (check real exit code, not tail-piped);
 | Item | Worker | Status |
 |---|---|---|
 | Item 2 — tokens/focus/dark/Kbd | W1 | MERGED to campaign @55187102 (worker @36dc03f0; typecheck 0; diff reviewed) — browser pass pending |
-| Item 3 — overlays + tasks mini-bar + task glow | W2 | in-flight |
+| Item 3 — overlays + tasks mini-bar + task glow | W2 | MERGED to campaign @b4a8c365 (worker 2 commits + 3 screenshots; typecheck 0; diff reviewed; worker browser-verified mini-bar geometry) |
 | Item 4 — Board rebuild | W3 | CHERRY-PICKED to campaign @373465d2 (worker @c0ce5e9d; typecheck 0; diff reviewed) — browser pass pending |
-| Item 5 — micro-type codemod + BUG28 + clip glow | W4 | MERGED to campaign @6b665e3c (worker 2 commits: 254-site codemod + BUG28/glow; typecheck 0; diff reviewed) — browser pass pending |
+| Item 5 — micro-type codemod + BUG28 + clip glow | W4 | MERGED @6b665e3c + rework @147d9e9b (L1 caught BUG28 dead-code condition — ensureMainTrack guarantees ≥1 track; reworked to every-track-empty overlay). Hint VERIFIED LIVE in browser on campaign tip |
 | Item 6 — left-rail cards + BUG27 | W5 | in-flight |
 | Item 7 — header/chrome remainder | — | DEFERRED |
 | Item 8 — Scopes graticule | — | DEFERRED |
