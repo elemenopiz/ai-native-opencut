@@ -196,6 +196,15 @@ jobs:
         working-directory: apps/web
         run: bun run test:e2e:real
 
+      # Reuses the real-export build from the previous step: the fidelity
+      # config's webServer runs `bun run start` against the existing .next,
+      # and NEXT_PUBLIC_* flags are inlined at BUILD time (webServer env
+      # cannot flip them post-build) — so this must stay after
+      # `build:e2e:real` and before any other build overwrites .next.
+      - name: Run export-fidelity matrix e2e
+        working-directory: apps/web
+        run: bun run test:e2e:fidelity
+
       - name: Upload Playwright report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4

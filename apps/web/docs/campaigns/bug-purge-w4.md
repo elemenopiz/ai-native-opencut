@@ -57,32 +57,59 @@ audio_only_3s.m4a, alpha_overlay_512.png, tiny_640x360_h264.mp4}`, `e2e/fixtures
 
 | Surface | Scenario | Result | Evidence |
 |---|---|---|---|
-| Golden path | import HEVC/portrait/audio → trim/split/transition → real export → ffprobe | NOT-RUN | W1 |
-| C24 fidelity | volume 0.5 → export → decoded quieter (e2e matrix) | NOT-RUN | W1 |
-| C24 fidelity | one manual browser export, volume 0.5 | NOT-RUN | W1 |
-| C25 | delete audio asset → ⌘Z → asset+clips+audio restored | NOT-RUN | W2 |
-| C25 | record → discard = zero artifacts | NOT-RUN | W2 |
-| C26 matrix | M8 rename via context menu (edge cases) | NOT-RUN | W2 |
-| C26 matrix | M14/M17 drag-to-timeline + overlay states | NOT-RUN | W2 |
-| C26 matrix | M15 alternate entry points / drop targets | NOT-RUN | W2 |
-| C26 matrix | M18/M19 context-menu sweep per asset type | NOT-RUN | W2 |
-| C26 matrix | M20 | NOT-RUN | W2 |
-| C15 UI | tasks mini-bar occlusion (timeline + dialogs) | NOT-RUN | W2 |
-| C15 UI | Board dialog open/promote/discard/empty | NOT-RUN | W2 |
-| C15 UI | first-run guide placement (composer visible?) | NOT-RUN | W2 |
-| C15 UI | timeline empty-state hint | NOT-RUN | W2 |
-| C15 UI | focus rings on 8 primitives (keyboard walk) | NOT-RUN | W2 |
-| C15 UI | generation-glow + micro-type legibility | NOT-RUN | W2 |
+| Golden path | real export → ffprobe (h264/aac, 1.600s video exact) | PASS (1/1) | w1-export/task-b-real-export.log |
+| C24 fidelity | 7-case matrix incl. volume-0.5 (ratio 0.2501 power ≈ 0.5 amplitude), automation 5.30, BUG17 zero-video-stream | PASS (7/7) | w1-export/task-a-fidelity.log |
+| C24 fidelity | manual REAL-UI export, volume 0.5 typed in Properties → decoded RMS ratio 0.5000487 vs control (Web Audio decode in-browser) | PASS | w1-export/task-c-manual-volume-export.log |
+| C25 | delete audio asset → ⌘Z → asset+clips+audio restored | NOT-RUN | W3 |
+| C25 | record → discard = zero artifacts | NOT-RUN | W3 |
+| C26 matrix | M8 rename: mid-proxy rename | PASS | w2-interaction/task-a-w-drag-suite.log |
+| C26 matrix | M8 rename: edge cases (200-char/emoji/empty OK; collision leg unreached) | FAIL (harness? — 2nd import filechooser timeout, disambiguation → W3) | same |
+| C26 matrix | M14/M17 drag-to-timeline (video/image/audio) + overlay states | PASS (4/4 — audio lands on AUDIO track) | same |
+| C26 matrix | M15 list-view drag | FAIL (draggable not found in list view — drift vs real, → W3) | same |
+| C26 matrix | M15 drop targets: 2nd drop onto existing track lands NOWHERE (silent no-op) | FAIL (real-bug candidate, → W3 manual confirm) | same |
+| C26 matrix | M18 context-menu sweep (video menu items enumerated OK, then 2nd-import timeout) | FAIL (same import-helper root as M8) | same |
+| C26 matrix | M19 per-asset Download ×3 types + post-rename + mid-proxy | PASS | same |
+| C26 matrix | M20 record: permission DENIED handling | PASS (error toast) | same |
+| C26 matrix | M20 record: permission GRANTED → recording state never entered | FAIL (→ W3: fake-device flags vs real break; overlaps C25 contract) | same |
+| C26 matrix | M20 record: Assets Audio sub-tab entry | FAIL (harness strict-mode: C15's `generate-media-tab-audio` collides on accessible name "Audio") | same |
+| C15 UI | tasks mini-bar occlusion (timeline + dialogs) | NOT-RUN | W3 |
+| C15 UI | Board dialog open/promote/discard/empty | NOT-RUN | W3 |
+| C15 UI | first-run guide placement (composer visible?) | NOT-RUN | W3 |
+| C15 UI | timeline empty-state hint | NOT-RUN | W3 |
+| C15 UI | focus rings on 8 primitives (keyboard walk) | NOT-RUN | W3 |
+| C15 UI | generation-glow + micro-type legibility | NOT-RUN | W3 |
 
 ## Worker log
 
-- **W1 — Export & Fidelity** (`task/w1-export-fidelity`): dispatched. P1 golden-path real
-  export + P3 C24 fidelity matrix (`test:e2e:real`, `test:e2e:fidelity`) + manual volume-0.5
-  export. Server slot 3211→3213 sequential.
-- **W2 — Interaction, Lifecycle & UI** (`task/w2-interaction-ui`): dispatched. P5 w-drag
-  matrix (M8/M14/M15/M17/M18/M19/M20) + P4 C25 delete→⌘Z + record→discard + P2 C15 UI walk.
-  Server slot 3303.
+- **W1 — Export & Fidelity** (`task/w1-export-fidelity` @e8964ecc): DONE, merged to campaign.
+  Zero regressions: fidelity 7/7, golden-path real export 1/1 ffprobe-clean, manual REAL-UI
+  volume-0.5 export decoded RMS ratio 0.5000487 vs control. Flags: (1) `test:e2e:fidelity`
+  was not wired into bun-ci.yml → fixed-forward on this branch (unowned file, trivial);
+  (2) BUILD-FLAG GOTCHA recorded below. W1's false-lead selection-API crash was a harness
+  artifact, correctly not filed.
+- **W2 — Interaction, Lifecycle & UI** (`task/w2-interaction-ui`, zero commits): STALLED
+  mid-campaign after completing Task A (w-drag suite, 7 pass / 6 fail, 5.8m). Uncommitted
+  evidence log salvaged from its worktree and committed here. Tasks B (C25 contracts) and
+  C (C15 UI walk) never ran. Replaced by W3 per doctrine (fresh scoped worker, not resumed).
+- **W3 — Completion & disambiguation** (`task/w3-interaction-completion`): dispatched after
+  W2 stall. C25 contracts + C15 UI walk + manual disambiguation of the 4 ambiguous w-drag
+  FAILs. Reuses the still-live 3303 server (server budget: W2's slot transferred).
+
+## Gotchas recorded for future workers
+
+- **NEXT_PUBLIC build-flag gotcha (W1):** `NEXT_PUBLIC_*` vars are inlined at BUILD time —
+  a playwright webServer `env:` block cannot flip them against a plain `bun run build`.
+  Real-export/fidelity suites need the `build:e2e:real` build first (`bun run start` then
+  serves the seam). The CI step added here documents the ordering constraint inline.
+- **Binary relay gotcha (W1):** relaying exported-file bytes out of the browser as base64
+  through the tool-call text channel corrupts/truncates them; decode + measure in-browser
+  (Web Audio `decodeAudioData` + RMS) instead.
+- **C15 accessible-name collision:** `generate-media-tab-audio` and the assets-panel Audio
+  tab both resolve to role=button name="Audio" — suites must scope by testid/container.
 
 ## Bugs filed (BUG85–BUG99, deduped vs queue §2)
 
-- (none yet)
+- (pending W3 disambiguation — candidates: 2nd-drop silent no-op [M15], populated-state
+  import filechooser [M8/M18], record-start-under-granted-permission [M20], list-view drag
+  [M15]; note poach_session_findings' historical "no-op drag" — verify whether M15's find
+  predates the wave before filing as a regression)
