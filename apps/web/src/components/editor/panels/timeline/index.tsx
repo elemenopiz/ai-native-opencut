@@ -68,6 +68,7 @@ import { MarkersPanel } from "./markers-panel";
 
 const TRACKS_CONTAINER_MAX_HEIGHT = 800;
 const FALLBACK_CONTAINER_WIDTH = 1000;
+const EMPTY_TIMELINE_HEIGHT = 160;
 
 export function Timeline() {
 	const tracksContainerHeight = { min: 0, max: TRACKS_CONTAINER_MAX_HEIGHT };
@@ -381,17 +382,24 @@ export function Timeline() {
 								<div
 									className="relative"
 									style={{
-										height: `${Math.max(
-											tracksContainerHeight.min,
-											Math.min(
-												tracksContainerHeight.max,
-												getTotalTracksHeight({ tracks }),
-											),
-										)}px`,
+										height:
+											tracks.length === 0
+												? `${EMPTY_TIMELINE_HEIGHT}px`
+												: `${Math.max(
+														tracksContainerHeight.min,
+														Math.min(
+															tracksContainerHeight.max,
+															getTotalTracksHeight({ tracks }),
+														),
+													)}px`,
 									}}
 								>
 									{tracks.length === 0 ? (
-										<div />
+										<div className="flex h-full items-center justify-center px-6 text-center">
+											<p className="text-2xs text-muted-foreground/60">
+												Drag media here or generate a clip to begin
+											</p>
+										</div>
 									) : (
 										[...tracks]
 											.map((track, index) => ({ track, index }))

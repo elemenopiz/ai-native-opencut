@@ -40,6 +40,10 @@ export function GenerativeSlotContent({
 				"absolute inset-0 flex items-center gap-1.5 overflow-hidden px-2",
 				// Diagonal hatching reads as a placeholder on any track color.
 				"bg-[repeating-linear-gradient(45deg,transparent,transparent_6px,rgba(0,0,0,0.14)_6px,rgba(0,0,0,0.14)_12px)]",
+				// Generation-glow is the ONE exception to "nothing glows" — live
+				// only while this slot is actively generating, gone the instant
+				// it resolves (see DIRECTION-LOCKED.md).
+				isGenerating && "glow-generation",
 			)}
 		>
 			{/* Animated sheen while generating — a light band sweeping across. */}
