@@ -188,9 +188,9 @@ describe("RemoveMediaAssetsCommand — batch asset delete as ONE undo entry (KNO
 
 		expect(editor.command.getHistoryLength()).toBe(1);
 		expect(editor.media.getAssets()).toEqual([]);
-		expect(editor.timeline.getTracks().flatMap((t) => t.elements)).toHaveLength(
-			0,
-		);
+		expect(
+			editor.timeline.getTracks().flatMap((t) => t.elements.map((e) => e.id)),
+		).toHaveLength(0);
 	});
 
 	test("execute -> undo restores every asset AND every dependent element exactly (single Ctrl+Z undoes the whole batch)", () => {

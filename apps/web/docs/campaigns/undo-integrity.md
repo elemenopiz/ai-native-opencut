@@ -54,20 +54,20 @@ Verdict columns filled from worker property-tests. `redo` col: `own` = overrides
 
 | # | Command | Family | redo | undo full? | redo idem? | cross-store? | 1 entry? |
 |---|---------|--------|------|-----------|-----------|-------------|---------|
-| 1 | DeleteElementsCommand | A elem | exec | | | | |
-| 2 | DuplicateElementsCommand | A elem | exec | | | | |
-| 3 | InsertElementCommand | A elem | exec | | | | |
-| 4 | MoveElementCommand | A elem | exec | | | | |
-| 5 | MoveElementsCommand (group) | A elem | exec | | | | |
-| 6 | ResizeElementsCommand (group) | A elem | exec | | | | |
-| 7 | SplitElementsCommand | A elem | exec | | | | |
-| 8 | ToggleElementsMutedCommand | A elem | exec | | | | |
-| 9 | ToggleElementsVisibilityCommand | A elem | exec | | | | |
-| 10 | ToggleSourceAudioSeparationCommand | A elem | exec | | | | |
-| 11 | UpdateElementCommand | A elem | exec | | | | |
-| 12 | UpdateElementDurationCommand | A elem | exec | | | | |
-| 13 | UpdateElementStartTimeCommand | A elem | exec | | | | |
-| 14 | UpdateElementTrimCommand | A elem | exec | | | | |
+| 1 | DeleteElementsCommand | A elem | exec | ✓ | ✓ | n/a | ✓ |
+| 2 | DuplicateElementsCommand | A elem | exec | ✓ | ✓ | ✓ selection | ✓ |
+| 3 | InsertElementCommand | A elem | exec | ✓ | ✓ | ✓ proj settings⁵ | ✓ |
+| 4 | MoveElementCommand | A elem | exec | ✓ | ✓ | n/a | ✓ |
+| 5 | MoveElementsCommand (group) | A elem | exec | ✓ | ✓ | ✓ selection | ✓ |
+| 6 | ResizeElementsCommand (group) | A elem | exec | ✓ | ✓ | n/a | ✓ |
+| 7 | SplitElementsCommand | A elem | exec | ✓ | ✓ | ✓ selection | ✓ |
+| 8 | ToggleElementsMutedCommand | A elem | exec | ✓ | ✓ | n/a | ✓ |
+| 9 | ToggleElementsVisibilityCommand | A elem | exec | ✓ | ✓ | n/a | ✓ |
+| 10 | ToggleSourceAudioSeparationCommand | A elem | exec | ✓ | ✓ | n/a | ✓ |
+| 11 | UpdateElementCommand | A elem | exec | ✓ | ✓ | n/a | ✓ |
+| 12 | UpdateElementDurationCommand | A elem | exec | ✓ | ✓ | n/a | ✓ |
+| 13 | UpdateElementStartTimeCommand | A elem | exec | ✓ | ✓ | n/a | ✓ |
+| 14 | UpdateElementTrimCommand | A elem | exec | ✓ | ✓ | n/a | ✓ |
 | 15 | AddClipEffectCommand | B fx | exec | | | | |
 | 16 | RemoveClipEffectCommand | B fx | exec | | | | |
 | 17 | ReorderClipEffectsCommand | B fx | exec | | | | |
@@ -113,6 +113,13 @@ of intervening state drift — verified directly.
 that never cleared a position set after the snapshot — now a full
 `useTranscriptStore.setState()` replace.
 
+⁵ BUG100 (fixed, worker A): inserting the FIRST visual element seeds project
+canvasSize/originalCanvasSize/fps off the asset via
+`editor.project.updateSettings({..., pushHistory: false})` — un-commanded, so
+Ctrl+Z removed the clip but left canvas size/fps changed. Now captured as a
+directly-executed `UpdateProjectSettingsCommand` child, rebuilt every
+execute(), undone in undo(). Test: `undo-roundtrip-element.test.ts` "BUG100:".
+
 Worker C also built `RemoveMediaAssetsCommand` (`lib/commands/media/remove-media-assets.ts`,
 not part of the original 44-command inventory) closing KNOWN HOLE #3 — see
 BUG108 below for its wiring status.
@@ -147,9 +154,9 @@ re-runs battery staggered, judges full-suite delta vs baseline **2175 pass / 5 s
 
 | Worker | Family | Branch | Status |
 |--------|--------|--------|--------|
-| A | element core | task/c27-element | dispatched |
-| B | kf/fx/track | task/c27-kf-fx | dispatched |
-| C | media/scene/cascade | task/c27-media-cascade | done, awaiting L1 merge |
+| A | element core | task/c27-element | crashed pre-commit (stream watchdog); complete working tree reviewed + PORTED by L1 @ef3a101b (L1 fixed one main-track test fixture) |
+| B | kf/fx/track | task/c27-kf-fx | in flight (effects family edited; parked on typecheck monitor ~129 tool uses; polling) |
+| C | media/scene/cascade | task/c27-media-cascade | finished work but parked pre-commit; working tree reviewed + PORTED by L1 @f0179b70 |
 
 ## Bugs filed (BUG100–109)
 
@@ -224,12 +231,9 @@ Worker C (BUG106–109), verified in source, all in `lib/commands/**` (owned fil
   `commands/__tests__/transcript-snapshot.test.ts` "restores speaker names,
   positions, and translations on undo" (red before the fix, green after).
 
-**Not filed (outside Worker C's owned files, flagged for L1 routing):**
-cascade-hunt turned up one more BUG34-class defect, but its fix location is
-`hooks/actions/use-editor-actions.ts` (`delete-selected` action handler),
-which is UI/hooks territory, not `lib/commands/**` — no BUG10x slot spent on
-it per the "only as needed" instruction; documented instead in the Worker C
-report to L1. Repro: select clip(s) → `delete-selected` action wraps
+- **BUG101** (filed by L1 from Worker C's cascade hunt — fix location is
+  `hooks/actions/use-editor-actions.ts` `delete-selected` handler, OUTSIDE C27
+  territory; route to the UI-owning campaign, likely C21b). Repro: select clip(s) → `delete-selected` action wraps
 `editor.timeline.deleteElements(...)` + a conditional `TranscriptSnapshotCommand`
 push in a `beginTransaction()`/`commitTransaction()` pair (good pattern,
 prior art for BUG108's fix), but ALSO calls
