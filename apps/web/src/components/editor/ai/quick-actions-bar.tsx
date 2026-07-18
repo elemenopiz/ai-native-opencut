@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/utils/ui";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +20,7 @@ import {
 	Mic01Icon,
 	ClosedCaptionIcon,
 	Scissor01Icon,
+	Cancel01Icon,
 } from "@hugeicons/core-free-icons";
 import { useTranscriptStore } from "@/stores/transcript-store";
 import { useEditor } from "@/hooks/use-editor";
@@ -69,6 +70,20 @@ export function QuickActionsBar({ className }: { className?: string }) {
 	const editor = useEditor();
 	const { handleDeleteSegments } = useTextTimelineBridge();
 	const { runSmartCut } = useSmartCut();
+
+	// The bar has no owning parent state to hide it (the editor page mounts it
+	// purely off `hasTranscript`), so dismissal is local. Re-show it whenever a
+	// fresh transcript replaces the segments — a new `segments` array reference
+	// from setSegments means a (re-)transcription, and a stale dismiss shouldn't
+	// swallow the new bar.
+	const [dismissed, setDismissed] = useState(false);
+	const prevSegmentsRef = useRef(segments);
+	useEffect(() => {
+		if (prevSegmentsRef.current !== segments) {
+			prevSegmentsRef.current = segments;
+			setDismissed(false);
+		}
+	}, [segments]);
 
 	const [fillerStatus, setFillerStatus] = useState<ActionStatus>("idle");
 	const [fillerCount, setFillerCount] = useState(0);
@@ -244,7 +259,6 @@ export function QuickActionsBar({ className }: { className?: string }) {
 				},
 			});
 		}
-
 	}, [editor, subtitleTrackId]);
 
 	// --- Fact Check ---
@@ -365,7 +379,7 @@ export function QuickActionsBar({ className }: { className?: string }) {
 	}, [runSmartCut]);
 
 	// Early return AFTER all hooks to satisfy Rules of Hooks
-	if (segments.length === 0) return null;
+	if (segments.length === 0 || dismissed) return null;
 
 	const effectiveFillerCount =
 		fillerStatus === "done" ? fillerCount : currentFillerCount;
@@ -518,6 +532,23 @@ export function QuickActionsBar({ className }: { className?: string }) {
 					</TooltipContent>
 				</Tooltip>
 			))}
+			<div className="w-px h-4 bg-border shrink-0" />
+			<Tooltip>
+				<TooltipTrigger asChild>
+					<Button
+						variant="ghost"
+						size="icon"
+						className="size-7 shrink-0 text-muted-foreground"
+						aria-label="Dismiss quick actions"
+						onClick={() => setDismissed(true)}
+					>
+						<HugeiconsIcon icon={Cancel01Icon} className="size-3.5" />
+					</Button>
+				</TooltipTrigger>
+				<TooltipContent side="top" className="max-w-48 text-xs">
+					Dismiss — re-transcribe to bring these back
+				</TooltipContent>
+			</Tooltip>
 		</div>
 	);
 }
