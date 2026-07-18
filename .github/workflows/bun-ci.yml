@@ -72,23 +72,63 @@ jobs:
     name: E2E happy path
     runs-on: ubuntu-latest
 
-    # No `services: postgres:` here despite DATABASE_URL below pointing at one:
-    # apps/web/e2e/auth-flow.e2e.ts (the only spec that would exercise a real
-    # DB) self-skips today regardless of Postgres availability. Its own header
-    # comment explains why -- better-auth's rate limiter reads/writes through
-    # Upstash Redis (see UPSTASH_REDIS_REST_URL/TOKEN placeholders below), and
-    # that customStorage call runs on every /api/auth/* POST before the
-    # request ever touches the database, so an unreachable Upstash endpoint
-    # 500s the request first. A beforeAll health probe in that spec detects
-    # the 500 and skips the whole suite. Standing up a Postgres service
-    # container + migration step alone would not unblock real coverage here;
-    # that also needs a reachable rate-limit store, which is a separate fix.
+    # Reachable rate-limit store + real Postgres, so auth-flow.e2e.ts stops
+    # self-skipping: better-auth enables rate limiting in production mode and
+    # reads/writes it through Upstash's REST protocol (src/lib/auth/server.ts,
+    # rateLimit.customStorage) on every /api/auth/* POST, BEFORE the request
+    # ever touches the database. A plain `redis:` service doesn't speak that
+    # protocol, so `srh` (hiett/serverless-redis-http, the standard Upstash
+    # REST shim) fronts the `redis` service below and translates REST calls
+    # into it -- same shape as this repo's docker-compose.yml. Previously
+    # UPSTASH_REDIS_REST_URL pointed at an unreachable placeholder, so every
+    # auth POST 500'd before hitting Postgres, and this spec's own beforeAll
+    # health probe (see its header comment) detected that and skipped the
+    # whole suite. `postgres` is the real account store once requests get
+    # past rate limiting; the "Run DB migrations" step below applies schema
+    # against it before the suite runs.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: opencut
+          POSTGRES_PASSWORD: opencut
+          POSTGRES_DB: opencut
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U opencut"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+      srh:
+        image: hiett/serverless-redis-http:latest
+        env:
+          SRH_MODE: env
+          SRH_TOKEN: e2e-test-token
+          SRH_CONNECTION_STRING: "redis://redis:6379"
+        ports:
+          - 8079:80
+        options: >-
+          --health-cmd="wget --spider -q http://127.0.0.1:80 || exit 1"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
     env:
       DATABASE_URL: "postgresql://opencut:opencut@localhost:5432/opencut"
       BETTER_AUTH_SECRET: "supersecret"
       NEXT_PUBLIC_SITE_URL: "http://localhost:3210"
-      UPSTASH_REDIS_REST_URL: "https://your-upstash-redis-url"
-      UPSTASH_REDIS_REST_TOKEN: "your-upstash-redis-token"
+      UPSTASH_REDIS_REST_URL: "http://localhost:8079"
+      UPSTASH_REDIS_REST_TOKEN: "e2e-test-token"
       NEXT_PUBLIC_MARBLE_API_URL: "https://placeholder.example.com"
       MARBLE_WORKSPACE_KEY: "placeholder"
       FREESOUND_CLIENT_ID: "placeholder"
@@ -117,6 +157,10 @@ jobs:
       - name: Install dependencies
         working-directory: apps/web
         run: bun install
+
+      - name: Run DB migrations
+        working-directory: apps/web
+        run: bun run db:migrate
 
       - name: Install Playwright Chromium (+ OS deps)
         working-directory: apps/web
