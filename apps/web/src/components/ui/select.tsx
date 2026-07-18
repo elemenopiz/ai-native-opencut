@@ -31,7 +31,7 @@ const selectItemVariants = cva(
 );
 
 const selectTriggerVariants = cva(
-	"border-border ring-offset-background placeholder:text-muted-foreground flex h-7 w-auto cursor-pointer items-center justify-between gap-1 rounded-md border px-2.5 text-sm whitespace-nowrap transition-none focus:border-primary focus:ring-0 focus:ring-primary/10 focus:outline-hidden disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
+	"border-border ring-offset-background placeholder:text-muted-foreground flex h-7 w-auto cursor-pointer items-center justify-between gap-1 rounded-md border px-2.5 text-sm whitespace-nowrap transition-none focus-visible:border-primary focus-visible:ring-1 focus-visible:ring-primary/20 focus-visible:outline-hidden disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
 	{
 		variants: {
 			variant: {
