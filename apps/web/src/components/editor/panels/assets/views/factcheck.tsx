@@ -25,11 +25,25 @@ interface FactCheckResult {
 	summary: string;
 }
 
-const VERDICT_STYLES: Record<string, { bg: string; text: string; label: string }> = {
-	True: { bg: "bg-green-500/10", text: "text-green-600 dark:text-green-400", label: "True" },
-	False: { bg: "bg-red-500/10", text: "text-red-600 dark:text-red-400", label: "False" },
-	"Partially True": { bg: "bg-yellow-500/10", text: "text-yellow-600 dark:text-yellow-400", label: "Partial" },
-	Unverifiable: { bg: "bg-muted", text: "text-muted-foreground", label: "Unverifiable" },
+// `dark:` pairs folded — forcedTheme="dark" means the base half of each
+// `text-*-600 dark:text-*-400` pair never rendered; keeping the value that
+// was actually live.
+const VERDICT_STYLES: Record<
+	string,
+	{ bg: string; text: string; label: string }
+> = {
+	True: { bg: "bg-green-500/10", text: "text-green-400", label: "True" },
+	False: { bg: "bg-red-500/10", text: "text-red-400", label: "False" },
+	"Partially True": {
+		bg: "bg-yellow-500/10",
+		text: "text-yellow-400",
+		label: "Partial",
+	},
+	Unverifiable: {
+		bg: "bg-muted",
+		text: "text-muted-foreground",
+		label: "Unverifiable",
+	},
 };
 
 function getVerdictStyle(verdict: string) {
@@ -102,7 +116,12 @@ export function FactCheckView() {
 					textAlign: "left",
 					background: {
 						enabled: true,
-						color: claim.verdict === "False" ? "#dc2626" : claim.verdict === "True" ? "#16a34a" : "#ca8a04",
+						color:
+							claim.verdict === "False"
+								? "#dc2626"
+								: claim.verdict === "True"
+									? "#16a34a"
+									: "#ca8a04",
 						cornerRadius: 6,
 						paddingX: 14,
 						paddingY: 10,
@@ -129,7 +148,8 @@ export function FactCheckView() {
 		<PanelView title="Fact Check">
 			<div className="flex flex-col gap-4">
 				<p className="text-xs text-muted-foreground leading-relaxed">
-					Analyze your transcript for factual claims and verify them. Add fact-check overlays to your video.
+					Analyze your transcript for factual claims and verify them. Add
+					fact-check overlays to your video.
 				</p>
 
 				{error && (

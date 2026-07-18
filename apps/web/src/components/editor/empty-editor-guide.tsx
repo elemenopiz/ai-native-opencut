@@ -42,7 +42,15 @@ const GUIDE_STEPS: GuideStep[] = [
 
 /**
  * Shows a visual guide when the editor has no content.
- * Replaces the empty Properties panel for first-time users.
+ *
+ * BUG27: this used to be swapped in for the entire right panel (Generate /
+ * Properties / Scopes — the composer), unmounting it while the guide was up.
+ * It now renders as a dismissible floating card (see `app/editor/[project_id]
+ * /page.tsx`) positioned away from the right panel entirely, so the composer
+ * stays visible and usable the whole time. Sized to its content — not
+ * `h-full` — since it's no longer stretched to fill a panel slot; a bounded
+ * max-height + its own scroll keeps a long Ideas board from pushing the
+ * dismiss button off a short viewport.
  */
 export function EmptyEditorGuide({
 	className,
@@ -57,7 +65,7 @@ export function EmptyEditorGuide({
 	return (
 		<div
 			className={cn(
-				"flex flex-col items-center h-full px-6 py-8 gap-6 overflow-hidden",
+				"flex max-h-[calc(100vh-6rem)] flex-col items-center gap-6 overflow-y-auto rounded-xl border bg-background px-6 py-8 shadow-lg",
 				className,
 			)}
 		>
