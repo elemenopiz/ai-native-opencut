@@ -6,6 +6,19 @@ user (Playwright MCP + Claude Browser pane) against a local dev server
 (`NEXT_PUBLIC_E2E=1 bun run dev --turbopack --port 3251`), with IndexedDB read as
 ground truth alongside UI/screenshot evidence.
 
+> **L1 integration notes (post-hunt):** (1) This hunt characterized the **pre-fix
+> baseline** — worker H branched from main@29a06429, *before* worker S's
+> BUG125/126/127/128 fixes were merged to `campaign/persistence-recovery`. The
+> mechanism reads below ("no visibilitychange/pagehide handler exists", "no catch
+> anywhere in the chain") describe that baseline and are intentionally left as-is;
+> the campaign tip's post-fix re-verification lives in `persistence-recovery.md`.
+> (2) The generation-orphan finding was filed by the worker as "BUG130", which
+> collided with the already-allocated BUG130 (string-mediaId-with-no-asset, worker
+> Hl); it has been renumbered **BUG132** throughout this doc. (3) BUG127 severity
+> carries the §1b nuance: real browsers DO show the native leave-site dialog (CDP
+> `navigate()` bypasses it) — the loss path is click-through, dialog-suppressing
+> contexts, or crash/force-quit.
+
 **Methodology note on edit creation.** Real drag-and-drop of the "Text presets" panel
 onto the timeline could not be driven reliably via synthetic mouse events (HTML5 DnD
 needs real `dragstart`/`dragover`/`drop` events that `computer`-style mouse
@@ -33,13 +46,13 @@ Playwright's bundled Chromium).
 | 1a | Refresh ~2s after edit (past 800ms debounce) | Edit persists exactly | **PASS** | — |
 | 1b | Refresh within the 800ms debounce window | Edit is silently and permanently lost | **FAIL** (confirms BUG127) | High |
 | 1c | Reload mid-drag (preview active, not yet committed) | Drag delta lost, reverts cleanly to last-saved position; no corruption | **PASS** (same root cause as 1b — see note) | — |
-| 1d | Reload during an in-flight AI generation poll | Generation job orphaned: no reconciliation on mount, slot can be stuck permanently "generating" | **FAIL** (new — BUG130) | Medium |
+| 1d | Reload during an in-flight AI generation poll | Generation job orphaned: no reconciliation on mount, slot can be stuck permanently "generating" | **FAIL** (new — BUG132) | Medium |
 | 2 | Autosave status truthfulness | "Saved Xs ago" label is stale during the pending (dirty-but-not-yet-saved) window — no "unsaved" affordance exists between an edit and the debounce firing | **FAIL** (new — BUG131) | Low-Medium |
 | 3 | Duplicate tab, concurrent edits, both save | Last write wins; loser's already-*saved* edit is silently overwritten with zero warning in either tab | **FAIL** (confirms BUG128) | High |
 | 4 | Rapid project-switch soak (8 client-side switches across 3 projects) | Zero store bleed, zero project-switch-specific console errors | **PASS** (2026-07-17 hardening held) | — |
 | 5 | Storage-quota handling | No `QuotaExceededError` handling anywhere in the save path; a failed write is silently swallowed the same way scenario 2's gap works | **FAIL** (confirms BUG126, code-level only — see below) | Medium (unverified in-browser) |
 
-Counts: **4 PASS-equivalent rows** (1a, 1c, 4, and 1c's non-corruption sub-property), **5 FAIL rows** (1b, 1d, 2, 3, 5) across 8 scenarios tested. 2 new bugs filed (BUG130, BUG131); 3 known bugs confirmed/measured (BUG126, BUG127, BUG128) with concrete repros and, for BUG127, an exact measured window.
+Counts: **4 PASS-equivalent rows** (1a, 1c, 4, and 1c's non-corruption sub-property), **5 FAIL rows** (1b, 1d, 2, 3, 5) across 8 scenarios tested. 2 new bugs filed (BUG132, BUG131); 3 known bugs confirmed/measured (BUG126, BUG127, BUG128) with concrete repros and, for BUG127, an exact measured window.
 
 ---
 
@@ -125,7 +138,7 @@ corruption, no NaN/undefined, just the uncommitted drag lost. Same mechanism as 
 listed separately only because "does a stuck mid-drag corrupt state" was a distinct
 charter question and the answer is no.
 
-### 1d — FAIL (new bug): orphaned in-flight generations — BUG130
+### 1d — FAIL (new bug): orphaned in-flight generations — BUG132
 
 Code-level only (a real Studio generation needs a live provider key + spends
 credits; not exercised end-to-end). Investigated `src/stores/generation-status-store.ts`,
@@ -279,7 +292,7 @@ believing the project is saved.
 
 ## New bugs filed
 
-### BUG130 — Reload orphans in-flight timeline generative-slot generations
+### BUG132 — Reload orphans in-flight timeline generative-slot generations
 No `jobId` persisted on the take record created by `useSlotGeneration`
 (`src/hooks/use-slot-generation.ts:86-128`), and no reconciliation on mount for
 timeline slots (unlike the separate Assets-panel "Generate" history grid, which does
