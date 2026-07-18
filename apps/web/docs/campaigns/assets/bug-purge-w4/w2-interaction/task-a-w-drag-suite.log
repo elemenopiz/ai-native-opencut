@@ -1,0 +1,239 @@
+
+Running 13 tests using 1 worker
+
+[M8] imported: {"id":"85002912-3e06-4257-b0be-d572f614e899","name":"tiny_640x360_h264.mp4","type":"video","duration":2}
+[M8] 200-char label saved as (length 200): AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+[M8] emoji label saved as: 🎬 Drone Shot 🚁✨
+[M8] empty label saved as: undefined
+  ✘   1 [chrome] › e2e/hunt/w-drag.hunt.e2e.ts:306:6 › M8 — rename via context menu › label edge cases: empty, 200-char, emoji, collision, reload persistence (49.0s)
+[M8-processing] asset immediately after import (proxy not necessarily ready): {"id":"6c608482-5ebf-44b2-9144-8e8d1a9622e0","name":"tiny_640x360_h264.mp4","hasProxy":false}
+[M8-processing] context menu opened while proxy in flight: true
+[M8-processing] label saved while proxy in flight: Mid-proxy label
+  ✓   2 [chrome] › e2e/hunt/w-drag.hunt.e2e.ts:438:6 › M8 — rename via context menu › rename while asset is still processing (proxy generation in flight) (12.1s)
+[M17] drag-active overlay visible=true empty-copy still visible=false
+  ✓   3 [chrome] › e2e/hunt/w-drag.hunt.e2e.ts:503:6 › M14/M17 — drag-to-timeline from main grid + overlay states › overlay: resting-empty vs drag-active copy is distinct (regression check) (2.0s)
+[M14-video] imported: {"id":"ae14ef28-d806-4334-ad7e-278539b04e73","name":"tiny_640x360_h264.mp4","type":"video","duration":2}
+[M14-video] tracks after drag: [{"type":"video","elements":[{"name":"tiny_640x360_h264.mp4","startTime":0,"duration":2}]}]
+  ✓   4 [chrome] › e2e/hunt/w-drag.hunt.e2e.ts:553:6 › M14/M17 — drag-to-timeline from main grid + overlay states › video: drag lands on timeline at drop position and is present in getTracks() (2.7s)
+[M14-image] imported: {"id":"acc28458-25f0-4623-92cb-ea899956eaff","name":"alpha_overlay_512.png","type":"image"}
+[M14-image] tracks after drag: [{"type":"video","elements":[{"name":"alpha_overlay_512.png","startTime":0}]}]
+  ✓   5 [chrome] › e2e/hunt/w-drag.hunt.e2e.ts:595:6 › M14/M17 — drag-to-timeline from main grid + overlay states › image (alpha PNG): drag lands on its own track (3.0s)
+[M14-audio] imported: {"id":"a578f928-652b-45aa-91e5-5882352a078c","name":"tiny-tone.wav","type":"audio","duration":1}
+[M14-audio] tracks after drag: [{"type":"video","elements":[]},{"type":"audio","elements":[{"name":"tiny-tone.wav"}]}]
+  ✓   6 [chrome] › e2e/hunt/w-drag.hunt.e2e.ts:629:6 › M14/M17 — drag-to-timeline from main grid + overlay states › audio (tiny-tone.wav): drag lands on an AUDIO track, not video (2.8s)
+  ✘   7 [chrome] › e2e/hunt/w-drag.hunt.e2e.ts:672:6 › M15 — alternate entry points and drop targets › list view: drag from compact/list row lands correctly (3.3s)
+[M15-targets] after drop 1 (empty timeline): [{"id":"b2bf54e1-5adf-4ab2-8459-4b2091d0b832","type":"video","elements":[{"name":"tiny_640x360_h264.mp4","startTime":0}]}]
+[M15-targets] after drop 2 (existing track attempt): [{"id":"b2bf54e1-5adf-4ab2-8459-4b2091d0b832","type":"video","elements":[{"name":"tiny_640x360_h264.mp4","startTime":0}]}]
+  ✘   8 [chrome] › e2e/hunt/w-drag.hunt.e2e.ts:715:6 › M15 — alternate entry points and drop targets › drop onto EMPTY timeline vs onto an EXISTING track vs BETWEEN tracks (7.1s)
+[M18-video] menu items: ["Add label","Find similar clips","Extract first frame","Extract last frame","Download","Delete"]
+  ✘   9 [chrome] › e2e/hunt/w-drag.hunt.e2e.ts:797:6 › M18 — context menu sweep (single session, 3 asset types) › video / image / audio menu items + still-processing asset (38.9s)
+[M19-midproxy] download fired while proxy in flight: true tiny_640x360_h264.mp4
+[M19-video] filename=tiny_640x360_h264.mp4 size=197600 path=/Users/zsha/Documents/ai-native-opencut/.claude/worktrees/agent-aa07da3cbe86f796e/apps/web/test-results/.playwright-artifacts-4/daf47724-4f98-4f9d-b70a-53d7f15398b3
+[M19-video] ffprobe ok: true 
+[M19-image] filename=alpha_overlay_512.png size=2265 path=/Users/zsha/Documents/ai-native-opencut/.claude/worktrees/agent-aa07da3cbe86f796e/apps/web/test-results/.playwright-artifacts-4/88cdcb6e-3527-4caa-8dc7-6b7fc08bbac4
+[M19-audio] filename=tiny-tone.wav size=16044 path=/Users/zsha/Documents/ai-native-opencut/.claude/worktrees/agent-aa07da3cbe86f796e/apps/web/test-results/.playwright-artifacts-4/58ef6f77-c45f-48c6-b64b-d48afddd429b
+[M19-renamed] asset.name=tiny_640x360_h264.mp4 label="My Renamed Clip" downloaded filename=tiny_640x360_h264.mp4
+  ✓  10 [chrome] › e2e/hunt/w-drag.hunt.e2e.ts:876:6 › M19 — per-asset Download (single session) › download video/image/audio, post-rename filename, mid-proxy download (30.1s)
+[M20-toolbar] Record button visible before click: true
+[M20-toolbar] after click+deny: isRecordingButtonShown=false errorToastVisible=true
+  ✓  11 [chrome] › e2e/hunt/w-drag.hunt.e2e.ts:998:6 › M20 — Record entry points (entry + permission-denied UX only) › timeline toolbar mic button: entry + mic-permission DENIED handling (9.9s)
+[M20-toolbar-grant] recording state entered: false
+  ✘  12 [chrome] › e2e/hunt/w-drag.hunt.e2e.ts:1031:6 › M20 — Record entry points (entry + permission-denied UX only) › timeline toolbar mic button: entry + mic-permission GRANTED starts recording state (23.0s)
+  ✘  13 [chrome] › e2e/hunt/w-drag.hunt.e2e.ts:1057:6 › M20 — Record entry points (entry + permission-denied UX only) › Assets-panel Audio > Record sub-tab: entry point + permission-denied UX (33.2s)
+
+
+  1) [chrome] › e2e/hunt/w-drag.hunt.e2e.ts:306:6 › M8 — rename via context menu › label edge cases: empty, 200-char, emoji, collision, reload persistence 
+
+    TimeoutError: page.waitForEvent: Timeout 30000ms exceeded while waiting for event "filechooser"
+    =========================== logs ===========================
+    waiting for event "filechooser"
+    ============================================================
+
+      55 | 	);
+      56 | 	const [fileChooser] = await Promise.all([
+    > 57 | 		page.waitForEvent("filechooser"),
+         | 		     ^
+      58 | 		page.getByRole("button", { name: "Import", exact: true }).click(),
+      59 | 	]);
+      60 | 	await fileChooser.setFiles(filePath);
+        at importViaFileInput (/Users/zsha/Documents/ai-native-opencut/.claude/worktrees/agent-aa07da3cbe86f796e/apps/web/e2e/hunt/w-drag.hunt.e2e.ts:57:8)
+        at /Users/zsha/Documents/ai-native-opencut/.claude/worktrees/agent-aa07da3cbe86f796e/apps/web/e2e/hunt/w-drag.hunt.e2e.ts:389:20
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/w-drag.hunt.e2e.ts-M8-—-re-6caef-ollision-reload-persistence-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/w-drag.hunt.e2e.ts-M8-—-re-6caef-ollision-reload-persistence-chrome/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/w-drag.hunt.e2e.ts-M8-—-re-6caef-ollision-reload-persistence-chrome/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/w-drag.hunt.e2e.ts-M8-—-re-6caef-ollision-reload-persistence-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [chrome] › e2e/hunt/w-drag.hunt.e2e.ts:672:6 › M15 — alternate entry points and drop targets › list view: drag from compact/list row lands correctly 
+
+    Error: page.evaluate: Error: draggable element not found for "tiny_640x360_h264.mp4"
+        at eval (eval at evaluate (:303:30), <anonymous>:23:21)
+        at UtilityScript.evaluate (<anonymous>:305:16)
+        at UtilityScript.<anonymous> (<anonymous>:1:44)
+        at eval (eval at evaluate (:303:30), <anonymous>:23:21)
+        at UtilityScript.evaluate (<anonymous>:305:16)
+        at UtilityScript.<anonymous> (<anonymous>:1:44)
+        at dragAssetToTimeline (/Users/zsha/Documents/ai-native-opencut/.claude/worktrees/agent-aa07da3cbe86f796e/apps/web/e2e/hunt/w-drag.hunt.e2e.ts:167:13)
+        at /Users/zsha/Documents/ai-native-opencut/.claude/worktrees/agent-aa07da3cbe86f796e/apps/web/e2e/hunt/w-drag.hunt.e2e.ts:693:9
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/w-drag.hunt.e2e.ts-M15-—-a-dae7b-ct-list-row-lands-correctly-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/w-drag.hunt.e2e.ts-M15-—-a-dae7b-ct-list-row-lands-correctly-chrome/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/w-drag.hunt.e2e.ts-M15-—-a-dae7b-ct-list-row-lands-correctly-chrome/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/w-drag.hunt.e2e.ts-M15-—-a-dae7b-ct-list-row-lands-correctly-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3) [chrome] › e2e/hunt/w-drag.hunt.e2e.ts:715:6 › M15 — alternate entry points and drop targets › drop onto EMPTY timeline vs onto an EXISTING track vs BETWEEN tracks 
+
+    Error: second drop should land somewhere
+
+    expect(received).toBeTruthy()
+
+    Received: false
+
+      778 | 			t.elements.some((e) => e.name === imageAsset.name),
+      779 | 		);
+    > 780 | 		expect(imageLanded, "second drop should land somewhere").toBeTruthy();
+          | 		                                                         ^
+      781 | 		console.log(
+      782 | 			`[M15-targets] track count before=${trackCountBefore} after=${tracks.length} (same => landed on existing track; +1 => new track was created instead)`,
+      783 | 		);
+        at /Users/zsha/Documents/ai-native-opencut/.claude/worktrees/agent-aa07da3cbe86f796e/apps/web/e2e/hunt/w-drag.hunt.e2e.ts:780:60
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/w-drag.hunt.e2e.ts-M15-—-a-e625e-ING-track-vs-BETWEEN-tracks-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/w-drag.hunt.e2e.ts-M15-—-a-e625e-ING-track-vs-BETWEEN-tracks-chrome/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/w-drag.hunt.e2e.ts-M15-—-a-e625e-ING-track-vs-BETWEEN-tracks-chrome/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/w-drag.hunt.e2e.ts-M15-—-a-e625e-ING-track-vs-BETWEEN-tracks-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  4) [chrome] › e2e/hunt/w-drag.hunt.e2e.ts:797:6 › M18 — context menu sweep (single session, 3 asset types) › video / image / audio menu items + still-processing asset 
+
+    TimeoutError: page.waitForEvent: Timeout 30000ms exceeded while waiting for event "filechooser"
+    =========================== logs ===========================
+    waiting for event "filechooser"
+    ============================================================
+
+      55 | 	);
+      56 | 	const [fileChooser] = await Promise.all([
+    > 57 | 		page.waitForEvent("filechooser"),
+         | 		     ^
+      58 | 		page.getByRole("button", { name: "Import", exact: true }).click(),
+      59 | 	]);
+      60 | 	await fileChooser.setFiles(filePath);
+        at importViaFileInput (/Users/zsha/Documents/ai-native-opencut/.claude/worktrees/agent-aa07da3cbe86f796e/apps/web/e2e/hunt/w-drag.hunt.e2e.ts:57:8)
+        at /Users/zsha/Documents/ai-native-opencut/.claude/worktrees/agent-aa07da3cbe86f796e/apps/web/e2e/hunt/w-drag.hunt.e2e.ts:814:19
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/w-drag.hunt.e2e.ts-M18-—-c-66ec4-tems-still-processing-asset-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/w-drag.hunt.e2e.ts-M18-—-c-66ec4-tems-still-processing-asset-chrome/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/w-drag.hunt.e2e.ts-M18-—-c-66ec4-tems-still-processing-asset-chrome/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/w-drag.hunt.e2e.ts-M18-—-c-66ec4-tems-still-processing-asset-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  5) [chrome] › e2e/hunt/w-drag.hunt.e2e.ts:1031:6 › M20 — Record entry points (entry + permission-denied UX only) › timeline toolbar mic button: entry + mic-permission GRANTED starts recording state 
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: true
+    Received: false
+
+      1046 | 			`[M20-toolbar-grant] recording state entered: ${isRecordingVisible}`,
+      1047 | 		);
+    > 1048 | 		expect(isRecordingVisible).toBe(true);
+           | 		                           ^
+      1049 |
+      1050 | 		// Clean up: stop recording so the test doesn't leak an open MediaRecorder.
+      1051 | 		if (isRecordingVisible) {
+        at /Users/zsha/Documents/ai-native-opencut/.claude/worktrees/agent-aa07da3cbe86f796e/apps/web/e2e/hunt/w-drag.hunt.e2e.ts:1048:30
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/w-drag.hunt.e2e.ts-M20-—-R-a1083-NTED-starts-recording-state-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/w-drag.hunt.e2e.ts-M20-—-R-a1083-NTED-starts-recording-state-chrome/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/w-drag.hunt.e2e.ts-M20-—-R-a1083-NTED-starts-recording-state-chrome/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/w-drag.hunt.e2e.ts-M20-—-R-a1083-NTED-starts-recording-state-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  6) [chrome] › e2e/hunt/w-drag.hunt.e2e.ts:1057:6 › M20 — Record entry points (entry + permission-denied UX only) › Assets-panel Audio > Record sub-tab: entry point + permission-denied UX 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('button', { name: 'Audio', exact: true })
+    Expected: visible
+    Error: strict mode violation: getByRole('button', { name: 'Audio', exact: true }) resolved to 2 elements:
+        1) <button type="button" aria-label="Audio" data-state="closed" class="inline-flex items-center cursor-pointer justify-center gap-2 whitespace-nowrap text-sm font-medium focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-primary/20 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 bg-transparent rounded-none opacity-100 hover:opacity-75 p-0 flex-col !p-1.5 !rounded-sm !h-auto [&_svg]:size-4.5 shrink-0 border border-transparent text-muted-foreg…>…</button> aka getByLabel('Audio', { exact: true })
+        2) <button type="button" data-testid="generate-media-tab-audio" class="relative flex h-[30px] flex-1 items-center justify-center rounded-lg text-[12.5px] font-semibold transition-colors duration-150 text-muted-foreground hover:text-foreground before:absolute before:left-0 before:h-4 before:w-px before:bg-foreground/[0.12]">…</button> aka getByTestId('generate-media-tab-audio')
+
+    Call log:
+      - Expect "toBeVisible" with timeout 20000ms
+      - waiting for getByRole('button', { name: 'Audio', exact: true })
+
+
+      1063 |
+      1064 | 		const audioTab = page.getByRole("button", { name: "Audio", exact: true });
+    > 1065 | 		await expect(audioTab).toBeVisible();
+           | 		                       ^
+      1066 | 		await audioTab.click();
+      1067 | 		await page.waitForTimeout(200);
+      1068 |
+        at /Users/zsha/Documents/ai-native-opencut/.claude/worktrees/agent-aa07da3cbe86f796e/apps/web/e2e/hunt/w-drag.hunt.e2e.ts:1065:26
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/w-drag.hunt.e2e.ts-M20-—-R-ce73b--point-permission-denied-UX-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/w-drag.hunt.e2e.ts-M20-—-R-ce73b--point-permission-denied-UX-chrome/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/w-drag.hunt.e2e.ts-M20-—-R-ce73b--point-permission-denied-UX-chrome/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/w-drag.hunt.e2e.ts-M20-—-R-ce73b--point-permission-denied-UX-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  6 failed
+    [chrome] › e2e/hunt/w-drag.hunt.e2e.ts:306:6 › M8 — rename via context menu › label edge cases: empty, 200-char, emoji, collision, reload persistence 
+    [chrome] › e2e/hunt/w-drag.hunt.e2e.ts:672:6 › M15 — alternate entry points and drop targets › list view: drag from compact/list row lands correctly 
+    [chrome] › e2e/hunt/w-drag.hunt.e2e.ts:715:6 › M15 — alternate entry points and drop targets › drop onto EMPTY timeline vs onto an EXISTING track vs BETWEEN tracks 
+    [chrome] › e2e/hunt/w-drag.hunt.e2e.ts:797:6 › M18 — context menu sweep (single session, 3 asset types) › video / image / audio menu items + still-processing asset 
+    [chrome] › e2e/hunt/w-drag.hunt.e2e.ts:1031:6 › M20 — Record entry points (entry + permission-denied UX only) › timeline toolbar mic button: entry + mic-permission GRANTED starts recording state 
+    [chrome] › e2e/hunt/w-drag.hunt.e2e.ts:1057:6 › M20 — Record entry points (entry + permission-denied UX only) › Assets-panel Audio > Record sub-tab: entry point + permission-denied UX 
+  7 passed (5.8m)

@@ -1,0 +1,44 @@
+
+Running 5 tests using 1 worker
+
+[C1] first import ok: {"id":"08716718-4b46-4473-a806-e9e97943dd8d","name":"tiny_640x360_h264.mp4","type":"video"}
+[C1] Import button still visible after first import: true
+[C1] second Import click -> filechooser fired: true 
+[C1] assets after second-import attempt: ["tiny_640x360_h264.mp4","alpha_overlay_512.png"]
+[C1] file input(s) in DOM: [{"id":"","hidden":false,"display":"none","multiple":true},{"id":"","hidden":false,"display":"none","multiple":true}]
+  ✓  1 [chrome] › e2e/hunt/w3-taskc.w3.e2e.ts:67:5 › C-item1: second Import click opens a filechooser after panel is populated (4.0s)
+[C2] imported: {"id":"1d23210d-c371-4c6e-94cf-84ee57ec6f54","name":"tiny_640x360_h264.mp4","type":"video"}
+[C2] view-toggle button visible: true
+[C2] row DOM shape after toggle: {"hasTitledSpan":false,"hasExactTextSpan":true,"draggableAncestorOfTitled":null,"draggableAncestorOfExact":false}
+[C2] draggable element search result: {"found":false,"how":"none"}
+  ✓  2 [chrome] › e2e/hunt/w3-taskc.w3.e2e.ts:135:5 › C-item2: list/compact view exists and a row is human-draggable to timeline (2.6s)
+[C3] imported: {"video":{"id":"82a23afd-1337-4cfa-9b7f-89597cdd70eb","name":"tiny_640x360_h264.mp4","type":"video"},"image":{"id":"258f6e68-be78-4c28-81be-a9c1c387706f","name":"alpha_overlay_512.png","type":"image"}}
+[C3] after drop1 (video, empty timeline): [{"id":"080c608f-f6b6-4cc6-bd09-30b849ba54c7","type":"video","elements":[{"name":"tiny_640x360_h264.mp4","startTime":0.13333333333333333}]},{"id":"e1729fd2-1613-48ab-bf0e-73c64c3a6ba5","type":"video","elements":[]}]
+[C3] occupied-track element probe: {"x":1486.953125,"y":10.1875,"width":95.53125,"height":36,"top":10.1875,"right":1582.484375,"bottom":46.1875,"left":1486.953125}
+[C3] after drop2 (image onto occupied-track band): [{"id":"080c608f-f6b6-4cc6-bd09-30b849ba54c7","type":"video","elements":[{"name":"tiny_640x360_h264.mp4","startTime":0.13333333333333333}]},{"id":"bba4c123-f763-48a8-b310-9f5a6324fc94","type":"video","elements":[{"name":"alpha_overlay_512.png","startTime":1.2}]},{"id":"e1729fd2-1613-48ab-bf0e-73c64c3a6ba5","type":"video","elements":[]}]
+[C3] image landed anywhere after drop2: true
+[C3] after drop3 (image onto empty space below tracks): [{"id":"080c608f-f6b6-4cc6-bd09-30b849ba54c7","type":"video","elements":[{"name":"tiny_640x360_h264.mp4","startTime":0.13333333333333333}]},{"id":"bba4c123-f763-48a8-b310-9f5a6324fc94","type":"video","elements":[{"name":"alpha_overlay_512.png","startTime":1.2}]},{"id":"f9570d88-1fbf-4a89-9092-32fc1ff2f11b","type":"video","elements":[{"name":"alpha_overlay_512.png","startTime":1.2}]},{"id":"e1729fd2-1613-48ab-bf0e-73c64c3a6ba5","type":"video","elements":[]}]
+[C3] image landed anywhere after drop3: false
+  ✓  3 [chrome] › e2e/hunt/w3-taskc.w3.e2e.ts:364:5 › C-item3: second drop (image onto occupied track, then onto empty space) (4.0s)
+[C4] recording state entered (with fake device flags): true
+[C4] error toast visible: false
+  ✓  4 [chrome] › e2e/hunt/w3-taskc.w3.e2e.ts:489:5 › C-item4: record start under granted permission + fake device (10.1s)
+[CONFIRM] elements matching accessible name 'Audio': [
+  {
+    "role": "button (implicit)",
+    "ariaLabel": "Audio",
+    "textContent": "",
+    "testId": null,
+    "outerHTMLSnippet": "<button class=\"inline-flex items-center cursor-pointer justify-center gap-2 whitespace-nowrap text-sm font-medium focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-primary/20 disabl"
+  },
+  {
+    "role": "button (implicit)",
+    "ariaLabel": null,
+    "textContent": "Audio",
+    "testId": "generate-media-tab-audio",
+    "outerHTMLSnippet": "<button type=\"button\" data-testid=\"generate-media-tab-audio\" class=\"relative flex h-[30px] flex-1 items-center justify-center rounded-lg text-[12.5px] font-semibold transition-colors duration-150 text"
+  }
+]
+  ✓  5 [chrome] › e2e/hunt/w3-taskc.w3.e2e.ts:526:5 › Confirm: duplicate accessible name Audio (assets-tab vs generate-media-tab-audio) (2.7s)
+
+  5 passed (25.8s)
