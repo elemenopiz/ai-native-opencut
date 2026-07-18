@@ -191,7 +191,7 @@ export function EasingPicker() {
 
 	return (
 		<div className="flex items-center justify-between gap-2 border-t px-3 py-2">
-			<span className="text-[11px] font-medium text-muted-foreground">
+			<span className="text-2xs font-medium text-muted-foreground">
 				Easing
 			</span>
 			<EasingGraphPopover

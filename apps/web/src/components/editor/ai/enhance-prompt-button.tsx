@@ -216,7 +216,7 @@ export function EnhancePromptButton({
 					type="button"
 					onClick={undo}
 					title="Undo enhancement — restore your original prompt"
-					className="inline-flex items-center gap-0.5 rounded px-1 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+					className="inline-flex items-center gap-0.5 rounded px-1 text-2xs font-medium text-muted-foreground transition-colors hover:text-foreground"
 				>
 					<HugeiconsIcon icon={ArrowTurnBackwardIcon} className="size-3" />
 					Enhanced · Undo

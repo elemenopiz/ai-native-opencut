@@ -188,12 +188,12 @@ export function AICommandPanel({
 						className="size-4 text-primary"
 					/>
 					<span className="text-sm font-medium">AI Studio</span>
-					<Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+					<Badge variant="secondary" className="text-2xs px-1.5 py-0">
 						Beta
 					</Badge>
 				</div>
 				<div className="flex items-center gap-1">
-					<kbd className="text-[10px] text-muted-foreground bg-accent rounded px-1 py-0.5">
+					<kbd className="text-2xs text-muted-foreground bg-accent rounded px-1 py-0.5">
 						{typeof navigator !== "undefined" &&
 						/Mac/.test(navigator.userAgent)
 							? "\u2318K"
@@ -270,7 +270,7 @@ export function AICommandPanel({
 						)}
 					</Button>
 				</div>
-				<p className="text-[9px] text-muted-foreground mt-1.5 text-center">
+				<p className="text-3xs text-muted-foreground mt-1.5 text-center">
 					Press Enter to send &middot; Save responses as ideas
 				</p>
 			</div>
@@ -348,7 +348,7 @@ function MessageBubble({
 				<Button
 					variant="ghost"
 					size="sm"
-					className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground gap-1"
+					className="h-5 px-1.5 text-2xs text-muted-foreground hover:text-foreground gap-1"
 					onClick={() => saveIdea(message.content)}
 				>
 					<HugeiconsIcon icon={Bookmark01Icon} className="size-3" />
@@ -389,7 +389,7 @@ function ActionPreviewCard({
 				<div className="flex items-start justify-between gap-2">
 					<div className="flex-1 min-w-0">
 						<p className="text-xs font-medium truncate">{action.label}</p>
-						<p className="text-[11px] text-muted-foreground mt-0.5">
+						<p className="text-2xs text-muted-foreground mt-0.5">
 							{action.description}
 						</p>
 					</div>
@@ -401,7 +401,7 @@ function ActionPreviewCard({
 									? "secondary"
 									: "outline"
 						}
-						className="text-[10px] shrink-0"
+						className="text-2xs shrink-0"
 					>
 						{action.status === "applied"
 							? "Applied"

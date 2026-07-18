@@ -237,7 +237,7 @@ export function SubtitleStyleEditor({
 										/>
 									)}
 								</div>
-								<p className="text-[10px] text-muted-foreground mt-0.5">
+								<p className="text-2xs text-muted-foreground mt-0.5">
 									{preset.description}
 								</p>
 							</CardContent>
@@ -262,7 +262,7 @@ export function SubtitleStyleEditor({
 									/>
 								)}
 							</div>
-							<p className="text-[10px] text-muted-foreground mt-0.5">
+							<p className="text-2xs text-muted-foreground mt-0.5">
 								Full customization
 							</p>
 						</CardContent>

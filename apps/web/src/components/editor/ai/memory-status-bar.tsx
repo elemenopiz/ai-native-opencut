@@ -75,7 +75,7 @@ export function MemoryStatusBar({
 					{/* GPU bar */}
 					{hasGpu && (
 						<div className="flex items-center gap-1.5">
-							<span className="text-[10px] font-medium w-6">GPU</span>
+							<span className="text-2xs font-medium w-6">GPU</span>
 							<div className="w-16 h-1.5 bg-accent rounded-full overflow-hidden">
 								<div
 									className={cn(
@@ -87,7 +87,7 @@ export function MemoryStatusBar({
 							</div>
 							<span
 								className={cn(
-									"text-[10px] tabular-nums w-8",
+									"text-2xs tabular-nums w-8",
 									getTextColor(gpuPercent),
 								)}
 							>
@@ -99,7 +99,7 @@ export function MemoryStatusBar({
 					{/* RAM bar */}
 					{hasRam && (
 						<div className="flex items-center gap-1.5">
-							<span className="text-[10px] font-medium w-7">RAM</span>
+							<span className="text-2xs font-medium w-7">RAM</span>
 							<div className="w-16 h-1.5 bg-accent rounded-full overflow-hidden">
 								<div
 									className={cn(
@@ -111,7 +111,7 @@ export function MemoryStatusBar({
 							</div>
 							<span
 								className={cn(
-									"text-[10px] tabular-nums w-8",
+									"text-2xs tabular-nums w-8",
 									getTextColor(ramPercent),
 								)}
 							>
@@ -122,7 +122,7 @@ export function MemoryStatusBar({
 
 					{/* Fallback when no memory data is available */}
 					{!hasAnyData && (
-						<span className="text-[10px]">AI Connected</span>
+						<span className="text-2xs">AI Connected</span>
 					)}
 				</div>
 			</TooltipTrigger>

@@ -73,7 +73,7 @@ export function GenerativeSlotContent({
 
 			<span
 				className={cn(
-					"truncate text-[11px] leading-none",
+					"truncate text-2xs leading-none",
 					isFailed ? "text-red-300" : "text-white/90",
 				)}
 			>
@@ -91,7 +91,7 @@ export function SlotTakesBadge({ element }: { element: GenerativeElement }) {
 	const takes = element.takes ?? [];
 	if (!element.generation || takes.length < 2) return null;
 	return (
-		<div className="pointer-events-none absolute right-1 top-1 z-10 rounded-sm bg-black/70 px-1 py-0.5 text-[10px] font-medium leading-none text-white">
+		<div className="pointer-events-none absolute right-1 top-1 z-10 rounded-sm bg-black/70 px-1 py-0.5 text-2xs font-medium leading-none text-white">
 			{takes.length} takes
 		</div>
 	);

@@ -47,13 +47,13 @@ const SEVERITY_CONFIG: Record<
 	}
 > = {
 	warning: {
-		bg: "bg-yellow-500/5 dark:bg-yellow-500/10",
+		bg: "bg-yellow-500/10",
 		border: "border-yellow-500/30",
 		iconColor: "text-yellow-500",
 		icon: Alert01Icon,
 	},
 	improvement: {
-		bg: "bg-blue-500/5 dark:bg-blue-500/10",
+		bg: "bg-blue-500/10",
 		border: "border-blue-500/30",
 		iconColor: "text-blue-500",
 		icon: ArrowUp01Icon,
@@ -197,10 +197,7 @@ export function SmartSuggestions({
 									className="size-5 shrink-0 -mt-0.5 -mr-1"
 									aria-label="Close"
 								>
-									<HugeiconsIcon
-										icon={Cancel01Icon}
-										className="size-3"
-									/>
+									<HugeiconsIcon icon={Cancel01Icon} className="size-3" />
 								</Button>
 							</div>
 						</CardContent>
@@ -209,7 +206,7 @@ export function SmartSuggestions({
 			})}
 
 			{queuedCount > 0 && (
-				<p className="text-[10px] text-muted-foreground text-center">
+				<p className="text-2xs text-muted-foreground text-center">
 					+{queuedCount} more suggestion{queuedCount !== 1 ? "s" : ""}
 				</p>
 			)}

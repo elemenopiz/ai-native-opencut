@@ -44,7 +44,7 @@ export function EffectParamField({
 	if (param.type === "wheel") {
 		return (
 			<div className="flex flex-col items-center gap-1.5 py-1">
-				<span className="text-[11px] text-muted-foreground">{param.label}</span>
+				<span className="text-2xs text-muted-foreground">{param.label}</span>
 				<ColorWheel
 					value={typeof value === "string" ? value : param.default}
 					onPreview={onPreview}
@@ -58,7 +58,7 @@ export function EffectParamField({
 	if (param.type === "lut-select") {
 		return (
 			<div className="flex flex-col gap-1.5 py-1">
-				<span className="text-[11px] text-muted-foreground">{param.label}</span>
+				<span className="text-2xs text-muted-foreground">{param.label}</span>
 				<LutSelectParamField
 					value={typeof value === "string" ? value : param.default}
 					onPreview={onPreview}
@@ -72,7 +72,7 @@ export function EffectParamField({
 	if (param.type === "lut") {
 		return (
 			<div className="flex flex-col gap-1.5 py-1">
-				<span className="text-[11px] text-muted-foreground">{param.label}</span>
+				<span className="text-2xs text-muted-foreground">{param.label}</span>
 				<LutParamField
 					value={typeof value === "string" ? value : ""}
 					onPreview={onPreview}
@@ -371,7 +371,7 @@ function LutParamField({
 					</Button>
 				) : null}
 			</div>
-			<span className="truncate text-[11px] text-muted-foreground">
+			<span className="truncate text-2xs text-muted-foreground">
 				{loadedName ?? "No LUT loaded"}
 			</span>
 		</div>

@@ -478,7 +478,7 @@ export function QuickActionsBar({ className }: { className?: string }) {
 				className,
 			)}
 		>
-			<span className="text-[10px] text-muted-foreground font-medium px-1 shrink-0">
+			<span className="text-2xs text-muted-foreground font-medium px-1 shrink-0">
 				Quick actions
 			</span>
 			<div className="w-px h-4 bg-border shrink-0" />
@@ -489,7 +489,7 @@ export function QuickActionsBar({ className }: { className?: string }) {
 							variant="ghost"
 							size="sm"
 							className={cn(
-								"h-7 text-[11px] px-2 gap-1.5",
+								"h-7 text-2xs px-2 gap-1.5",
 								action.status === "done" && "text-green-400",
 							)}
 							disabled={action.status === "running"}
@@ -506,7 +506,7 @@ export function QuickActionsBar({ className }: { className?: string }) {
 							{action.count !== undefined && action.count > 0 && (
 								<Badge
 									variant="secondary"
-									className="text-[9px] px-1 py-0 h-4 min-w-4 justify-center"
+									className="text-3xs px-1 py-0 h-4 min-w-4 justify-center"
 								>
 									{action.count}
 								</Badge>
