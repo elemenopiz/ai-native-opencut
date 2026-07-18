@@ -53,17 +53,33 @@ W1 lands FIRST (tokens). W2–W5 branch off main in parallel and reference token
 ## Definition of done (per item)
 Landed on campaign tip; typecheck exit 0 (check real exit code, not tail-piped); lint no-worse than ~339e/225w; NO `dark:` pairs added; before/after screenshots in `docs/campaigns/assets/ui-phase-b/`; battery green on tip.
 
-## Status (records the PAST only)
-| Item | Worker | Status |
+## CLOSE-OUT (2026-07-18, campaign tip @658fb806)
+
+| Item | Status (tier) | Evidence |
 |---|---|---|
-| Item 2 — tokens/focus/dark/Kbd | W1 | MERGED to campaign @55187102 (worker @36dc03f0; typecheck 0; diff reviewed) — browser pass pending |
-| Item 3 — overlays + tasks mini-bar + task glow | W2 | MERGED to campaign @b4a8c365 (worker 2 commits + 3 screenshots; typecheck 0; diff reviewed; worker browser-verified mini-bar geometry) |
-| Item 4 — Board rebuild | W3 | CHERRY-PICKED to campaign @373465d2 (worker @c0ce5e9d; typecheck 0; diff reviewed) — browser pass pending |
-| Item 5 — micro-type codemod + BUG28 + clip glow | W4 | MERGED @6b665e3c + rework @147d9e9b (L1 caught BUG28 dead-code condition — ensureMainTrack guarantees ≥1 track; reworked to every-track-empty overlay). Hint VERIFIED LIVE in browser on campaign tip |
-| Item 6 — left-rail cards + BUG27 | W5 | MERGED @ (worker @3f421909; typecheck 0; 4 screenshots) — BUG27 placement REWORK requested (guide card occluded timeline toolbar/track headers; L1 caught live) |
-| Item 7 — header/chrome remainder | W6 | in-flight (dispatched off campaign branch: Kbd swaps, h-[3.4rem], W2 nits) |
-| Item 8 — Scopes graticule + primary action | W6 | in-flight |
-| Item 9 — div-onClick sweep | — | STRETCH (skip) |
+| Item 2 — token delta, Input focus, dark-sweep, Kbd primitive | **DONE, verified locally** | W1 @36dc03f0 merged @55187102; tokens confirmed live in browser (`--surface-overlay` #1f1f1f, `--text-2xs` .66rem, glow var); Input focus recipe confirmed in live DOM |
+| Item 3 — overlay discipline + tasks docked mini-bar + task glow | **DONE, verified locally** | W2 merged @b4a8c365; menu overlay verified live (bg=surface-overlay, radius 16px, shadow-float); mini-bar geometry browser-measured by W2 (`w2-tasksbar-*.png` ×3) |
+| Item 4 — Board rebuild | **DONE, verified locally** | W3 @c0ce5e9d cherry-picked @373465d2 (branch had stray base commits — excluded); Board driven live: opaque scrim, designed empty state, Radix Dialog Esc/focus-trap, 0 raw buttons; `final-03-board-empty-state.png` |
+| Item 5 — micro-type codemod (254 sites) + BUG28 + slot glow | **DONE, verified locally** | W4 merged @6b665e3c + rework @147d9e9b (L1 caught the `tracks.length===0` dead-code condition; reworked to every-track-empty overlay); hint verified live on a real fresh project; `final-01-*.png` |
+| Item 6 — left-rail card unification + skeletons + IMPACT retone | **DONE, merged; panels browser-shot by W5** | W5 @3f421909 merged @4af8aab0; `w5-02/03/04-*.png`; insights/factcheck dark-folds verified by grep (feature-flagged surfaces, not driven) |
+| BUG27 — first-run guide hid the composer | **DONE, verified locally** | W5 first fix traded composer-occlusion for timeline-occlusion (L1 caught live); rework @93b373c8 anchors guide inside main-content row — composer + timeline toolbar + track header all visible; `final-01-*.png`, `w5-06-*.png` |
+| BUG28 — timeline empty-state hint | **DONE, verified locally** | see Item 5 |
+| Generation-glow (B-borrow) | **DONE (merged; live-state driven only for task rows by W2)** | `.glow-generation` utility; applied ONLY: generating slots (W4), running task rows/pill (W2, `w2-tasksbar-mixed-glow.png` shows glow dies on completion). Nothing else glows |
+| Item 7 — header/chrome (Kbd swaps, h-[3.4rem], credit pill) | **DONE, merged (typecheck 0, lint better)** | W6 @3d78e639 merged @658fb806; h-[3.4rem] kept deliberately (ai-panel-wrapper pins `top-[3.4rem]`, out of W6 territory) — hoisted to a named constant; follow-up candidate |
+| Item 8 — Scopes idle graticule + primary action | **DONE, verified locally** | W6; graticule + demoted Look select + primary Auto Correct verified live; `final-02-scopes-idle-graticule.png` |
+| Item 9 — raw div-onClick sweep | **NOT-STARTED** (declared stretch; budget spent on the BUG27/BUG28 rework loops) | — |
+
+**Battery on tip @658fb806:** typecheck exit 0 · build exit 0 · lint 335e/224w (baseline 339e/225w — better) · root `bun test` 15 fails on rerun, all in known env/order-dependent suites (proxy-worker, redis-health, media-add), none importing campaign files — no C15 regression · `git diff main..campaign` adds `dark:` only inside comments (0 new dark: classes).
+
+**Bugs filed:** none — BUG73–BUG79 range UNUSED (workers surfaced no confident novel defects; all findings were fixed in-campaign).
+
+**Screenshots (docs/campaigns/assets/ui-phase-b/):** final-01 (first-run: guide+composer+timeline hint), final-02 (scopes graticule), final-03 (board empty state), w2-tasksbar ×3, w5-01/02/03/04/06. Before-state = phase-A §4 table (`docs/design/assets/`).
+
+**Incidents (for L0):** (1) W3 branched off a stale worktree HEAD carrying 2 unrelated record-button commits — resolved by cherry-pick; those commits (`ef4759c6`, `92f2505a`) still live only on task/w3-board-rebuild + this worktree's original branch — L0 should check whether that record-button work is landed elsewhere or orphaned. (2) W5 killed another session's port-3000 dev server via preview_start reuse (known fleet failure mode). (3) W3 ran a repo-global `git stash pop` that briefly popped a sibling's stash entry — self-reported restored; verify stash list if a sibling complains.
+
+**Territory: RELEASED** (components/editor/**, components/ui/**, globals.css, editor page layout).
+
+**Next UI wave should:** (1) Item 9 div-onClick sweep (director.tsx 31, timeline 21+18, insights 16); (2) swap the last hand-rolled kbd in `empty-editor-guide.tsx` to `<Kbd>` (excluded from W6 for collision safety); (3) retire `h-[3.4rem]` by moving header + `ai-panel-wrapper.tsx` `top-[3.4rem]` together; (4) Button focus ring is `ring-1 ring-primary/20` — audit visibility on borderless variants against WCAG 2.4.7; (5) Select `size` prop still doesn't size (phase-A §3.7 leftover); (6) drive insights/factcheck surfaces once un-flagged.
 
 ## Worker log
 - **W1** (task/w1-tokens-primitives @36dc03f0): DONE. globals.css + 9 primitives + kbd.tsx. Typecheck 0. Decisions: light `:root`/`.panel` blocks deleted with single-declaration tokens hoisted into `.dark`; focus recipe applied to 8 primitives (incl. ring-0 zero-width fixes in Textarea/Select/NumberField); textarea dark:bg-input/30 → bg-input/30. Kbd call sites NOT swapped (close-out pass). Could not browser-verify. Review note (L1): Button focus ring now `ring-1 ring-primary/20` — possibly too faint on borderless variants; check in browser pass.
