@@ -30,6 +30,7 @@ import {
 	type ExportFormat,
 	type ExportQuality,
 } from "@/types/export";
+import { PLAYBOOKS, type PlaybookId } from "@/lib/studio/playbooks";
 import type { DirectorApi, SpecOverride } from "./director-api";
 import type { DirectorResult } from "./types";
 import type { ConsistencyCharacter } from "./consistency-prompt";
@@ -675,6 +676,77 @@ export function toolCatalog(): ToolDescriptor[] {
 				required: ["itemId"],
 			},
 			handler: (d, a) => d.discardBoardItem({ itemId: str(a.itemId) }),
+		{
+			name: "readPlaybook",
+			description:
+				"read the full body of a named UGC prompt playbook (title/description already ride the system-prompt pointer).",
+			mutating: false,
+			// Self-contained lookup against the static PLAYBOOKS registry; ignores
+			// the director arg entirely (no reel/timeline state involved).
+			inputSchema: {
+				type: "object",
+				properties: {
+					id: {
+						type: "string",
+						enum: ["ugc-photo-prompts", "ugc-video-prompts"],
+						description: "Playbook id.",
+					},
+				},
+				required: ["id"],
+				additionalProperties: false,
+			},
+			handler: (_d, a) => {
+				const id = str(a.id);
+				const playbook = PLAYBOOKS[id as PlaybookId];
+				if (!playbook) {
+					return {
+						ok: false,
+						message: `Unknown playbook "${id}". Valid ids: ${Object.keys(
+							PLAYBOOKS,
+						).join(", ")}.`,
+					};
+				}
+				return {
+					ok: true,
+					message: `Playbook "${id}" returned.`,
+					data: {
+						id: playbook.id,
+						title: playbook.title,
+						description: playbook.description,
+						content: playbook.content,
+					},
+				};
+			},
+		},
+		{
+			name: "reportLimitation",
+			description:
+				"report a capability gap you hit (a verb/param you needed and lacked) so we can prioritize; paraphrase, don't paste user content.",
+			mutating: false,
+			// Pure logic — no network/MCP call here. The actual telemetry recording
+			// rides the existing MCP-boundary recordMcpEvent + in-app verb-telemetry.
+			inputSchema: {
+				type: "object",
+				properties: {
+					category: {
+						type: "string",
+						description:
+							"short bucket, e.g. 'missing-verb', 'missing-param', 'unsupported-media'.",
+					},
+					summary: {
+						type: "string",
+						description:
+							"one-line paraphrase of what you needed and couldn't do.",
+					},
+				},
+				required: ["category", "summary"],
+				additionalProperties: false,
+			},
+			handler: (_d, a) => ({
+				ok: true,
+				message: "Limitation recorded — thanks, this helps us prioritize.",
+				data: { category: str(a.category), summary: str(a.summary) },
+			}),
 		},
 		// ── storyboard ──────────────────────────────────────────────────────
 		{

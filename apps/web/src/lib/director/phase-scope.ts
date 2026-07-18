@@ -173,6 +173,13 @@ export const PHASE_TOOL_ASSIGNMENTS: Readonly<
 	getBoard: ["production"],
 	promoteBoardItem: ["production"],
 	discardBoardItem: ["production"],
+	// meta/read utilities — orientation aids: readPlaybook (fetch a prompt
+	// playbook body) and reportLimitation (feed back a capability gap). Kept on
+	// the briefing+production menu, where prompt-craft guidance and mid-build
+	// gap-reporting actually happen; polish is at its enforced ceiling (see the
+	// count bounds in phase-scope.test.ts), so these stay off it.
+	readPlaybook: ["briefing", "production"],
+	reportLimitation: ["briefing", "production"],
 	getBrief: ["briefing"],
 	getProposal: ["briefing"],
 	getConsistencyContext: ["briefing"],
