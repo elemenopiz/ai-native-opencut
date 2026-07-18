@@ -39,6 +39,7 @@ import { CanvasRenderer } from "@/services/renderer/canvas-renderer";
 import type { RootNode } from "@/services/renderer/nodes/root-node";
 import { buildScene } from "@/services/renderer/scene-builder";
 import { getLastFrameTime } from "@/lib/time";
+import { LayoutGuideOverlay } from "./layout-guide-overlay";
 import { perfStats } from "@/services/renderer/perf-stats";
 import type { PerfStatsSnapshot } from "@/services/renderer/perf-stats";
 import {
@@ -434,6 +435,7 @@ export function WorkerPreviewCanvas({
 					className={cn("pointer-events-none absolute inset-0 block")}
 					style={{ width: displaySize.width, height: displaySize.height }}
 				/>
+				<LayoutGuideOverlay />
 				{overlays.perfHud && (
 					<>
 						<WorkerPerfHud stats={workerStats} />
