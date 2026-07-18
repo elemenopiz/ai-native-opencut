@@ -68,25 +68,25 @@ Verdict columns filled from worker property-tests. `redo` col: `own` = overrides
 | 12 | UpdateElementDurationCommand | A elem | exec | ✓ | ✓ | n/a | ✓ |
 | 13 | UpdateElementStartTimeCommand | A elem | exec | ✓ | ✓ | n/a | ✓ |
 | 14 | UpdateElementTrimCommand | A elem | exec | ✓ | ✓ | n/a | ✓ |
-| 15 | AddClipEffectCommand | B fx | exec | | | | |
-| 16 | RemoveClipEffectCommand | B fx | exec | | | | |
-| 17 | ReorderClipEffectsCommand | B fx | exec | | | | |
-| 18 | ToggleClipEffectCommand | B fx | exec | | | | |
-| 19 | UpdateClipEffectParamsCommand | B fx | exec | | | | |
-| 20 | AddTransitionCommand | B fx | exec | | | | |
-| 21 | UpsertKeyframeCommand | B kf | exec | | | | |
-| 22 | RemoveKeyframeCommand | B kf | exec | | | | |
-| 23 | RetimeKeyframeCommand | B kf | exec | | | | |
-| 24 | SetKeyframeEasingCommand | B kf | exec | | | | |
-| 25 | UpsertEffectParamKeyframeCommand | B kf | exec | | | | |
-| 26 | RemoveEffectParamKeyframeCommand | B kf | exec | | | | |
-| 27 | PasteKeyframesCommand | B kf | exec | | | | |
-| 28 | AddTrackCommand | B trk | exec | | | | |
-| 29 | RemoveTrackCommand | B trk | exec | | | | |
-| 30 | ToggleTrackMuteCommand | B trk | exec | | | | |
-| 31 | ToggleTrackVisibilityCommand | B trk | exec | | | | |
-| 32 | PasteCommand (clipboard) | B trk | exec | | | | |
-| 33 | TracksSnapshotCommand | B trk | exec | | | | |
+| 15 | AddClipEffectCommand | B fx | exec | ✓ | ✓ (fresh effect id per execute, by-value) | n/a | ✓ |
+| 16 | RemoveClipEffectCommand | B fx | exec | ✓ | ✓ | ✓ prunes param-keyframes⁶ | ✓ |
+| 17 | ReorderClipEffectsCommand | B fx | exec | ✓ | ✓ | n/a | ✓ |
+| 18 | ToggleClipEffectCommand | B fx | exec | ✓ | ✓ | n/a | ✓ |
+| 19 | UpdateClipEffectParamsCommand | B fx | exec | ✓ | ✓ | n/a | ✓ |
+| 20 | AddTransitionCommand | B fx | exec | ✓ | ✓ | n/a | ✓ |
+| 21 | UpsertKeyframeCommand | B kf | exec | ✓ | ✓ | n/a | ✓ |
+| 22 | RemoveKeyframeCommand | B kf | exec | ✓ | ✓ | ✗ kf-selection (BUG104, deferred HIGH) | ✓ |
+| 23 | RetimeKeyframeCommand | B kf | exec | ✓ | ✓ | n/a | ✓ |
+| 24 | SetKeyframeEasingCommand | B kf | exec | ✓ | ✓ | n/a | ✓ |
+| 25 | UpsertEffectParamKeyframeCommand | B kf | exec | ✓ | ✓ | n/a | ✓ |
+| 26 | RemoveEffectParamKeyframeCommand | B kf | exec | ✓ | ✓ | n/a | ✓ |
+| 27 | PasteKeyframesCommand | B kf | exec | ✓ | ✓ (by-value; fresh kf ids per execute) | n/a | ✓ |
+| 28 | AddTrackCommand | B trk | exec | ✓ | ✓ (stable trackId) | n/a | ✓ |
+| 29 | RemoveTrackCommand | B trk | exec | ✓ | ✓ | ✗ selection (BUG103, deferred HIGH) | ✓ |
+| 30 | ToggleTrackMuteCommand | B trk | exec | ✓ | ✓ | n/a | ✓ |
+| 31 | ToggleTrackVisibilityCommand | B trk | exec | ✓ | ✓ | n/a | ✓ |
+| 32 | PasteCommand (clipboard) | B trk | exec | ✓ | ✓ (by-value; fresh element ids per execute) | ✓ selection | ✓ |
+| 33 | TracksSnapshotCommand | B trk | exec | ✓ | ✓ (fixed snapshots by design) | n/a | ✓ |
 | 34 | RemoveMediaAssetCommand | C media | **own** | ✓(C25) | ✓(C25) | ✓ transcript+sel¹ | ✓ |
 | 35 | AddMediaAssetCommand | C media | exec | ✓ | ✓ (stable id) | n/a | ✓ |
 | 36 | CreateSceneCommand | C scene | exec | ✓ | ✓² | n/a | ✓ |
@@ -112,6 +112,13 @@ of intervening state drift — verified directly.
 ⁴ BUG109 (fixed): `speakerPositions` restore was an additive per-id merge
 that never cleared a position set after the snapshot — now a full
 `useTranscriptStore.setState()` replace.
+
+⁶ Worker B cascade fix (unnumbered, fixed inline): removing an effect left its
+param-keyframe channels (`effects.<effectId>.params.*` in
+`element.animations.channels`) dangling forever, including through save/load —
+`RemoveClipEffectCommand` now prunes them in `removeEffectFromElement` (and
+undo restores them with the saved track state). Test: undo-roundtrip-kf-fx
+"RemoveClipEffectCommand ... forward-prunes orphaned effect-param keyframes".
 
 ⁵ BUG100 (fixed, worker A): inserting the FIRST visual element seeds project
 canvasSize/originalCanvasSize/fps off the asset via
@@ -155,7 +162,7 @@ re-runs battery staggered, judges full-suite delta vs baseline **2175 pass / 5 s
 | Worker | Family | Branch | Status |
 |--------|--------|--------|--------|
 | A | element core | task/c27-element | crashed pre-commit (stream watchdog); complete working tree reviewed + PORTED by L1 @ef3a101b (L1 fixed one main-track test fixture) |
-| B | kf/fx/track | task/c27-kf-fx | in flight (effects family edited; parked on typecheck monitor ~129 tool uses; polling) |
+| B | kf/fx/track | task/c27-kf-fx | stalled pre-commit (parked on typecheck monitor, diff unchanged across two polls); complete working tree reviewed + PORTED by L1 (all 19 commands tested; BUG103/104 filed as HIGH-impact deferrals; effect-param-keyframe prune fix) |
 | C | media/scene/cascade | task/c27-media-cascade | finished work but parked pre-commit; working tree reviewed + PORTED by L1 @f0179b70 |
 
 ## Bugs filed (BUG100–109)
@@ -242,6 +249,31 @@ window — un-commanded, so it's invisible to the transaction's `BatchCommand`
 and never gets reversed. Ctrl+Z after a multi-select delete restores the
 elements and the transcript but leaves the selection empty instead of
 restoring the pre-delete selection.
+
+Worker B (BUG103–104), both STOP-AND-REPORT deferrals (impact HIGH — candidate
+fixes recorded, NOT applied blind per campaign policy):
+
+- **BUG103** — `RemoveTrackCommand` (`lib/commands/timeline/track/remove-track.ts`),
+  Medium. Repro: select an element on a non-main track → `removeTrack({trackId})`
+  → `editor.selection.getSelectedElements()` still returns the stale
+  `{trackId, elementId}` ref (SelectionManager has no pruning subscriber; nothing
+  calls it from track removal). Undo of the track itself IS clean — this is a
+  forward-cascade gap on the selection store, same dangling-ref class as BUG34.
+  `impact(RemoveTrackCommand, upstream)` = **HIGH** (18 symbols, 4 flows incl.
+  captions/speaker-captions/brand-kit/quick-actions-bar/drag-drop). Candidate fix
+  (untested): capture `previousSelection` in execute(), filter refs to the removed
+  track's elements, restore in undo() — the `PasteCommand`/`RemoveMediaAssetCommand`
+  convention.
+- **BUG104** — `RemoveKeyframeCommand` (`lib/commands/timeline/element/keyframes/remove-keyframe.ts`),
+  Low. Repro: `setSelectedKeyframes` on a keyframe → remove that exact keyframe →
+  `getSelectedKeyframes()` still returns the dead `keyframeId` (command only
+  touches `updateTracks`, never keyframe selection). Track round-trip IS clean;
+  gap surfaces with an open curve/graph panel or Director/MCP verbs (which skip
+  the UI's click-to-deselect path). `impact(RemoveKeyframeCommand, upstream)` =
+  **HIGH** (9 symbols; `useEditorActions` + 3 keyframed-property call sites).
+  Candidate fix (untested): drop the removed ref from keyframe selection in
+  execute() (clear anchor if it was the anchor), capture/restore prior keyframe
+  selection in undo().
 
 ## Merge / battery log
 
