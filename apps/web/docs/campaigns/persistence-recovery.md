@@ -116,4 +116,70 @@ different files (managers vs service). H is read-only.
   write failure there would be an unhandled rejection; now `.catch` → console.error.
 - 2026-07-18: L1 battery on merged tip (d078fa86 + guard): managers + providers +
   storage suites **137/0**. Typecheck in flight (host heavily contended).
-- Worker H (hunt) still in flight.
+- 2026-07-18: **Worker H (hunt) returned + MERGED** (`task/c28-hunt` @f1e0679d →
+  merge into campaign; docs+9 screenshots only, hunted the PRE-fix baseline
+  main@29a06429). Matrix: **3 PASS** (1a saved-past-debounce, 1c mid-drag reverts
+  cleanly/no corruption, **§4 project-switch soak — 2026-07-17 hardening HELD**, zero
+  store bleed across 8 switches ×3 projects), **5 FAIL** all mapping to the S-worker
+  fixes with measured repros (1b 800ms window via freeze-timer, 3 dup-tab clobber
+  duration delta 31s→36s). ID COLLISION resolved: H's generation-orphan find was filed
+  "BUG130" which collided with Hl's BUG130 → renumbered **BUG132**. H also filed
+  **BUG131** (SaveStatus stale "Saved" during the pending-but-not-failed debounce
+  window — distinct from BUG125's failure-path lie). BUG127 severity caveat adopted:
+  real browsers DO show the native leave-site dialog (CDP navigate bypasses it) — loss
+  path is click-through / dialog-suppressing context / crash.
+- 2026-07-18: **RED→GREEN browser verification on the campaign tip** (dev server
+  `:3253`, real Chrome via Playwright, IndexedDB read as ground truth):
+  - **BUG127 FIXED:** R1 frozen-timer pending edit → reload → GONE (baseline FAIL
+    reproduced). R2 identical dirty+frozen state, real navigation fired `pagehide` →
+    `registerFlushOnHide` → `flush()` → edit **survived reload** (`C28-R2-HIDE-FLUSH`
+    present after re-hydration). Red→green proven.
+  - **BUG125 FIXED:** injected `QuotaExceededError` into the save path — `lastSavedAt`
+    did NOT advance, `getSaveError().name === "QuotaExceededError"`, edit stayed dirty
+    (retry queued). A good save clears the error + advances the stamp. Truthful.
+  - **BUG126 FIXED:** same injection surfaced the "storage is full" toast in the DOM
+    and `getActiveOrNull()` stayed non-null (in-memory project alive).
+  - Note: raw IDB spot-reads were flaky in-harness (new connection/version races), so
+    the authoritative signal used was reload-then-rehydrate (the load path is ground
+    truth) + the SaveManager getters. Screenshot capture blocked late by a stray
+    file-chooser modal; JSON assertions are the load-bearing evidence.
+- 2026-07-18: **Final battery on campaign tip (d078fa86-family + H-merge + docs):**
+  typecheck **exit 0**; lint **331e/224w** (≤ ~334/224 bar — no worse, slightly
+  better); touched suites (managers + providers + storage + normalize) **137/0**.
+
+---
+
+## Charter matrix (scenario × behavior × verdict — honest)
+
+| Charter § | Scenario | Behavior found | Verdict |
+|-----------|----------|----------------|---------|
+| §1 | Refresh ≥800ms after edit | Persists exactly | **PASS** |
+| §1 | Refresh inside 800ms debounce (baseline) | Edit silently lost | **FAIL→FIXED (BUG127)** — pagehide/visibilitychange flush; browser red→green |
+| §1 | Reload mid-drag | Reverts to last-saved, no corruption | **PASS** |
+| §1 | Reload during in-flight generation poll | Slot orphaned (no jobId persisted, no mount reconcile) | **FAIL→FILED (BUG132)** — cross-store, generation-slot territory; out of C28 scope |
+| §2 | "Saved" indicator on save FAILURE | Showed "Saved just now" over a dropped write | **FAIL→FIXED (BUG125)** — rethrow + getSaveError + "Save failed"; browser-verified |
+| §2 | "Saved" indicator during pending window | Stale prior timestamp, no "unsaved" affordance | **FAIL→FILED (BUG131)** — successful-path timing gap; small UI follow-up |
+| §3 | Duplicate tab, concurrent saves | Silent last-write-wins, no warning | **FAIL→FIXED-warn (BUG128)** — BroadcastChannel cross-tab warn (prototype; no lock/merge) |
+| §4 | Storage-quota exhaustion | No handling, silent drop | **FAIL→FIXED (BUG126)** — QuotaExceededError → one human toast, memory project alive; browser-verified |
+| §5 | Load-heal sibling corruption | Only visual-defaults healed | **FAIL→FIXED (BUG129)** — malformed elements/tracks dropped, id dedup, missing-mediaId pruned; 106/0 |
+| §5 | Orphaned string mediaId (no asset) | Dangling invisible element | **FAIL→FILED (BUG130)** — needs media-aware pass at loadProject seam (pure fn can't reach media list) |
+| §6 | Project-switch soak ×8 / 3 projects | Zero store bleed, zero crash | **PASS** — 2026-07-17 hardening held |
+
+**Fixed in-territory:** BUG125, BUG126, BUG127, BUG128 (warn), BUG129.
+**Filed for owners:** BUG130 (loadProject media-aware heal), BUG131 (SaveStatus pending
+affordance), BUG132 (generation-slot reload reconciliation — jobId persistence).
+
+## Bugs filed (BUG125–BUG132; BUG133–134 unused)
+
+- BUG125 FIXED · BUG126 FIXED · BUG127 FIXED · BUG128 FIXED(warn-only prototype) ·
+  BUG129 FIXED (all verified locally).
+- BUG130 FILED (Hl) — string `mediaId` with no loaded asset; media-aware heal at
+  `loadProject → media.loadProjectMedia` seam; BUG59 persistence half.
+- BUG131 FILED (H) — `SaveStatus` stale during pending (successful-path) debounce
+  window; needs a dirty/"unsaved" affordance.
+- BUG132 FILED (H) — reload orphans in-flight timeline generative-slot generations
+  (`use-slot-generation.ts` never persists `jobId`; no mount reconciliation like the
+  Assets-panel grid's `loadHistory`). Medium; generation-slot + stores territory.
+
+## Territory RELEASED: `services/storage/**`, editor-provider load/save paths,
+persistence/load-heal tests, hunt evidence — all free for the next campaign.
