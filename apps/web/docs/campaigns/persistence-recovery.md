@@ -86,4 +86,34 @@ different files (managers vs service). H is read-only.
 ## Status log (records only what HAS happened)
 
 - 2026-07-18: recon complete, autosave seam documented, plan committed, branch created.
-  Dispatching workers H + S + Hl.
+  Dispatched workers H + S + Hl.
+- 2026-07-18: **Worker Hl returned + MERGED** (`task/c28-load-heal` @b05230c5 → merge
+  f1248064). BUG129 heal classes: implausible elements/tracks dropped (null/non-object/
+  missing-id/unknown-type), scene-WIDE element-id dedup (cross-track — correct, ids are
+  addressed scene-wide), non-array `tracks`/`elements` guarded, missing/empty `mediaId`
+  pruned for video/image/upload-audio (library-audio via `sourceUrl` correctly exempt —
+  verified against `types/timeline.ts` UploadAudioElement/LibraryAudioElement contract).
+  **BUG130 FILED** (adopted from Hl): string `mediaId` that resolves to NO loaded asset
+  can't be healed in pure `deserializeProject` (media loads async afterwards in
+  `loadProject → media.loadProjectMedia`) — needs a media-aware pass at that seam;
+  BUG59 black-preview persistence half. L1 verify on merged tip: storage+normalize
+  suites 106/0.
+- 2026-07-18: **Worker S returned + MERGED** (`task/c28-storage-seam` @d5ad67f0 → merge
+  d078fa86). BUG125 FIXED: `saveCurrentProject` rethrows; `SaveManager.saveNow` advances
+  `_lastSavedAt` ONLY on real success, keeps dirty flag + retry queued on failure, new
+  `getSaveError()`; SaveStatus renders "Save failed" (destructive) instead of stale
+  "Saved just now". BUG126 FIXED: `QuotaExceededError` detected (DOMException + defensive
+  name check) → one human toast per failure episode (deduped, resets on success);
+  in-memory project untouched on failure. BUG127 FIXED: `registerFlushOnHide` —
+  `visibilitychange→hidden` + `pagehide` flush the pending debounced save (beforeunload
+  warn kept). BUG128 FIXED (warn-only prototype): BroadcastChannel handshake per
+  projectId toasts "open in another tab" in both tabs; no locking (last-save-wins
+  documented, real coordination = follow-up if hunt demands it). Worker's GitNexus
+  impact on saveCurrentProject/saveNow: HIGH (save-subsystem hub) — expected radius,
+  all 3 callers reconciled. 9 new tests.
+- 2026-07-18: **L1 integration fix** (disclosed, 1 site): `use-arrangement-handoff.ts`
+  fire-and-forget `void saveCurrentProject()` escaped its try/catch → post-BUG125 a
+  write failure there would be an unhandled rejection; now `.catch` → console.error.
+- 2026-07-18: L1 battery on merged tip (d078fa86 + guard): managers + providers +
+  storage suites **137/0**. Typecheck in flight (host heavily contended).
+- Worker H (hunt) still in flight.
