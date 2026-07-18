@@ -39,6 +39,7 @@ import { CanvasRenderer } from "@/services/renderer/canvas-renderer";
 import type { RootNode } from "@/services/renderer/nodes/root-node";
 import { buildScene } from "@/services/renderer/scene-builder";
 import { getLastFrameTime } from "@/lib/time";
+import { BookmarkNoteOverlay } from "./bookmark-note-overlay";
 import { LayoutGuideOverlay } from "./layout-guide-overlay";
 import { perfStats } from "@/services/renderer/perf-stats";
 import type { PerfStatsSnapshot } from "@/services/renderer/perf-stats";
@@ -436,6 +437,7 @@ export function WorkerPreviewCanvas({
 					style={{ width: displaySize.width, height: displaySize.height }}
 				/>
 				<LayoutGuideOverlay />
+				{overlays.bookmarks && <BookmarkNoteOverlay />}
 				{overlays.perfHud && (
 					<>
 						<WorkerPerfHud stats={workerStats} />
