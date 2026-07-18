@@ -276,6 +276,13 @@ export function TextView() {
 									content: preset.config.content ?? "Text",
 								}}
 								aspectRatio={2}
+								// Match the other grid-of-cards panels (Effects, Stickers,
+								// media bin): let the card fill the column and take its
+								// height from the aspect ratio instead of the default
+								// fixed `size-28` square. Without this, a 2:1 preview sat
+								// inside a fixed 112px-tall box, leaving dead space under
+								// each card that read as an oversized gap between rows.
+								containerClassName="w-full"
 								onAddToTimeline={({ currentTime }) =>
 									handleAddPreset(preset, currentTime)
 								}
