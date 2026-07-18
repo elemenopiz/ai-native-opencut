@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import type { EditorCore } from "@/core";
 import type { MediaAsset } from "@/types/assets";
 
@@ -115,6 +115,18 @@ beforeEach(() => {
 		height: 720,
 	});
 	// biome-ignore lint/performance/noDelete: test cleanup of a global stub
+	delete (globalThis as { VideoDecoder?: unknown }).VideoDecoder;
+});
+
+// This file's own tests stub `globalThis.VideoDecoder` (see beforeEach above
+// and the individual tests below that set it to a fake isConfigSupported
+// implementation, including one that THROWS). Without an afterEach, the
+// LAST test's stub leaks onto globalThis for the rest of the `bun test`
+// process (bun does not reset globals between files) — a real, unrelated
+// regression this exact shape caused: a later-running unit test that
+// legitimately relies on `typeof VideoDecoder === "undefined"` (the plain-bun,
+// no-WebCodecs default) would instead hit this file's leftover throwing stub.
+afterEach(() => {
 	delete (globalThis as { VideoDecoder?: unknown }).VideoDecoder;
 });
 
