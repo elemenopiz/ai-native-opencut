@@ -129,4 +129,68 @@ stop/save UI.
 
 ## Findings / bugs filed (BUG50–54)
 
-(none yet)
+None filed — the range is unused. Two non-bug findings folded elsewhere:
+- The spawned-worktree stale-base gotcha (worker log above) — brief-level fix noted.
+- The video-node.test.ts partial-mock leak (C8 order-dependence class) — fixed at the
+  source on this branch @76e31a90 rather than filed, since it directly broke this
+  campaign's new tests in full-suite order.
+
+## CLOSE-OUT (2026-07-18)
+
+**Branch:** `campaign/audio-lifecycle`, tip = `docs commit after 76e31a90` (see git log;
+code commits: 14228487 BUG34 · 7078ebc1 discard · 8d8128cb BUG35+test-typing ·
+76e31a90 mock-leak heal · ddd7d50d merge of main@1ae7b872 [post-C26]).
+
+**Delivered (all tier: verified locally, driven on the tip via :3199 + Playwright):**
+1. **BUG34** — asset-delete→timeline cascade is ONE reversible command at the
+   `MediaManager.removeMediaAsset` choke point. Proof: delete audio asset → ⌘Z →
+   asset AND clip restored; state survives full reload; restored OPFS bytes decode
+   as 1.00s audio, RMS 0.2121 (real signal, not a ghost). Class fix — video/image
+   deletes share the path (image round-trip unit-tested). 8 new unit tests at the
+   real seam; single-history-entry asserted.
+2. **Recording discard** — `discardRecording()` in the hook (race-guarded against
+   stop-save; onstop detached; resources released), discard X button in the timeline
+   RecordButton + AudioRecordingPanel. Proof: record→discard = 0 new assets/clips/
+   OPFS files; record→stop = exactly 1 of each (save path unchanged). Note: verified
+   with an injected oscillator MediaStream (headless host has no mic; fake-device
+   equivalent).
+3. **BUG35** — audio tiles square (previewRatio 1) in the Assets grid; video/image
+   ratio math untouched. Before/after screenshots.
+
+**Battery vs baseline (on tip, quiet host):** typecheck 0 · lint 338e/225w vs main
+339e/225w (one BETTER) · full `bun test` 1748 pass/54 fail/39 errors == main's 54/39
+exactly (+8 new passing); the 7 transient extra fails were the video-node mock leak,
+healed @76e31a90, video-node isolation 6/6 · build exit 0. GitNexus:
+impact(removeMediaAsset)=LOW, detect_changes clean both waves.
+
+**Evidence:** `docs/campaigns/assets/audio-lifecycle/` — bug34-before-undo-clip-back-
+asset-gone.png (pre-fix repro), bug34-after-undo-asset-and-clip-restored.png,
+bug35-before-assets-grid.png / bug35-after-assets-grid.png, recording-discard-
+controls.png. OPFS decode proof + drive transcript in this session's L1 report.
+
+**Worker economics:** all three original workers died uncommitted (A/B parked on
+notifications mid-typecheck under host contention — the dead-watcher failure mode;
+C produced nothing in 80 min and was replaced by a surgical-brief C2, which also died
+uncommitted but left a complete staged diff). All diffs were audited and ported by L1;
+authorship credited in commit messages. Brief-level fixes for next wave: (1) spawned
+worktrees inherit a stale `worktree-agent-*` base — every L2 brief must start with
+`checkout -b task/<x> main`; (2) typecheck-wait instructions must say "poll in
+foreground with the REAL exit code" (`; echo exit=$?` after a pipe lies).
+
+**Gates for the user:** none crossed. No server-side deletion endpoints touched (all
+client stores + OPFS/IndexedDB); no migrations; no new deps; no push. One territory
+note for L0: @76e31a90 touches `services/renderer/nodes/video-node.test.ts` (test-only,
++2 no-op mock methods) — outside my claimed territory and near C24's; reconcile at
+merge if C24 also edited it.
+
+**Territory RELEASED.** Queue rows BUG34/BUG35 updated to done-awaiting-merge;
+roster + in-flight updated.
+
+**Next wave should:** (1) C27 undo/redo sweep — BUG34 was an instance of a class;
+the redo path re-deletes storage fire-and-forget and multi-asset batch deletes are
+still N separate history entries (minor UX, not a hole); (2) drive the C8
+order-dependence chore to zero with the video-node pattern (complete every partial
+process-global mock); (3) consider a retake affordance (discard currently returns
+to idle; a one-click re-record was deemed unnecessary this pass); (4) audio-tab
+(Sounds/Voiceover) tile-shape consistency was NOT changed — grid only; check with
+the founder whether those lists also bother him.
