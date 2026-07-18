@@ -1,0 +1,113 @@
+TASK C — Manual browser export, clip volume 0.5 (campaign C21b / bug-purge-w4, worker W1)
+==============================================================================
+
+Environment
+-----------
+- Dev server: `cross-env NEXT_PUBLIC_E2E=1 NEXT_PUBLIC_E2E_STUB_EXPORT=0 PORT=3401 bun run dev`
+  (E2E bridge present for SEEDING ONLY; real, un-stubbed export path — same
+  gate `golden-path-export.e2e.ts` uses, see src/components/editor/e2e-bridge.tsx)
+- Browser: real Chrome via the Claude Browser MCP pane (channel used for the
+  automated suites is Google Chrome; this manual pane also renders through
+  Chromium/Chrome — audio decode verified working via native AAC decode
+  through Web Audio API, confirming real codec support).
+- Project route: /editor/w1-manual-volume-test
+- Fixture: e2e/fixtures/w2/audio_only_3s.m4a (49659 bytes, 3s duration),
+  temporarily copied to apps/web/public/__w1-fixtures/ so the browser could
+  fetch() it and construct a real File object for the actual Import file
+  input (not a synthetic/bridge-only asset). Removed after the test (see
+  cleanup note at bottom).
+
+Driving method
+--------------
+1. Asset IMPORT: real UI file input (`<input type=file>` under the Assets
+   panel, NOT the reference-media input under Generate) driven by
+   constructing a File from the fetched fixture bytes and dispatching a
+   real `change` event — equivalent to what Playwright's `setFiles()` does
+   under the hood. Verified via editor.media.getAssets() → asset landed
+   with name "audio_only_3s.m4a", type "audio", duration 3.
+2. Timeline placement (SEEDING via bridge, per worker instructions):
+   editor.timeline.insertElement() with volume:1, muted:false — the same
+   command-stack seam e2e/export-fidelity/helpers.ts's insertAudioElement
+   uses. This only PLACES the clip; it does not touch volume for the test.
+3. Selection: editor.selection.setSelectedElements({elements: [{trackId,
+   elementId}]}) — the correct call shape per src/core/managers/
+   selection-manager.ts (setSelectedElements({elements}): ElementRef[]).
+   NOTE: an earlier attempt called setSelectedElements([elementId]) (wrong
+   shape — raw array of a string ID instead of {elements: ElementRef[]})
+   and crashed the whole editor ("The editor hit an unexpected error") via
+   a TypeError: Cannot read properties of undefined (reading 'length') in
+   useTransformHandles (src/hooks/use-transform-handles.ts:137,
+   `selectedElements.length === 1`), because getSelectedElements() then
+   returned undefined. This is NOT filed as a product bug — it was this
+   worker's own misuse of an internal, non-UI-exposed API with the wrong
+   argument shape, not something reachable through the real UI (a real
+   click-to-select always goes through the correctly-typed call). Recorded
+   here only so the false lead isn't rediscovered. Reloading the editor and
+   calling the API correctly did not reproduce the crash.
+4. Volume set to 0.5: REAL UI — typed "50" into the actual Properties-panel
+   Volume "Level" NumberField textbox (ref resolved via accessibility tree,
+   filled via form_input, which fills the real DOM textbox) that a human
+   user would use. Panel showed "+0.0 dB" -> "-6.0 dB", "100%" -> "50%"
+   confirming the real UI reflected the change; editor.timeline state
+   confirmed element.volume === 0.5 afterward.
+5. Export: REAL UI — clicked the real "Export" button (top bar), the real
+   export dialog opened (platform presets, format radio group, quality
+   radio group, "Include audio in export" / "Include Byorn watermark"
+   checkboxes, real "Export" submit button inside the dialog). Selected the
+   "Podcast (audio only)" preset (content is audio-only) and clicked the
+   dialog's "Export" button. This is the same button/dialog a paying user
+   drives — NOT the E2E stub (E2E_STUB_EXPORT=0 for this whole build, and
+   the E2EBridge's real-export tap in e2e-bridge.tsx confirms this by
+   exposing genuine getLastExportResult() from the real renderer.exportProject).
+
+Result — volume 0.5 export
+---------------------------
+- editor.project.getExportState() / bridge getLastExportResult():
+  { success: true, buffer.byteLength: 10610 }
+- Decoded via real Web Audio API `AudioContext.decodeAudioData()` directly
+  in-browser (avoids lossy manual relay of the binary through chat text —
+  see note below): sampleRate 48000, duration 3.08825s, RMS(channel 0)
+  = 0.030733398872818347
+
+Control — same clip, volume reset to 1.0 via the same real UI ("Reset to
+default" button in the Volume section), same export flow (Podcast preset,
+real Export button)
+---------------------------------------------------------------------------
+- getLastExportResult(): { success: true, buffer.byteLength: 11825 }
+- Decoded the same way: RMS(channel 0) = 0.06146081118861979
+
+Verdict
+-------
+ratio = vol05_rms / vol10_rms = 0.030733398872818347 / 0.06146081118861979
+      = 0.5000487022291207
+
+Essentially exactly 0.5x (0.049% off), matching the "-6.0 dB / 50%" the
+Properties panel showed at set-time. BUG32 (per-clip volume dropped by the
+export mixdown) stays fixed under a fully manual, real-Chrome, real-export,
+real-UI drive (import → place → select → set volume via the real textbox →
+export via the real dialog → decode via the real Web Audio API). No crash,
+no dropped audio, no A/V issue — this exercise (audio-only project) has no
+video stream by design (see BUG17 / fidelity-matrix case 4, also verified
+green in Task A).
+
+Method note — why RMS was computed in-browser instead of via ffprobe
+----------------------------------------------------------------------
+The first attempt relayed the exported MP4's bytes out of the browser as a
+base64 string through the chat/tool-call text channel and reconstructed it
+with `base64 -d` on disk. That produced a truncated/corrupted file (8438 of
+10610 expected bytes; ffmpeg's astats decode failed partway through — see
+byte-length and checksum mismatch caught before trusting the result). Long
+unstructured base64 strings are not a reliable channel for exact binary
+transcription through this path. Switched to decoding and measuring RMS
+directly inside the browser via the real Web Audio API
+(`AudioContext.decodeAudioData` + manual sum-of-squares over the decoded
+Float32 channel data) — this both avoids the relay entirely and exercises
+a second REAL codec-decode path (Chrome's native AAC decoder) as an
+independent cross-check on the exported file's validity, on top of the
+ffprobe-based checks the automated fidelity matrix already does in Task A.
+
+Cleanup
+-------
+- Removed apps/web/public/__w1-fixtures/ (temporary fixture copy used only
+  to get real bytes into the browser's real file input) before committing.
+- Dev server on :3401 stopped.
