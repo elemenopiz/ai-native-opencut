@@ -101,4 +101,51 @@ Measured full-suite result WITH the keystone (probe, this session):
   `POLAR_WEBHOOK_SECRET` fixture). The red from root was the same env ZodError. Signature verification is
   intact. → resolved by W1's keystone. No STOP-REPORT to L0 required.
 
-Bug IDs allocated for this campaign: BUG80–BUG84 (deduped against queue §2). None filed yet.
+Bug IDs allocated for this campaign: BUG80–BUG84 (deduped against queue §2). **None filed — range unused.**
+(W1's bonus find — media-manager-decode-reprobe leaking a throwing `VideoDecoder` stub with no
+afterEach — was fixed in-campaign rather than filed.)
+
+---
+
+## Close-out (2026-07-18)
+
+### W1 — DONE, merged to campaign
+`task/w1-order-dependence` @0b4e97cb (base main@8f50401a; 22 files = 21 tests + root `bunfig.toml`,
+zero product source):
+1. Keystone root `bunfig.toml` `[test].preload` (task 1).
+2. 19 leaker test files converted to mock-the-`@/services/proxy`-barrel-then-dynamic-import
+   (the `media-manager-decode-reprobe.test.ts` convention) so they stop caching the real
+   proxy chain ahead of `proxy-encoder-controller.test.ts`'s `mock.module` (task 2).
+3. `add-to-editor.test.ts` adapted to BUG55's corrupt-skip contract with a real byte-valid H.264
+   fixture (`e2e/fixtures/w2/tiny_640x360_h264.mp4`) instead of 3 garbage bytes (task 3).
+4. Bonus real fix: `media-manager-decode-reprobe.test.ts` leaked a throwing `VideoDecoder`
+   stub process-globally (stubs in tests, no afterEach) — now deleted in afterEach.
+
+### Final numbers (campaign tip, after merging W1 + W2 + main@9e419a0e)
+
+| Metric | Before (baseline) | After |
+|---|---|---|
+| Full `bun test` (root) | 1748 pass / 54 fail / **39 errors** | **2165 pass / 12 fail / 0 errors** |
+| 3-run stability | n/a | 3 consecutive runs byte-identical fail-sets (12 = same tests each run) |
+| `bun test --isolate` | n/a | **2177 pass / 0 fail / 0 errors** |
+| typecheck | 0 | 0 |
+| lint | ~339e/225w baseline | 334e / 224w (no worse) |
+
+**NEW KNOWN BASELINE for all future campaigns: 2165 pass / 5 skip / 12 fail / 0 errors** (plain
+`bun test` from root). The 12 residual = 10 `proxy-encoder-controller` + 2 `add-to-editor`, all
+green in isolation and all green under `--isolate` — a Bun 1.3.14 `mock.module` process-global
+race, not fixable at the test-file level (two honest attempts made; documented per brief).
+CI now runs `bun test --isolate` (deterministically 0-fail) with bun bumped 1.2.18 → 1.3.14
+(the flag doesn't exist in 1.2.x; 1.3.14 = local-dev parity).
+
+### Verdicts delivered
+- **BUG21 (payments floor): env-shape, NOT a signature hole.** Both named tests pass 14/0 whenever
+  env is present; the red was the missing root-bunfig preload. No product change; no STOP-REPORT.
+- **BUG20: stale premise** — `upload-url` already in the sweep table (C6); red was the same
+  env ZodError; 59/0 after keystone.
+- **CH6: drafted + merged to campaign** (postgres:17 + redis + srh services, migrate step,
+  `UPSTASH_REDIS_REST_*` repointed). Tier: **merged** — provable only on a real Actions run
+  post-push.
+
+Campaign branch: `campaign/test-infra-trust`. Territory (test files, test-infra/mocks,
+`.github/workflows/*`, root bunfig) RELEASED on L0 merge.
