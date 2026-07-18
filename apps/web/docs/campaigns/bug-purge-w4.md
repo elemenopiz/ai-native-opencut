@@ -76,7 +76,12 @@ audio_only_3s.m4a, alpha_overlay_512.png, tiny_640x360_h264.mp4}`, `e2e/fixtures
 
 ## Worker log
 
-- (pending dispatch)
+- **W1 — Export & Fidelity** (`task/w1-export-fidelity`): dispatched. P1 golden-path real
+  export + P3 C24 fidelity matrix (`test:e2e:real`, `test:e2e:fidelity`) + manual volume-0.5
+  export. Server slot 3211→3213 sequential.
+- **W2 — Interaction, Lifecycle & UI** (`task/w2-interaction-ui`): dispatched. P5 w-drag
+  matrix (M8/M14/M15/M17/M18/M19/M20) + P4 C25 delete→⌘Z + record→discard + P2 C15 UI walk.
+  Server slot 3303.
 
 ## Bugs filed (BUG85–BUG99, deduped vs queue §2)
 
