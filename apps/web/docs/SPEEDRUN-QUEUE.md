@@ -181,7 +181,7 @@ deferred(user), all merges to LOCAL main only. Baselines carried from 2026-07-17
 
 | Campaign | L1 status | Branch | Territory | Last update |
 |---|---|---|---|---|
-| C14 · Gated-packet prep | launched | `campaign/gated-packet-prep` | docs + gated-branch worktrees only (money/upscale/G8-cron parked branches) | 2026-07-18 L0 |
+| C14 · Gated-packet prep | **done — merged @fe60f845** (docs-only; 3 packets VERIFIED+PARKED un-merged: money `gated/credit-audit-rebased-2026-07-18` @d765de24, upscale `gated/upscale-rebased-2026-07-18` @e4339f3f [migration 0012 NOT applied], G8-cron `gated/g8-sweep-cron` @39375f8d; user review order: g8-cron → money → upscale; old source branches `fix/credit-audit-money-gated` + `feat/upscale-backend` superseded → kill after user review) | `campaign/gated-packet-prep` | released | 2026-07-18 L0 |
 | C24 · Export fidelity | launched | `campaign/export-fidelity` | `lib/media/audio*`, scene-exporter/export pipeline, `lib/export/**`, export e2e | 2026-07-18 L0 |
 | C25 · Audio lifecycle | launched | `campaign/audio-lifecycle` | assets audio views + recording flow + media-store delete/undo commands | 2026-07-18 L0 |
 | C26 · Dogfood hunt: assets | launched | `campaign/dogfood-assets` | hands-on hunt; fix-forward only in non-audio assets surfaces (files everything else) | 2026-07-18 L0 |
@@ -204,6 +204,7 @@ deferred(user), all merges to LOCAL main only. Baselines carried from 2026-07-17
 
 ## Done log (move rows here with sha + verification tier)
 
+- 2026-07-18: **C14 gated-packet-prep merged @fe60f845** (docs-only). Three packets verified+parked: money reconcile (typecheck 0, money suites green, settle-clamp + worst-case-reserve holes closed), upscale (factor≤4 clamp, migration 0012 confirmed un-applied), G8 sweep cron (fail-closed CRON_SECRET route, 5/5). CHANGELOG-2026-07-18 rides the merge.
 - 2026-07-18: **C26 dogfood-hunt-assets merged @82aaefb7** (tier: verified locally). BUG55 (phantom corrupt-asset import) + BUG56 (silent duplicate uploads) fixed, 5/5 browser acceptance in real Chrome; BUG57–60 filed with repros; drag/context-menu matrix honestly DEFERRED(quiet-host) → C21-series wave-closer charter (run-ready 1089-line hunt suite committed). L0 battery on merged tip: typecheck 0, touched-module tests 111/0, lint per-campaign 339e (< baseline).
 - 2026-07-17: Queue seeded (prompt-suite v2 revamp session).
 - 2026-07-17: G6 untracked docs committed + `.playwright-mcp/` gitignored @3c7e41c8 (L0, docs-only).
