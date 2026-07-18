@@ -186,6 +186,7 @@ deferred(user), all merges to LOCAL main only. Baselines carried from 2026-07-17
 | C25 · Audio lifecycle | launched | `campaign/audio-lifecycle` | assets audio views + recording flow + media-store delete/undo commands | 2026-07-18 L0 |
 | C26 · Dogfood hunt: assets | launched | `campaign/dogfood-assets` | hands-on hunt; fix-forward only in non-audio assets surfaces (files everything else) | 2026-07-18 L0 |
 | C15a · Export CTA flatten (G7-approved subset) | **done — merged @ec13493d (USER-APPROVED 2026-07-18)** (tier: verified locally; typecheck 0 on merged tip) | `campaign/export-cta-flatten` | released | 2026-07-18 L0 |
+| C15 · UI phase B (G7 answered — direction A+glow) | launched (opus L1; phase-A §6 items 2–9 + BUG27/28 + glow borrow; audio views carved out while C25 active) | `campaign/ui-phase-b` | `components/editor/**` (minus audio views), `components/ui/**`, globals.css | 2026-07-18 L0 |
 
 ### Session close — 2026-07-17 (Mission Control L0)
 **16 campaigns merged to local `main` today**, combined battery green at each step, repo clean (main + 2 gated branches [money, upscale] + goodall hold). **207 commits ahead of origin — nothing is live until the G2 push decision.** C7 wave-3 regression hunt found **ZERO golden-path regressions** across all 15 prior campaigns' integrated result (real exports ffprobed). L0 holding here pending user gates (G1-G9, money+upscale packets) rather than deepening the unpushed pile on a contended host; loop idle-warm.
