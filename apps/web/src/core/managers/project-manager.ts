@@ -189,7 +189,15 @@ export class ProjectManager {
 			if (!project.metadata.thumbnail) {
 				const didUpdateThumbnail = await this.updateThumbnailFromTimeline();
 				if (didUpdateThumbnail) {
-					await this.saveCurrentProject();
+					// BUG125: saveCurrentProject now rethrows on failure. This
+					// opportunistic thumbnail resave is best-effort — a storage
+					// hiccup here shouldn't fail the whole project load (which the
+					// outer catch below would otherwise turn into an error screen).
+					try {
+						await this.saveCurrentProject();
+					} catch (error) {
+						console.error("Failed to persist thumbnail after load:", error);
+					}
 				}
 			}
 		} catch (error) {
@@ -236,7 +244,12 @@ export class ProjectManager {
 			this.active = updatedProject;
 			this.updateMetadata(updatedProject);
 		} catch (error) {
+			// BUG125: rethrow instead of swallowing — the in-memory project stays
+			// exactly as it was before this call (untouched above on failure), but
+			// callers (SaveManager.saveNow chief among them) need to know the write
+			// did NOT land so they don't advance "Saved" or clear the dirty flag.
 			console.error("Failed to save project:", error);
+			throw error;
 		}
 	}
 

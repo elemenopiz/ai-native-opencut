@@ -21,6 +21,7 @@ export function SaveStatus({ className }: { className?: string }) {
 	const editor = useEditor();
 	const [isSaving, setIsSaving] = useState(false);
 	const [lastSaved, setLastSaved] = useState<number | null>(null);
+	const [saveError, setSaveError] = useState<Error | null>(null);
 	const [, setTick] = useState(0);
 
 	// Subscribe to save status changes
@@ -28,6 +29,9 @@ export function SaveStatus({ className }: { className?: string }) {
 		const update = () => {
 			setIsSaving(editor.save.getIsSaving());
 			setLastSaved(editor.save.getLastSavedAt());
+			// BUG125/126: a failed save must never render as "Saved just now" —
+			// surface the failure instead of a stale success timestamp.
+			setSaveError(editor.save.getSaveError());
 		};
 		update();
 		return editor.save.subscribeStatus(update);
@@ -52,8 +56,21 @@ export function SaveStatus({ className }: { className?: string }) {
 
 	if (isSaving) {
 		return (
-			<span className={cn("text-[10px] text-muted-foreground animate-pulse", className)}>
+			<span
+				className={cn(
+					"text-[10px] text-muted-foreground animate-pulse",
+					className,
+				)}
+			>
 				Saving...
+			</span>
+		);
+	}
+
+	if (saveError) {
+		return (
+			<span className={cn("text-[10px] text-destructive", className)}>
+				Save failed
 			</span>
 		);
 	}

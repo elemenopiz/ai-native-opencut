@@ -42,7 +42,12 @@ export function useArrangementHandoff(): void {
 				});
 			}
 
-			void editor.project.saveCurrentProject();
+			// Fire-and-forget by design, but saveCurrentProject rethrows on write
+			// failure since BUG125 — catch here so a storage hiccup surfaces as a
+			// log line, not an unhandled rejection (SaveManager will retry anyway).
+			editor.project.saveCurrentProject().catch((error) => {
+				console.error("Failed to persist arrangement handoff:", error);
+			});
 
 			const slotCount = arrangement.slots.length;
 			toast.success(
