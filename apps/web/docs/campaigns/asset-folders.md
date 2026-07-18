@@ -87,16 +87,79 @@ Gates: unit tests on commands + store green; `bun run typecheck` exit 0; lint no
 
 | Worker | Branch | Dispatched | Returned | Merged | Notes |
 |---|---|---|---|---|---|
-| A store+commands | task/c33-folder-model | 2026-07-18 | — | — | sonnet, bg worktree |
-| B panel UI | task/c33-folder-ui | 2026-07-18 | — | — | sonnet, bg worktree; frontend-design skill; owns own dev server :3210 |
-| C folder upload | task/c33-folder-upload | 2026-07-18 | — | — | sonnet, bg worktree |
+| A store+commands | task/c33-folder-model | 2026-07-18 | 2026-07-18 (parked on a typecheck monitor; complete uncommitted tree found in worktree, L1 reviewed + committed @5b771dda) | @14c8b85a | contract implemented exactly; 23 unit tests |
+| B panel UI | task/c33-folder-ui | 2026-07-18 | 2026-07-18 @27f9d122 (self-committed) | @89287540 | +564/-4 assets.tsx, new folder-tile.tsx; reused existing tile card system |
+| C folder upload | task/c33-folder-upload | 2026-07-18 | 2026-07-18 (parked likewise; tree reviewed + committed @f2017e84) | @6b611b46 | pure parser + additive hook surface; 10 unit tests |
 
-Integration order at return: A → C → B. B typecheck WILL show A/C-missing-import errors
-until A+C merge — expected, reconciled at integration, not a B failure.
+Integration fixes by L1 (on-campaign): @128a5264 folder-upload type conflicts with lib.dom's
+own `webkitRelativePath`/`webkitGetAsEntry` declarations (2 tsc errors from Worker C's local
+re-declarations); @8784e984 BUG120 fix (below).
+
+## Verification (tier: **verified locally**, 2026-07-18, real Chromium via Playwright, own dev server :3210 from the campaign worktree)
+
+All driven on the integrated campaign tip; 12 screenshots in `assets/asset-folders/`:
+
+1. **Create folder** (toolbar) → inline-rename engages pre-selected → Enter commits. ✓ (01)
+2. **Move asset → folder** via context-menu "Move to folder" submenu (Root entry appears only
+   when the asset is in a folder). ✓ (02) **Undo restores prior membership** — both directions
+   (root→folder→undo, folder→root→undo). ✓
+3. **Navigate**: folder tile click descends; breadcrumb `Root / …` climbs; type-filter counts
+   scope to the open folder. ✓ (03, 10, 11)
+4. **Drag-from-folder → timeline**: full HTML5 DnD (real drag-data MIME) drops a clip; ⌘Z
+   removes it, asset unharmed in folder. ✓ (04)
+5. **Rename + undo** ✓ (05); **create + undo** removes the folder ✓.
+6. **Delete folder**: confirm copy states nothing inside is deleted; asset lands at Root;
+   folder gone. ✓ (06) **Undo restores folder AND exact membership** ("1 asset"). ✓ (08)
+7. **Folder upload** (real nested dir via webkitdirectory chooser):
+   `TripFootage/{Day1/{2 png}, Day2/{sunset-drive.png, BRoll/street-detail.png}}` →
+   structure preserved exactly, nothing flattened to root. ✓ (09–11)
+8. **Drag asset onto folder tile** moves it (Day2 asset → BRoll, count "2 assets"); ⌘Z
+   restores. ✓ (12)
+9. **Persistence**: folder list + membership survived a full browser restart (07) — the
+   `TProject.mediaFolders` + `MediaAssetData.folderId` round-trip is real, not in-memory.
+10. **C26 regressions**: byte-identical re-import still fires the duplicate toast
+    (MutationObserver-verified — the toast expires faster than tool round-trips, hence two
+    earlier false-negative polls).
+
+## Battery (integrated tip @8784e984)
+
+- `bun run typecheck` exit 0 (verified unmasked).
+- Folder unit tests: 23 (commands+store) + 10 (upload parser) = 33/33 pass.
+- Full root `bun test`: **2200 pass / 5 skip / 12 fail** — fail count == the 12-fail
+  baseline (no new fails; +33 new passing).
+- Lint: 333e/226w on tip; **zero findings in any C33-touched file** (the two nearby findings
+  — types/assets.ts noUnusedImports, types/version.ts format — pre-exist on main; count
+  deltas vs moved-main are other campaigns' lint fixes landing there).
 
 ## Bugs filed (range BUG120–BUG124)
 
-_none yet_
+- **BUG120 — FIXED on campaign @8784e984**: folder context-menu "Rename" could never engage —
+  Radix ContextMenu restores focus to the trigger on close, landing AFTER the inline rename
+  input mounts+focuses; the input's `onBlur` commit fired instantly and edit mode closed.
+  Fix (folder-tile.tsx, contained): `onCloseAutoFocus={preventDefault}` on both
+  ContextMenuContent instances (idiom already global in ui/dropdown-menu.tsx but absent from
+  ui/context-menu.tsx) + a focus retry at 80/250/450ms (Radix's restore can land post
+  exit-animation). Browser-verified: input holds focus, Enter commits, ⌘Z undoes.
+  NOTE for whoever owns `ui/context-menu.tsx`: the shared ContextMenuContent primitive lacks
+  the onCloseAutoFocus guard that DropdownMenuContent has — any other context-menu-triggered
+  inline edit will hit this same class of bug.
+- BUG121–124: unused.
+
+## Known limitations (recorded, not blockers)
+
+- Folder tiles ignore the sort dropdown (render in creation order before assets) — matches
+  file-browser convention but unspecced.
+- "Move to folder" submenu lists ALL folders flat (no hierarchy indication) — fine at small
+  folder counts; revisit if founders nest deeply.
+- Folder-upload progress counts files, not bytes.
+
+## Close-out
+
+Feature complete per minimum-lovable scope (model + UI + manual folders + folder upload +
+undo + drag-to-timeline). Branch `campaign/asset-folders`, tip @8784e984 (see log for merge
+graph). NO migrations, NO new deps, NO pushes, NO merges to main — integration is L0's call.
+Main moved during the campaign (C18 @82973ab9, C27 @796fc0ab — no assets-panel overlap per
+L0 relay; re-run `git merge-tree` check at integration). Territory released.
 
 ## Decisions log
 
