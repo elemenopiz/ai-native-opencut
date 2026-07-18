@@ -20,6 +20,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useInfiniteScroll } from "@/hooks/use-infinite-scroll";
 import { useSoundSearch } from "@/hooks/use-sound-search";
@@ -299,7 +300,9 @@ function SoundEffectsView() {
 							key={tag}
 							type="button"
 							onClick={() => handleTagClick(tag)}
-							className="rounded-full border border-border/50 px-2 py-0.5 text-[10px] text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-foreground"
+							// Shared tag-chip recipe (also used by the result tags below,
+							// Text's font pills, and Templates' tags).
+							className="text-3xs rounded-full bg-muted/60 px-2 py-0.5 text-muted-foreground transition-colors hover:bg-primary/20 hover:text-foreground"
 						>
 							{tag}
 						</button>
@@ -314,13 +317,8 @@ function SoundEffectsView() {
 					onScrollCapture={handleScrollWithPosition}
 				>
 					<div className="flex flex-col gap-4">
-						{isLoading && !searchQuery && (
-							<div className="text-muted-foreground text-sm">
-								Loading sounds...
-							</div>
-						)}
-						{isSearching && searchQuery && (
-							<div className="text-muted-foreground text-sm">Searching...</div>
+						{((isLoading && !searchQuery) || (isSearching && searchQuery)) && (
+							<AudioListSkeleton />
 						)}
 						{!isLoading && !isSearching && (loadError || searchError) && (
 							<div className="text-destructive text-sm">
@@ -345,11 +343,7 @@ function SoundEffectsView() {
 									{searchQuery ? "No sounds found" : "No sounds available"}
 								</div>
 							)}
-						{isLoadingMore && (
-							<div className="text-muted-foreground py-4 text-center text-sm">
-								Loading more sounds...
-							</div>
-						)}
+						{isLoadingMore && <AudioListSkeleton count={2} />}
 					</div>
 				</ScrollArea>
 			</div>
@@ -440,10 +434,8 @@ function SavedSoundsView() {
 
 	if (isLoadingSavedSounds) {
 		return (
-			<div className="flex h-full items-center justify-center">
-				<div className="text-muted-foreground text-sm">
-					Loading saved sounds...
-				</div>
+			<div className="mt-1 flex h-full flex-col gap-5">
+				<AudioListSkeleton />
 			</div>
 		);
 	}
@@ -678,16 +670,12 @@ function SongsView() {
 					onScrollCapture={handleScroll}
 				>
 					<div className="flex flex-col gap-4">
-						{isLoading && (
-							<div className="text-muted-foreground text-sm">
-								Loading songs...
-							</div>
-						)}
+						{isLoading && <AudioListSkeleton />}
 						{error && !isLoading && (
 							<div className="text-destructive text-sm">{error}</div>
 						)}
 						{warning && !error && !isLoading && (
-							<div className="text-amber-500 text-xs leading-relaxed">
+							<div className="text-tone-warning text-xs leading-relaxed">
 								{warning}
 							</div>
 						)}
@@ -704,17 +692,54 @@ function SongsView() {
 								No songs found
 							</div>
 						)}
-						{isLoadingMore && (
-							<div className="text-muted-foreground py-4 text-center text-sm">
-								Loading more songs...
-							</div>
-						)}
+						{isLoadingMore && <AudioListSkeleton count={2} />}
 					</div>
 				</ScrollArea>
 			</div>
 		</div>
 	);
 }
+
+/**
+ * Loading placeholder shaped like an {@link AudioItem} card so the panel
+ * doesn't jump when real rows arrive — replaces the old bare "Loading
+ * sounds…" text with something that reads as a working list.
+ */
+function AudioItemSkeleton() {
+	return (
+		<div className="flex flex-col gap-1.5 rounded-xl border p-2.5">
+			<div className="flex items-center gap-3">
+				<Skeleton className="size-12 shrink-0 rounded-md" />
+				<div className="min-w-0 flex-1 space-y-1.5">
+					<Skeleton className="h-3.5 w-3/5" />
+					<Skeleton className="h-3 w-2/5" />
+				</div>
+			</div>
+		</div>
+	);
+}
+
+function AudioListSkeleton({ count = 4 }: { count?: number }) {
+	// Fixed placeholder ids (not array index) — these rows have no real
+	// identity, but a stable key still avoids the array-index-key lint smell.
+	const rows = SKELETON_ROW_IDS.slice(0, count);
+	return (
+		<div className="flex flex-col gap-4">
+			{rows.map((id) => (
+				<AudioItemSkeleton key={id} />
+			))}
+		</div>
+	);
+}
+
+const SKELETON_ROW_IDS = [
+	"skeleton-1",
+	"skeleton-2",
+	"skeleton-3",
+	"skeleton-4",
+	"skeleton-5",
+	"skeleton-6",
+];
 
 interface AudioItemProps {
 	sound: SoundEffect;
@@ -750,8 +775,11 @@ function AudioItem({ sound, isPlaying, onPlay, onTagClick }: AudioItemProps) {
 		[];
 
 	return (
-		<div className="group flex flex-col gap-1.5">
-			<div className="flex items-center gap-3 opacity-100 hover:opacity-75">
+		// Shared card recipe (also used by Templates' rows): rounded-xl, bordered,
+		// p-2.5, one hover treatment — replaces the old borderless row + self-dim
+		// hover this panel used to carry on its own.
+		<div className="group flex flex-col gap-1.5 rounded-xl border p-2.5 transition-colors hover:bg-accent/50">
+			<div className="flex items-center gap-3">
 				<button
 					type="button"
 					className="flex min-w-0 flex-1 items-center gap-3 text-left"
@@ -789,7 +817,7 @@ function AudioItem({ sound, isPlaying, onPlay, onTagClick }: AudioItemProps) {
 						size="icon"
 						className={`hover:text-foreground w-auto !opacity-100 ${
 							isSaved
-								? "text-red-500 hover:text-red-600"
+								? "text-destructive hover:text-destructive/80"
 								: "text-muted-foreground"
 						}`}
 						onClick={handleSaveClick}
@@ -809,7 +837,9 @@ function AudioItem({ sound, isPlaying, onPlay, onTagClick }: AudioItemProps) {
 							key={tag}
 							type="button"
 							onClick={() => onTagClick?.(tag)}
-							className="rounded-full bg-muted/60 px-2 py-0.5 text-[9px] text-muted-foreground transition-colors hover:bg-primary/20 hover:text-foreground"
+							// Shared tag-chip recipe (also used by Text's font pills and
+							// Templates' tags) — one pill treatment across the rail.
+							className="text-3xs rounded-full bg-muted/60 px-2 py-0.5 text-muted-foreground transition-colors hover:bg-primary/20 hover:text-foreground"
 							title={`Search for "${tag}"`}
 						>
 							{tag}

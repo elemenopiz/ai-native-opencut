@@ -286,13 +286,13 @@ export function TemplateGuideProperties({
 			<div className="px-4 py-3 border-b">
 				<div className="flex items-center gap-2 mb-1">
 					<div className="flex items-center justify-center size-6 rounded-full bg-primary/10 text-primary shrink-0">
-						<span className="text-[11px] font-bold">
+						<span className="text-2xs font-bold">
 							{element.name.match(/^(\d+)/)?.[1] || "?"}
 						</span>
 					</div>
 					<div>
 						<p className="text-sm font-medium">{parsed.title}</p>
-						<p className="text-[10px] text-muted-foreground">
+						<p className="text-2xs text-muted-foreground">
 							{element.startTime.toFixed(1)}s &ndash;{" "}
 							{(element.startTime + element.duration).toFixed(1)}s
 							<span className="mx-1">&middot;</span>
@@ -391,7 +391,7 @@ export function TemplateGuideProperties({
 							{/* Prompt */}
 							<div className="flex flex-col gap-1">
 								<div className="flex items-center justify-between">
-									<label className="text-[10px] font-medium text-muted-foreground">
+									<label className="text-2xs font-medium text-muted-foreground">
 										Prompt
 									</label>
 									<div className="flex items-center gap-1">
@@ -399,7 +399,7 @@ export function TemplateGuideProperties({
 											<Button
 												variant="ghost"
 												size="sm"
-												className="h-5 text-[9px] px-1.5"
+												className="h-5 text-3xs px-1.5"
 												disabled={isEnhancingPrompt || isGeneratingPrompt}
 												onClick={handleEnhancePrompt}
 												title="Rewrite the prompt with richer visual detail"
@@ -418,7 +418,7 @@ export function TemplateGuideProperties({
 										<Button
 											variant="ghost"
 											size="sm"
-											className="h-5 text-[9px] px-1.5"
+											className="h-5 text-3xs px-1.5"
 											disabled={isGeneratingPrompt}
 											onClick={handleGeneratePrompt}
 										>
@@ -439,7 +439,7 @@ export function TemplateGuideProperties({
 									onChange={(e) => setPrompt(e.target.value)}
 									placeholder="Click 'Generate Prompt' or write your own..."
 									rows={3}
-									className="text-[11px] font-mono"
+									className="text-2xs font-mono"
 								/>
 							</div>
 
@@ -464,7 +464,7 @@ export function TemplateGuideProperties({
 
 							{/* Provider toggle */}
 							<div className="flex items-center justify-between">
-								<span className="text-[10px] text-muted-foreground">
+								<span className="text-2xs text-muted-foreground">
 									Provider
 								</span>
 								<div className="flex gap-1">
@@ -472,7 +472,7 @@ export function TemplateGuideProperties({
 										type="button"
 										onClick={() => setProvider("seedance")}
 										className={cn(
-											"text-[9px] px-2 py-0.5 rounded border transition-colors",
+											"text-3xs px-2 py-0.5 rounded border transition-colors",
 											provider === "seedance"
 												? "bg-primary text-primary-foreground border-primary"
 												: "bg-background hover:bg-accent border-border",
@@ -484,7 +484,7 @@ export function TemplateGuideProperties({
 										type="button"
 										onClick={() => setProvider("local")}
 										className={cn(
-											"text-[9px] px-2 py-0.5 rounded border transition-colors",
+											"text-3xs px-2 py-0.5 rounded border transition-colors",
 											provider === "local"
 												? "bg-primary text-primary-foreground border-primary"
 												: "bg-background hover:bg-accent border-border",
@@ -501,7 +501,7 @@ export function TemplateGuideProperties({
 									<Button
 										size="sm"
 										variant="outline"
-										className="flex-1 h-7 text-[10px]"
+										className="flex-1 h-7 text-2xs"
 										disabled={!prompt.trim() || isGeneratingMedia}
 										onClick={handleGenerateImage}
 									>
@@ -518,7 +518,7 @@ export function TemplateGuideProperties({
 									<Button
 										size="sm"
 										variant="outline"
-										className="flex-1 h-7 text-[10px]"
+										className="flex-1 h-7 text-2xs"
 										disabled={!prompt.trim() || isGeneratingMedia}
 										onClick={handleGenerateVideo}
 									>
@@ -537,7 +537,7 @@ export function TemplateGuideProperties({
 								{generatedUrl && !inserted && (
 									<Button
 										size="sm"
-										className="w-full h-7 text-[10px]"
+										className="w-full h-7 text-2xs"
 										onClick={handleInsertToTimeline}
 									>
 										<HugeiconsIcon
@@ -552,7 +552,7 @@ export function TemplateGuideProperties({
 									<Button
 										size="sm"
 										variant="outline"
-										className="w-full h-7 text-[10px]"
+										className="w-full h-7 text-2xs"
 										disabled
 									>
 										<HugeiconsIcon

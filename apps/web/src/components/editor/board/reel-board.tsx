@@ -3,15 +3,24 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	Cancel01Icon,
+	GridViewIcon,
 	SparklesIcon,
 	StarIcon,
 } from "@hugeicons/core-free-icons";
+import { Dialog as DialogPrimitive } from "radix-ui";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { cn } from "@/utils/ui";
 import { useEditor } from "@/hooks/use-editor";
 import { useBoardStore } from "@/stores/board-store";
 import { useBoardItems, type BoardItem } from "@/hooks/use-board-items";
+import {
+	Dialog,
+	DialogDescription,
+	DialogPortal,
+	DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 /**
  * Board — the single place batches of 2+ generations are stored. A lone
@@ -61,61 +70,104 @@ export function ReelBoard() {
 		if (open) void refetch();
 	}, [open, refetch]);
 
-	useEffect(() => {
-		if (!open) return;
-		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape") setOpen(false);
-		};
-		window.addEventListener("keydown", onKey);
-		return () => window.removeEventListener("keydown", onKey);
-	}, [open, setOpen]);
-
-	if (!open) return null;
-
 	return (
-		<div className="fixed inset-0 z-50 flex flex-col bg-background/98 backdrop-blur">
-			<div className="flex items-center gap-2 border-b px-4 py-2.5">
-				<HugeiconsIcon icon={SparklesIcon} className="size-4 text-primary" />
-				<span className="text-sm font-medium">Board</span>
-				<span className="text-xs text-muted-foreground">
-					{items.length} stored · star anything to save it to Assets
-				</span>
-				<button
-					type="button"
-					aria-label="Close board"
-					onClick={() => setOpen(false)}
-					className="ml-auto flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+		<Dialog open={open} onOpenChange={setOpen}>
+			<DialogPortal>
+				{/*
+				 * Board browses every draft from the current session as a grid —
+				 * it's a dedicated full-viewport surface like Assets/Library, not
+				 * a small decision dialog, so it keeps the whole canvas rather
+				 * than floating a card in the middle of it. We still route
+				 * through Radix's Dialog primitive (Root + Portal + Content) so
+				 * Escape-to-close and focus-trap come for free instead of a
+				 * hand-rolled keydown listener — but we render Content directly
+				 * instead of the shared `DialogContent`, because that component
+				 * hardcodes a small centered-modal treatment behind a
+				 * translucent `bg-black/10` overlay. A full-bleed surface should
+				 * be fully opaque itself, not a modal floating over a
+				 * see-through scrim that lets the editor bleed through.
+				 */}
+				<DialogPrimitive.Content
+					onCloseAutoFocus={(e) => {
+						e.stopPropagation();
+						e.preventDefault();
+					}}
+					className="fixed inset-0 z-250 flex flex-col bg-surface-overlay outline-none"
 				>
-					<HugeiconsIcon icon={Cancel01Icon} className="size-4" />
-					Close
-				</button>
-			</div>
+					<div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
+						<HugeiconsIcon
+							icon={SparklesIcon}
+							className="size-4 text-primary"
+						/>
+						<DialogTitle className="text-sm font-medium leading-none">
+							Board
+						</DialogTitle>
+						<DialogDescription className="text-2xs leading-none text-muted-foreground">
+							{items.length} stored · star anything to save it to Assets
+						</DialogDescription>
+						<Button
+							variant="ghost"
+							size="sm"
+							aria-label="Close board"
+							onClick={() => setOpen(false)}
+							className="ml-auto gap-1 text-2xs text-muted-foreground hover:text-foreground"
+						>
+							<HugeiconsIcon icon={Cancel01Icon} className="size-4" />
+							Close
+						</Button>
+					</div>
 
-			<div className="flex-1 overflow-y-auto p-5">
-				{items.length === 0 ? (
-					<div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-						Nothing stored — batches of 2+ generations are kept here; star
-						anything to save it to Assets.
+					<div className="flex-1 overflow-y-auto p-5">
+						{items.length === 0 ? (
+							<BoardEmptyState onDismiss={() => setOpen(false)} />
+						) : (
+							<div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
+								{items.map((item) => (
+									<DraftCard
+										key={item.id}
+										item={item}
+										pending={pendingIds.has(item.id)}
+										onStar={() =>
+											withPending(item.id, () => promoteToAssets(item))
+										}
+										onDismiss={() => withPending(item.id, () => dismiss(item))}
+										onPromote={
+											item.kind === "take" && item.take?.resolution !== "1080p"
+												? () => withPending(item.id, () => promoteTo1080p(item))
+												: undefined
+										}
+									/>
+								))}
+							</div>
+						)}
 					</div>
-				) : (
-					<div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
-						{items.map((item) => (
-							<DraftCard
-								key={item.id}
-								item={item}
-								pending={pendingIds.has(item.id)}
-								onStar={() => withPending(item.id, () => promoteToAssets(item))}
-								onDismiss={() => withPending(item.id, () => dismiss(item))}
-								onPromote={
-									item.kind === "take" && item.take?.resolution !== "1080p"
-										? () => withPending(item.id, () => promoteTo1080p(item))
-										: undefined
-								}
-							/>
-						))}
-					</div>
-				)}
+				</DialogPrimitive.Content>
+			</DialogPortal>
+		</Dialog>
+	);
+}
+
+/** Real empty state — matches the first-run guide's craft instead of a lone
+ *  line of gray text: an icon, a title, a one-line explanation, and a
+ *  primary action back to the editor where drafts actually get made. */
+function BoardEmptyState({ onDismiss }: { onDismiss: () => void }) {
+	return (
+		<div className="flex h-full flex-col items-center justify-center gap-4 text-center">
+			<div className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+				<HugeiconsIcon icon={GridViewIcon} className="size-5" />
 			</div>
+			<div className="space-y-1">
+				<h3 className="text-sm font-medium text-foreground">
+					Nothing on the board yet
+				</h3>
+				<p className="max-w-72 text-xs text-muted-foreground">
+					Generate 2 or more takes at once and every batch lands here — star
+					what you want to keep, dismiss the rest.
+				</p>
+			</div>
+			<Button variant="outline" size="sm" onClick={onDismiss}>
+				Back to editor
+			</Button>
 		</div>
 	);
 }
@@ -190,49 +242,51 @@ function DraftCard({
 				</div>
 			)}
 
-			<button
-				type="button"
+			<Button
+				variant="ghost"
+				size="icon"
 				aria-label="Dismiss"
 				onClick={onDismiss}
 				disabled={pending}
-				className="absolute top-2 left-2 flex size-6 items-center justify-center rounded-full bg-black/50 text-white/70 opacity-0 transition-opacity hover:text-white focus-visible:opacity-100 group-hover:opacity-100 disabled:pointer-events-none disabled:opacity-40"
+				className="absolute top-2 left-2 size-6 rounded-full bg-black/50 text-white/70 opacity-0 transition-opacity hover:bg-black/60 hover:text-white focus-visible:opacity-100 group-hover:opacity-100 disabled:pointer-events-none disabled:opacity-40"
 			>
 				<HugeiconsIcon icon={Cancel01Icon} className="size-3.5" />
-			</button>
+			</Button>
 
 			{url && (
 				<div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/70 to-transparent p-2">
-					<span className="min-w-0 flex-1 truncate text-[10px] text-white/80">
+					<span className="min-w-0 flex-1 truncate text-3xs text-white/80">
 						{prompt}
 					</span>
-					<div className="flex shrink-0 gap-1">
+					<div className="flex shrink-0 items-center gap-1">
 						{onPromote && (
-							<button
-								type="button"
+							<Button
+								variant="ghost"
+								size="sm"
 								onClick={onPromote}
 								disabled={pending}
-								className="rounded bg-white/15 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-white/25 disabled:pointer-events-none disabled:opacity-50"
+								className="h-5 rounded bg-white/15 px-1.5 py-0 text-3xs font-medium text-white hover:bg-white/25 disabled:pointer-events-none disabled:opacity-50"
 							>
 								{pending ? "…" : "1080p"}
-							</button>
+							</Button>
 						)}
-						<button
-							type="button"
+						<Button
+							variant="ghost"
+							size="icon"
 							onClick={onStar}
 							disabled={pending}
 							aria-label="Star — save to Assets"
 							title="Star — save to Assets"
 							className={cn(
-								"flex size-5 items-center justify-center rounded-full",
-								"bg-amber-400/90 text-black hover:bg-amber-400",
-								"disabled:pointer-events-none disabled:opacity-50",
+								"size-5 rounded-full bg-primary text-primary-foreground",
+								"hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50",
 							)}
 						>
 							<HugeiconsIcon
 								icon={StarIcon}
 								className={cn("size-3", pending && "animate-pulse")}
 							/>
-						</button>
+						</Button>
 					</div>
 				</div>
 			)}

@@ -115,7 +115,7 @@ export function AIStatusIndicator({
 					{status.connected && status.modelsLoaded.length > 0 && (
 						<Badge
 							variant="secondary"
-							className="text-[9px] px-1 py-0 h-3.5 font-mono"
+							className="text-3xs px-1 py-0 h-3.5 font-mono"
 						>
 							{status.modelsLoaded.length}
 						</Badge>
@@ -198,10 +198,10 @@ export function AIStatusIndicator({
 							{status.memoryTotalMb > 0 && (
 								<div className="px-3 py-2.5">
 									<div className="flex items-center justify-between mb-1.5">
-										<span className="text-[11px] text-muted-foreground">
+										<span className="text-2xs text-muted-foreground">
 											Memory
 										</span>
-										<span className="text-[11px] font-mono tabular-nums">
+										<span className="text-2xs font-mono tabular-nums">
 											{formatMb(status.memoryUsageMb)} /{" "}
 											{formatMb(status.memoryTotalMb)}
 										</span>
@@ -219,7 +219,7 @@ export function AIStatusIndicator({
 							{/* Services */}
 							<div className="px-3 py-2.5">
 								<div className="flex items-center justify-between mb-2">
-									<span className="text-[11px] text-muted-foreground font-medium">
+									<span className="text-2xs text-muted-foreground font-medium">
 										Services
 									</span>
 								</div>
@@ -283,10 +283,10 @@ export function AIStatusIndicator({
 														dotColor,
 													)}
 												/>
-												<span className="text-[11px] font-medium flex-1">
+												<span className="text-2xs font-medium flex-1">
 													{label}
 												</span>
-												<span className={cn("text-[10px]", textColor)}>
+												<span className={cn("text-2xs", textColor)}>
 													{statusText}
 												</span>
 											</button>
@@ -299,7 +299,7 @@ export function AIStatusIndicator({
 							<div className="px-3 py-2.5 flex items-center gap-2">
 								<Button
 									size="sm"
-									className="flex-1 h-7 text-[11px]"
+									className="flex-1 h-7 text-2xs"
 									onClick={() => {
 										setIsOpen(false);
 										onSetupClick?.();
@@ -319,7 +319,7 @@ export function AIStatusIndicator({
 									<Button
 										size="sm"
 										variant="outline"
-										className="h-7 text-[11px] px-2.5"
+										className="h-7 text-2xs px-2.5"
 										onClick={onRefresh}
 									>
 										Refresh
@@ -342,7 +342,7 @@ export function AIStatusIndicator({
 											: "Cannot connect to AI backend"}
 								</p>
 								{status.error && (
-									<p className="text-[11px] text-red-400/70 leading-relaxed">
+									<p className="text-2xs text-red-400/70 leading-relaxed">
 										{status.error}
 									</p>
 								)}
@@ -350,21 +350,21 @@ export function AIStatusIndicator({
 
 							{/* Quick start */}
 							<div className="flex flex-col gap-1.5">
-								<span className="text-[11px] text-muted-foreground font-medium">
+								<span className="text-2xs text-muted-foreground font-medium">
 									Quick start
 								</span>
-								<code className="text-[11px] font-mono bg-muted rounded px-2.5 py-1.5 text-muted-foreground select-all block">
+								<code className="text-2xs font-mono bg-muted rounded px-2.5 py-1.5 text-muted-foreground select-all block">
 									docker compose up -d
 								</code>
 							</div>
 
 							{/* Backend URL */}
 							{status.backendUrl && (
-								<div className="flex items-center justify-between text-[11px]">
+								<div className="flex items-center justify-between text-2xs">
 									<span className="text-muted-foreground">
 										Target
 									</span>
-									<code className="font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded text-[10px]">
+									<code className="font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded text-2xs">
 										{status.backendUrl}
 									</code>
 								</div>
@@ -412,7 +412,7 @@ function StatCell({
 }) {
 	return (
 		<div className="flex flex-col items-center gap-0.5 py-2.5 px-2">
-			<span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+			<span className="text-2xs text-muted-foreground uppercase tracking-wider">
 				{label}
 			</span>
 			<span

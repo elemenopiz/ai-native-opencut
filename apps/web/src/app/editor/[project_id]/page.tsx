@@ -195,6 +195,16 @@ function EditorLayout() {
 		});
 	}, [editor]);
 
+	// BUG27: the guide used to REPLACE the right panel outright, unmounting
+	// RightPanel (Generate/Properties/Scopes tabs — the composer) for the
+	// entire first-run window. RightPanel now always stays mounted and usable;
+	// the guide floats as a dismissible overlay anchored INSIDE the
+	// main-content row (absolute within that panel, not fixed to the screen),
+	// so its containing block ends where the timeline row begins — it
+	// structurally cannot occlude the timeline toolbar or track headers
+	// (the BUG9 occlusion class), no matter how the rows are resized.
+	const showGuide = !guideDismissed && !hasTranscript && !hasTimelineContent;
+
 	return (
 		<ResizablePanelGroup
 			direction="vertical"
@@ -208,7 +218,7 @@ function EditorLayout() {
 				defaultSize={panels.mainContent}
 				minSize={30}
 				maxSize={85}
-				className="min-h-0"
+				className="relative min-h-0"
 			>
 				<ResizablePanelGroup
 					direction="horizontal"
@@ -246,15 +256,16 @@ function EditorLayout() {
 						maxSize={40}
 						className="min-w-0"
 					>
-						{!guideDismissed && !hasTranscript && !hasTimelineContent ? (
-							<EmptyEditorGuide
-								onDismiss={() => setGuideDismissed({ value: true })}
-							/>
-						) : (
-							<RightPanel className="size-full" />
-						)}
+						<RightPanel className="size-full" />
 					</ResizablePanel>
 				</ResizablePanelGroup>
+
+				{showGuide && (
+					<EmptyEditorGuide
+						className="absolute bottom-2 left-2 z-40 w-72"
+						onDismiss={() => setGuideDismissed({ value: true })}
+					/>
+				)}
 			</ResizablePanel>
 
 			{/* Quick actions bar — appears between main content and timeline */}

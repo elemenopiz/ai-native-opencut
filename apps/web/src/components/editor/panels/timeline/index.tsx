@@ -76,6 +76,9 @@ export function Timeline() {
 	const editor = useEditor();
 	const timeline = editor.timeline;
 	const tracks = timeline.getTracks();
+	// BUG28: every real project has at least one (empty) main track via
+	// ensureMainTrack, so "empty timeline" means no elements on any track.
+	const isTimelineEmpty = tracks.every((track) => track.elements.length === 0);
 	const seek = (time: number) => editor.playback.seek({ time });
 
 	const timelineRef = useRef<HTMLDivElement>(null);
@@ -390,6 +393,14 @@ export function Timeline() {
 										)}px`,
 									}}
 								>
+									{/* BUG28: quiet hint over the (element-less) tracks area. */}
+									{isTimelineEmpty && (
+										<div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center px-6 text-center">
+											<p className="text-2xs text-muted-foreground/60">
+												Drag media here or generate a clip to begin
+											</p>
+										</div>
+									)}
 									{tracks.length === 0 ? (
 										<div />
 									) : (
@@ -519,7 +530,7 @@ export function Timeline() {
 					{tracks.filter(
 						(track) => track.type === "audio" || track.type === "video",
 					).length === 0 ? (
-						<p className="py-3 text-center text-[10px] text-muted-foreground">
+						<p className="py-3 text-center text-2xs text-muted-foreground">
 							No audio or video tracks to add effects to.
 						</p>
 					) : (
@@ -529,7 +540,7 @@ export function Timeline() {
 							)
 							.map((track) => (
 								<div key={track.id} className="rounded border p-2">
-									<div className="mb-1.5 text-[10px] font-medium text-muted-foreground">
+									<div className="mb-1.5 text-2xs font-medium text-muted-foreground">
 										{track.name || track.type}
 									</div>
 									<AudioEffectsChainPanel
@@ -550,21 +561,21 @@ export function Timeline() {
 				<button
 					type="button"
 					onClick={() => setShowMixer((prev) => !prev)}
-					className="flex flex-1 items-center justify-center border-r py-0.5 text-[9px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+					className="flex flex-1 items-center justify-center border-r py-0.5 text-3xs text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
 				>
 					{showMixer ? "Hide Mixer" : "Show Mixer"}
 				</button>
 				<button
 					type="button"
 					onClick={() => setShowEffects((prev) => !prev)}
-					className="flex flex-1 items-center justify-center border-r py-0.5 text-[9px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+					className="flex flex-1 items-center justify-center border-r py-0.5 text-3xs text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
 				>
 					{showEffects ? "Hide Effects" : "Show Effects"}
 				</button>
 				<button
 					type="button"
 					onClick={() => setShowMarkers((prev) => !prev)}
-					className="flex flex-1 items-center justify-center py-0.5 text-[9px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+					className="flex flex-1 items-center justify-center py-0.5 text-3xs text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
 				>
 					{showMarkers ? "Hide Markers" : "Show Markers"}
 				</button>
@@ -721,7 +732,7 @@ function TrackLabel({ track }: { track: TimelineTrack }) {
 				defaultValue={displayName}
 				onBlur={handleCommit}
 				onKeyDown={handleKeyDown}
-				className="min-w-0 flex-1 rounded-sm bg-accent px-1 py-0.5 text-[10px] font-medium outline-none ring-1 ring-ring"
+				className="min-w-0 flex-1 rounded-sm bg-accent px-1 py-0.5 text-2xs font-medium outline-none ring-1 ring-ring"
 			/>
 		);
 	}
@@ -732,14 +743,14 @@ function TrackLabel({ track }: { track: TimelineTrack }) {
 				<button
 					type="button"
 					onClick={handleStartEdit}
-					className="min-w-0 flex-1 truncate rounded-sm px-1 py-0.5 text-left text-[10px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-text"
+					className="min-w-0 flex-1 truncate rounded-sm px-1 py-0.5 text-left text-2xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-text"
 				>
 					{displayName}
 				</button>
 			</TooltipTrigger>
 			<TooltipContent side="right" sideOffset={8}>
 				<p className="text-xs font-medium">{displayName}</p>
-				<p className="text-[10px] text-muted-foreground">Click to rename</p>
+				<p className="text-2xs text-muted-foreground">Click to rename</p>
 			</TooltipContent>
 		</Tooltip>
 	);

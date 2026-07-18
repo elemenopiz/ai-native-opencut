@@ -167,7 +167,7 @@ function TrackMixerStrip({
 			)}
 		>
 			<div className="flex items-center justify-between gap-1">
-				<span className="text-[9px] font-medium truncate max-w-[70px]">
+				<span className="text-3xs font-medium truncate max-w-[70px]">
 					{track.name}
 				</span>
 				<div className="flex items-center gap-0.5">
@@ -175,7 +175,7 @@ function TrackMixerStrip({
 						type="button"
 						onClick={handleSoloToggle}
 						className={cn(
-							"size-4 rounded text-[7px] font-bold flex items-center justify-center border",
+							"size-4 rounded text-3xs font-bold flex items-center justify-center border",
 							isSolo
 								? "bg-yellow-500/20 border-yellow-500/50 text-yellow-500"
 								: "border-border text-muted-foreground",
@@ -187,7 +187,7 @@ function TrackMixerStrip({
 						type="button"
 						onClick={handleMuteToggle}
 						className={cn(
-							"size-4 rounded text-[7px] font-bold flex items-center justify-center border",
+							"size-4 rounded text-3xs font-bold flex items-center justify-center border",
 							isMuted
 								? "bg-red-500/20 border-red-500/50 text-red-500"
 								: "border-border text-muted-foreground",
@@ -209,7 +209,7 @@ function TrackMixerStrip({
 				onChange={handleVolumeChange}
 				className="w-full h-1 accent-primary"
 			/>
-			<span className="text-[8px] text-muted-foreground text-center font-mono">
+			<span className="text-3xs text-muted-foreground text-center font-mono">
 				{dbValue.toFixed(1)} dB
 			</span>
 
@@ -224,7 +224,7 @@ function TrackMixerStrip({
 						onChange={handlePanChange}
 						className="w-full h-1 accent-primary"
 					/>
-					<span className="text-[8px] text-muted-foreground text-center">
+					<span className="text-3xs text-muted-foreground text-center">
 						{pan === 0 ? "C" : pan < 0 ? `L${Math.abs(Math.round(pan * 100))}` : `R${Math.round(pan * 100)}`}
 					</span>
 				</div>
@@ -248,7 +248,7 @@ export function AudioMixerPanel() {
 	if (audioTracks.length === 0) {
 		return (
 			<div className="flex flex-col items-center justify-center gap-2 p-4 text-muted-foreground">
-				<span className="text-[10px]">No audio tracks</span>
+				<span className="text-2xs">No audio tracks</span>
 			</div>
 		);
 	}
@@ -256,8 +256,8 @@ export function AudioMixerPanel() {
 	return (
 		<div className="flex flex-col gap-2 p-2">
 			<div className="flex items-center justify-between">
-				<span className="text-[10px] font-medium">Mixer</span>
-				<span className="text-[9px] text-muted-foreground">
+				<span className="text-2xs font-medium">Mixer</span>
+				<span className="text-3xs text-muted-foreground">
 					{audioTracks.length} track{audioTracks.length !== 1 ? "s" : ""}
 				</span>
 			</div>
@@ -273,9 +273,9 @@ export function AudioMixerPanel() {
 				))}
 
 				<div className="flex flex-col gap-1.5 p-2 rounded-md border border-primary/20 min-w-[90px]">
-					<span className="text-[9px] font-medium text-center">Master</span>
+					<span className="text-3xs font-medium text-center">Master</span>
 					<LevelMeter getLevels={masterLevels} isPlaying={isPlaying} />
-					<span className="text-[8px] text-muted-foreground text-center font-mono">
+					<span className="text-3xs text-muted-foreground text-center font-mono">
 						{(editor.playback.getVolume() * 100).toFixed(0)}%
 					</span>
 				</div>

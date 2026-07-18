@@ -44,6 +44,39 @@ function clearBackground({
 }
 
 // --------------------------------------------------------------------------
+// Idle state (no preview frame sampled yet)
+// --------------------------------------------------------------------------
+
+/**
+ * Painted before the first preview frame samples in (and while resizing in
+ * that state), so the scope reads as an instrument at rest instead of a
+ * dead black rectangle. Five faint IRE-style reference lines (0/25/50/75/100)
+ * — no color, no motion. The tick loop's drawWaveform/drawVectorscope/
+ * drawHistogram calls take over the canvas permanently once a real frame
+ * lands, so this never fights with live rendering.
+ */
+export function drawIdleGraticule({
+	ctx,
+	width,
+	height,
+}: {
+	ctx: CanvasRenderingContext2D;
+	width: number;
+	height: number;
+}) {
+	clearBackground({ ctx, width, height });
+	ctx.strokeStyle = "rgba(255,255,255,0.1)";
+	ctx.lineWidth = 1;
+	for (let i = 0; i <= 4; i++) {
+		const y = Math.round((height * i) / 4) + 0.5;
+		ctx.beginPath();
+		ctx.moveTo(0, y);
+		ctx.lineTo(width, y);
+		ctx.stroke();
+	}
+}
+
+// --------------------------------------------------------------------------
 // Waveform (luma or RGB parade)
 // --------------------------------------------------------------------------
 

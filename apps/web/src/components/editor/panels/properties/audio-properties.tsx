@@ -200,7 +200,7 @@ export function AudioProperties({
 							{isProcessing ? "Reducing noise..." : "Reduce Noise"}
 						</Button>
 
-						<p className="text-muted-foreground mt-2 text-[11px]">
+						<p className="text-muted-foreground mt-2 text-2xs">
 							Runs spectral-gating denoise on this clip's source audio and swaps
 							in the cleaned result.
 						</p>

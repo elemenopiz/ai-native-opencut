@@ -1180,7 +1180,7 @@ function AudioVolumeLine({
 				style={{ top: `${100 - volumePercent}%` }}
 			>
 				{/* dB label */}
-				<span className="absolute right-1 -top-3.5 text-[9px] font-mono text-yellow-400/90 pointer-events-none select-none">
+				<span className="absolute right-1 -top-3.5 text-3xs font-mono text-yellow-400/90 pointer-events-none select-none">
 					{volumeDb > -60 ? `${volumeDb} dB` : "-∞ dB"}
 				</span>
 			</div>

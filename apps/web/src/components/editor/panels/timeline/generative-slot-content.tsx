@@ -40,6 +40,10 @@ export function GenerativeSlotContent({
 				"absolute inset-0 flex items-center gap-1.5 overflow-hidden px-2",
 				// Diagonal hatching reads as a placeholder on any track color.
 				"bg-[repeating-linear-gradient(45deg,transparent,transparent_6px,rgba(0,0,0,0.14)_6px,rgba(0,0,0,0.14)_12px)]",
+				// Generation-glow is the ONE exception to "nothing glows" — live
+				// only while this slot is actively generating, gone the instant
+				// it resolves (see DIRECTION-LOCKED.md).
+				isGenerating && "glow-generation",
 			)}
 		>
 			{/* Animated sheen while generating — a light band sweeping across. */}
@@ -73,7 +77,7 @@ export function GenerativeSlotContent({
 
 			<span
 				className={cn(
-					"truncate text-[11px] leading-none",
+					"truncate text-2xs leading-none",
 					isFailed ? "text-red-300" : "text-white/90",
 				)}
 			>
@@ -91,7 +95,7 @@ export function SlotTakesBadge({ element }: { element: GenerativeElement }) {
 	const takes = element.takes ?? [];
 	if (!element.generation || takes.length < 2) return null;
 	return (
-		<div className="pointer-events-none absolute right-1 top-1 z-10 rounded-sm bg-black/70 px-1 py-0.5 text-[10px] font-medium leading-none text-white">
+		<div className="pointer-events-none absolute right-1 top-1 z-10 rounded-sm bg-black/70 px-1 py-0.5 text-2xs font-medium leading-none text-white">
 			{takes.length} takes
 		</div>
 	);

@@ -393,7 +393,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 								) : (
 									<div>
 										<span className="font-medium">No services running</span>
-										<p className="text-[11px] mt-0.5 opacity-80">
+										<p className="text-2xs mt-0.5 opacity-80">
 											Start all with: <code className="font-mono bg-black/20 px-1 rounded">docker compose up -d</code>
 										</p>
 									</div>
@@ -404,7 +404,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 								size="sm"
 								onClick={handleRefresh}
 								disabled={isLoading}
-								className="h-6 text-[11px] px-2 shrink-0"
+								className="h-6 text-2xs px-2 shrink-0"
 							>
 								{isLoading ? <Spinner className="size-3" /> : "Refresh"}
 							</Button>
@@ -418,7 +418,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 						>
 							{!isBackendRunning && (
 								<div className="flex flex-col gap-2 mt-2">
-									<p className="text-[11px] text-muted-foreground leading-relaxed">
+									<p className="text-2xs text-muted-foreground leading-relaxed">
 										The AI backend gateway powers all AI features. Start it using Docker:
 									</p>
 									<div className="flex flex-col gap-1">
@@ -440,7 +440,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 						>
 							{!isOllamaRunning && (
 								<div className="mt-2">
-									<p className="text-[11px] text-muted-foreground leading-relaxed">
+									<p className="text-2xs text-muted-foreground leading-relaxed">
 										Ollama serves local LLMs for AI commands, chapter detection, and analysis. Start it:
 									</p>
 									<CommandBlock label="Via Docker" command={SERVICE_DOCKER_COMMANDS.ollama} />
@@ -453,7 +453,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 									{/* Installed models — with explicit Use / Active button */}
 									{ollamaModels.length > 0 && (
 										<div className="flex flex-col gap-1">
-											<span className="text-[11px] text-muted-foreground font-medium">Installed models</span>
+											<span className="text-2xs text-muted-foreground font-medium">Installed models</span>
 											{ollamaModels.map((model) => {
 												const isActive = model.name === activeModel;
 												// Determine CPU/GPU from size: models > 4GB typically need GPU
@@ -463,7 +463,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 													<div
 														key={model.name}
 														className={cn(
-															"flex items-center justify-between rounded px-2 py-1.5 text-[11px]",
+															"flex items-center justify-between rounded px-2 py-1.5 text-2xs",
 															isActive
 																? "bg-primary/10 border border-primary/30"
 																: "bg-muted/50",
@@ -475,7 +475,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 															<Badge
 																variant="outline"
 																className={cn(
-																	"text-[8px] px-1 py-0",
+																	"text-3xs px-1 py-0",
 																	deviceTag === "cpu"
 																		? "text-green-400 border-green-500/30"
 																		: "text-purple-400 border-purple-500/30",
@@ -489,14 +489,14 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 																{formatBytes(model.size)}
 															</span>
 															{isActive ? (
-																<Badge variant="default" className="text-[8px] px-1.5 py-0 h-4">
+																<Badge variant="default" className="text-3xs px-1.5 py-0 h-4">
 																	Active
 																</Badge>
 															) : (
 																<Button
 																	size="sm"
 																	variant="outline"
-																	className="h-5 text-[9px] px-2"
+																	className="h-5 text-3xs px-2"
 																	disabled={isSwitchingModel}
 																	onClick={() => handleSwitchModel(model.name)}
 																>
@@ -512,19 +512,19 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 
 									{/* Pull a new model */}
 									{!hasModels && (
-										<div className="rounded bg-yellow-500/10 px-2.5 py-2 text-[11px] text-yellow-400">
+										<div className="rounded bg-yellow-500/10 px-2.5 py-2 text-2xs text-yellow-400">
 											No models installed yet. Pull one to enable AI commands.
 										</div>
 									)}
 
 									{ollamaModels.length === 1 && (
-										<div className="rounded bg-blue-500/10 px-2.5 py-2 text-[11px] text-blue-400 leading-relaxed">
+										<div className="rounded bg-blue-500/10 px-2.5 py-2 text-2xs text-blue-400 leading-relaxed">
 											To switch models, pull a different one below. It will download and automatically become the active model.
 										</div>
 									)}
 
 									<div className="flex flex-col gap-1">
-										<span className="text-[11px] text-muted-foreground font-medium">
+										<span className="text-2xs text-muted-foreground font-medium">
 											{hasModels ? "Switch to a different model" : "Choose a model to install"}
 										</span>
 										{SUGGESTED_MODELS.map((model) => {
@@ -539,7 +539,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 												<div
 													key={model.name}
 													className={cn(
-														"flex items-center gap-2 rounded px-2.5 py-2 text-[11px]",
+														"flex items-center gap-2 rounded px-2.5 py-2 text-2xs",
 														isActive
 															? "bg-primary/10 border border-primary/30"
 															: isInstalled
@@ -554,7 +554,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 															<Badge
 																variant="outline"
 																className={cn(
-																	"text-[8px] px-1 py-0",
+																	"text-3xs px-1 py-0",
 																	model.device === "cpu"
 																		? "text-green-400 border-green-500/30"
 																		: "text-purple-400 border-purple-500/30",
@@ -565,13 +565,13 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 															{model.turboquant && (
 																<Badge
 																	variant="outline"
-																	className="text-[8px] px-1 py-0 text-cyan-400 border-cyan-500/30"
+																	className="text-3xs px-1 py-0 text-cyan-400 border-cyan-500/30"
 																>
 																	TurboQuant
 																</Badge>
 															)}
 															{isActive && (
-																<Badge variant="default" className="text-[8px] px-1 py-0 h-3.5">
+																<Badge variant="default" className="text-3xs px-1 py-0 h-3.5">
 																	Active
 																</Badge>
 															)}
@@ -580,19 +580,19 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 													</div>
 													<div className="shrink-0">
 														{isPulling ? (
-															<Button size="sm" variant="outline" className="h-6 text-[10px] px-2" disabled>
+															<Button size="sm" variant="outline" className="h-6 text-2xs px-2" disabled>
 																<Spinner className="size-3 mr-1" />
 																Pulling...
 															</Button>
 														) : isActive ? (
-															<Badge variant="default" className="text-[9px] px-1.5 py-0.5">
+															<Badge variant="default" className="text-3xs px-1.5 py-0.5">
 																In use
 															</Badge>
 														) : isInstalled ? (
 															<Button
 																size="sm"
 																variant="outline"
-																className="h-6 text-[10px] px-2"
+																className="h-6 text-2xs px-2"
 																disabled={isSwitchingModel || isPullingModel !== null}
 																onClick={() => handleSwitchModel(model.name)}
 															>
@@ -602,7 +602,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 															<Button
 																size="sm"
 																variant="secondary"
-																className="h-6 text-[10px] px-2"
+																className="h-6 text-2xs px-2"
 																disabled={isPullingModel !== null}
 																onClick={() => handlePullModel(model.name)}
 															>
@@ -617,7 +617,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 									</div>
 
 									{pullError && (
-										<p className="text-[11px] text-destructive">{pullError}</p>
+										<p className="text-2xs text-destructive">{pullError}</p>
 									)}
 								</div>
 							)}
@@ -646,7 +646,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 						>
 							{!isTTSRunning && (
 								<div className="mt-2 flex flex-col gap-2">
-									<p className="text-[11px] text-muted-foreground leading-relaxed">
+									<p className="text-2xs text-muted-foreground leading-relaxed">
 										TTS service is not running. Start it with Docker:
 									</p>
 									<CommandBlock label="Start TTS" command={SERVICE_DOCKER_COMMANDS.tts} />
@@ -658,15 +658,15 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 									{/* Active model */}
 									{(tts.model_loaded || activeTTSModel) && activeTTSModel && (
 										<div className="flex flex-col gap-1">
-											<span className="text-[11px] text-muted-foreground font-medium">Active model</span>
-											<div className="flex items-center justify-between rounded px-2 py-1.5 text-[11px] bg-primary/10 border border-primary/30">
+											<span className="text-2xs text-muted-foreground font-medium">Active model</span>
+											<div className="flex items-center justify-between rounded px-2 py-1.5 text-2xs bg-primary/10 border border-primary/30">
 												<div className="flex items-center gap-1.5">
 													<span className={cn("size-1.5 rounded-full bg-primary")} />
 													<span className="font-medium">{activeTTSModel}</span>
 													<Badge
 														variant="outline"
 														className={cn(
-															"text-[8px] px-1 py-0",
+															"text-3xs px-1 py-0",
 															activeTTSDevice === "cuda"
 																? "text-purple-400 border-purple-500/30"
 																: "text-green-400 border-green-500/30",
@@ -676,11 +676,11 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 													</Badge>
 												</div>
 												<div className="flex items-center gap-1.5">
-													<Badge variant="default" className="text-[8px] px-1.5 py-0 h-4">Active</Badge>
+													<Badge variant="default" className="text-3xs px-1.5 py-0 h-4">Active</Badge>
 													<Button
 														variant="ghost"
 														size="sm"
-														className="h-5 text-[10px] px-1.5 text-muted-foreground"
+														className="h-5 text-2xs px-1.5 text-muted-foreground"
 														disabled={isTestingService === "tts"}
 														onClick={() => handleTestService("tts", "TTS")}
 													>
@@ -693,7 +693,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 
 									{/* Model list */}
 									<div className="flex flex-col gap-1">
-										<span className="text-[11px] text-muted-foreground font-medium">
+										<span className="text-2xs text-muted-foreground font-medium">
 											{(tts.model_loaded || activeTTSModel) ? "Switch to a different model" : "Choose a model to load"}
 										</span>
 										{SUGGESTED_TTS_MODELS.map((model) => {
@@ -704,7 +704,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 												<div
 													key={model.name}
 													className={cn(
-														"flex items-center gap-2 rounded px-2.5 py-2 text-[11px]",
+														"flex items-center gap-2 rounded px-2.5 py-2 text-2xs",
 														isActive
 															? "bg-primary/10 border border-primary/30"
 															: "bg-muted/30",
@@ -717,7 +717,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 															<Badge
 																variant="outline"
 																className={cn(
-																	"text-[8px] px-1 py-0",
+																	"text-3xs px-1 py-0",
 																	model.device === "cpu"
 																		? "text-green-400 border-green-500/30"
 																		: "text-purple-400 border-purple-500/30",
@@ -728,7 +728,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 															{model.multilingual && (
 																<Badge
 																	variant="outline"
-																	className="text-[8px] px-1 py-0 text-blue-400 border-blue-500/30"
+																	className="text-3xs px-1 py-0 text-blue-400 border-blue-500/30"
 																>
 																	Multilingual
 																</Badge>
@@ -736,13 +736,13 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 															{model.voiceCloning && (
 																<Badge
 																	variant="outline"
-																	className="text-[8px] px-1 py-0 text-purple-400 border-purple-500/30"
+																	className="text-3xs px-1 py-0 text-purple-400 border-purple-500/30"
 																>
 																	Cloning
 																</Badge>
 															)}
 															{isActive && (
-																<Badge variant="default" className="text-[8px] px-1 py-0 h-3.5">
+																<Badge variant="default" className="text-3xs px-1 py-0 h-3.5">
 																	Active
 																</Badge>
 															)}
@@ -751,19 +751,19 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 													</div>
 													<div className="shrink-0">
 														{isSwitching ? (
-															<Button size="sm" variant="outline" className="h-6 text-[10px] px-2" disabled>
+															<Button size="sm" variant="outline" className="h-6 text-2xs px-2" disabled>
 																<Spinner className="size-3 mr-1" />
 																Loading...
 															</Button>
 														) : isActive ? (
-															<Badge variant="default" className="text-[9px] px-1.5 py-0.5">
+															<Badge variant="default" className="text-3xs px-1.5 py-0.5">
 																In use
 															</Badge>
 														) : (
 															<Button
 																size="sm"
 																variant="secondary"
-																className="h-6 text-[10px] px-2"
+																className="h-6 text-2xs px-2"
 																disabled={isSwitchingTTS !== null}
 																onClick={() => handleSwitchTTSModel(model.name)}
 															>
@@ -778,7 +778,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 									</div>
 
 									{ttsError && (
-										<p className="text-[11px] text-destructive">{ttsError}</p>
+										<p className="text-2xs text-destructive">{ttsError}</p>
 									)}
 								</div>
 							)}
@@ -801,7 +801,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 						>
 							{!isWhisperRunning && (
 								<div className="mt-2 flex flex-col gap-2">
-									<p className="text-[11px] text-muted-foreground leading-relaxed">
+									<p className="text-2xs text-muted-foreground leading-relaxed">
 										Whisper service is not running. Start it with Docker:
 									</p>
 									<CommandBlock label="Start Whisper" command={SERVICE_DOCKER_COMMANDS.whisper} />
@@ -813,15 +813,15 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 									{/* Active model */}
 									{(whisper.model_loaded || activeWhisperModel) && activeWhisperModel && (
 										<div className="flex flex-col gap-1">
-											<span className="text-[11px] text-muted-foreground font-medium">Active model</span>
-											<div className="flex items-center justify-between rounded px-2 py-1.5 text-[11px] bg-primary/10 border border-primary/30">
+											<span className="text-2xs text-muted-foreground font-medium">Active model</span>
+											<div className="flex items-center justify-between rounded px-2 py-1.5 text-2xs bg-primary/10 border border-primary/30">
 												<div className="flex items-center gap-1.5">
 													<span className={cn("size-1.5 rounded-full bg-primary")} />
 													<span className="font-medium">{activeWhisperModel}</span>
 													<Badge
 														variant="outline"
 														className={cn(
-															"text-[8px] px-1 py-0",
+															"text-3xs px-1 py-0",
 															activeWhisperDevice === "cuda"
 																? "text-purple-400 border-purple-500/30"
 																: "text-green-400 border-green-500/30",
@@ -831,11 +831,11 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 													</Badge>
 												</div>
 												<div className="flex items-center gap-1.5">
-													<Badge variant="default" className="text-[8px] px-1.5 py-0 h-4">Active</Badge>
+													<Badge variant="default" className="text-3xs px-1.5 py-0 h-4">Active</Badge>
 													<Button
 														variant="ghost"
 														size="sm"
-														className="h-5 text-[10px] px-1.5 text-muted-foreground"
+														className="h-5 text-2xs px-1.5 text-muted-foreground"
 														disabled={isTestingService === "whisper"}
 														onClick={() => handleTestService("whisper", "Whisper")}
 													>
@@ -848,7 +848,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 
 									{/* Model list */}
 									<div className="flex flex-col gap-1">
-										<span className="text-[11px] text-muted-foreground font-medium">
+										<span className="text-2xs text-muted-foreground font-medium">
 											{(whisper.model_loaded || activeWhisperModel) ? "Switch to a different model" : "Choose a model to load"}
 										</span>
 										{SUGGESTED_WHISPER_MODELS.map((model) => {
@@ -859,7 +859,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 												<div
 													key={model.name}
 													className={cn(
-														"flex items-center gap-2 rounded px-2.5 py-2 text-[11px]",
+														"flex items-center gap-2 rounded px-2.5 py-2 text-2xs",
 														isActive
 															? "bg-primary/10 border border-primary/30"
 															: "bg-muted/30",
@@ -872,7 +872,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 															<Badge
 																variant="outline"
 																className={cn(
-																	"text-[8px] px-1 py-0",
+																	"text-3xs px-1 py-0",
 																	model.device === "cpu"
 																		? "text-green-400 border-green-500/30"
 																		: "text-purple-400 border-purple-500/30",
@@ -881,7 +881,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 																{model.device === "cpu" ? "CPU" : "GPU"}
 															</Badge>
 															{isActive && (
-																<Badge variant="default" className="text-[8px] px-1 py-0 h-3.5">
+																<Badge variant="default" className="text-3xs px-1 py-0 h-3.5">
 																	Active
 																</Badge>
 															)}
@@ -890,19 +890,19 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 													</div>
 													<div className="shrink-0">
 														{isSwitching ? (
-															<Button size="sm" variant="outline" className="h-6 text-[10px] px-2" disabled>
+															<Button size="sm" variant="outline" className="h-6 text-2xs px-2" disabled>
 																<Spinner className="size-3 mr-1" />
 																Loading...
 															</Button>
 														) : isActive ? (
-															<Badge variant="default" className="text-[9px] px-1.5 py-0.5">
+															<Badge variant="default" className="text-3xs px-1.5 py-0.5">
 																In use
 															</Badge>
 														) : (
 															<Button
 																size="sm"
 																variant="secondary"
-																className="h-6 text-[10px] px-2"
+																className="h-6 text-2xs px-2"
 																disabled={isSwitchingWhisper !== null}
 																onClick={() => handleSwitchWhisperModel(model.name)}
 															>
@@ -917,7 +917,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 									</div>
 
 									{whisperError && (
-										<p className="text-[11px] text-destructive">{whisperError}</p>
+										<p className="text-2xs text-destructive">{whisperError}</p>
 									)}
 								</div>
 							)}
@@ -946,7 +946,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 						>
 							{!isImageRunning && (
 								<div className="mt-2 flex flex-col gap-2">
-									<p className="text-[11px] text-muted-foreground leading-relaxed">
+									<p className="text-2xs text-muted-foreground leading-relaxed">
 										Image service is not running. Start it with Docker:
 									</p>
 									<CommandBlock label="Start Image service" command={SERVICE_DOCKER_COMMANDS.image} />
@@ -958,15 +958,15 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 									{/* Active model */}
 									{(diffusion.model_loaded || activeImageModel) && activeImageModel && (
 										<div className="flex flex-col gap-1">
-											<span className="text-[11px] text-muted-foreground font-medium">Active model</span>
-											<div className="flex items-center justify-between rounded px-2 py-1.5 text-[11px] bg-primary/10 border border-primary/30">
+											<span className="text-2xs text-muted-foreground font-medium">Active model</span>
+											<div className="flex items-center justify-between rounded px-2 py-1.5 text-2xs bg-primary/10 border border-primary/30">
 												<div className="flex items-center gap-1.5">
 													<span className={cn("size-1.5 rounded-full bg-primary")} />
 													<span className="font-medium">{activeImageModel}</span>
 													<Badge
 														variant="outline"
 														className={cn(
-															"text-[8px] px-1 py-0",
+															"text-3xs px-1 py-0",
 															activeImageDevice === "cuda"
 																? "text-purple-400 border-purple-500/30"
 																: "text-green-400 border-green-500/30",
@@ -976,11 +976,11 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 													</Badge>
 												</div>
 												<div className="flex items-center gap-1.5">
-													<Badge variant="default" className="text-[8px] px-1.5 py-0 h-4">Active</Badge>
+													<Badge variant="default" className="text-3xs px-1.5 py-0 h-4">Active</Badge>
 													<Button
 														variant="ghost"
 														size="sm"
-														className="h-5 text-[10px] px-1.5 text-muted-foreground"
+														className="h-5 text-2xs px-1.5 text-muted-foreground"
 														disabled={isTestingService === "image"}
 														onClick={() => handleTestService("image", "Image")}
 													>
@@ -993,7 +993,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 
 									{/* Model list */}
 									<div className="flex flex-col gap-1">
-										<span className="text-[11px] text-muted-foreground font-medium">
+										<span className="text-2xs text-muted-foreground font-medium">
 											{(diffusion.model_loaded || activeImageModel) ? "Switch to a different model" : "Choose a model to load"}
 										</span>
 										{SUGGESTED_IMAGE_MODELS.map((model) => {
@@ -1004,7 +1004,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 												<div
 													key={model.name}
 													className={cn(
-														"flex items-center gap-2 rounded px-2.5 py-2 text-[11px]",
+														"flex items-center gap-2 rounded px-2.5 py-2 text-2xs",
 														isActive
 															? "bg-primary/10 border border-primary/30"
 															: "bg-muted/30",
@@ -1017,7 +1017,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 															<Badge
 																variant="outline"
 																className={cn(
-																	"text-[8px] px-1 py-0",
+																	"text-3xs px-1 py-0",
 																	model.device === "cpu"
 																		? "text-green-400 border-green-500/30"
 																		: "text-purple-400 border-purple-500/30",
@@ -1026,7 +1026,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 																{model.device === "cpu" ? "CPU" : "GPU"}
 															</Badge>
 															{isActive && (
-																<Badge variant="default" className="text-[8px] px-1 py-0 h-3.5">
+																<Badge variant="default" className="text-3xs px-1 py-0 h-3.5">
 																	Active
 																</Badge>
 															)}
@@ -1035,19 +1035,19 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 													</div>
 													<div className="shrink-0">
 														{isSwitching ? (
-															<Button size="sm" variant="outline" className="h-6 text-[10px] px-2" disabled>
+															<Button size="sm" variant="outline" className="h-6 text-2xs px-2" disabled>
 																<Spinner className="size-3 mr-1" />
 																Loading...
 															</Button>
 														) : isActive ? (
-															<Badge variant="default" className="text-[9px] px-1.5 py-0.5">
+															<Badge variant="default" className="text-3xs px-1.5 py-0.5">
 																In use
 															</Badge>
 														) : (
 															<Button
 																size="sm"
 																variant="secondary"
-																className="h-6 text-[10px] px-2"
+																className="h-6 text-2xs px-2"
 																disabled={isSwitchingImage !== null}
 																onClick={() => handleSwitchImageModel(model.name)}
 															>
@@ -1062,7 +1062,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 									</div>
 
 									{diffusionError && (
-										<p className="text-[11px] text-destructive">{diffusionError}</p>
+										<p className="text-2xs text-destructive">{diffusionError}</p>
 									)}
 								</div>
 							)}
@@ -1070,7 +1070,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 
 						{/* ── Success message ── */}
 						{actionMessage && (
-							<div className="flex items-center gap-2 rounded-lg bg-green-500/10 px-3 py-2 text-[11px] text-green-400">
+							<div className="flex items-center gap-2 rounded-lg bg-green-500/10 px-3 py-2 text-2xs text-green-400">
 								<HugeiconsIcon icon={Tick01Icon} className="size-3.5 shrink-0" />
 								{actionMessage}
 							</div>
@@ -1132,10 +1132,10 @@ function ServiceCard({
 						<span className="text-xs font-medium">{title}</span>
 					</div>
 					<div className="flex items-center gap-2">
-						<span className="text-[11px] text-muted-foreground">{detail}</span>
+						<span className="text-2xs text-muted-foreground">{detail}</span>
 						<Badge
 							variant={badge.variant}
-							className="text-[9px] px-1.5 py-0"
+							className="text-3xs px-1.5 py-0"
 						>
 							{badge.label}
 						</Badge>
@@ -1150,8 +1150,8 @@ function ServiceCard({
 function CommandBlock({ label, command }: { label: string; command: string }) {
 	return (
 		<div className="mt-1">
-			<span className="text-[10px] text-muted-foreground">{label}:</span>
-			<code className="block text-[11px] font-mono bg-muted rounded px-2 py-1 mt-0.5 text-muted-foreground select-all">
+			<span className="text-2xs text-muted-foreground">{label}:</span>
+			<code className="block text-2xs font-mono bg-muted rounded px-2 py-1 mt-0.5 text-muted-foreground select-all">
 				{command}
 			</code>
 		</div>

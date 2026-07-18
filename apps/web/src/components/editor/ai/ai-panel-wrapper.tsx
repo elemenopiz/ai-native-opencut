@@ -207,7 +207,7 @@ export function AIPanelWrapper() {
 							<p className="text-xs font-medium">
 								AI features are not available
 							</p>
-							<p className="text-[11px] text-muted-foreground mt-0.5">
+							<p className="text-2xs text-muted-foreground mt-0.5">
 								{errorType === "connection_refused"
 									? "The AI backend is not running. Start it to enable transcription, AI commands, and more."
 									: errorType === "timeout"
@@ -219,7 +219,7 @@ export function AIPanelWrapper() {
 							<Button
 								size="sm"
 								variant="outline"
-								className="h-7 text-[11px] px-2.5"
+								className="h-7 text-2xs px-2.5"
 								onClick={toggleSetupGuide}
 							>
 								Setup guide

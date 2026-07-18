@@ -96,9 +96,7 @@ const SAFETY_TIER_LABELS: Record<SafetyTier, string> = {
 
 const SAFETY_TIER_CLASSES: Record<SafetyTier, string> = {
 	"indemnified-equivalent":
-		"border-green-900/40 bg-green-100/80 text-green-900 dark:border-green-500/30 dark:bg-green-900/20 dark:text-green-300",
-	partner:
-		"border-blue-900/40 bg-blue-100/80 text-blue-900 dark:border-blue-500/30 dark:bg-blue-900/20 dark:text-blue-300",
-	experimental:
-		"border-amber-900/40 bg-amber-100/80 text-amber-900 dark:border-amber-500/30 dark:bg-amber-900/20 dark:text-amber-300",
+		"border-constructive/30 bg-constructive/15 text-constructive",
+	partner: "border-primary/30 bg-primary/15 text-primary",
+	experimental: "border-tone-warning/30 bg-tone-warning/15 text-tone-warning",
 };

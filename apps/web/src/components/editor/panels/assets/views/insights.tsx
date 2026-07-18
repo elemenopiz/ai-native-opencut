@@ -103,42 +103,45 @@ const ROLE_META: Record<
 	hero: {
 		label: "Hero",
 		hint: "The money shot — the featured subject",
-		chip: "text-amber-600 dark:text-amber-400 bg-amber-500/10 border-amber-500/30",
+		// `dark:` pairs folded — forcedTheme="dark" means the base half of
+		// `text-amber-600 dark:text-amber-400` never rendered. Keeping the
+		// value that was actually live.
+		chip: "text-amber-400 bg-amber-500/10 border-amber-500/30",
 		dot: "bg-amber-500",
 		seg: "bg-amber-500",
 	},
 	product: {
 		label: "Product",
 		hint: "A product beauty or detail shot",
-		chip: "text-violet-600 dark:text-violet-400 bg-violet-500/10 border-violet-500/30",
+		chip: "text-violet-400 bg-violet-500/10 border-violet-500/30",
 		dot: "bg-violet-500",
 		seg: "bg-violet-500",
 	},
 	logo: {
 		label: "Logo",
 		hint: "A brand mark or wordmark",
-		chip: "text-sky-600 dark:text-sky-400 bg-sky-500/10 border-sky-500/30",
+		chip: "text-sky-400 bg-sky-500/10 border-sky-500/30",
 		dot: "bg-sky-500",
 		seg: "bg-sky-500",
 	},
 	"face-anchor": {
 		label: "Face anchor",
 		hint: "A face clear enough to anchor identity",
-		chip: "text-rose-600 dark:text-rose-400 bg-rose-500/10 border-rose-500/30",
+		chip: "text-rose-400 bg-rose-500/10 border-rose-500/30",
 		dot: "bg-rose-500",
 		seg: "bg-rose-500",
 	},
 	"b-roll": {
 		label: "B-roll",
 		hint: "Supporting / background footage",
-		chip: "text-slate-600 dark:text-slate-400 bg-slate-500/10 border-slate-500/30",
+		chip: "text-slate-400 bg-slate-500/10 border-slate-500/30",
 		dot: "bg-slate-400",
 		seg: "bg-slate-400",
 	},
 	"screen-rec": {
 		label: "Screen rec",
 		hint: "A screen recording or UI capture",
-		chip: "text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/30",
+		chip: "text-emerald-400 bg-emerald-500/10 border-emerald-500/30",
 		dot: "bg-emerald-500",
 		seg: "bg-emerald-500",
 	},
@@ -439,7 +442,7 @@ export function InsightsView() {
 									<Tooltip key={s.word} delayDuration={100}>
 										<TooltipTrigger asChild>
 											<span
-												className="size-5 rounded-full border border-black/10 dark:border-white/20"
+												className="size-5 rounded-full border border-white/20"
 												style={{ backgroundColor: s.hex }}
 											/>
 										</TooltipTrigger>
@@ -471,7 +474,7 @@ export function InsightsView() {
 								key={mediaId}
 								type="button"
 								onClick={() => scrollToCard(mediaId)}
-								className="flex w-full items-start gap-2 rounded-sm text-left text-xs text-amber-600 hover:underline dark:text-amber-400"
+								className="flex w-full items-start gap-2 rounded-sm text-left text-xs text-amber-400 hover:underline"
 							>
 								<HugeiconsIcon
 									icon={Alert02Icon}
@@ -547,8 +550,8 @@ function FilterChip({
 				active
 					? "border-foreground/40 bg-accent text-foreground"
 					: "text-muted-foreground hover:bg-accent/50",
-				tone === "warn" && "text-amber-600 dark:text-amber-400",
-				tone === "face" && "text-rose-600 dark:text-rose-400",
+				tone === "warn" && "text-amber-400",
+				tone === "face" && "text-rose-400",
 			)}
 		>
 			{dotClass && <span className={cn("size-2 rounded-full", dotClass)} />}
@@ -685,7 +688,7 @@ function InsightCard({
 						<span
 							key={s.word}
 							title={s.word}
-							className="size-3 shrink-0 rounded-full border border-black/10 dark:border-white/20"
+							className="size-3 shrink-0 rounded-full border border-white/20"
 							style={{ backgroundColor: s.hex }}
 						/>
 					))}
@@ -721,7 +724,7 @@ function InsightCard({
 						className="flex items-center gap-2 rounded-md border border-rose-500/25 bg-rose-500/5 p-2"
 					>
 						<div className="min-w-0 flex-1">
-							<p className="text-xs font-medium text-rose-600 dark:text-rose-400">
+							<p className="text-xs font-medium text-rose-400">
 								New face spotted
 							</p>
 							{face.descriptor && (
@@ -755,7 +758,7 @@ function InsightCard({
 
 			{/* outlier note */}
 			{outlierLabel && (
-				<p className="flex items-start gap-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+				<p className="flex items-start gap-1.5 text-[11px] text-amber-400">
 					<HugeiconsIcon
 						icon={Alert02Icon}
 						className="mt-0.5 size-3.5 shrink-0"
@@ -936,7 +939,7 @@ function LockPersonaDialog({
 					}}
 				/>
 				{!anchorUrl && (
-					<p className="text-xs text-amber-600 dark:text-amber-400">
+					<p className="text-xs text-amber-400">
 						This clip has no thumbnail to anchor the persona to.
 					</p>
 				)}

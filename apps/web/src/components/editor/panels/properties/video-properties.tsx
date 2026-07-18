@@ -116,7 +116,7 @@ function SpeedSection({
 		<Section collapsible sectionKey="video:speed">
 			<SectionHeader>
 				<SectionTitle>Speed</SectionTitle>
-				<span className="text-[10px] text-muted-foreground tabular-nums mr-2">
+				<span className="text-2xs text-muted-foreground tabular-nums mr-2">
 					{currentRate === 1 ? "Normal" : `${currentRate}x`}
 				</span>
 			</SectionHeader>
@@ -133,7 +133,7 @@ function SpeedSection({
 							max={4.0}
 							step={0.05}
 						/>
-						<div className="flex justify-between text-[9px] text-muted-foreground tabular-nums">
+						<div className="flex justify-between text-3xs text-muted-foreground tabular-nums">
 							<span>0.1x</span>
 							<span>1x</span>
 							<span>4x</span>
@@ -152,7 +152,7 @@ function SpeedSection({
 								}
 								size="sm"
 								className={cn(
-									"h-6 px-2 text-[10px] min-w-0",
+									"h-6 px-2 text-2xs min-w-0",
 									Math.abs(currentRate - preset.value) < 0.01 &&
 										"ring-1 ring-primary",
 								)}
@@ -165,12 +165,12 @@ function SpeedSection({
 
 					{/* Reverse toggle */}
 					<div className="flex items-center justify-between">
-						<span className="text-[11px] text-muted-foreground">Reverse</span>
+						<span className="text-2xs text-muted-foreground">Reverse</span>
 						<Button
 							variant={isReversed ? "secondary" : "outline"}
 							size="sm"
 							className={cn(
-								"h-6 px-2 text-[10px]",
+								"h-6 px-2 text-2xs",
 								isReversed && "ring-1 ring-primary",
 							)}
 							onClick={handleToggleReverse}
