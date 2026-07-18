@@ -36,7 +36,10 @@ export function CreditBalancePill() {
 			className={cn(
 				"flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors",
 				low
-					? "border-amber-500/40 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 dark:text-amber-400"
+					? // `dark:` pair folded — forcedTheme="dark" means the base half of
+						// `text-amber-600 dark:text-amber-400` never rendered. Routed
+						// through the shared warning status tone.
+						"border-amber-500/40 bg-amber-500/10 text-tone-warning hover:bg-amber-500/20"
 					: "border-border bg-background text-foreground hover:bg-accent",
 			)}
 		>

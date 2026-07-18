@@ -69,7 +69,7 @@ export function TemplateGalleryPanel({ className }: { className?: string }) {
 					<HugeiconsIcon icon={GridIcon} className="size-4 text-primary" />
 					<span className="text-xs font-medium">Templates</span>
 				</div>
-				<p className="text-[10px] text-muted-foreground">
+				<p className="text-2xs text-muted-foreground">
 					Start with a pre-built project template.
 				</p>
 			</div>
@@ -77,7 +77,7 @@ export function TemplateGalleryPanel({ className }: { className?: string }) {
 			<ScrollArea className="flex-1 min-h-0">
 				<div className="px-4 py-3 space-y-3">
 					<input
-						className="w-full rounded border bg-transparent px-2 py-1 text-[10px] placeholder:text-muted-foreground"
+						className="w-full rounded border bg-transparent px-2 py-1 text-2xs placeholder:text-muted-foreground"
 						placeholder="Search templates..."
 						value={search}
 						onChange={(e) => setSearch(e.target.value)}
@@ -87,7 +87,7 @@ export function TemplateGalleryPanel({ className }: { className?: string }) {
 						<Button
 							variant={category === "all" ? "secondary" : "ghost"}
 							size="sm"
-							className="h-5 text-[8px] px-1.5"
+							className="h-5 text-3xs px-1.5"
 							onClick={() => setCategory("all")}
 						>
 							All
@@ -97,7 +97,7 @@ export function TemplateGalleryPanel({ className }: { className?: string }) {
 								key={cat.value}
 								variant={category === cat.value ? "secondary" : "ghost"}
 								size="sm"
-								className="h-5 text-[8px] px-1.5"
+								className="h-5 text-3xs px-1.5"
 								onClick={() => setCategory(cat.value)}
 							>
 								{cat.label}
@@ -109,35 +109,39 @@ export function TemplateGalleryPanel({ className }: { className?: string }) {
 						<button
 							key={template.id}
 							type="button"
-							className="w-full rounded border p-2 text-left hover:bg-accent/50 transition-colors"
+							// Shared card recipe (also used by Sounds' rows): rounded-xl,
+							// bordered, p-2.5, one hover treatment — replaces the bespoke
+							// `rounded border p-2` this panel used to carry on its own.
+							className="w-full rounded-xl border p-2.5 text-left hover:bg-accent/50 transition-colors"
 							onClick={() => applyTemplate(template)}
 						>
-							<div className="flex items-start justify-between">
-								<div>
-									<span className="text-[10px] font-medium block">
+							<div className="flex items-start justify-between gap-2">
+								<div className="min-w-0 flex-1">
+									<span className="text-2xs font-medium block truncate">
 										{template.name}
 									</span>
-									<span className="text-[8px] text-muted-foreground block mt-0.5">
+									<span className="text-3xs text-muted-foreground block mt-0.5 truncate">
 										{template.description}
 									</span>
 								</div>
-								<span className="text-[7px] text-muted-foreground bg-accent/50 rounded px-1 py-0.5">
+								<span className="text-3xs shrink-0 text-muted-foreground bg-accent/50 rounded px-1 py-0.5">
 									{template.aspectRatio}
 								</span>
 							</div>
-							<div className="flex items-center gap-1 mt-1.5">
-								<span className="text-[7px] text-muted-foreground">
+							<div className="flex items-center gap-1 mt-1.5 flex-wrap">
+								<span className="text-3xs text-muted-foreground">
 									~{template.estimatedDuration}s
 								</span>
-								<span className="text-[7px] text-muted-foreground">|</span>
-								<span className="text-[7px] text-muted-foreground">
+								<span className="text-3xs text-muted-foreground">|</span>
+								<span className="text-3xs text-muted-foreground">
 									{template.tracks.length} tracks
 								</span>
-								<span className="text-[7px] text-muted-foreground">|</span>
 								{template.tags.slice(0, 3).map((tag) => (
 									<span
 										key={tag}
-										className="text-[7px] bg-primary/10 text-primary rounded px-1"
+										// Shared tag-chip recipe (also used by Text's font pills
+										// and Sounds' tags) — one pill treatment across the rail.
+										className="text-3xs rounded-full bg-muted/60 px-2 py-0.5 text-muted-foreground"
 									>
 										{tag}
 									</span>
@@ -147,7 +151,7 @@ export function TemplateGalleryPanel({ className }: { className?: string }) {
 					))}
 
 					{filtered.length === 0 && (
-						<p className="text-[10px] text-muted-foreground text-center py-4">
+						<p className="text-2xs text-muted-foreground text-center py-4">
 							No templates match your search.
 						</p>
 					)}
