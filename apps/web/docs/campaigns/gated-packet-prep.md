@@ -90,47 +90,100 @@ Independently verified by orchestrator #2 (git trust, not the worker's report):
 - **Disposition:** merged into `campaign/gated-packet-prep` via `--no-ff` (docs-only, zero
   conflicts) — merge commit **f33abe55**.
 
-### W1 — money packet reconcile (`gated/credit-audit-rebased-2026-07-18`) — IN PROGRESS (alive)
+### W1 — money packet reconcile (`gated/credit-audit-rebased-2026-07-18` @d765de24) — VERIFIED, PARKED, GATED (money floor)
 
-- **4 of 6 commits ported** as of respawn audit: `100edabe` (#6 server-side duration/count
-  validation + video-by-resolution pricing), `f042168c` (#7 worst-case reserve for routed
-  stills), `4a787d5b` (#8 402-gate persona batch-still), `d65003be` (#9 grant-CLI idempotence).
-  **Still to port:** #14 async persona-still (`69f34677`) + the sweep-interleave / deferred-job
-  backstop tests (`822ea00c`).
-- **Alive, not stalled:** last commit 04:21; worker process live at audit time (`biome format`
-  running on its worktree). Verification (typecheck + credits/metering/generate-route suites) and
-  final packet notes pending its completion. Ends PARKED + GATED (money floor), UN-MERGED.
+Worker completed all 6 semantic ports; orchestrator #2 independently verified against git:
 
-### W2 — upscale refresh (`gated/upscale-rebased-2026-07-18`) — IN PROGRESS (alive)
+- **6/6 commits, each with a port-note body** mapping to its source commit:
+  `100edabe`←5215c767 (#6 server-side duration/count validation; `clampVideoSeconds` +
+  `clampImageCount` in cost-table, 400 on garbage before any paid work, clamp into the ROUTED
+  backend's `durationRangeSec`, clamped value drives spec+request+set row+hold identically) ·
+  `f042168c`←0bb42a62 (#7 `worstCaseImageCost` = true max over `IMAGE_SALE_FLAT`, used by BOTH
+  persona-still call sites; settle-exceeds-hold clamp in `ledger.settle` — LOUD structured
+  errors `credits.settle_exceeds_hold` / `settle_without_reserve` / `settle_clamped_at_zero`,
+  `requested` preserved in metadata; shared `openHoldFor` extracted from release's existing
+  logic, both under the account lock) · `4a787d5b`←5ce01de3 (#8 batch-still fetch 402-gated via
+  `gateOn402` in generation-form) · `d65003be`←29ecc6d1 (#9 grant CLI: default = unique nonce
+  key so repeat grants APPLY, `--key` opts into idempotence, no-op reported loudly with
+  before→after balance) · `986bbe92`←69f34677 (#14 persona-still moved behind reserve→job→poll→
+  settle: BOTH holds reserved before the response — still-hold refunded if the video 402s —
+  new `lib/run-after.ts` wraps Next `after()` with detached-task test fallback + reportError
+  funnel; take row IS the job record, poll route resolves jobId=takeId, short-circuits
+  pending/failed before `pollVideo`, settles by take id; deferred catch stamps errorMessage and
+  releases both holds) · `d765de24`←822ea00c (test-only: sweep-level settle-vs-release
+  interleave regression + deferred-job crash-backstop pin — confirms sweep's existing "nothing
+  verifiable delivered" branch already refunds a dead deferred job).
+- **Diff read in full by orchestrator (money code):** 13 files +1002/−205. Tenancy check on the
+  poll route preserved (ownerId, legacy set fallback). Reserve-before-dispatch, per-job charge
+  ids, release-on-failure, 402 shape, and idempotency keys all intact. No schema change
+  (errorMessage/providerJobId are pre-existing nullable columns — no migration).
+- **Tests (orchestrator-run in the W1 worktree):** full `src/lib/credits/` red under sibling
+  load (DrizzleQueryError + 5s timeouts, different victims each run = the known shared-Postgres
+  false-red class); **all green in isolation**: sweep **11/11**, ledger **15/15**,
+  cost-table+courtesy **38/38**, studio credit-metering **23/23**.
+- **Typecheck: exit 0 (definitive).** The worker's own `tsc` never completed (host exhaustion —
+  load ~16, the orphaned process accrued only ~3 min CPU over 50+ min and was killed as a
+  zombie); the orchestrator's own `bun run typecheck`, run in the W1 worktree at @d765de24,
+  completed with **pipeline exit 0 and zero tsc errors**.
+- **Worker caveat (correct call):** `detect_changes` can't see worktree branches, so the worker
+  substituted manual `impact()` runs per touched symbol — the right fallback.
+- **GATE:** money floor — user-reviewed merge only. PARKED, UN-MERGED, LOCAL-ONLY.
 
-- **Both port commits landed:** `f70dbcee` (#6acac9da tiered fal.ai upscale, video+image),
-  `cbb523bb` (#a7232eaa default-to-Topaz + tier menu). **Migration 0012 + `_journal.json`
-  reconcile are committed and ride the branch** (0012 slot free on main; NEVER applied).
-- **factor≤4 clamp in progress (uncommitted):** `clampUpscaleFactor` / `MAX_CLIENT_UPSCALE_FACTOR
-  = 4` written in the working tree (`upscale/topaz-video.ts`, `clarity-image.ts`, `fal-client.ts`,
-  `+ upscale.test.ts`) at 04:08; worker process live at audit time (`tsc --noEmit` running its
-  battery before commit). **Not stalled** — the commit-gap was battery time under host contention.
-- Verification (typecheck + upscale/cost-table/route-protection suites) and final packet notes
-  pending. Ends PARKED + GATED (migration 0012 must never be applied), UN-MERGED.
+### W2 — upscale refresh (`gated/upscale-rebased-2026-07-18` @e4339f3f) — VERIFIED, PARKED, GATED (migration)
+
+Worker died in its verification tail (last commit 03:09, clamp written 04:08, zero live
+processes by 06:36); orchestrator #2 verified its complete-but-uncommitted clamp and
+adopt-committed it:
+
+- **Branch = 3 commits:** `f70dbcee`←6acac9da (tiered fal.ai upscale backend, video+image, 26
+  files) · `cbb523bb`←a7232eaa (default-to-Topaz + tier menu) · `e4339f3f` (factor≤4 clamp,
+  committed by the orchestrator after verification — commit body records the adoption).
+- **Clamp reviewed in full:** `clampUpscaleFactor` + `MAX_CLIENT_UPSCALE_FACTOR = 4` in
+  `upscale/fal-client.ts`; applied in BOTH `estimateCost` and `submit` for Topaz video and
+  Clarity image (flat/tiered billing makes an unclamped `targetScale` an uncontrolled cost
+  lever — Topaz accepts 8× for the same charge); malformed input → adapter default, never
+  NaN/negative to the provider. +7 tests incl. a scope pin that the cheaper tiers
+  (ByteDance/SeedVR2/ESRGAN) are intentionally unclamped.
+- **Tests (orchestrator-run in the W2 worktree, WITH the clamp):** upscale suite **20/20**,
+  cost-table **33/33**, route-protection **61/61**. (First upscale run red = missing
+  `.env.local` in the worktree — env-parse ZodError, the known worktree gap; copied from the
+  main checkout, rerun green.)
+- **Typecheck (orchestrator-run, with the clamp): exit 0.**
+- **Migration 0012 rides the branch, NEVER applied — verified against the local DB:**
+  `takes.backend_id` / `takes.kind` columns absent, `drizzle.drizzle_migrations` count
+  unchanged (11 rows). `_journal.json` reconcile (0010/0011 entries) is committed on-branch.
+- **GATE:** migration + money-adjacent (credit cost table) — user-reviewed merge + migration
+  apply only. PARKED, UN-MERGED, LOCAL-ONLY.
 
 ## Close-out
 
-**Partial (orchestrator #2, budget-bounded).** Campaign branch tip after W4 merge:
-`campaign/gated-packet-prep` @ **f33abe55**.
+**COMPLETE (orchestrator #2).** All four packets verified; three gated branches end PARKED,
+verified, UN-MERGED; the docs packet is merged into this campaign branch. Nothing merged to
+main, nothing pushed, no migration applied (LOCAL-ONLY MODE intact).
 
 | Packet | Branch | Tip | State | Evidence |
 |---|---|---|---|---|
+| W1 money packet | `gated/credit-audit-rebased-2026-07-18` | `d765de24` | **VERIFIED · PARKED · GATED(money)** | 6/6 ports diff-read; suites green in isolation (11/11 · 15/15 · 38/38 · 23/23); typecheck exit 0 |
+| W2 upscale | `gated/upscale-rebased-2026-07-18` | `e4339f3f` | **VERIFIED · PARKED · GATED(migration 0012)** | 20/20 · 33/33 · 61/61, typecheck 0, DB confirmed 0012-unapplied |
 | W3 G8 cron | `gated/g8-sweep-cron` | `39375f8d` | **VERIFIED · PARKED · GATED(G8)** | 5/5 route tests, typecheck 0, diff reviewed |
 | W4 release-notes | `c14/release-notes-2026-07-18` | `905399b6` | **VERIFIED · MERGED→campaign** (f33abe55) | docs-only, 10-row risk table, counts accurate at write-time |
-| W1 money packet | `gated/credit-audit-rebased-2026-07-18` | `d65003be` | **IN PROGRESS (alive)** — 4/6 ported | see W1 packet note; verify pending |
-| W2 upscale | `gated/upscale-rebased-2026-07-18` | `cbb523bb` | **IN PROGRESS (alive)** — clamp uncommitted | see W2 packet note; verify pending |
 
-Bugs: **none filed** — W3/W4 diffs were clean; no defect surfaced that warrants a BUG36–39 row.
-(Range reserved; deduped against queue §2.)
+Bugs: **none filed** — all four diffs were clean; no defect surfaced that warrants a BUG36–39
+row. (Range reserved; deduped against queue §2.) Incidental repairs made in passing: killed the
+W1 worker's orphaned/starved `tsc` (zombie of an exited process); copied `.env.local` into the
+W2 worktree (the known worktree env gap); force-removed W3's worktree after an interrupted
+removal left it partially deleted (branch unaffected — committed state is the source of truth).
 
-**Remaining shepherding for L0 / next orchestrator:** poll W1 to 6/6 (#14 `69f34677` +
-sweep-interleave tests `822ea00c` still to port) and W2 to clamp-committed; then run each
-branch's battery (W1: typecheck + credits/metering/generate-route; W2: typecheck +
-upscale/cost-table/route-protection), quote green evidence in the W1/W2 packet notes, mark both
-PARKED+GATED+UN-MERGED, and release the two worker worktrees + `fix/credit-audit-money-gated` /
-`feat/upscale-backend` source worktrees. All three gated branches stay UN-MERGED, nothing pushed.
+**Territory RELEASED.** Dead orchestrator-#1 worktree removed; W3/W4 worker worktrees removed
+(branches persist). W1/W2 worker worktrees + the `fix/credit-audit-money-gated` /
+`feat/upscale-backend` source worktrees are left for L0's kill-list pass — their branches are
+the deliverables; the old source branches are now superseded by the rebased ports and are
+kill-candidates after user review of the packets.
+
+**For the user (the three one-click packets, in review order):**
+1. `gated/g8-sweep-cron` — smallest, closes G8 (money floor); needs `CRON_SECRET` set in
+   Vercel before/with the merge.
+2. `gated/credit-audit-rebased-2026-07-18` — the 6-item money audit, reconciled to today's
+   main; review focus: `ledger.settle` clamp + the deferred persona-still job.
+3. `gated/upscale-rebased-2026-07-18` — upscale feature; merging it means applying migration
+   0012 (gate) and provisioning `FAL_KEY`.
