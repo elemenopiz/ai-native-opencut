@@ -246,4 +246,6 @@ restoring the pre-delete selection.
 ## Merge / battery log
 
 - baseline (main@29a06429): full suite 2175 pass / 5 skip / 12 fail; lint ~338e/225w.
+- baseline (campaign tip, L1 worktree): `bun run typecheck` exit 0; `bun test
+  src/lib/commands` = 77 pass / 0 fail across 13 files.
 - _(worker merges appended here)_
