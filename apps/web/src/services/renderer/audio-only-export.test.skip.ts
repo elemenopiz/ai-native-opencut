@@ -130,7 +130,9 @@ beforeEach(() => {
 
 // ---- fixtures ---------------------------------------------------------------
 
-function makeAudioElement(overrides: Partial<AudioElement> = {}): AudioElement {
+function makeAudioElement(
+	overrides: Partial<import("@/types/timeline").UploadAudioElement> = {},
+): AudioElement {
 	return {
 		id: "audio-el-1",
 		name: "Voiceover",
