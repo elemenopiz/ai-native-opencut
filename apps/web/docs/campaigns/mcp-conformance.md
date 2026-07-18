@@ -81,11 +81,57 @@ Ranked gaps §4: Q5 export list/cancel (M), Q11 `cutRange` (M), Q17
 (off-territory) — tier as catalog-descriptor-only stubs ONLY if a real handler
 seam exists in-territory; otherwise leave for a lib/director-owning campaign.
 
-## Per-Q status table (updated at close-out — DONE+test / NOT-STARTED only)
+## Per-Q status table (close-out 2026-07-18 — DONE+test / NOT-STARTED only)
 
-| Item | Status |
-|---|---|
-| §2 unknown-key rejection | pending (Worker A) |
-| §2 non-finite rejection | pending (Worker A) |
-| Q23 reportLimitation | pending (Worker B) |
-| Q24 readPlaybook | pending (Worker B) |
+| Item | Status | Evidence |
+|---|---|---|
+| §2 unknown-key rejection | **DONE + test** | `lib/mcp/arg-validate.ts` + `build-mcp-server.ts` pre-relay gate @d857b439; unit + e2e in `lib/mcp/__tests__/mcp-input-guards.test.ts` (nested-object, array-item, EMPTY-schema, loose-schema-tolerated cases; bridge-not-invoked proven) |
+| §2 non-finite rejection | **DONE + test** | same commit/files; NaN/±Infinity + coercing strings rejected with path (`shots[1].budgetUsd` style); finite numeric strings pass |
+| Q23 reportLimitation | **DONE + test** | catalog descriptor @69713320 (non-mutating, paraphrase-only contract, category+summary echo); `lib/director/mcp-meta-verbs.test.ts`; auto-rides MCP telemetry via existing tool_call events |
+| Q24 readPlaybook | **DONE + test** | catalog descriptor @69713320; returns full body from `lib/studio/playbooks`; unknown id → ok:false listing valid ids; scopeForTool → reel:read proven |
+| Q1–Q22, Q5/Q11/Q12/Q17 (ranked M items) | NOT-STARTED | require new `director-api.ts` verbs — outside C18 territory (lib/mcp + catalog only); left for a lib/director-owning campaign |
+
+## Close-out verification (all on merged `campaign/mcp-conformance` @8db51ea3)
+
+- MCP suite `bun test src/lib/mcp/`: **32 pass / 0 fail** (6 files; incl. the
+  12 new guard tests). One residual load-spike flake observed in
+  `telemetry.test.ts` (1 fail in 7 post-deflake runs, during host load ~50);
+  pre-deflake it failed 3 of 4 dir-runs and reproduced on the BASE commit with
+  zero C18 code — pre-existing, environmental (real Postgres, shared host).
+  Deflake commit @8db51ea3 (waitFor 2s→15s, sync bound 20ms→200ms; assertions
+  unchanged).
+- Director suites (tool-catalog, phase-scope, mcp-meta-verbs, gemini,
+  short-id): **50 pass / 0 fail**. Phase-scope HARD INVARIANT green with the
+  two new verbs assigned briefing+production (polish is at an enforced
+  ceiling — worker deviation from the "all three phases" plan, adopted as
+  sound).
+- Typecheck: **0 errors** (single run at integration, per L0 saturation
+  directive).
+- Lint: all 7 touched files emit **zero** biome diagnostics; repo-wide
+  347e/225w is the base snapshot's count (base `ef4759c6` predates the
+  ~334e/224w reference checkout), no C18-attributable delta.
+- Catalog verb count: 54 → **56**.
+- BUG115–BUG119: **none consumed** — no new product bugs found; the telemetry
+  flake was fixed in-campaign, not filed.
+
+## Deviations & notes for L0
+
+- **Worker isolation break (fleet failure-mode class):** both sonnet workers
+  operated inside the orchestrator's physical worktree (harness pinned their
+  Edit access there; the brief's sibling-worktree setup didn't hold). Meta
+  worker committed cleanly to `task/mcp-meta-verbs` @69713320; the guards
+  worker left its 3 files staged-uncommitted and never reported. Orchestrator
+  untangled: verified file-disjointness, reviewed the guards diff as the
+  deliverable, committed it to `task/mcp-guards` @d857b439, dropped the
+  redundant backup stash. Neither branch carries the other's files
+  (verified via `git show --stat`).
+- No `lib/commands/**` files touched (C27 territory respected). Only
+  spillover: `lib/director/phase-scope.ts` (+7 lines, required by the
+  phase-assignment HARD-INVARIANT test) and the two catalog descriptors in
+  `lib/director/tool-catalog.ts` — both pre-declared in the plan.
+- Relay untouched — no multi-instance claims made or implied.
+- Paid verbs remain excluded from the catalog.
+- Conformance-doc discrepancy worth L0 attention: `agent-undo.test.ts`, Board
+  verbs, and the Redis relay cited in the doc's ADDENDUM live only on the
+  unmerged `campaign/mcp-moat` branch — none are on main/this base. The
+  ADDENDUM's "LANDED" claims are true only relative to that branch.
