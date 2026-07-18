@@ -280,4 +280,47 @@ fixes recorded, NOT applied blind per campaign policy):
 - baseline (main@29a06429): full suite 2175 pass / 5 skip / 12 fail; lint ~338e/225w.
 - baseline (campaign tip, L1 worktree): `bun run typecheck` exit 0; `bun test
   src/lib/commands` = 77 pass / 0 fail across 13 files.
-- _(worker merges appended here)_
+- @ef3a101b worker A port (crashed pre-commit; L1 reviewed tree as returned diff,
+  fixed one main-track test fixture): cmd-suite 92/0, typecheck 0, lint 333e/224w.
+- @f0179b70 worker C port (parked pre-commit; L1 reviewed tree): +40 tests.
+- @87c58d76 L1 fix: flatMap union-typing in remove-media-assets test (C24
+  precedent class). Combined A+C battery: cmd-suite 136/0, typecheck 0 (after
+  fix; first combined tsc run had 1 error — caught because L1 reran with an
+  UNMASKED exit code after a piped `tail` had hidden exit 1), lint 333e/224w.
+- @2c6611c6 cherry-pick of the baseline docs commit — worker A's setup step ran
+  `checkout -b` against the L1 worktree (worktree-isolation break, known fleet
+  failure mode), moving the branch pointer so the baseline commit landed on
+  task/c27-element instead; recovered via reflog + cherry-pick, no content lost.
+- @7d0f339a worker B port (stalled pre-commit on a typecheck monitor, diff
+  unchanged across two polls; L1 reviewed tree, fixed one over-narrow return
+  annotation): cmd-suite 156/0, typecheck 0, lint 329e/224w.
+- FULL SUITE on tip: run1 2252/5/14, run2 2254/5/12 — the 2 extras were known
+  flake classes (MCP telemetry, webhook ledger; gone on rerun). The stable 12 =
+  10 generateProxyOffThread + 2 addItemsToProjectMedia, ALL green in isolation
+  (19/0) — the pre-existing bun mock.module order-dependence class, same count
+  as baseline 12. **No new fails.**
+- detect_changes (compare vs main): risk MEDIUM; all 38 changed symbols inside
+  `lib/commands/**`; affected flows = HandleDrop/AcceptProposal via
+  InsertElementCommand (the unit-tested BUG100 fix). Territory-clean.
+
+## Close-out (2026-07-18, C27 L1)
+
+- **Branch:** `campaign/undo-integrity`, tip = the commit carrying this section.
+  Verification tier: **merged** (CLI battery only — no user-visible surface
+  changed beyond undo behavior; no browser verify needed per campaign brief).
+- **DoD:** command table filled for all 44 commands ✓ · property tests green +
+  committed (79 new tests; command suite 156/0) ✓ · holes fixed (5) or filed
+  (BUG101/103/104/108) ✓ · typecheck 0 ✓ · lint 329e/224w (no worse) ✓ · full
+  suite 2254/5/12, fail-set == baseline order-dependence class ✓.
+- **Worker roster outcome:** all 3 sonnet workers produced complete, high-quality
+  trees but NONE committed (A crashed on stream watchdog; B and C parked on
+  monitors — the documented park-on-notification failure mode). L1 ported all
+  three per port protocol: reviewed each tree as a returned diff, fixed 3 small
+  L1-found defects (main-track fixture, flatMap union typing, over-narrow return
+  annotation), ran every battery itself, committed with per-worker authorship
+  credit.
+- **Territory `lib/commands/**` RELEASED.**
+- Follow-ups for L0: merge gate on this branch; route BUG101 (UI/hooks) to
+  C21b-or-next; BUG103/104 need a sign-off pass (HIGH blast radius, candidate
+  fixes recorded above); BUG108 wiring belongs to whichever future feature adds
+  multi-select delete.
