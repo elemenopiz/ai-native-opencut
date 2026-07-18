@@ -60,6 +60,12 @@ import { AccountMenu } from "@/components/auth/account-menu";
 import { CreditBalancePill } from "@/components/editor/credit-balance-pill";
 import { CreditHistoryButton } from "@/components/editor/credit-history-button";
 import { OutOfCreditsDialog } from "@/components/editor/dialogs/out-of-credits-dialog";
+import { Kbd } from "@/components/ui/kbd";
+
+// Header height is 3.4rem (not the standard h-14/3.5rem scale) because
+// ai-panel-wrapper.tsx pins its right-rail panel to `top-[3.4rem]` to sit
+// flush beneath this bar. Change both together or the panel will misalign.
+const HEADER_HEIGHT_CLASS = "h-[3.4rem]";
 
 export function EditorHeader() {
 	const toggleBoard = useBoardStore((s) => s.toggle);
@@ -100,7 +106,12 @@ export function EditorHeader() {
 	);
 
 	return (
-		<header className="bg-background relative flex h-[3.4rem] items-center justify-between px-3 pt-0.5">
+		<header
+			className={cn(
+				"bg-background relative flex items-center justify-between px-3 pt-0.5",
+				HEADER_HEIGHT_CLASS,
+			)}
+		>
 			<div className="flex items-center gap-1">
 				<ProjectDropdown />
 				<EditableProjectName />
@@ -260,9 +271,7 @@ function ProjectDropdown() {
 					>
 						<span className="flex items-center justify-between w-full">
 							Search Features
-							<kbd className="text-[10px] text-muted-foreground/50 ml-2">
-								Ctrl+Shift+P
-							</kbd>
+							<Kbd className="ml-2">Ctrl+Shift+P</Kbd>
 						</span>
 					</DropdownMenuItem>
 
@@ -423,11 +432,7 @@ function FeaturesDialog({
 							>
 								<div className="flex items-center justify-between">
 									<span className="text-sm font-medium">{f.name}</span>
-									{f.shortcut && (
-										<kbd className="text-[10px] text-muted-foreground/50 px-1.5 py-0.5 rounded border border-border/50 bg-muted/30">
-											{f.shortcut}
-										</kbd>
-									)}
+									{f.shortcut && <Kbd>{f.shortcut}</Kbd>}
 								</div>
 								<div className="text-xs text-muted-foreground/60 mt-0.5">
 									{f.desc}
