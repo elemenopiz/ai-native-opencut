@@ -14,6 +14,13 @@ export type CanvasRendererParams = {
 	 * renderers must leave this false so every output frame is exact.
 	 */
 	realtime?: boolean;
+	/**
+	 * True only for the worker-compositor overlay renderer, which stacks on
+	 * top of the worker's video canvas and must stay transparent except for
+	 * painted nodes. Default false = opaque black clear, the correct
+	 * letterbox fill for every other renderer.
+	 */
+	transparent?: boolean;
 };
 
 // Pre-loaded watermark logo (loaded once, reused across frames)
@@ -64,6 +71,7 @@ export class CanvasRenderer {
 	height: number;
 	fps: number;
 	readonly realtime: boolean;
+	readonly transparent: boolean;
 	private watermark: boolean;
 
 	constructor({
@@ -72,11 +80,13 @@ export class CanvasRenderer {
 		fps,
 		watermark = false,
 		realtime = false,
+		transparent = false,
 	}: CanvasRendererParams) {
 		this.width = width;
 		this.height = height;
 		this.fps = fps;
 		this.realtime = realtime;
+		this.transparent = transparent;
 		this.watermark = watermark;
 
 		try {
@@ -119,6 +129,10 @@ export class CanvasRenderer {
 	}
 
 	private clear() {
+		if (this.transparent) {
+			this.context.clearRect(0, 0, this.canvas.width, this.canvas.height);
+			return;
+		}
 		this.context.fillStyle = "black";
 		this.context.fillRect(0, 0, this.canvas.width, this.canvas.height);
 	}
@@ -156,6 +170,11 @@ export class CanvasRenderer {
 		}
 
 		const blitStart = perfStats.enabled ? performance.now() : 0;
+		if (this.transparent) {
+			// A transparent internal canvas blitted source-over would otherwise
+			// smear stale overlay frames onto the target across paints.
+			ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+		}
 		ctx.drawImage(this.canvas, 0, 0, targetCanvas.width, targetCanvas.height);
 		if (blitStart !== 0) {
 			perfStats.addBlitTime({ ms: performance.now() - blitStart });

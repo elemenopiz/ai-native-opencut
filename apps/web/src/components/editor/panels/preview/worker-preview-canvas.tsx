@@ -127,6 +127,7 @@ export function WorkerPreviewCanvas({
 			width: nativeWidth ?? 1,
 			height: nativeHeight ?? 1,
 			realtime: true,
+			transparent: true,
 			fps: activeProject.settings.fps,
 		});
 	}, [nativeWidth, nativeHeight, activeProject.settings.fps]);
