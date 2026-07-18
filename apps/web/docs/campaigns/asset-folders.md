@@ -87,9 +87,12 @@ Gates: unit tests on commands + store green; `bun run typecheck` exit 0; lint no
 
 | Worker | Branch | Dispatched | Returned | Merged | Notes |
 |---|---|---|---|---|---|
-| A store+commands | task/c33-folder-model | — | — | — | — |
-| B panel UI | task/c33-folder-ui | — | — | — | — |
-| C folder upload | task/c33-folder-upload | — | — | — | — |
+| A store+commands | task/c33-folder-model | 2026-07-18 | — | — | sonnet, bg worktree |
+| B panel UI | task/c33-folder-ui | 2026-07-18 | — | — | sonnet, bg worktree; frontend-design skill; owns own dev server :3210 |
+| C folder upload | task/c33-folder-upload | 2026-07-18 | — | — | sonnet, bg worktree |
+
+Integration order at return: A → C → B. B typecheck WILL show A/C-missing-import errors
+until A+C merge — expected, reconciled at integration, not a B failure.
 
 ## Bugs filed (range BUG120–BUG124)
 
