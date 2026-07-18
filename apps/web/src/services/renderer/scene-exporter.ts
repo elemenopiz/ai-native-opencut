@@ -41,6 +41,20 @@ type ExportParams = {
 	 * directly — byte-path identical to before this option existed.
 	 */
 	outputSize?: { width: number; height: number };
+	/**
+	 * BUG17 — audio-only export. `false` when the caller (`RendererManager
+	 * .exportProject`) determined the scene has no visual content (no
+	 * video/image/text/sticker element on any visible track — see its
+	 * `hasVisualContent` gate). When `false`, `export()` never creates a
+	 * `CanvasSource`/video track and never runs the per-frame render loop —
+	 * only the audio track (always present in this case; the caller
+	 * fails the export outright before reaching here if there's neither
+	 * visual content nor audio, see "Nothing to export" there) is written.
+	 * Omitted/`true` is today's default behavior, unchanged. The GIF path
+	 * (`exportGif`) ignores this flag entirely — a silent, visual-less GIF
+	 * isn't a meaningful export and is already rejected upstream.
+	 */
+	includeVideoTrack?: boolean;
 };
 
 const qualityMap = {
@@ -63,6 +77,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 	private quality: ExportQuality;
 	private shouldIncludeAudio: boolean;
 	private audioBuffer?: AudioBuffer;
+	private includeVideoTrack: boolean;
 
 	/**
 	 * Output canvas for the contain-fit blit stage. Only created when
@@ -90,6 +105,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 		audioBuffer,
 		watermark,
 		outputSize,
+		includeVideoTrack,
 	}: ExportParams) {
 		super();
 		this.renderer = new CanvasRenderer({
@@ -103,6 +119,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 		this.quality = quality;
 		this.shouldIncludeAudio = shouldIncludeAudio ?? false;
 		this.audioBuffer = audioBuffer;
+		this.includeVideoTrack = includeVideoTrack ?? true;
 
 		if (
 			outputSize &&
@@ -176,12 +193,35 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 			target: new BufferTarget(),
 		});
 
-		const videoSource = new CanvasSource(this.encodeCanvas, {
-			codec: this.format === "webm" ? "vp9" : "avc",
-			bitrate: qualityMap[this.quality],
-		});
+		/**
+		 * BUG17 — suppress the video stream entirely for an audio-only export.
+		 * An MP4/WebM containing only an audio track is a valid, ordinary
+		 * playable file; a "video" track that's really ~90 static background
+		 * frames at a token bitrate is wasted encode time/bytes and confusing
+		 * in players (looks like a broken/blank video). `includeVideoTrack` is
+		 * decided upstream by `RendererManager.exportProject`'s
+		 * `hasVisualContent` check, which inspects the *scene's* tracks/
+		 * elements (video/image/text/sticker on a visible track) — not
+		 * anything derived from `rootNode` here, since a rootNode with zero
+		 * visual nodes still has a valid (possibly nonzero) `duration` driven
+		 * by the longest audio element. When `includeVideoTrack` is `false` we
+		 * skip creating the `CanvasSource`/video track and skip the per-frame
+		 * render loop below entirely — nothing is decoded, rendered, or
+		 * encoded for video. The caller guarantees real audio is present
+		 * whenever this flag is `false` (see its "Nothing to export" fail-fast
+		 * for the no-visual-and-no-audio case), so this is never reached with
+		 * neither track available.
+		 */
+		const videoSource = this.includeVideoTrack
+			? new CanvasSource(this.encodeCanvas, {
+					codec: this.format === "webm" ? "vp9" : "avc",
+					bitrate: qualityMap[this.quality],
+				})
+			: null;
 
-		output.addVideoTrack(videoSource, { frameRate: fps });
+		if (videoSource) {
+			output.addVideoTrack(videoSource, { frameRate: fps });
+		}
 
 		let audioSource: AudioBufferSource | null = null;
 		if (this.shouldIncludeAudio && this.audioBuffer) {
@@ -211,28 +251,38 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 			audioSource.close();
 		}
 
-		for (let i = 0; i < frameCount; i++) {
+		if (videoSource) {
+			for (let i = 0; i < frameCount; i++) {
+				if (this.isCancelled) {
+					await output.cancel();
+					this.emit("cancelled");
+					return null;
+				}
+
+				const time = i / fps;
+				await this.renderer.render({ node: rootNode, time });
+				this.blitToOutputCanvas();
+				await videoSource.add(time, 1 / fps);
+
+				this.emit("progress", i / frameCount);
+			}
+
 			if (this.isCancelled) {
 				await output.cancel();
 				this.emit("cancelled");
 				return null;
 			}
 
-			const time = i / fps;
-			await this.renderer.render({ node: rootNode, time });
-			this.blitToOutputCanvas();
-			await videoSource.add(time, 1 / fps);
-
-			this.emit("progress", i / frameCount);
-		}
-
-		if (this.isCancelled) {
+			videoSource.close();
+		} else if (this.isCancelled) {
+			// Audio-only export: there's no per-frame loop to check cancellation
+			// inside, so honor a cancel requested up to this point before we
+			// commit to finalizing the (audio-only) output.
 			await output.cancel();
 			this.emit("cancelled");
 			return null;
 		}
 
-		videoSource.close();
 		await output.finalize();
 		this.emit("progress", 1);
 

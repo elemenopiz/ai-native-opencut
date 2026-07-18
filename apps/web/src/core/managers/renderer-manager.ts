@@ -1,6 +1,7 @@
 import type { EditorCore } from "@/core";
 import type { RootNode } from "@/services/renderer/nodes/root-node";
 import type { ExportOptions, ExportResult } from "@/types/export";
+import type { TimelineTrack } from "@/types/timeline";
 import { CanvasRenderer } from "@/services/renderer/canvas-renderer";
 import { SceneExporter } from "@/services/renderer/scene-exporter";
 import { buildScene } from "@/services/renderer/scene-builder";
@@ -8,6 +9,35 @@ import { resolveExportProxyFallback } from "@/services/renderer/export-decodabil
 import { createTimelineAudioBuffer } from "@/lib/media/audio";
 import { formatTimeCode, getLastFrameTime } from "@/lib/time";
 import { downloadBlob } from "@/utils/browser";
+import { isVisualElement } from "@/lib/timeline";
+
+/**
+ * BUG17 — does this scene have anything to actually paint? Mirrors
+ * `scene-builder`'s own visibility filtering (a hidden track or a hidden
+ * element contributes no pixels, same as `buildScene`/`getVisibleSortedElements`
+ * treat them) so this stays in lockstep with what `buildScene` would actually
+ * render — an audio/effect-only timeline (or one where every visual element is
+ * hidden) reports `false` here. Effect elements are deliberately excluded:
+ * they recolor/blur *other* layers rather than paint content of their own, so
+ * an effect-only track without any video/image/text/sticker underneath still
+ * has nothing to show. Used by `exportProject` to (a) suppress the video
+ * track entirely for an audio-only export (see `SceneExporter`'s
+ * `includeVideoTrack`) and (b) fail fast when there's neither visual content
+ * nor audio to export at all.
+ */
+export function hasVisualContent({
+	tracks,
+}: {
+	tracks: TimelineTrack[];
+}): boolean {
+	return tracks.some((track) => {
+		if ("hidden" in track && track.hidden) return false;
+		return track.elements.some(
+			(element) =>
+				isVisualElement(element) && !("hidden" in element && element.hidden),
+		);
+	});
+}
 
 export class RendererManager {
 	private renderTree: RootNode | null = null;
@@ -170,6 +200,28 @@ export class RendererManager {
 				});
 			}
 
+			// BUG17: an audio-only project (no video/image/text/sticker element on
+			// any visible track) has nothing for SceneExporter to paint, so the
+			// video track it produces today is ~90 static background frames at a
+			// token bitrate — wasted encode time/bytes, confusing in players. When
+			// there's visual content we always export video as before. When there
+			// isn't, we still export — as an audio-only MP4/WebM (the container and
+			// file extension are unchanged; only the video stream is dropped, see
+			// `includeVideoTrack` below) — as long as there's real audio to carry
+			// it (`audioBuffer` is non-null only when `createTimelineAudioBuffer`
+			// found actual audio elements; it's `null` for `includeAudio` off,
+			// GIF exports, or an audio track with no elements/all muted). If
+			// there's neither, there is nothing whatsoever to export, so fail fast
+			// with a clear message instead of producing an empty/blank file.
+			const includeVideo = hasVisualContent({ tracks });
+			if (!includeVideo && !audioBuffer) {
+				return {
+					success: false,
+					error:
+						"Nothing to export — this project has no visual content and no audio. Add a clip, text, or sticker, or enable audio, before exporting.",
+				};
+			}
+
 			const scene = buildScene({
 				tracks,
 				mediaAssets,
@@ -189,6 +241,7 @@ export class RendererManager {
 				shouldIncludeAudio: withAudio,
 				audioBuffer: audioBuffer || undefined,
 				outputSize,
+				includeVideoTrack: includeVideo,
 			});
 
 			exporter.on("progress", (progress) => {
