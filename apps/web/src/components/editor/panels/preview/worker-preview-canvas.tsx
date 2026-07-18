@@ -31,6 +31,7 @@
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import useDeepCompareEffect from "use-deep-compare-effect";
+import type { EditorCore } from "@/core";
 import { useEditor } from "@/hooks/use-editor";
 import { useRafLoop } from "@/hooks/use-raf-loop";
 import { useContainerSize } from "@/hooks/use-container-size";
@@ -50,6 +51,67 @@ import { usePreviewCanvasStore } from "@/stores/preview-canvas-store";
 import { cn } from "@/utils/ui";
 
 export { isWorkerCompositorEnabled };
+
+/** Debounce window between playback/scrub stopping and the preview scene
+ *  rebuilding onto the full-res original. Long enough that a quick play-pause
+ *  tap or a scrub-handle release-then-grab doesn't thrash a full scene
+ *  rebuild; short enough that a held-still frame sharpens up promptly.
+ *
+ *  Duplicated from index.tsx's PLAYBACK_SETTLE_DELAY_MS (module-local there,
+ *  not exported) — see index.tsx for the canonical copy. */
+const PLAYBACK_SETTLE_DELAY_MS = 250;
+
+/**
+ * True once playback AND scrubbing have both been idle for
+ * `PLAYBACK_SETTLE_DELAY_MS`. Drives the preview scene's `useProxy`: while
+ * playing or actively scrubbing the scene keeps decoding the (cheap) proxy,
+ * but once the playhead settles the scene rebuilds onto the ORIGINAL asset so
+ * the held frame is pixel-sharp (see the regression this fixes: proxies were
+ * being used for paused frames too, softening the "resting" preview).
+ * Starts settled — a freshly-mounted, paused editor should show a sharp frame
+ * immediately, with no wait. Debounced (not flipped synchronously on pause)
+ * so this never fires the settle rebuild while still moving.
+ *
+ * Duplicated from index.tsx's useIsPlaybackSettled (module-local there, not
+ * exported) — see index.tsx for the canonical copy.
+ */
+function useIsPlaybackSettled({ editor }: { editor: EditorCore }): boolean {
+	const [settled, setSettled] = useState(
+		() => !editor.playback.getIsPlaying() && !editor.playback.getIsScrubbing(),
+	);
+
+	useEffect(() => {
+		let timer: ReturnType<typeof setTimeout> | null = null;
+		const clearTimer = () => {
+			if (timer !== null) {
+				clearTimeout(timer);
+				timer = null;
+			}
+		};
+		const evaluate = () => {
+			clearTimer();
+			const active =
+				editor.playback.getIsPlaying() || editor.playback.getIsScrubbing();
+			if (active) {
+				setSettled(false);
+			} else {
+				timer = setTimeout(() => {
+					setSettled(true);
+				}, PLAYBACK_SETTLE_DELAY_MS);
+			}
+		};
+		// Discrete playback events (play/pause/seek/scrub) all call notify(),
+		// which this subscription rides — see PlaybackManager.subscribe.
+		evaluate();
+		const unsubscribe = editor.playback.subscribe(evaluate);
+		return () => {
+			clearTimer();
+			unsubscribe();
+		};
+	}, [editor.playback]);
+
+	return settled;
+}
 
 function useWorkerPreviewSize() {
 	const editor = useEditor();
@@ -109,6 +171,7 @@ export function WorkerPreviewCanvas({
 	);
 
 	const editor = useEditor();
+	const settled = useIsPlaybackSettled({ editor });
 	const tracks = editor.timeline.getTracks();
 	const mediaAssets = editor.media.getAssets();
 	const activeProject = editor.project.getActive();
@@ -268,7 +331,7 @@ export function WorkerPreviewCanvas({
 			canvasSize,
 			background: activeProject.settings.background,
 			isPreview: true,
-			useProxy: activeProject.settings.proxyEditing ?? true,
+			useProxy: (activeProject.settings.proxyEditing ?? true) && !settled,
 		});
 
 		const { overlayTracks } = splitTracksForWorkerCompositor(tracks);
@@ -281,7 +344,7 @@ export function WorkerPreviewCanvas({
 			// background; this overlay must only add text/image/sticker.
 			background: { type: "color", color: "transparent" },
 			isPreview: true,
-			useProxy: activeProject.settings.proxyEditing ?? true,
+			useProxy: (activeProject.settings.proxyEditing ?? true) && !settled,
 		});
 		lastOverlayFrameRef.current = -1;
 	}, [
@@ -291,6 +354,7 @@ export function WorkerPreviewCanvas({
 		activeProject?.settings.proxyEditing,
 		nativeWidth,
 		nativeHeight,
+		settled,
 	]);
 
 	useEffect(() => {
