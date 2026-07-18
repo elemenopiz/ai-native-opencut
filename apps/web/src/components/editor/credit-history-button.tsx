@@ -2,8 +2,15 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { ClockIcon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
+import {
+	ClockIcon,
+	Video02Icon,
+	Image02Icon,
+	AudioWave01Icon,
+	Coins01Icon,
+	SparklesIcon,
+} from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
 import {
 	Popover,
@@ -20,10 +27,18 @@ interface LedgerEntry {
 	refType: string | null;
 	refId: string | null;
 	createdAt: string;
+	/** Server-resolved type + short display label (`/api/credits/history`
+	 *  looks `metadata.backendId` up in the studio backend registry) — e.g.
+	 *  `{ kind: "image", label: "Image · Nano Banana Pro" }`. Optional so an
+	 *  older cached response (or a future unclassified reason) degrades to the
+	 *  bare `reasonLabel` fallback below instead of breaking. */
+	kind?: "video" | "image" | "audio" | "grant" | "generation";
+	label?: string;
 }
 
 /** Human label for a ledger row's reason — mirrors
- *  `components/auth/credits-section.tsx`'s account-page rendering. */
+ *  `components/auth/credits-section.tsx`'s account-page rendering. Fallback
+ *  for rows the history route didn't (or couldn't) classify. */
 function reasonLabel(reason: string): string {
 	switch (reason) {
 		case "settle":
@@ -31,10 +46,28 @@ function reasonLabel(reason: string): string {
 		case "grant":
 		case "admin_grant":
 		case "cli_grant":
+		case "beta_courtesy":
 			return "Credit grant";
 		default:
 			return reason;
 	}
+}
+
+/** Small type-specific icon per row `kind` — mirrors the Video/Image/Audio
+ *  iconography already used in the Generate panel's segmented control
+ *  (`panels/assets/views/generate.tsx`), plus Coins01Icon (credit-balance
+ *  pill) for grants, so the history popover reads consistently with the rest
+ *  of the editor chrome. */
+const KIND_ICON: Record<NonNullable<LedgerEntry["kind"]>, IconSvgElement> = {
+	video: Video02Icon,
+	image: Image02Icon,
+	audio: AudioWave01Icon,
+	grant: Coins01Icon,
+	generation: SparklesIcon,
+};
+
+function iconFor(entry: LedgerEntry): IconSvgElement {
+	return KIND_ICON[entry.kind ?? "generation"];
 }
 
 function formatDate(iso: string): string {
@@ -124,10 +157,15 @@ export function CreditHistoryButton() {
 							{entries.map((e) => (
 								<li
 									key={e.id}
-									className="flex items-center justify-between px-3 py-2 text-xs"
+									className="flex items-center gap-2 px-3 py-2 text-xs"
 								>
-									<div className="flex flex-col">
-										<span>{reasonLabel(e.reason)}</span>
+									<span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+										<HugeiconsIcon icon={iconFor(e)} className="size-3.5" />
+									</span>
+									<div className="flex min-w-0 flex-1 flex-col">
+										<span className="truncate">
+											{e.label ?? reasonLabel(e.reason)}
+										</span>
 										<span className="text-[10px] text-muted-foreground">
 											{formatDate(e.createdAt)}
 										</span>
@@ -135,8 +173,8 @@ export function CreditHistoryButton() {
 									<span
 										className={
 											e.delta >= 0
-												? "font-medium tabular-nums text-emerald-600 dark:text-emerald-400"
-												: "font-medium tabular-nums text-foreground"
+												? "shrink-0 font-medium tabular-nums text-emerald-600 dark:text-emerald-400"
+												: "shrink-0 font-medium tabular-nums text-foreground"
 										}
 									>
 										{e.delta >= 0 ? `+${e.delta}` : e.delta}
