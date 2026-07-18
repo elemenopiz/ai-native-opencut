@@ -105,3 +105,29 @@ commits on `task/bug23-compositor-parity`:
 - 2026-07-18 kickoff: read evidence doc + doctrine; created `campaign/compositor-endgame` off
   main@29a06429; scoped BUG23 fix design; triaged parity (3 land / 5 file BUG110-114); committed
   this plan. Next: dispatch BUG23+parity worker.
+- 2026-07-18 ~14:5x: dispatched worker 1 (BUG23 + parity, task/bug23-compositor-parity).
+  Filed BUG110–114 in the queue @a27083ee. Bench check: load 6.80 > 5 ⇒ deferred at that point.
+- 2026-07-18 ~18:0x L0 revival: worker 1 had PARKED on its build monitor (known fleet failure
+  mode) with the BUG23 fix complete-but-UNCOMMITTED in its worktree and the parity gaps NOT
+  started. Its diff reviewed as a returned diff: exactly the specified opt-in design; the
+  stray `next-env.d.ts` build-noise hunk dropped. Ported to campaign branch as the isolated
+  commit @d46e06a4 (credit in message). Its worktree's E2E build (fix included, bridge
+  present) reused for verification.
+- 2026-07-18 18:05–18:10 BOTH-PATH VERIFICATION (orchestrator-run, tier: verified locally):
+  adapted probe `bug23-fix/bug23-both-path-probe.js`, real Chrome, `next start` :3211, ffmpeg
+  testsrc2 fixture, host load 1.58. Flag-ON: worker canvas 576/576 real content, overlay
+  576/576 TRANSPARENT (pre-fix: 576/576 opaque black), preview VISIBLY shows video
+  (`bug23-flag-on.png`). Flag-OFF: preview 576/576 real content, 0 transparent px ⇒ default
+  opaque black-fill branch intact, screenshot pixel-equivalent (`bug23-flag-off.png`).
+  All 4 probe assertions PASS. Evidence committed @f469dd5d.
+- 2026-07-18 18:1x battery (run in worker-1's tree — fix files byte-identical to @d46e06a4):
+  `bun run typecheck` exit 0 · lint 333 errors / 224 warnings (baseline ~334/224, no-worse) ·
+  root `bun test` 2175 pass / 5 skip / 12 fail = exact baseline, no new fails.
+- 2026-07-18 18:1x: BUG23 queue row updated to FIXED (verified locally) @ this commit;
+  dispatched worker 2 (fresh sonnet, 15-min proof-of-life) for parity gaps 7/5/4 on
+  task/c17-parity-gaps off the campaign branch.
+- Bench: DEFERRED. Load is now quiet (1.58 < 5) but the remaining close-out budget cannot
+  absorb a 3+3 bench with bench-adapted.js's crash history; infra is staged (fixture minted,
+  probe server recipe, fix-bearing E2E build in worker-1's worktree) for a dedicated bench
+  session. Prior flag-ON numbers remain invalid (measured a hidden canvas); post-BUG23 the
+  next bench will be the first meaningful flag-ON measurement. Flag stays OFF regardless.
