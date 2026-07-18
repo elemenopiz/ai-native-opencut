@@ -60,9 +60,9 @@ Landed on campaign tip; typecheck exit 0 (check real exit code, not tail-piped);
 | Item 3 — overlays + tasks mini-bar + task glow | W2 | MERGED to campaign @b4a8c365 (worker 2 commits + 3 screenshots; typecheck 0; diff reviewed; worker browser-verified mini-bar geometry) |
 | Item 4 — Board rebuild | W3 | CHERRY-PICKED to campaign @373465d2 (worker @c0ce5e9d; typecheck 0; diff reviewed) — browser pass pending |
 | Item 5 — micro-type codemod + BUG28 + clip glow | W4 | MERGED @6b665e3c + rework @147d9e9b (L1 caught BUG28 dead-code condition — ensureMainTrack guarantees ≥1 track; reworked to every-track-empty overlay). Hint VERIFIED LIVE in browser on campaign tip |
-| Item 6 — left-rail cards + BUG27 | W5 | in-flight |
-| Item 7 — header/chrome remainder | — | DEFERRED |
-| Item 8 — Scopes graticule | — | DEFERRED |
+| Item 6 — left-rail cards + BUG27 | W5 | MERGED @ (worker @3f421909; typecheck 0; 4 screenshots) — BUG27 placement REWORK requested (guide card occluded timeline toolbar/track headers; L1 caught live) |
+| Item 7 — header/chrome remainder | W6 | in-flight (dispatched off campaign branch: Kbd swaps, h-[3.4rem], W2 nits) |
+| Item 8 — Scopes graticule + primary action | W6 | in-flight |
 | Item 9 — div-onClick sweep | — | STRETCH (skip) |
 
 ## Worker log
@@ -70,6 +70,12 @@ Landed on campaign tip; typecheck exit 0 (check real exit code, not tail-piped);
 - **W4** (task/w4-microtype-codemod, 2 commits): DONE. 254 arbitrary text-[7..11px] sites → text-2xs/text-3xs across 34 files (timeline/ai/properties), 0 remaining in owned dirs; 1 dark: pair folded (smart-suggestions.tsx). BUG28: empty timeline previously rendered a 0-height `<div/>` — now a 160px centered quiet hint. Glow: `isGenerating && "glow-generation"` on GenerativeSlotContent root only. Typecheck 0; lint delta 0. IMPORTANT BASELINE CORRECTION: W4 measured main lint baseline = **152e/225w** (the ~339e figure in the brief was stale); W4 matches main exactly. No screenshots (worker worktree lacked env).
 
 - **W3** (task/w3-board-rebuild @c0ce5e9d): DONE. Board rebuilt on Radix Dialog (DialogPortal + direct DialogPrimitive.Content; full-bleed kept, documented; opaque `bg-surface-overlay` scrim). All raw buttons → Button primitive; amber star CTA → `--primary`; real BoardEmptyState (icon+title+desc+CTA). Provenance badge tiers → constructive/primary/tone-warning tokens, 0 `dark:` left. Typecheck 0. INTEGRATION NOTE: worker branched off stale ef4759c6 carrying 2 unrelated record-button commits — L1 cherry-picked ONLY c0ce5e9d; clean 3-way apply, main's newer board features (true-ratio previews, thumbnailUrl poster) verified preserved on tip. W3 could not browser-verify (declined to create an account at the beta gate — correct call).
+
+## Battery on campaign tip (after W1–W5 merges)
+- typecheck: exit 0 (after every merge)
+- `bun run build`: exit 0
+- `bun test` (root): first run 54 fail / rerun 15 fail — all in the known env/order-dependent suites (generateProxyOffThread worker path, redis health probes, addItemsToProjectMedia); none import campaign-touched files; judged NO C15 regression.
+- W5 incident note (host contention): W5 stopped a port-3000 dev server that belonged to another session while trying preview_start — known fleet failure mode, flagged for L0.
 
 ## Lint baseline
 L1 measured `bun run lint` (apps/web) on campaign tip after W1+W4 merges: **339e/225w — exactly the briefed baseline** (no-worse holds). W4's reported "152e" came from a different script invocation (`lint:web`); the 339e/225w figure is the operative one.
