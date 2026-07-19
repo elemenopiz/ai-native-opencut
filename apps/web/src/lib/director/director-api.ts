@@ -90,6 +90,12 @@ import {
 	type BriefPatch,
 } from "./director-brief";
 import {
+	logPreferenceEvent,
+	type PreferenceEvent,
+	type PreferenceEventMeta,
+	type PreferenceEventType,
+} from "./preference-learning";
+import {
 	recordBibleApproval,
 	revertProjectBible,
 	seedStyleBibleFromProbe,
@@ -419,6 +425,20 @@ export interface CreateDirectorApiOptions {
 		promote?: BoardPromoteFn;
 		discard?: BoardDiscardFn;
 	};
+	/**
+	 * Bet 3b preference-capture seam (see
+	 * `docs/plans/2026-07-19-director-intelligence-architecture.md` Bet 3 +
+	 * `preference-learning.ts`). `logEvent` persists one behavioral signal
+	 * (`chooseTake`/`reroll`/`discard`/`compareOutcome`) — default is the real
+	 * `logPreferenceEvent` (IndexedDB round-trip via `user-memory-store.ts`,
+	 * fail-soft). Injectable so headless/unit tests can spy on capture without
+	 * touching IndexedDB — same pattern as `audio`/`references`/`frames`.
+	 * Best-effort: a rejection here NEVER affects the calling verb (see
+	 * `firePreferenceEvent`).
+	 */
+	preferenceLearning?: {
+		logEvent?: (event: PreferenceEvent) => Promise<unknown>;
+	};
 }
 
 const ok = <T>(message: string, data?: T): DirectorResult<T> => ({
@@ -651,6 +671,10 @@ export function createDirectorApi(
 ) {
 	const { executor, backends: backendsProvider, critic } = options;
 	const board = options.board;
+	// Bet 3b preference-capture seam: default to the real storage round-trip;
+	// tests inject a spy (see `CreateDirectorApiOptions.preferenceLearning`).
+	const logPreference =
+		options.preferenceLearning?.logEvent ?? logPreferenceEvent;
 
 	// Reference-intake seam: model derivation + anchor upload + persona create.
 	// Defaults are browser-bound (relay / R2 upload / persona store); tests inject.
@@ -1452,6 +1476,10 @@ export function createDirectorApi(
 		try {
 			const result = await board.discard(itemId);
 			if (!result.ok) return fail(result.error);
+			// Preference capture (Bet 3b): an explicit reject. No take/spec data
+			// exists at this call site (a Board item carries no recipe fields) —
+			// log the bare signal rather than inventing one.
+			firePreferenceEvent("discard", {});
 			return ok(`Discarded Board item "${itemId}".`, { itemId });
 		} catch (error) {
 			return fail(
@@ -2940,6 +2968,66 @@ export function createDirectorApi(
 		);
 	}
 
+	// ---- PREFERENCE LEARNING (Bet 3b capture hook) -------------------------
+	//
+	// Fire-and-forget behavioral-signal capture for `chooseTake`/`reroll`/
+	// `discardBoardItem`/`compareTake` — see `preference-learning.ts`'s module
+	// doc for what counts as "honest" meta. NEVER on the critical path: every
+	// failure (no active project, storage unavailable, a minimal test editor
+	// stub with no `project` seam) is swallowed here so capture can never
+	// affect a verb's result, error handling, or latency.
+
+	/**
+	 * Log one behavioral preference event, best-effort. Resolves `projectId`
+	 * from the active project; with none active (or a test stub missing the
+	 * `project` seam entirely), this is a silent no-op.
+	 */
+	function firePreferenceEvent(
+		type: PreferenceEventType,
+		meta: PreferenceEventMeta,
+	): void {
+		try {
+			const projectId = editor.project.getActiveOrNull()?.metadata.id;
+			if (!projectId) return;
+			void logPreference({ type, ts: Date.now(), projectId, meta }).catch(
+				() => {
+					// best-effort — a persistence hiccup must never surface to the caller.
+				},
+			);
+		} catch {
+			// best-effort — a missing/broken project seam must never affect the
+			// calling verb (mirrors `syncBible`'s swallow-and-continue contract).
+		}
+	}
+
+	/**
+	 * Grounded preference meta from a take's recipe/provenance — see
+	 * `preference-learning.ts`'s module doc for exactly where each field comes
+	 * from. Only fields the take actually carries are included.
+	 */
+	function metaFromTake(take: Take): PreferenceEventMeta {
+		const spec = take.spec;
+		const prov = take.provenance;
+		const seedLocked = prov?.seedLocked ?? spec.seedLocked;
+		return {
+			...(prov?.backendId
+				? { backendId: prov.backendId }
+				: spec.model
+					? { backendId: spec.model }
+					: {}),
+			...(prov?.vendor ? { vendor: prov.vendor } : {}),
+			...(spec.orientation ? { aspect: spec.orientation } : {}),
+			...(typeof spec.duration === "number"
+				? { durationSec: spec.duration }
+				: {}),
+			...(spec.mode ? { mode: spec.mode } : {}),
+			...(spec.cameraPreset ? { cameraPreset: spec.cameraPreset } : {}),
+			...(prov?.safetyTier ? { safetyTier: prov.safetyTier } : {}),
+			...(typeof seedLocked === "boolean" ? { seedLocked } : {}),
+			...(spec.kind ? { kind: spec.kind } : {}),
+		};
+	}
+
 	/** Regenerate: append fresh alternative take(s) to a single slot. */
 	async function reroll(input: {
 		slotId: string;
@@ -2949,10 +3037,20 @@ export function createDirectorApi(
 	}): Promise<DirectorResult<SlotGenerationOutcome>> {
 		const before = captureReel();
 		const count = Math.max(1, input.alternatives ?? 1);
-		return withDelta(
+		const result = withDelta(
 			before,
 			await runTakesForSlot(input.slotId, count, input.backendId),
 		);
+		// Preference capture (Bet 3b): asking for alternatives is an implicit
+		// reject of what's there now — only `backendId` (the caller's explicit
+		// model pin) is in scope here, so that's all we log; never invent a
+		// look/aspect the verb never touched.
+		if (result.ok) {
+			firePreferenceEvent("reroll", {
+				...(input.backendId ? { backendId: input.backendId } : {}),
+			});
+		}
+		return result;
 	}
 
 	/**
@@ -3013,6 +3111,9 @@ export function createDirectorApi(
 					takeIds.push(take.id);
 				}
 			});
+			// Preference capture (Bet 3b): unresolved — nothing rendered yet, so no
+			// `wonBackendId` (mirrors `distillPreferences`' "left to the user" case).
+			firePreferenceEvent("compareOutcome", { competingBackendIds: ids });
 			return withDelta(
 				before,
 				ok(
@@ -3073,6 +3174,8 @@ export function createDirectorApi(
 		const takeIds = produced.map((p) => p.takeId);
 		const ready = produced.filter((p) => p.status === "ready");
 		if (ready.length === 0) {
+			// Preference capture (Bet 3b): every take failed — unresolved, no winner.
+			firePreferenceEvent("compareOutcome", { competingBackendIds: ids });
 			return withDelta(
 				before,
 				ok(
@@ -3136,6 +3239,18 @@ export function createDirectorApi(
 						? "the critic returned no confident pick, so"
 						: "no vision critic is wired, so"
 				} choose the winner with chooseTake.`;
+
+		// Preference capture (Bet 3b): `winner` is a TAKE id, not a backend id —
+		// resolve it through `produced`'s {takeId, backendId} pairing (the
+		// subtlety called out in `preference-learning.ts`'s module doc). Absent
+		// when unresolved/left to the user, exactly like the two branches above.
+		const wonBackendId = winner
+			? produced.find((p) => p.takeId === winner)?.backendId
+			: undefined;
+		firePreferenceEvent("compareOutcome", {
+			competingBackendIds: ids,
+			...(wonBackendId ? { wonBackendId } : {}),
+		});
 		return withDelta(
 			before,
 			ok(message, {
@@ -3511,6 +3626,16 @@ export function createDirectorApi(
 				(promptSnippet ? ` for "${promptSnippet}"` : "") +
 				".";
 		persistBrief(applyBriefPatch(readBrief(), { notes: [note] }));
+
+		// Preference capture (Bet 3b): the kept take's recipe/provenance, plus
+		// the caller's rationale when given (mirrors the brief note above).
+		const chosenTake = takes[chosenIndex];
+		if (chosenTake) {
+			firePreferenceEvent("chooseTake", {
+				...metaFromTake(chosenTake),
+				...(input.rationale?.trim() ? { reason: input.rationale.trim() } : {}),
+			});
+		}
 
 		const updated = findSlot(input.slotId);
 		return withDelta(
