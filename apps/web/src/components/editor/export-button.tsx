@@ -118,6 +118,12 @@ function ExportPopover({
 	const [shouldIncludeAudio, setShouldIncludeAudio] = useState<boolean>(
 		DEFAULT_EXPORT_OPTIONS.includeAudio ?? true,
 	);
+	// Forces the video track off (BUG-podcast-preset): set from the "Podcast
+	// (audio only)" preset's `options.audioOnly`. Not exposed as its own
+	// standalone toggle — the podcast preset is currently the only way to
+	// reach it from the UI, matching how the other preset-only fields
+	// (dimensions) work.
+	const [audioOnly, setAudioOnly] = useState<boolean>(false);
 	const [shouldIncludeWatermark, setShouldIncludeWatermark] = useState(true);
 	const [isExportingCapcutDraft, setIsExportingCapcutDraft] = useState(false);
 	const [isBatchOpen, setIsBatchOpen] = useState(false);
@@ -137,6 +143,7 @@ function ExportPopover({
 		if (isExportQuality(preset.options.quality))
 			setQuality(preset.options.quality);
 		setShouldIncludeAudio(preset.options.includeAudio ?? true);
+		setAudioOnly(preset.options.audioOnly ?? false);
 		setDimensions(preset.canvasSize ?? null);
 	};
 
@@ -157,6 +164,7 @@ function ExportPopover({
 				includeAudio: shouldIncludeAudio,
 				includeWatermark: shouldIncludeWatermark,
 				dimensions: dimensions ?? undefined,
+				audioOnly,
 			},
 		});
 

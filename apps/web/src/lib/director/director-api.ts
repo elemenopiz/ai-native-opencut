@@ -5531,6 +5531,13 @@ export function createDirectorApi(
 		quality?: ExportQuality;
 		includeAudio?: boolean;
 		includeWatermark?: boolean;
+		/**
+		 * Force an audio-only export — drops the video track entirely, reusing
+		 * the same seam the "Podcast (audio only)" preset in the manual Export
+		 * UI uses (RendererManager.exportProject → SceneExporter's
+		 * `includeVideoTrack`).
+		 */
+		audioOnly?: boolean;
 		/** Trigger a browser file download of the rendered buffer (default true). */
 		download?: boolean;
 	}): Promise<
@@ -5566,6 +5573,7 @@ export function createDirectorApi(
 			fps: project.settings.fps,
 			includeAudio: input?.includeAudio ?? DEFAULT_EXPORT_OPTIONS.includeAudio,
 			includeWatermark: input?.includeWatermark ?? true,
+			audioOnly: input?.audioOnly,
 		} satisfies ExportOptions;
 
 		const result = await editor.project.export({ options });

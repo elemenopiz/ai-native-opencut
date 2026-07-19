@@ -90,9 +90,14 @@ export const EXPORT_PRESETS: ExportPreset[] = [
 	{
 		id: "podcast",
 		name: "Podcast (audio only)",
-		description: "Audio extracted, no video",
-		options: { format: "mp4", quality: "medium", includeAudio: true },
-		tip: "For audio-only distribution, extract the audio after export using any converter.",
+		description: "No video track, just audio",
+		options: {
+			format: "mp4",
+			quality: "medium",
+			includeAudio: true,
+			audioOnly: true,
+		},
+		tip: "The video track is dropped entirely, even if the project has a cover image or waveform visual.",
 	},
 	{
 		id: "custom",

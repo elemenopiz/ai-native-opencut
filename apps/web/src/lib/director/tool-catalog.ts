@@ -2238,6 +2238,11 @@ export function toolCatalog(): ToolDescriptor[] {
 						type: "boolean",
 						description: "Burn in the Byorn watermark. Defaults to true.",
 					},
+					audioOnly: {
+						type: "boolean",
+						description:
+							"Force an audio-only export — drops the video track entirely, even if the reel has visual content. Defaults to false.",
+					},
 					download: {
 						type: "boolean",
 						description:
@@ -2252,6 +2257,7 @@ export function toolCatalog(): ToolDescriptor[] {
 					quality: asExportQuality(a.quality),
 					includeAudio: boolOrUndefined(a.includeAudio),
 					includeWatermark: boolOrUndefined(a.includeWatermark),
+					audioOnly: boolOrUndefined(a.audioOnly),
 					download: boolOrUndefined(a.download),
 				}),
 		},
