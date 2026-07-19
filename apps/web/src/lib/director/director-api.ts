@@ -38,7 +38,14 @@ import type {
 	TextElement,
 	TimelineElement,
 	TimelineTrack,
+	VisualElement,
 } from "@/types/timeline";
+import { isVisualElement } from "@/lib/timeline/element-utils";
+import type {
+	AnimationInterpolation,
+	AnimationPropertyPath,
+	AnimationValue,
+} from "@/types/animation";
 import {
 	buildConsistencyContext,
 	getStoredConsistencyContext,
@@ -267,6 +274,14 @@ interface LocatedSlot {
 	track: TimelineTrack;
 	element: SlotElement;
 }
+
+/** Friendly `animateItem` property names — map to one or two real
+ *  `AnimationPropertyPath`s (position is x+y together). */
+export type AnimateItemProperty = "position" | "scale" | "rotation" | "opacity";
+
+/** A coerced `animateItem` value: `{x,y}` for position, a plain number for
+ *  everything else. */
+type AnimateItemValue = number | { x: number; y: number };
 
 /**
  * A resolved music asset for {@link DirectorApi.addMusicBed}: the imported audio
@@ -4528,6 +4543,206 @@ export function createDirectorApi(
 		return ok(`Updated text element "${input.elementId}".`);
 	}
 
+	// ---- MOTION ---------------------------------------------------------
+	//
+	// Exposes the EXISTING animation/keyframe system (`@/types/animation`,
+	// `TimelineManager.upsertKeyframes`) as one verb — poach plan item #2
+	// (`docs/poach/vyra-poach-plan.md` §2). Reuses the same base
+	// `transform`/`opacity` fields + keyframe channels the Properties-panel UI
+	// already reads/writes; no parallel animation model.
+
+	/** Friendly property name → the underlying `AnimationPropertyPath`(s) it
+	 *  maps to (position is 2 channels — x and y move together). */
+	const ANIMATE_PROPERTY_PATHS: Record<
+		AnimateItemProperty,
+		AnimationPropertyPath[]
+	> = {
+		position: ["transform.position.x", "transform.position.y"],
+		scale: ["transform.scale"],
+		rotation: ["transform.rotate"],
+		opacity: ["opacity"],
+	};
+
+	/** Validate + narrow a raw `value` against the shape `property` expects
+	 *  (a plain number, or `{x,y}` for position). Returns `null` on a bad shape. */
+	function coerceAnimateValue(
+		property: AnimateItemProperty,
+		value: unknown,
+	): AnimateItemValue | null {
+		if (property === "position") {
+			if (
+				typeof value !== "object" ||
+				value === null ||
+				typeof (value as { x?: unknown }).x !== "number" ||
+				typeof (value as { y?: unknown }).y !== "number" ||
+				!Number.isFinite((value as { x: number }).x) ||
+				!Number.isFinite((value as { y: number }).y)
+			) {
+				return null;
+			}
+			const { x, y } = value as { x: number; y: number };
+			return { x, y };
+		}
+		return typeof value === "number" && Number.isFinite(value) ? value : null;
+	}
+
+	/**
+	 * Set (or keyframe-animate) a timeline item's position, scale, rotation, or
+	 * opacity — motion on EXISTING footage: Ken Burns pushes, slides, opacity
+	 * fades, zoom-punches. Exactly one of `value` (a single static set — no
+	 * animation channel created, just the base field) or `keyframes` (an
+	 * ordered `value@time` list — creates/updates a real animation channel,
+	 * interpolated at render time) must be given.
+	 *
+	 * `time` in each keyframe is SECONDS relative to the item's OWN start (not
+	 * the timeline playhead) — matches every other keyframe API in the repo.
+	 * All keyframe upserts for one call land as ONE undo entry (`upsertKeyframes`
+	 * batches internally), so a whole Ken Burns arc is a single undo step.
+	 */
+	function animateItem(input: {
+		itemId: string;
+		property: AnimateItemProperty;
+		value?: unknown;
+		keyframes?: Array<{
+			time: number;
+			value: unknown;
+			interpolation?: AnimationInterpolation;
+		}>;
+	}): DirectorResult<{
+		itemId: string;
+		property: AnimateItemProperty;
+		keyframeCount?: number;
+	}> {
+		const before = captureReel();
+		const located = findElement(input.itemId);
+		if (!located) return failItemNotFound(input.itemId);
+		if (!isVisualElement(located.element)) {
+			return fail(
+				`Element "${input.itemId}" is a "${located.element.type}" — animateItem only works on visual elements (video/image/text/sticker).`,
+			);
+		}
+
+		const hasValue = input.value !== undefined;
+		const hasKeyframes = input.keyframes !== undefined;
+		if (hasValue === hasKeyframes) {
+			return fail(
+				"animateItem requires EXACTLY ONE of `value` (static set) or `keyframes` (a value@time list) — not both, not neither.",
+			);
+		}
+
+		const paths = ANIMATE_PROPERTY_PATHS[input.property];
+
+		if (hasValue) {
+			const coerced = coerceAnimateValue(input.property, input.value);
+			if (coerced === null) {
+				return fail(
+					input.property === "position"
+						? 'animateItem requires `value: {x, y}` (both finite numbers) for property "position".'
+						: `animateItem requires a finite numeric \`value\` for property "${input.property}".`,
+				);
+			}
+			const patch: Partial<TimelineElement> =
+				input.property === "position"
+					? {
+							transform: {
+								...(located.element as VisualElement).transform,
+								position: coerced as { x: number; y: number },
+							},
+						}
+					: input.property === "scale"
+						? {
+								transform: {
+									...(located.element as VisualElement).transform,
+									scale: coerced as number,
+								},
+							}
+						: input.property === "rotation"
+							? {
+									transform: {
+										...(located.element as VisualElement).transform,
+										rotate: coerced as number,
+									},
+								}
+							: { opacity: coerced as number };
+
+			editor.timeline.updateElements({
+				updates: [
+					{
+						trackId: located.track.id,
+						elementId: input.itemId,
+						updates: patch,
+					},
+				],
+			});
+
+			const result = ok(`Set ${input.property} on "${input.itemId}".`, {
+				itemId: input.itemId,
+				property: input.property,
+			});
+			return isSlotElement(located.element)
+				? withDelta(before, result)
+				: result;
+		}
+
+		const keyframeInputs = input.keyframes ?? [];
+		if (keyframeInputs.length === 0) {
+			return fail("animateItem's `keyframes` list must not be empty.");
+		}
+		const keyframeEntries: Array<{
+			trackId: string;
+			elementId: string;
+			propertyPath: AnimationPropertyPath;
+			time: number;
+			value: AnimationValue;
+			interpolation?: AnimationInterpolation;
+		}> = [];
+		for (const kf of keyframeInputs) {
+			if (!Number.isFinite(kf.time) || kf.time < 0) {
+				return fail(
+					`animateItem keyframe has an invalid \`time\` (${kf.time}) — must be a non-negative number of SECONDS from the item's start.`,
+				);
+			}
+			const coerced = coerceAnimateValue(input.property, kf.value);
+			if (coerced === null) {
+				return fail(
+					input.property === "position"
+						? `animateItem keyframe at ${kf.time}s requires \`value: {x, y}\` (both finite numbers) for property "position".`
+						: `animateItem keyframe at ${kf.time}s requires a finite numeric \`value\` for property "${input.property}".`,
+				);
+			}
+			for (const propertyPath of paths) {
+				const axisValue =
+					input.property === "position"
+						? propertyPath.endsWith(".x")
+							? (coerced as { x: number }).x
+							: (coerced as { y: number }).y
+						: (coerced as number);
+				keyframeEntries.push({
+					trackId: located.track.id,
+					elementId: input.itemId,
+					propertyPath,
+					time: kf.time,
+					value: axisValue,
+					interpolation: kf.interpolation,
+				});
+			}
+		}
+
+		editor.timeline.upsertKeyframes({ keyframes: keyframeEntries });
+
+		const result = ok(
+			`Keyframed ${input.property} on "${input.itemId}" (${keyframeInputs.length} keyframe${
+				keyframeInputs.length === 1 ? "" : "s"
+			}).`,
+			{
+				itemId: input.itemId,
+				property: input.property,
+				keyframeCount: keyframeInputs.length,
+			},
+		);
+		return isSlotElement(located.element) ? withDelta(before, result) : result;
+	}
+
 	// ---- LIFECYCLE --------------------------------------------------------
 
 	/** Trailer appended to a successful undo/redo — the ids/times the agent
@@ -4847,6 +5062,8 @@ export function createDirectorApi(
 		// text
 		addText,
 		updateText,
+		// motion
+		animateItem,
 		// lifecycle
 		undo,
 		redo,

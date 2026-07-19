@@ -99,6 +99,49 @@ export const textAlignOf = (
 	return s === "left" || s === "center" || s === "right" ? s : undefined;
 };
 
+/** Validate a loose `animateItem.property` arg; falls back to "opacity" (the
+ *  cheapest-to-get-wrong default) for anything unrecognized — `animateItem`
+ *  itself only cares that it's one of the four, so this never needs to fail. */
+export const animatePropertyOf = (
+	v: unknown,
+): "position" | "scale" | "rotation" | "opacity" => {
+	const s = v == null ? undefined : String(v);
+	return s === "position" || s === "scale" || s === "rotation" ? s : "opacity";
+};
+
+/**
+ * Coerce a loose `animateItem.keyframes` array arg — drops entries missing a
+ * numeric `time`; `value`/`interpolation` pass through for `director-api.ts`'s
+ * own validation (a bad shape there returns a clear failure, never throws).
+ */
+export function asAnimateKeyframes(
+	v: unknown,
+):
+	| Array<{ time: number; value: unknown; interpolation?: "linear" | "hold" }>
+	| undefined {
+	if (!Array.isArray(v)) return undefined;
+	const out: Array<{
+		time: number;
+		value: unknown;
+		interpolation?: "linear" | "hold";
+	}> = [];
+	for (const item of v) {
+		if (!item || typeof item !== "object") continue;
+		const o = item as Record<string, unknown>;
+		const time = numOrUndefined(o.time);
+		if (time === undefined) continue;
+		out.push({
+			time,
+			value: o.value,
+			interpolation:
+				o.interpolation === "hold" || o.interpolation === "linear"
+					? o.interpolation
+					: undefined,
+		});
+	}
+	return out.length ? out : undefined;
+}
+
 /**
  * Coerce a loose per-shot generation override into a {@link SpecOverride} — the
  * fields that turn a slot from plain text-to-video into a CONDITIONED shot:
@@ -676,7 +719,7 @@ export function toolCatalog(): ToolDescriptor[] {
 				required: ["itemId"],
 			},
 			handler: (d, a) => d.discardBoardItem({ itemId: str(a.itemId) }),
-			},
+		},
 		{
 			name: "readPlaybook",
 			description:
@@ -1976,6 +2019,86 @@ export function toolCatalog(): ToolDescriptor[] {
 					slotId: str(a.slotId),
 					effectType: str(a.effectType),
 					params: asEffectParams(a.params),
+				}),
+		},
+		{
+			name: "animateItem",
+			description:
+				"add motion to an EXISTING timeline item — position/scale/rotation/opacity, static or keyframed. Prefer this over generating a new clip when the footage is already right and just needs to MOVE: a slow Ken Burns push/pull on a static photo, an opacity fade in/out, a slide-in title, a zoom-punch on a beat. Pass `value` for a one-time static set, OR `keyframes` (ordered value@time points, seconds from the item's own start) to animate over time — never both.",
+			mutating: true,
+			inputSchema: {
+				type: "object",
+				properties: {
+					itemId: {
+						type: "string",
+						description:
+							"Target item id — a slot id or any other timeline element id (from getReel(), or the id a verb like addClip/addText/reserveSlot returned).",
+					},
+					property: {
+						type: "string",
+						enum: ["position", "scale", "rotation", "opacity"],
+						description:
+							"Which property to set/animate. position needs {x, y} values; scale/rotation/opacity need a plain number (scale: 1 = 100%; opacity: 0–1; rotation: degrees).",
+					},
+					value: {
+						oneOf: [
+							{ type: "number" },
+							{
+								type: "object",
+								properties: {
+									x: { type: "number" },
+									y: { type: "number" },
+								},
+								required: ["x", "y"],
+							},
+						],
+						description:
+							"STATIC set — one value, no animation channel. A number for scale/rotation/opacity, or {x, y} for position. Omit when using `keyframes` instead.",
+					},
+					keyframes: {
+						type: "array",
+						description:
+							"KEYFRAMED animation — an ordered value@time list (creates/updates a real animation channel, interpolated at render). Omit when using `value` instead.",
+						items: {
+							type: "object",
+							properties: {
+								time: secs(
+									"when this keyframe fires, relative to the ITEM's own start (not the timeline playhead)",
+								),
+								value: {
+									oneOf: [
+										{ type: "number" },
+										{
+											type: "object",
+											properties: {
+												x: { type: "number" },
+												y: { type: "number" },
+											},
+											required: ["x", "y"],
+										},
+									],
+									description:
+										"Same shape as top-level `value`: a number, or {x, y} for position.",
+								},
+								interpolation: {
+									type: "string",
+									enum: ["linear", "hold"],
+									description:
+										"How the value transitions FROM this keyframe. Omit for the property's default (linear for continuous properties).",
+								},
+							},
+							required: ["time", "value"],
+						},
+					},
+				},
+				required: ["itemId", "property"],
+			},
+			handler: (d, a) =>
+				d.animateItem({
+					itemId: str(a.itemId),
+					property: animatePropertyOf(a.property),
+					value: a.value,
+					keyframes: asAnimateKeyframes(a.keyframes),
 				}),
 		},
 		{
