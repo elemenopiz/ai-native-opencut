@@ -51,6 +51,7 @@ export function VisualSearchView() {
 		indexedCount,
 		indexing,
 		hasIndex,
+		isNearMiss,
 		debouncedSearch,
 		findSimilar,
 		refreshIndex,
@@ -214,6 +215,12 @@ export function VisualSearchView() {
 					<div className="text-muted-foreground px-1 py-2 text-xs">
 						Searching {indexedCount} indexed asset
 						{indexedCount === 1 ? "" : "s"}…
+					</div>
+				)}
+
+				{!isSearching && isNearMiss && hits.length > 0 && (
+					<div className="bg-muted/40 text-muted-foreground rounded-md px-3 py-2 text-xs">
+						No strong matches — showing the closest results instead.
 					</div>
 				)}
 
