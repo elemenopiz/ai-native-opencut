@@ -124,8 +124,15 @@ function sseResponse(frames: string[]): Response {
 	});
 }
 
-/** A model turn that calls exactly one tool, then stops for the loop to run it. */
-function toolTurn(
+/**
+ * A model turn that calls exactly one tool, then stops for the loop to run
+ * it. Exported (alongside {@link closeTurn}) so sibling scenario files
+ * (e.g. `draft-cut-scenario.ts`) can script their own turns without
+ * duplicating the SSE-frame plumbing — same "one place owns the wire
+ * format" reasoning `frame`/`sseResponse` already follow, just widened past
+ * this file's own scenarios.
+ */
+export function toolTurn(
 	text: string,
 	toolId: string,
 	name: string,
@@ -146,7 +153,7 @@ function toolTurn(
 }
 
 /** A closing model turn: plain text, no tool call, `end_turn`. */
-function closeTurn(text: string): () => Response {
+export function closeTurn(text: string): () => Response {
 	return () =>
 		sseResponse([
 			frame("final", {
@@ -191,6 +198,8 @@ export interface ScenarioExpectations {
 	mustNotMutateTimeline?: boolean;
 	/** True ⇒ the run must end without pausing on the cost-approval gate. */
 	mustNotAwaitApproval?: boolean;
+	/** True ⇒ no step may have dispatched a generation verb (`generate`/`reroll`/`remix`) — the editing-first invariant (ADR-007) a zero-generation scenario like `draftCut` is held to. */
+	mustNotGenerate?: boolean;
 }
 
 export interface EvalScenario {

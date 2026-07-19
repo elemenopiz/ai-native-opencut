@@ -27,6 +27,11 @@ import {
 	teaserScenario,
 	tightenScenario,
 } from "./fixtures";
+import {
+	DRAFT_CUT_SCENARIO_EXPECTED_DURATION_SEC,
+	DRAFT_CUT_SCENARIO_EXPECTED_SUMMARY,
+	draftCutScenario,
+} from "./draft-cut-scenario";
 import { runScenario } from "./runner";
 import {
 	assertKnownVerbs,
@@ -40,8 +45,15 @@ afterEach(() => {
 	globalThis.fetch = originalFetch;
 });
 
+// `draftCutScenario` lives in its own file (`draft-cut-scenario.ts`, SE-4) —
+// combined here rather than folded into `fixtures.ts`'s own `scenarios`
+// export to avoid a circular import (the scenario file imports
+// `toolTurn`/`closeTurn` FROM `fixtures.ts`; `fixtures.ts` would otherwise
+// need to import the scenario object back).
+const allScenarios = [...scenarios, draftCutScenario];
+
 describe("Director eval harness — deterministic tier", () => {
-	for (const scenario of scenarios) {
+	for (const scenario of allScenarios) {
 		test(`${scenario.id}: ${scenario.description}`, async () => {
 			const run = await runScenario(scenario);
 			const violations = assertScenario(run, scenario.expect);
@@ -89,6 +101,41 @@ describe("Director eval harness — deterministic tier", () => {
 		const trimStep = run.steps.find((s) => s.action === "trim");
 		expect(trimStep?.ok).toBe(true);
 		expect(trimStep?.args.slotId).toBe(slotId);
+	});
+
+	test("draftCut scenario: one undo entry, exact chat summary, gap marked, zero generation", async () => {
+		const run = await runScenario(draftCutScenario);
+
+		// draftCut is the only call this scenario scripts; it must succeed.
+		expect(run.steps.map((s) => s.action)).toEqual(["draftCut"]);
+		const draftCutStep = run.steps[0];
+		expect(draftCutStep?.ok).toBe(true);
+
+		// stage-6 chat summary — exact string, matching `story/run.ts`'s
+		// `buildDraftCutSummary` for this fixture's inventory/treatment.
+		expect(draftCutStep?.message).toBe(DRAFT_CUT_SCENARIO_EXPECTED_SUMMARY);
+		expect(draftCutStep?.message).toContain("1 gap marked for cutaways.");
+
+		// timeline invariants: two clips added (the gap section produced zero
+		// ops), total duration lands exactly where the cursor math predicts.
+		const elements = run.timelineAfter?.tracks.flatMap((t) => t.elements) ?? [];
+		expect(elements.filter((el) => !el.isGenerative)).toHaveLength(2);
+		expect(run.timelineAfter?.totalDurationSec).toBe(
+			DRAFT_CUT_SCENARIO_EXPECTED_DURATION_SEC,
+		);
+
+		// ONE undo entry for the whole assembled cut, tagged agent/draftCut —
+		// the fixture starts a fresh CommandManager (0 history), so this run's
+		// single entry is exactly index 0.
+		expect(run.fake.editor.command.getHistoryLength()).toBe(1);
+		expect(run.fake.editor.command.peekUndoOrigin()).toBe("agent");
+		expect(run.fake.editor.command.peekUndoName()).toBe("draftCut");
+
+		// zero-generation invariant, independently re-checked here (not just
+		// via assertScenario's expect.mustNotGenerate sweep above).
+		expect(
+			run.steps.some((s) => ["generate", "reroll", "remix"].includes(s.action)),
+		).toBe(false);
 	});
 
 	test("clarify scenario makes zero tool calls and stops in exactly one model round-trip", async () => {

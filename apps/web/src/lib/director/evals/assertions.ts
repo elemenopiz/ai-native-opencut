@@ -229,6 +229,23 @@ export function assertNotAwaitingApproval(run: EvalRun): Violation[] {
 	];
 }
 
+/** Generation verbs a ZERO-GENERATION scenario (e.g. `draftCut`, SE-4/ADR-007) must never dispatch. */
+export const GENERATION_VERBS: ReadonlySet<string> = new Set([
+	"generate",
+	"reroll",
+	"remix",
+]);
+
+/** No step may have dispatched a generation verb — the editing-first invariant (ADR-007) a zero-generation scenario is held to. */
+export function assertNoGenerationVerbs(run: EvalRun): Violation[] {
+	return run.steps
+		.filter((s) => GENERATION_VERBS.has(s.action))
+		.map((s) => ({
+			code: "unexpected-generation-verb",
+			message: `Step called "${s.action}" — a zero-generation scenario must never dispatch a generation verb (ADR-007).`,
+		}));
+}
+
 /**
  * The full generic invariant sweep every scenario gets, regardless of its own
  * `expect` bag: catalog membership, arg validation, no unhandled errors, clean
@@ -268,6 +285,9 @@ export function assertScenario(
 	}
 	if (expect.mustNotAwaitApproval) {
 		violations.push(...assertNotAwaitingApproval(run));
+	}
+	if (expect.mustNotGenerate) {
+		violations.push(...assertNoGenerationVerbs(run));
 	}
 	return violations;
 }
