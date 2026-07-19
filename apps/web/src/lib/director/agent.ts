@@ -460,6 +460,15 @@ export function buildContextBlock(director: DirectorApi): string {
 	const timeline = director.getTimeline().data;
 	lines.push(timeline?.digest ?? "TIMELINE: empty.");
 
+	// STANDING BRIEF AWARENESS (P1): a one-line glance at the durable creative
+	// intent, same digest-in-prompt / full-detail-behind-a-verb pattern as
+	// LIBRARY/TIMELINE above (`getBrief` is the full read). ABSENT entirely
+	// when there's no brief yet AND no learned-preference signal, so a fresh
+	// project's context block is unchanged from before this field existed —
+	// the full DIRECTOR BRIEF block (always rendered, see `briefBlock`) stays
+	// the authoritative per-turn read either way.
+	if (info.briefDigest) lines.push(info.briefDigest);
+
 	return lines.join("\n");
 }
 
@@ -1525,6 +1534,7 @@ export function buildFrontierSystemPrompt(director: DirectorApi): string {
 		BUDGET_POLICY,
 		"",
 		"HONOR THE BRIEF: the DIRECTOR BRIEF below is the user's durable creative intent. Let it shape every prompt you write and every take you pick. When the user states a new preference — or a chosen take reveals one — call updateBrief so it persists for later turns.",
+		"CAPTURE, DON'T INTERROGATE: this is about RETAINING facts the user already gave you, not asking for more (the CLARIFY BEFORE BUILDING one-question policy above stands — never add a second question just to fill in the brief). Whenever a brief-relevant fact surfaces naturally in conversation — they name their audience, the platform/format it's for, a tone/vibe, or something that must appear in the cut — call `updateBrief` with it SILENTLY (no tool-call narration, no confirming question) so it rides in every later turn's prompt instead of evaporating after this one.",
 		briefBlock(director),
 		"",
 		'EYES ON INPUT: when the user ATTACHES reference images — style refs (a moodboard, a film still, a product/location shot) and/or a character photo — do NOT plan from words alone. Call `intakeReferences` FIRST with those reference mediaIds (full media ids; see the recent assets in the project info): the model SEES the pixels and derives a StyleBible (palette/lens-mood/setting) that seeds the reel\'s consistency context, and — when a person is the subject — locks & activates a PERSONA so that character recurs across shots. Then pass the returned `bible` into `storyboard` and generate; every shot inherits the referenced look and cast without you restating it. Use it for a plain "make it look like this" / "use this character" ask, not for footage the user wants placed on the timeline (that\'s addClip).',
@@ -1852,7 +1862,7 @@ function buildLocalSystemPrompt(director: DirectorApi): string {
 		MODEL_ROUTING_POLICY,
 		BUDGET_POLICY,
 		"",
-		"HONOR THE BRIEF: the DIRECTOR BRIEF below is the user's durable creative intent — let it shape every prompt and take. Call updateBrief when the user states a new preference or a chosen take reveals one.",
+		"HONOR THE BRIEF: the DIRECTOR BRIEF below is the user's durable creative intent — let it shape every prompt and take. Call updateBrief when the user states a new preference or a chosen take reveals one. Capture facts as they surface (audience, platform, tone, must-include) silently — don't ask extra questions just to fill in the brief.",
 		briefBlock(director),
 		"AUDIO: a reel is not silent. If the brief mentions narration/voiceover, use addVoiceover with the narrated shot's slotId so the VO is timed to it; use addMusicBed for background music. Generation self-corrects (retries transient errors, rephrases safety rejections); if an OBSERVATION still says a slot 'needs your input', relay that to the user rather than retrying.",
 		"",

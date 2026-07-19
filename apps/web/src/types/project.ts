@@ -81,10 +81,27 @@ export interface DirectorBrief {
 	 * `lib/director/director-brief.ts`.
 	 */
 	styleNote?: string;
+	/**
+	 * Distribution target — platform and/or format (e.g. "TikTok", "YouTube
+	 * Shorts", "16:9 YouTube", "Instagram Reels, vertical"). North Star P1's
+	 * "purpose/platform" field (`docs/plans/2026-07-19-director-northstar.md`);
+	 * distinct from `audience` (who it's for) and the project's actual canvas
+	 * settings (`ProjectInfo.orientation`, the real pixel dimensions) — this is
+	 * the stated intent that should shape aspect/pacing choices.
+	 */
+	platform?: string;
 	/** Positive constraints — things every shot SHOULD do. */
 	dos?: string[];
 	/** Negative constraints — things to AVOID. */
 	donts?: string[];
+	/**
+	 * Concrete content requirements — things that MUST appear in the finished
+	 * cut (e.g. "show the product logo", "end on a CTA card"). Distinct from
+	 * `dos` (general style/craft rules): these are literal inclusion checks the
+	 * story engine's assembly (and the critic's self-check) can verify against,
+	 * not style guidance.
+	 */
+	mustInclude?: string[];
 	/**
 	 * Learned, one-line notes appended over time — stated preferences and
 	 * chosen-take rationale ("user prefers warm tones, handheld feel"). Newest

@@ -18,6 +18,37 @@ describe("asBriefPatch", () => {
 		expect(asBriefPatch({ durationSec: "45" })).toEqual({ durationSec: 45 });
 		expect(asBriefPatch({ durationSec: "not-a-number" })).toEqual({});
 	});
+
+	// ── P1: platform + mustInclude ──────────────────────────────────────────
+
+	it("passes platform through as a string", () => {
+		expect(asBriefPatch({ platform: "TikTok" })).toEqual({
+			platform: "TikTok",
+		});
+	});
+
+	it("coerces mustInclude into a trimmed, non-empty string list", () => {
+		expect(
+			asBriefPatch({ mustInclude: [" show the logo ", "", "end on a CTA"] }),
+		).toEqual({ mustInclude: ["show the logo", "end on a CTA"] });
+	});
+
+	it("omits mustInclude when the array is empty or all-blank", () => {
+		expect(asBriefPatch({ mustInclude: [] })).toEqual({});
+		expect(asBriefPatch({ mustInclude: ["  ", ""] })).toEqual({});
+	});
+
+	it("BUG31 idiom: a patch naming only ONE field carries no other keys at all", () => {
+		// This is what makes `applyBriefPatch`'s `{...current, ...patch-derived}`
+		// spread safe — an omitted field must never appear as `undefined` in the
+		// patch object (which would otherwise read as "clear this field").
+		const patch = asBriefPatch({ tone: "playful" });
+		expect(patch).toEqual({ tone: "playful" });
+		expect("platform" in patch).toBe(false);
+		expect("mustInclude" in patch).toBe(false);
+		expect("goal" in patch).toBe(false);
+		expect("durationSec" in patch).toBe(false);
+	});
 });
 
 describe("asSpecOverride", () => {

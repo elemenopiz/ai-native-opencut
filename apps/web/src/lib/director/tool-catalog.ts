@@ -379,10 +379,13 @@ export function asBriefPatch(args: Record<string, unknown>): BriefPatch {
 		// `styleBible` for the one-line style string — accept it as `styleNote`.
 		patch.styleNote = str(args.styleBible);
 	}
+	if (args.platform != null) patch.platform = str(args.platform);
 	const dos = asStringList(args.dos);
 	if (dos) patch.dos = dos;
 	const donts = asStringList(args.donts);
 	if (donts) patch.donts = donts;
+	const mustInclude = asStringList(args.mustInclude);
+	if (mustInclude) patch.mustInclude = mustInclude;
 	const notes =
 		asStringList(args.notes) ??
 		(args.note != null ? asStringList([args.note]) : undefined);
@@ -1436,7 +1439,7 @@ export function toolCatalog(): ToolDescriptor[] {
 		{
 			name: "getBrief",
 			description:
-				"read the persistent DIRECTOR BRIEF (goal, audience, tone, style note, target duration, do/don't, learned notes). It's already summarized in your system prompt — call this only to re-check the full brief mid-task.",
+				"read the persistent DIRECTOR BRIEF (goal, audience, tone, platform, style note, target duration, do/don't, must-include, learned notes). It's already summarized in your system prompt — call this only to re-check the full brief mid-task. When the brief is empty, the message may surface a returning user's learned aspect/duration defaults from past sessions.",
 			mutating: false,
 			inputSchema: EMPTY,
 			handler: (d) => d.getBrief(),
@@ -1444,7 +1447,7 @@ export function toolCatalog(): ToolDescriptor[] {
 		{
 			name: "updateBrief",
 			description:
-				"record the user's creative intent in the durable brief whenever they state a preference or you learn one (e.g. after chooseTake). Scalars (goal/audience/tone/styleNote/durationSec) REPLACE; dos/donts APPEND; note/notes APPEND learned one-liners. Persisted per project so future turns and sessions inherit it.",
+				"record the user's creative intent in the durable brief whenever they state a preference or you learn one (e.g. after chooseTake) — CAPTURE, don't interrogate: when a brief-relevant fact surfaces in conversation (they mention their audience, platform, tone, or something that must be in the cut), silently call this to retain it rather than asking a separate question about it. Scalars (goal/audience/tone/styleNote/platform/durationSec) REPLACE; dos/donts/mustInclude APPEND; note/notes APPEND learned one-liners. Persisted per project so future turns and sessions inherit it.",
 			mutating: true,
 			inputSchema: {
 				type: "object",
@@ -1460,6 +1463,11 @@ export function toolCatalog(): ToolDescriptor[] {
 						description:
 							"One-line reusable visual/edit rules (color grade, pacing, framing). (Formerly `styleBible`, still accepted as a legacy alias.)",
 					},
+					platform: {
+						type: "string",
+						description:
+							"Distribution target — platform and/or format (e.g. 'TikTok', 'YouTube Shorts', '16:9 YouTube'). REPLACES, same as the other scalars.",
+					},
 					durationSec: {
 						type: "number",
 						description:
@@ -1474,6 +1482,12 @@ export function toolCatalog(): ToolDescriptor[] {
 						type: "array",
 						items: { type: "string" },
 						description: "Constraints to ADD — things to avoid.",
+					},
+					mustInclude: {
+						type: "array",
+						items: { type: "string" },
+						description:
+							"Concrete content requirements to ADD — things that MUST appear in the finished cut (e.g. 'show the product logo', 'end on a CTA card'), distinct from `dos` (style rules, not literal inclusion checks).",
 					},
 					note: {
 						type: "string",

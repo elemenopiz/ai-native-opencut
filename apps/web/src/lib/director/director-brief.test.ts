@@ -2,12 +2,15 @@ import { describe, expect, it } from "bun:test";
 import {
 	appendBriefNote,
 	applyBriefPatch,
+	briefDigest,
 	emptyBrief,
 	isBriefEmpty,
 	MAX_BRIEF_NOTES,
 	migrateLegacyBrief,
+	preferenceHintClause,
 	summarizeBrief,
 } from "./director-brief";
+import type { UserPreferenceModel } from "./preference-learning";
 import type { DirectorBrief, TProject } from "@/types/project";
 import {
 	deserializeProject,
@@ -115,6 +118,173 @@ describe("director brief helpers", () => {
 		const s = summarizeBrief({ durationSec: 60 });
 		expect(s).toContain("TARGET DURATION: 60s");
 		expect(s).not.toContain("(empty");
+	});
+
+	// ── P1: platform + mustInclude (north-star P1 widening) ─────────────────
+
+	it("replaces platform like the other scalars and appends mustInclude (deduped)", () => {
+		const b1 = applyBriefPatch(emptyBrief(), {
+			platform: "TikTok",
+			mustInclude: ["show the logo", "show the logo"],
+		});
+		expect(b1.platform).toBe("TikTok");
+		expect(b1.mustInclude).toEqual(["show the logo"]); // deduped
+
+		const b2 = applyBriefPatch(b1, {
+			platform: "YouTube Shorts",
+			mustInclude: ["show the logo", "end on a CTA"],
+		});
+		expect(b2.platform).toBe("YouTube Shorts"); // REPLACED
+		expect(b2.mustInclude).toEqual(["show the logo", "end on a CTA"]); // APPENDED
+	});
+
+	it("clears platform when handed an empty string", () => {
+		const b = applyBriefPatch({ platform: "TikTok" }, { platform: "" });
+		expect(b.platform).toBeUndefined();
+		expect("platform" in b).toBe(false);
+	});
+
+	it("platform/mustInclude alone make the brief non-empty and show up in the summary", () => {
+		expect(isBriefEmpty({ platform: "TikTok" })).toBe(false);
+		expect(isBriefEmpty({ mustInclude: ["show the logo"] })).toBe(false);
+
+		const s = summarizeBrief({
+			platform: "TikTok",
+			mustInclude: ["show the logo", "end on a CTA"],
+		});
+		expect(s).toContain("PLATFORM: TikTok");
+		expect(s).toContain("MUST INCLUDE: show the logo; end on a CTA");
+	});
+
+	it("an updateBrief-shaped patch never clobbers unset fields (strip-undefined-before-spread)", () => {
+		// Mirrors `asBriefPatch`'s BUG31 idiom: a patch that only names ONE field
+		// must leave every other already-set field untouched.
+		const base = applyBriefPatch(emptyBrief(), {
+			goal: "drive signups",
+			audience: "Gen-Z",
+			platform: "TikTok",
+			tone: "playful",
+			durationSec: 30,
+			mustInclude: ["show the logo"],
+		});
+		const patched = applyBriefPatch(base, { tone: "moody" });
+		expect(patched.goal).toBe("drive signups");
+		expect(patched.audience).toBe("Gen-Z");
+		expect(patched.platform).toBe("TikTok");
+		expect(patched.durationSec).toBe(30);
+		expect(patched.mustInclude).toEqual(["show the logo"]);
+		expect(patched.tone).toBe("moody"); // only this one changed
+	});
+});
+
+// ── P1: BRIEF digest (buildContextBlock's one-line standing-awareness fold) ──
+
+describe("briefDigest", () => {
+	it("is absent (empty string) for an empty brief with no learned preferences", () => {
+		expect(briefDigest(undefined)).toBe("");
+		expect(briefDigest({})).toBe("");
+	});
+
+	it("is absent for a brief that carries only unreadable content (just notes)", () => {
+		expect(briefDigest({ notes: ["user prefers warm tones"] })).toBe("");
+	});
+
+	it("renders a compact line from goal/audience/platform/tone/duration", () => {
+		const digest = briefDigest({
+			goal: "drive app signups",
+			audience: "Gen-Z creators",
+			platform: "TikTok",
+			tone: "playful",
+			durationSec: 30,
+		});
+		expect(digest).toBe(
+			"BRIEF: drive app signups · for Gen-Z creators · TikTok · playful · 30s target.",
+		);
+	});
+
+	it("appends a must-include clause, capped to 2 items", () => {
+		const digest = briefDigest({
+			goal: "product launch",
+			mustInclude: ["show the logo", "end on a CTA", "mention the price"],
+		});
+		expect(digest).toContain("must: show the logo; end on a CTA");
+		expect(digest).not.toContain("mention the price");
+	});
+
+	it("truncates a long goal so the line stays a short digest, not the full brief", () => {
+		const longGoal =
+			"a very long, rambling description of exactly what this reel should accomplish for the launch campaign";
+		const digest = briefDigest({ goal: longGoal });
+		expect(digest.length).toBeLessThan(longGoal.length + 10);
+		expect(digest).toContain("…");
+	});
+
+	it("appends a learned-defaults hint only when no target duration is stated", () => {
+		const model: UserPreferenceModel = {
+			sampleSize: 5,
+			preferredAspects: [{ tag: "9:16", count: 4 }],
+			avgKeptDurationSec: 24.4,
+			updatedAt: 1,
+		};
+
+		const withoutDuration = briefDigest({ goal: "launch reel" }, model);
+		expect(withoutDuration).toContain("learned: 9:16, ~24s avg");
+
+		const withDuration = briefDigest(
+			{ goal: "launch reel", durationSec: 45 },
+			model,
+		);
+		expect(withDuration).toContain("45s target");
+		expect(withDuration).not.toContain("learned:"); // stated preference wins
+	});
+
+	it("stays absent when only a preference model exists and the brief itself is empty", () => {
+		// A learned default alone is not a stated brief — the digest is strictly
+		// gated on the brief having something set (getBrief's message is the
+		// seam for surfacing learned defaults on an otherwise-empty brief).
+		const model: UserPreferenceModel = {
+			sampleSize: 5,
+			preferredAspects: [{ tag: "9:16", count: 4 }],
+			updatedAt: 1,
+		};
+		expect(briefDigest({}, model)).toBe("");
+	});
+});
+
+describe("preferenceHintClause", () => {
+	it("is empty for an absent or sample-free model", () => {
+		expect(preferenceHintClause(undefined)).toBe("");
+		expect(preferenceHintClause({ sampleSize: 0, updatedAt: 1 })).toBe("");
+	});
+
+	it("renders the top preferred aspect and rounded mean kept duration", () => {
+		const model: UserPreferenceModel = {
+			sampleSize: 5,
+			preferredAspects: [
+				{ tag: "9:16", count: 4 },
+				{ tag: "1:1", count: 1 },
+			],
+			avgKeptDurationSec: 23.6,
+			updatedAt: 1,
+		};
+		expect(preferenceHintClause(model)).toBe("learned: 9:16, ~24s avg");
+	});
+
+	it("degrades gracefully when only one signal is present", () => {
+		expect(
+			preferenceHintClause({
+				sampleSize: 2,
+				avgKeptDurationSec: 12,
+				updatedAt: 1,
+			}),
+		).toBe("learned: ~12s avg");
+		expect(
+			preferenceHintClause({
+				sampleSize: 2,
+				preferredAspects: [{ tag: "16:9", count: 2 }],
+				updatedAt: 1,
+			}),
+		).toBe("learned: 16:9");
 	});
 });
 
