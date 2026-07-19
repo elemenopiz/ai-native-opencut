@@ -7,12 +7,14 @@ import {
 	Video02Icon,
 	Image02Icon,
 	AudioWave01Icon,
+	UserMultiple02Icon,
 } from "@hugeicons/core-free-icons";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { PanelView } from "./base-view";
 import { GenerationForm } from "@/components/studio/generation-form";
 import { ImagePanel } from "@/components/studio/image-panel";
 import { AudioPanel } from "@/components/studio/audio-panel";
+import { PersonaManager } from "@/components/studio/persona-manager";
 import { SegmentedControl } from "@/components/studio/generation-bottom-bar";
 import { useStudioGeneration } from "@/hooks/use-studio-generation";
 import { useEditor } from "@/hooks/use-editor";
@@ -46,6 +48,15 @@ const MEDIA_SEGMENTS = [
 			<span className="flex items-center gap-1.5">
 				<HugeiconsIcon icon={AudioWave01Icon} className="size-[13.5px]" />
 				Audio
+			</span>
+		),
+	},
+	{
+		value: "personas",
+		label: (
+			<span className="flex items-center gap-1.5">
+				<HugeiconsIcon icon={UserMultiple02Icon} className="size-[13.5px]" />
+				Personas
 			</span>
 		),
 	},
@@ -156,6 +167,10 @@ export function GenerateView() {
 
 				<TabsContent value="audio" className="mt-0">
 					<AudioPanel />
+				</TabsContent>
+
+				<TabsContent value="personas" className="mt-0">
+					<PersonaManager />
 				</TabsContent>
 			</Tabs>
 
