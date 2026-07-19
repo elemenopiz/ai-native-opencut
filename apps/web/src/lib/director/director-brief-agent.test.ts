@@ -3,7 +3,8 @@ import type { EditorCore } from "@/core";
 import { CommandManager } from "@/core/managers/commands";
 import type { DirectorBrief } from "@/types/project";
 import { createDirectorApi } from "./director-api";
-import { buildFrontierSystemPrompt } from "./agent";
+import type { UserPreferenceModel } from "./preference-learning";
+import { buildContextBlock, buildFrontierSystemPrompt } from "./agent";
 
 /**
  * Minimal `EditorCore` stub for the Director brief flow. It backs the brief with
@@ -209,5 +210,164 @@ describe("director brief — injected into the system prompt across turns", () =
 		expect(buildFrontierSystemPrompt(reloadedDirector)).toContain(
 			"warm, handheld",
 		);
+	});
+});
+
+// ── P1: platform/mustInclude verb widening ───────────────────────────────────
+
+describe("director brief verbs — P1 platform/mustInclude widening", () => {
+	it("updateBrief accepts platform/mustInclude and getBrief reads them back", () => {
+		const { editor } = makeEditor();
+		const director = createDirectorApi(editor);
+
+		const result = director.updateBrief({
+			platform: "TikTok",
+			mustInclude: ["show the logo"],
+		});
+
+		expect(result.ok).toBe(true);
+		expect(director.getBrief().data?.platform).toBe("TikTok");
+		expect(director.getBrief().data?.mustInclude).toContain("show the logo");
+	});
+
+	it("updateBrief with only ONE new field never clobbers previously-set fields", () => {
+		// BUG31 idiom: a patch that omits a field must leave it untouched, not
+		// wipe it out — exercised end-to-end through the verb (asBriefPatch is
+		// covered separately in tool-catalog; this proves director-api's
+		// applyBriefPatch composition holds the same contract).
+		const { editor } = makeEditor();
+		const director = createDirectorApi(editor);
+
+		director.updateBrief({
+			goal: "drive signups",
+			audience: "Gen-Z",
+			platform: "TikTok",
+			durationSec: 30,
+		});
+		director.updateBrief({ tone: "playful" });
+
+		const brief = director.getBrief().data;
+		expect(brief?.goal).toBe("drive signups");
+		expect(brief?.audience).toBe("Gen-Z");
+		expect(brief?.platform).toBe("TikTok");
+		expect(brief?.durationSec).toBe(30);
+		expect(brief?.tone).toBe("playful");
+	});
+});
+
+// ── P1: BRIEF digest in buildContextBlock ────────────────────────────────────
+
+describe("buildContextBlock — BRIEF digest (P1)", () => {
+	it("is absent from the context block for a fresh project with no brief", () => {
+		const { editor } = makeEditor();
+		const director = createDirectorApi(editor);
+
+		const block = buildContextBlock(director);
+		// `.toContain("BRIEF:")` would false-positive on unrelated prose (none
+		// here, but `buildFrontierSystemPrompt`'s "HONOR THE BRIEF:" instruction
+		// does) — assert on a LINE starting with the digest's own prefix instead.
+		expect(block.split("\n").some((l) => l.startsWith("BRIEF:"))).toBe(false);
+	});
+
+	it("appears as a one-line digest once the brief has a stated goal", () => {
+		const { editor } = makeEditor();
+		const director = createDirectorApi(editor);
+		director.updateBrief({
+			goal: "drive app signups",
+			platform: "TikTok",
+			durationSec: 30,
+		});
+
+		const block = buildContextBlock(director);
+		const lines = block.split("\n");
+		const briefLine = lines.find((l) => l.startsWith("BRIEF:"));
+		expect(briefLine).toBeDefined();
+		expect(briefLine).toContain("drive app signups");
+		expect(briefLine).toContain("TikTok");
+		expect(briefLine).toContain("30s target");
+		// Still rides alongside the existing PROJECT/PERSONAS/LIBRARY/TIMELINE lines.
+		expect(lines.some((l) => l.startsWith("PROJECT:"))).toBe(true);
+		expect(lines.some((l) => l.startsWith("TIMELINE"))).toBe(true);
+	});
+
+	it("a fresh conversation's full system prompt carries no BRIEF digest line", () => {
+		// The eval/fixture-stability guarantee: no brief ⇒ no new digest LINE
+		// anywhere in the once-per-turn prompt (the pre-existing "HONOR THE
+		// BRIEF:" instruction line is expected and unrelated to this fold).
+		const { editor } = makeEditor();
+		const director = createDirectorApi(editor);
+		const lines = buildFrontierSystemPrompt(director).split("\n");
+		expect(lines.some((l) => l.startsWith("BRIEF:"))).toBe(false);
+	});
+});
+
+// ── P1 × P6: preference-defaults hook ────────────────────────────────────────
+
+describe("preference-defaults hook (P1 x P6, read-only composition)", () => {
+	it("getBrief surfaces learned defaults in its message when the brief is empty", async () => {
+		const { editor } = makeEditor();
+		const model: UserPreferenceModel = {
+			sampleSize: 5,
+			preferredAspects: [{ tag: "9:16", count: 4 }],
+			avgKeptDurationSec: 24,
+			updatedAt: 1,
+		};
+		const director = createDirectorApi(editor, {
+			preferenceLearning: { getModel: async () => model },
+		});
+		await director.warmPreferenceModel();
+
+		const result = director.getBrief();
+		expect(result.message).toContain("Learned defaults");
+		expect(result.message).toContain("9:16");
+		expect(result.message).toContain("~24s avg");
+	});
+
+	it("getBrief's message stays plain when there is no learned-preference signal", async () => {
+		const { editor } = makeEditor();
+		const director = createDirectorApi(editor, {
+			preferenceLearning: { getModel: async () => undefined },
+		});
+		await director.warmPreferenceModel();
+
+		expect(director.getBrief().message).toBe("Director brief.");
+	});
+
+	it("the BRIEF digest appends a learned-defaults clause only when duration is unset", async () => {
+		const { editor } = makeEditor();
+		const model: UserPreferenceModel = {
+			sampleSize: 5,
+			preferredAspects: [{ tag: "9:16", count: 4 }],
+			avgKeptDurationSec: 24,
+			updatedAt: 1,
+		};
+		const director = createDirectorApi(editor, {
+			preferenceLearning: { getModel: async () => model },
+		});
+		await director.warmPreferenceModel();
+		director.updateBrief({ goal: "drive signups" }); // no durationSec
+
+		const block = buildContextBlock(director);
+		const briefLine = block.split("\n").find((l) => l.startsWith("BRIEF:"));
+		expect(briefLine).toContain("learned: 9:16, ~24s avg");
+	});
+
+	it("a stated target duration wins over the learned default in the digest", async () => {
+		const { editor } = makeEditor();
+		const model: UserPreferenceModel = {
+			sampleSize: 5,
+			avgKeptDurationSec: 24,
+			updatedAt: 1,
+		};
+		const director = createDirectorApi(editor, {
+			preferenceLearning: { getModel: async () => model },
+		});
+		await director.warmPreferenceModel();
+		director.updateBrief({ goal: "drive signups", durationSec: 45 });
+
+		const block = buildContextBlock(director);
+		const briefLine = block.split("\n").find((l) => l.startsWith("BRIEF:"));
+		expect(briefLine).toContain("45s target");
+		expect(briefLine).not.toContain("learned:");
 	});
 });

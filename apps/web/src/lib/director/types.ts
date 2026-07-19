@@ -300,6 +300,16 @@ export interface ProjectInfo {
 	 * media-type counts + recent names when no Understanding Pass data is wired.
 	 */
 	manifest: LibraryManifest;
+	/**
+	 * One-line DIRECTOR BRIEF digest (P1 — see `director-brief.ts`'s
+	 * `briefDigest`), e.g. `"BRIEF: drive signups · for Gen-Z · TikTok · 30s
+	 * target."`. Folded into `buildContextBlock` right alongside the
+	 * PROJECT/LIBRARY/TIMELINE lines — same "cheap glance, full detail behind a
+	 * verb (`getBrief`)" pattern. ABSENT (omitted key or empty string) when the
+	 * brief has nothing set yet, so a fresh project's context block is
+	 * unchanged from before this field existed.
+	 */
+	briefDigest?: string;
 }
 
 /**

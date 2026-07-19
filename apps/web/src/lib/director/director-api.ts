@@ -99,6 +99,9 @@ import {
 } from "./budget";
 import {
 	applyBriefPatch,
+	briefDigest,
+	isBriefEmpty,
+	preferenceHintClause,
 	summarizeBrief,
 	type BriefPatch,
 } from "./director-brief";
@@ -107,7 +110,9 @@ import {
 	type PreferenceEvent,
 	type PreferenceEventMeta,
 	type PreferenceEventType,
+	type UserPreferenceModel,
 } from "./preference-learning";
+import { getUserPreferenceModel } from "@/services/storage/user-memory-store";
 import {
 	recordBibleApproval,
 	revertProjectBible,
@@ -512,6 +517,18 @@ export interface CreateDirectorApiOptions {
 	 */
 	preferenceLearning?: {
 		logEvent?: (event: PreferenceEvent) => Promise<unknown>;
+		/**
+		 * P1 preference-defaults READ seam (`docs/plans/2026-07-19-director-
+		 * northstar.md` P1 × P6): resolves the current distilled
+		 * {@link UserPreferenceModel} so the BRIEF digest (`getProjectInfo`'s
+		 * `briefDigest`) and `getBrief`'s empty-brief message can surface a
+		 * returning user's learned aspect/duration defaults. Default is the real
+		 * IndexedDB read (`getUserPreferenceModel`). Injectable so unit tests can
+		 * supply a fixed model without touching IndexedDB — same pattern as
+		 * `logEvent`. Best-effort: a rejection here never blocks
+		 * `getProjectInfo`/`getBrief` — they just show no learned-defaults hint.
+		 */
+		getModel?: () => Promise<UserPreferenceModel | undefined>;
 	};
 }
 
@@ -834,6 +851,31 @@ export function createDirectorApi(
 	// tests inject a spy (see `CreateDirectorApiOptions.preferenceLearning`).
 	const logPreference =
 		options.preferenceLearning?.logEvent ?? logPreferenceEvent;
+
+	// P1 preference-defaults READ seam: default to the real IndexedDB read;
+	// tests inject a spy (see `CreateDirectorApiOptions.preferenceLearning`).
+	const readPreferenceModel =
+		options.preferenceLearning?.getModel ?? getUserPreferenceModel;
+
+	// Synchronous cache the BRIEF digest / `getBrief` read from — the model
+	// itself lives in IndexedDB (async), but `getProjectInfo`/`getBrief` are
+	// synchronous like every other verb, so this is a best-effort warm cache
+	// rather than a live read. Populated (a) once at creation, so even a
+	// returning user's FIRST turn this session can surface learned defaults
+	// once the promise resolves, and (b) after every captured preference event,
+	// so a long session's cache stays fresh. `warmPreferenceModel` is exposed on
+	// the returned API so tests can `await` deterministic warm-up instead of
+	// racing the fire-and-forget call below.
+	let preferenceModelCache: UserPreferenceModel | undefined;
+	async function warmPreferenceModel(): Promise<void> {
+		try {
+			const model = await readPreferenceModel();
+			if (model) preferenceModelCache = model;
+		} catch {
+			// best-effort — a storage hiccup just means no learned-defaults hint yet.
+		}
+	}
+	void warmPreferenceModel();
 
 	// AI-matting seam (removeBackground) — defaults to the real pipeline;
 	// headless tests inject a stub. Same pattern as `deriveReferences` below.
@@ -1417,6 +1459,18 @@ export function createDirectorApi(
 
 		const personas = usePersonaStore.getState().personas;
 		const assets = editor.media.getAssets();
+		// P1 BRIEF digest (see `director-brief.ts`'s `briefDigest`) — "" when the
+		// brief has nothing set, so a fresh project's ProjectInfo carries no new
+		// field at all (`briefDigest` stays omitted below). Best-effort: some
+		// minimal/headless test editor stubs (pre-dating the brief feature) don't
+		// implement `getDirectorBrief` at all — never let that break the rest of
+		// this read (mirrors `syncBible`'s swallow-and-continue contract).
+		let digest = "";
+		try {
+			digest = briefDigest(readBrief(), preferenceModelCache);
+		} catch {
+			// no brief seam wired on this editor — no digest fold, nothing else affected.
+		}
 
 		return ok("Project info.", {
 			fps: settings?.fps,
@@ -1433,6 +1487,7 @@ export function createDirectorApi(
 				.slice(-CONTEXT_LIST_CAP)
 				.map((a) => ({ id: a.id, name: a.name })),
 			manifest: buildManifest(),
+			...(digest ? { briefDigest: digest } : {}),
 		});
 	}
 
@@ -3327,11 +3382,14 @@ export function createDirectorApi(
 		try {
 			const projectId = editor.project.getActiveOrNull()?.metadata.id;
 			if (!projectId) return;
-			void logPreference({ type, ts: Date.now(), projectId, meta }).catch(
-				() => {
+			void logPreference({ type, ts: Date.now(), projectId, meta })
+				// Re-warm the digest cache so this event's effect on the distilled
+				// model (a fresh chooseTake can shift preferredAspects/avgKeptDurationSec)
+				// is visible to the NEXT turn's BRIEF digest — P1 × P6 seam.
+				.then(() => warmPreferenceModel())
+				.catch(() => {
 					// best-effort — a persistence hiccup must never surface to the caller.
-				},
-			);
+				});
 		} catch {
 			// best-effort — a missing/broken project seam must never affect the
 			// calling verb (mirrors `syncBible`'s swallow-and-continue contract).
@@ -4038,16 +4096,32 @@ export function createDirectorApi(
 		return trimmed.length > 48 ? `${trimmed.slice(0, 47)}…` : trimmed;
 	}
 
-	/** Read the current director brief (read-only). */
+	/**
+	 * Read the current director brief (read-only). When the brief is empty and
+	 * the P1 preference-defaults cache has signal, the message surfaces the
+	 * returning user's learned aspect/duration defaults instead of a bare
+	 * "empty" — a hint the agent can use to skip a clarifying question.
+	 */
 	function getBrief(): DirectorResult<DirectorBrief> {
-		return ok("Director brief.", readBrief());
+		const brief = readBrief();
+		if (isBriefEmpty(brief)) {
+			const hint = preferenceHintClause(preferenceModelCache);
+			return ok(
+				hint
+					? `Director brief is empty. Learned defaults from past sessions: ${hint}.`
+					: "Director brief.",
+				brief,
+			);
+		}
+		return ok("Director brief.", brief);
 	}
 
 	/**
-	 * Update the durable brief. Scalar fields (goal/audience/tone/styleNote)
-	 * REPLACE; `durationSec` REPLACES the target duration (0 or below clears it);
-	 * `dos`/`donts` APPEND (deduped); `notes` append learned one-liners (capped).
-	 * An empty string clears a scalar. Returns the merged brief.
+	 * Update the durable brief. Scalar fields (goal/audience/tone/styleNote/
+	 * platform) REPLACE; `durationSec` REPLACES the target duration (0 or below
+	 * clears it); `dos`/`donts`/`mustInclude` APPEND (deduped); `notes` append
+	 * learned one-liners (capped). An empty string clears a scalar. Returns the
+	 * merged brief.
 	 */
 	function updateBrief(patch: BriefPatch): DirectorResult<DirectorBrief> {
 		const next = persistBrief(applyBriefPatch(readBrief(), patch));
@@ -5680,6 +5754,10 @@ export function createDirectorApi(
 		getBrief,
 		updateBrief,
 		briefPromptBlock,
+		// P1 preference-defaults cache warm-up — best-effort fire-and-forget in
+		// production; exposed so tests can `await` deterministic warm-up instead
+		// of racing the creation-time call (see `warmPreferenceModel` above).
+		warmPreferenceModel,
 		// project bible (durable, versioned creative memory + checkpoint revert)
 		getProjectBible,
 		revertBibleCheckpoint,

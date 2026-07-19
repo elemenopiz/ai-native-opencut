@@ -18,6 +18,7 @@
  */
 
 import type { DirectorBrief } from "@/types/project";
+import type { UserPreferenceModel } from "./preference-learning";
 
 /**
  * Cap on the learned-notes list so the brief never grows without bound across a
@@ -42,8 +43,10 @@ export function isBriefEmpty(brief: DirectorBrief | undefined): boolean {
 		!brief.audience?.trim() &&
 		!brief.tone?.trim() &&
 		!brief.styleNote?.trim() &&
+		!brief.platform?.trim() &&
 		(brief.dos?.length ?? 0) === 0 &&
 		(brief.donts?.length ?? 0) === 0 &&
+		(brief.mustInclude?.length ?? 0) === 0 &&
 		(brief.notes?.length ?? 0) === 0 &&
 		brief.durationSec == null
 	);
@@ -101,9 +104,13 @@ export interface BriefPatch {
 	audience?: string;
 	tone?: string;
 	styleNote?: string;
+	/** Distribution target — platform and/or format. REPLACES, same as the other scalars. */
+	platform?: string;
 	/** Constraints to ADD (appended, not replaced). */
 	dos?: string[];
 	donts?: string[];
+	/** Concrete content requirements to ADD (appended, deduped — not replaced). */
+	mustInclude?: string[];
 	/** Learned one-line notes to append (stated preferences, chosen-take rationale). */
 	notes?: string[];
 	/**
@@ -141,12 +148,19 @@ export function applyBriefPatch(
 	next.audience = patchScalar(current.audience, patch.audience);
 	next.tone = patchScalar(current.tone, patch.tone);
 	next.styleNote = patchScalar(current.styleNote, patch.styleNote);
+	next.platform = patchScalar(current.platform, patch.platform);
 
 	if (patch.dos?.length) {
 		next.dos = cleanList([...(current.dos ?? []), ...patch.dos]);
 	}
 	if (patch.donts?.length) {
 		next.donts = cleanList([...(current.donts ?? []), ...patch.donts]);
+	}
+	if (patch.mustInclude?.length) {
+		next.mustInclude = cleanList([
+			...(current.mustInclude ?? []),
+			...patch.mustInclude,
+		]);
 	}
 	if (patch.notes?.length) {
 		const merged = cleanList([...(current.notes ?? []), ...patch.notes]);
@@ -160,7 +174,13 @@ export function applyBriefPatch(
 	}
 
 	// Drop cleared-to-empty scalar keys so the object stays compact.
-	for (const key of ["goal", "audience", "tone", "styleNote"] as const) {
+	for (const key of [
+		"goal",
+		"audience",
+		"tone",
+		"styleNote",
+		"platform",
+	] as const) {
 		if (next[key] == null) delete next[key];
 	}
 	if (next.durationSec == null) delete next.durationSec;
@@ -199,15 +219,95 @@ export function summarizeBrief(brief: DirectorBrief | undefined): string {
 	if (b.audience?.trim()) lines.push(`  AUDIENCE: ${b.audience.trim()}`);
 	if (b.tone?.trim()) lines.push(`  TONE: ${b.tone.trim()}`);
 	if (b.styleNote?.trim()) lines.push(`  STYLE: ${b.styleNote.trim()}`);
+	if (b.platform?.trim()) lines.push(`  PLATFORM: ${b.platform.trim()}`);
 	if (b.durationSec != null) {
 		lines.push(`  TARGET DURATION: ${b.durationSec}s`);
 	}
 	if (b.dos?.length) lines.push(`  DO: ${b.dos.join("; ")}`);
 	if (b.donts?.length) lines.push(`  DON'T: ${b.donts.join("; ")}`);
+	if (b.mustInclude?.length) {
+		lines.push(`  MUST INCLUDE: ${b.mustInclude.join("; ")}`);
+	}
 	if (b.notes?.length) {
 		const recent = b.notes.slice(-BRIEF_NOTES_IN_SUMMARY);
 		lines.push("  LEARNED:");
 		for (const note of recent) lines.push(`   - ${note}`);
 	}
 	return lines.join("\n");
+}
+
+// ── P1 digest + preference-defaults hook ────────────────────────────────────
+//
+// `summarizeBrief` above is the FULL, always-rendered block (honors the whole
+// brief every turn). The digest below is a SEPARATE, much smaller line meant
+// for `agent.ts`'s `buildContextBlock` — the same "cheap glance in the
+// standing-awareness block, full detail behind a verb" pattern already used
+// for the LIBRARY manifest and the TIMELINE (see `formatTimelineDigest` in
+// `director-api.ts`). It is ABSENT (empty string) whenever the brief itself
+// has nothing set, so a brand-new project's context block is byte-identical
+// to before this fold — only a project with a stated brief gets the extra
+// line.
+
+/** First `max` chars of `s`, ellipsized; unchanged if already short enough. */
+function truncate(s: string, max: number): string {
+	return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+}
+
+/**
+ * Compact "learned defaults" clause distilled from a {@link UserPreferenceModel}
+ * — the user's most-picked aspect ratio and the mean duration of takes they've
+ * kept, e.g. `"learned: 9:16, ~24s avg"`. Empty string when the model carries
+ * no signal yet (fresh account, or nothing kept long enough to distill) —
+ * NEVER invents a default from an empty model.
+ */
+export function preferenceHintClause(
+	model: UserPreferenceModel | undefined,
+): string {
+	if (!model || model.sampleSize === 0) return "";
+	const parts: string[] = [];
+	const topAspect = model.preferredAspects?.[0]?.tag;
+	if (topAspect) parts.push(topAspect);
+	if (model.avgKeptDurationSec != null) {
+		parts.push(`~${Math.round(model.avgKeptDurationSec)}s avg`);
+	}
+	return parts.length ? `learned: ${parts.join(", ")}` : "";
+}
+
+/**
+ * One-line BRIEF digest for `buildContextBlock`'s PROJECT/PERSONAS/LIBRARY/
+ * TIMELINE standing-awareness block (`agent.ts`) — mirrors the TIMELINE
+ * digest's terse `"LABEL: seg · seg · seg."` shape, capped to roughly the
+ * same ~25-token budget. Returns `""` (⇒ omitted entirely by the caller)
+ * when the brief has nothing set — a brief with only unreadable content
+ * (e.g. just `notes`, no goal/audience/platform/tone/duration/mustInclude)
+ * also degrades to `""` since there is nothing concrete to digest.
+ *
+ * `preferenceModel`, when it carries signal (P1's preference-defaults hook —
+ * see the north-star doc's P1/P6 seam), appends a `learned:` clause ONLY when
+ * the brief hasn't already pinned a target duration itself — a stated
+ * preference always wins over a learned default, never gets overridden by it.
+ */
+export function briefDigest(
+	brief: DirectorBrief | undefined,
+	preferenceModel?: UserPreferenceModel,
+): string {
+	if (isBriefEmpty(brief)) return "";
+	const b = brief as DirectorBrief;
+
+	const segments: string[] = [];
+	if (b.goal?.trim()) segments.push(truncate(b.goal.trim(), 40));
+	if (b.audience?.trim()) segments.push(`for ${b.audience.trim()}`);
+	if (b.platform?.trim()) segments.push(b.platform.trim());
+	if (b.tone?.trim()) segments.push(b.tone.trim());
+	if (b.durationSec != null) {
+		segments.push(`${b.durationSec}s target`);
+	} else {
+		const hint = preferenceHintClause(preferenceModel);
+		if (hint) segments.push(hint);
+	}
+	if (b.mustInclude?.length) {
+		segments.push(`must: ${b.mustInclude.slice(0, 2).join("; ")}`);
+	}
+
+	return segments.length ? `BRIEF: ${segments.join(" · ")}.` : "";
 }
