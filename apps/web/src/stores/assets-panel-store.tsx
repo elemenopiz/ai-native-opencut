@@ -5,6 +5,7 @@ import {
 	AiViewIcon,
 	ClosedCaptionIcon,
 	Folder03Icon,
+	GridViewIcon,
 	HeadphonesIcon,
 	MagicWand05Icon,
 	TextIcon,
@@ -21,6 +22,11 @@ import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 export const TAB_KEYS = [
 	"media",
 	"director",
+	// Utility/operations panels relocated out of Director's chat surface
+	// (B-Roll, Reframe, Tracking, A/B Test, Shorts, Scenes, Thumbnail,
+	// Chapters, Dubbing, YouTube Reels, Script→Video, Templates, Ideas,
+	// Workflows) — sits right after Director, which is what feeds it.
+	"tools",
 	"text",
 	"captions",
 	"speakers",
@@ -59,6 +65,12 @@ export const tabs = {
 	director: {
 		icon: createHugeiconsIcon({ icon: SparklesIcon }),
 		label: "Director",
+	},
+	// Operations-on-existing-media launcher — the utility panels relocated out
+	// of Director's chat surface (see director-revamp design doc, Item 4).
+	tools: {
+		icon: createHugeiconsIcon({ icon: GridViewIcon }),
+		label: "Tools",
 	},
 	text: {
 		icon: createHugeiconsIcon({ icon: TextIcon }),
@@ -124,6 +136,21 @@ interface AssetsPanelStore {
 	openAudioSubTab: (subTab: string) => void;
 	clearPendingAudioSubTab: () => void;
 
+	/** A deep link into the Tools tab's launcher (see `ToolsView`) — opens
+	 *  directly into a specific panel (e.g. "ideas") instead of landing on the
+	 *  grid. Same shape/pattern as `pendingAudioSubTab`. */
+	pendingToolsPanel: { panel: string; token: number } | null;
+	openToolsPanel: (panel: string) => void;
+	clearPendingToolsPanel: () => void;
+
+	/** A prompt handed from the Tools tab (e.g. the Workflows launcher's "Ask
+	 *  AI about next step") back into Director's chat input. Tools and
+	 *  Director are separate panel tabs — only the active one is mounted — so
+	 *  this small field is the handoff instead of a direct callback. */
+	pendingDirectorPrompt: string | null;
+	requestDirectorPrompt: (prompt: string) => void;
+	clearPendingDirectorPrompt: () => void;
+
 	/* Media */
 	mediaViewMode: MediaViewMode;
 	setMediaViewMode: (mode: MediaViewMode) => void;
@@ -160,6 +187,17 @@ export const useAssetsPanelStore = create<AssetsPanelStore>()(
 					pendingAudioSubTab: { subTab, token: Date.now() },
 				}),
 			clearPendingAudioSubTab: () => set({ pendingAudioSubTab: null }),
+			pendingToolsPanel: null,
+			openToolsPanel: (panel) =>
+				set({
+					activeTab: "tools",
+					pendingToolsPanel: { panel, token: Date.now() },
+				}),
+			clearPendingToolsPanel: () => set({ pendingToolsPanel: null }),
+			pendingDirectorPrompt: null,
+			requestDirectorPrompt: (prompt) =>
+				set({ activeTab: "director", pendingDirectorPrompt: prompt }),
+			clearPendingDirectorPrompt: () => set({ pendingDirectorPrompt: null }),
 			mediaViewMode: "grid",
 			setMediaViewMode: (mode) => set({ mediaViewMode: mode }),
 			mediaSortBy: "name",
