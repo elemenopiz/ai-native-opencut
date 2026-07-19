@@ -207,6 +207,9 @@ import type {
 	SlotSnapshot,
 	GenerateExecutor,
 	TakeCritic,
+	TimelineElementSnapshot,
+	TimelineSnapshot,
+	TimelineTrackSnapshot,
 	UniformShift,
 } from "./types";
 
@@ -230,6 +233,9 @@ export type {
 	SlotGenerationOutcome,
 	SlotSnapshot,
 	Take,
+	TimelineElementSnapshot,
+	TimelineSnapshot,
+	TimelineTrackSnapshot,
 	TakeCritic,
 	TakeStatus,
 } from "./types";
@@ -938,6 +944,188 @@ export function createDirectorApi(
 			plan: getStoredPlan(editor),
 			spend: getReelSpend(editor),
 		};
+	}
+
+	/**
+	 * Broader than {@link isSlotElement}: true for ANY element carrying a
+	 * `.generation` recipe, regardless of `type`. `isSlotElement` restricts to
+	 * image/video because that's the REEL's definition of a slot; audio elements
+	 * can also carry a recipe (a TTS voiceover, see `GenerativeFields`'s doc
+	 * comment on `BaseAudioElement`) without ever being a reel slot. `getTimeline`
+	 * needs to mark BOTH as "generative" so the digest doesn't undercount, while
+	 * `TimelineElementSnapshot.slotId` (set only via `isSlotElement`) keeps the
+	 * reel cross-reference precise.
+	 */
+	function hasGenerationRecipe(element: TimelineElement): boolean {
+		const generation = (element as { generation?: unknown }).generation;
+		return typeof generation === "object" && generation !== null;
+	}
+
+	/** Max chars of a text element's content shown in its `getTimeline` label. */
+	const TEXT_LABEL_CAP = 40;
+
+	/** Truncate a label to `cap` chars with an ellipsis — cheap, no word-boundary logic needed at this size. */
+	function truncateLabel(text: string, cap: number): string {
+		const trimmed = text.trim();
+		if (trimmed.length <= cap) return trimmed;
+		return `${trimmed.slice(0, cap - 1)}…`;
+	}
+
+	/**
+	 * Resolve one timeline element's human label for `getTimeline`: the
+	 * text content (truncated) for a text element, `"generative slot"` for
+	 * anything carrying a `.generation` recipe (the prompt itself already rides
+	 * `getReel`/`SlotSnapshot.prompt` — this digest doesn't repeat it), otherwise
+	 * the placed asset's name (resolved via `mediaId`, when the element has one)
+	 * falling back to the element's own `name`.
+	 */
+	function labelOf(element: TimelineElement): string {
+		if (element.type === "text") {
+			const content = (element as TextElement).content;
+			return content?.trim()
+				? truncateLabel(content, TEXT_LABEL_CAP)
+				: "(untitled text)";
+		}
+		if (hasGenerationRecipe(element)) return "generative slot";
+		const mediaId = (element as { mediaId?: string }).mediaId;
+		const asset = mediaId ? editor.media.getAssetById(mediaId) : undefined;
+		return asset?.name || element.name || "(untitled clip)";
+	}
+
+	/** Max elements listed per track in {@link getTimeline} — token economy, same spirit as `CONTEXT_LIST_CAP`. */
+	const TIMELINE_ELEMENT_CAP = 20;
+
+	/** `n:ss` duration formatting for the timeline digest (e.g. `0:42`, `1:05`). */
+	function formatMinSec(totalSeconds: number): string {
+		const whole = Math.max(0, Math.round(totalSeconds));
+		const minutes = Math.floor(whole / 60);
+		const seconds = whole % 60;
+		return `${minutes}:${String(seconds).padStart(2, "0")}`;
+	}
+
+	/** Tallies {@link getTimeline} folds while walking tracks, feeding {@link formatTimelineDigest}. */
+	interface TimelineTallies {
+		trackCount: number;
+		totalElements: number;
+		clipCount: number;
+		generativeClipCount: number;
+		textCount: number;
+		audioCount: number;
+		otherCount: number;
+	}
+
+	/**
+	 * Render the one-line TIMELINE digest, e.g. `"TIMELINE: 3 tracks · 5 clips
+	 * (4 uploaded, 1 generative) · 2 text · 1 audio · 0:42 total."` — the string
+	 * folded into the system prompt by `buildContextBlock` (`agent.ts`) AND
+	 * returned as this verb's `message`. Empty timeline ⇒ `"TIMELINE: empty."`
+	 * (same degrade-to-nothing contract as the library manifest's fallback).
+	 */
+	function formatTimelineDigest(
+		t: TimelineTallies,
+		totalDurationSec: number,
+	): string {
+		if (t.trackCount === 0 || t.totalElements === 0) return "TIMELINE: empty.";
+
+		const segments: string[] = [
+			`${t.trackCount} track${t.trackCount === 1 ? "" : "s"}`,
+		];
+		if (t.clipCount > 0) {
+			const uploadedCount = t.clipCount - t.generativeClipCount;
+			segments.push(
+				`${t.clipCount} clip${t.clipCount === 1 ? "" : "s"} (${uploadedCount} uploaded, ${t.generativeClipCount} generative)`,
+			);
+		}
+		if (t.textCount > 0)
+			segments.push(`${t.textCount} text${t.textCount === 1 ? "" : "s"}`);
+		if (t.audioCount > 0) segments.push(`${t.audioCount} audio`);
+		if (t.otherCount > 0) segments.push(`${t.otherCount} other`);
+
+		return `TIMELINE: ${segments.join(" · ")} · ${formatMinSec(totalDurationSec)} total.`;
+	}
+
+	/**
+	 * Read the WHOLE timeline — every element on every track (uploaded clips,
+	 * text overlays, audio, AND generative slots), not just the generative REEL
+	 * (`getReel` only ever sees `.generation`-bearing image/video elements via
+	 * `locateSlots`/`isSlotElement`). This is the fix for the "empty reel on a
+	 * hand-built timeline" gap: a project can have zero reel slots and still
+	 * hold real content only `getTimeline` surfaces.
+	 *
+	 * The one-line digest (`message`/`data.digest`) is already folded into the
+	 * system prompt every turn (see `buildContextBlock` in `agent.ts`) — call
+	 * this verb only to re-check mid-task after the timeline may have changed,
+	 * or to read exact element ids/labels/positions the digest omits. Per-track
+	 * element lists are capped ({@link TIMELINE_ELEMENT_CAP}) with an
+	 * `overflowCount` when a track exceeds it. Read-only — nothing mutates.
+	 */
+	function getTimeline(): DirectorResult<TimelineSnapshot> {
+		const tracks = editor.timeline.getTracks();
+
+		const tallies: TimelineTallies = {
+			trackCount: tracks.length,
+			totalElements: 0,
+			clipCount: 0,
+			generativeClipCount: 0,
+			textCount: 0,
+			audioCount: 0,
+			otherCount: 0,
+		};
+
+		const trackSnapshots: TimelineTrackSnapshot[] = tracks.map((track) => {
+			const sorted = [...track.elements].sort(
+				(a, b) => a.startTime - b.startTime,
+			);
+			tallies.totalElements += sorted.length;
+			for (const element of sorted) {
+				const generative = hasGenerationRecipe(element);
+				if (element.type === "video" || element.type === "image") {
+					tallies.clipCount += 1;
+					if (generative) tallies.generativeClipCount += 1;
+				} else if (element.type === "text") {
+					tallies.textCount += 1;
+				} else if (element.type === "audio") {
+					tallies.audioCount += 1;
+				} else {
+					tallies.otherCount += 1;
+				}
+			}
+
+			const capped = sorted.slice(0, TIMELINE_ELEMENT_CAP);
+			const elements: TimelineElementSnapshot[] = capped.map((element) => {
+				const generative = hasGenerationRecipe(element);
+				const snapshot: TimelineElementSnapshot = {
+					id: element.id,
+					kind: element.type,
+					startSec: element.startTime,
+					durationSec: element.duration,
+					label: labelOf(element),
+					isGenerative: generative,
+				};
+				if (generative && isSlotElement(element)) {
+					snapshot.slotId = element.id;
+				}
+				return snapshot;
+			});
+
+			const overflow = sorted.length - capped.length;
+			return {
+				id: track.id,
+				kind: track.type,
+				elementCount: sorted.length,
+				elements,
+				...(overflow > 0 ? { overflowCount: overflow } : {}),
+			};
+		});
+
+		const totalDurationSec = editor.timeline.getTotalDuration();
+		const digest = formatTimelineDigest(tallies, totalDurationSec);
+
+		return ok(digest, {
+			tracks: trackSnapshots,
+			totalDurationSec,
+			digest,
+		});
 	}
 
 	/** Cap on personas/assets surfaced in {@link getProjectInfo} — keep the once-per-turn system prompt cheap. */
@@ -4691,6 +4879,7 @@ export function createDirectorApi(
 	return wrapVerbs({
 		// read
 		getReel,
+		getTimeline,
 		getSlot,
 		getProjectInfo,
 		getLibraryManifest,

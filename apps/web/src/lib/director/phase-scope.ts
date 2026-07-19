@@ -150,6 +150,13 @@ export const PHASE_TOOL_ASSIGNMENTS: Readonly<
 > = {
 	// reads beyond the core set
 	getLibraryManifest: ["briefing"],
+	// getTimeline: briefing only — same rationale as its sibling
+	// getLibraryManifest: the one-line TIMELINE digest already rides the system
+	// prompt every turn (buildContextBlock, agent.ts) regardless of phase, so
+	// the VERB (full per-element detail) is a planning-time "what do I already
+	// have on the timeline before I decide what to build" read. Production and
+	// polish are already at their enforced ceiling (see phase-scope.test.ts).
+	getTimeline: ["briefing"],
 	// getTranscript: briefing (proposals want to know what footage SAYS) +
 	// polish (speech-aligned trim/split live there). Production is generative —
 	// generated takes have no source transcript to consult.
