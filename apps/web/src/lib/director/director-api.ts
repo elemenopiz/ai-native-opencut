@@ -34,6 +34,7 @@ import { useBeatGridStore } from "@/stores/beat-grid-store";
 import { usePersonaStore } from "@/stores/persona-store";
 import type {
 	GenerationSpec,
+	ImageElement,
 	Take,
 	TextElement,
 	TimelineElement,
@@ -41,6 +42,11 @@ import type {
 	VisualElement,
 } from "@/types/timeline";
 import { isVisualElement } from "@/lib/timeline/element-utils";
+import {
+	removeImageBackground,
+	type BackgroundRemovalResult,
+} from "@/lib/studio/background-removal";
+import { addItemsToProjectMedia } from "@/lib/studio/add-to-editor";
 import type {
 	AnimationInterpolation,
 	AnimationPropertyPath,
@@ -430,6 +436,17 @@ export interface CreateDirectorApiOptions {
 		promote?: BoardPromoteFn;
 		discard?: BoardDiscardFn;
 	};
+	/**
+	 * AI matting seam for `removeBackground` (poach plan item #3,
+	 * `docs/poach/vyra-poach-plan.md` §3) — see
+	 * `lib/studio/background-removal.ts`'s `removeImageBackground`, the SAME
+	 * pipeline `BackgroundRemovalDialog`'s caller (`ai-toolbar.tsx`) uses.
+	 * BROWSER-BOUND (fetch + `Image` decode), so headless tests inject a stub —
+	 * the same pattern as `references`/`frames`. Defaults to the real pipeline.
+	 */
+	removeBackground?: (
+		source: File | string,
+	) => Promise<BackgroundRemovalResult>;
 }
 
 const ok = <T>(message: string, data?: T): DirectorResult<T> => ({
@@ -747,6 +764,13 @@ export function createDirectorApi(
 ) {
 	const { executor, backends: backendsProvider, critic } = options;
 	const board = options.board;
+
+	// AI-matting seam (removeBackground) — defaults to the real pipeline;
+	// headless tests inject a stub. Same pattern as `deriveReferences` below.
+	const removeImageBackgroundImpl: (
+		source: File | string,
+	) => Promise<BackgroundRemovalResult> =
+		options.removeBackground ?? removeImageBackground;
 
 	// Reference-intake seam: model derivation + anchor upload + persona create.
 	// Defaults are browser-bound (relay / R2 upload / persona store); tests inject.
@@ -4743,6 +4767,95 @@ export function createDirectorApi(
 		return isSlotElement(located.element) ? withDelta(before, result) : result;
 	}
 
+	// ---- AI CLEANUP -------------------------------------------------------
+	//
+	// Wires the EXISTING AI matting pipeline (`lib/studio/background-removal.ts`,
+	// extracted from `ai-toolbar.tsx`'s `BackgroundRemovalDialog` caller so the
+	// dialog and this verb share ONE implementation) as an agent verb — poach
+	// plan item #3 (`docs/poach/vyra-poach-plan.md` §3). Never reimplements
+	// matting.
+
+	/**
+	 * Remove the background from an EXISTING image item — cleanup on real
+	 * footage, not a generation. A long-running local/network operation (like
+	 * `extractFrame`): awaits the full pipeline (matting + re-hosting the
+	 * result), then returns the finished asset — there is no intermediate
+	 * "queued" state to poll, mirroring `extractFrame`'s own single-await
+	 * completion shape. The matted result is added to the media library as a
+	 * NEW asset (the source item is untouched); call `addClip` to place it on
+	 * the timeline.
+	 */
+	async function removeBackground(input: { itemId: string }): Promise<
+		DirectorResult<{
+			mediaId: string;
+			url: string;
+			width: number;
+			height: number;
+		}>
+	> {
+		const before = captureReel();
+		const located = findElement(input.itemId);
+		if (!located) return failItemNotFound(input.itemId);
+		if (located.element.type !== "image") {
+			return fail(
+				`Element "${input.itemId}" is a "${located.element.type}" — removeBackground only works on IMAGE elements. Extract a frame first (extractFrame) to matte a still from a video shot.`,
+			);
+		}
+
+		const imageElement = located.element as ImageElement;
+		const asset = editor.media.getAssetById(imageElement.mediaId);
+		if (!asset) return failMediaNotFound(imageElement.mediaId);
+
+		let projectId: string;
+		try {
+			projectId = editor.project.getActive().metadata.id;
+		} catch {
+			return fail("No active project to add the matted result to.");
+		}
+
+		let removed: BackgroundRemovalResult;
+		try {
+			removed = await removeImageBackgroundImpl(asset.file);
+		} catch (err) {
+			return fail(
+				`Background removal failed: ${
+					err instanceof Error ? err.message : "unknown error"
+				}.`,
+			);
+		}
+
+		const { added, mediaIds } = await addItemsToProjectMedia({
+			editor,
+			projectId,
+			items: [
+				{
+					url: removed.processedUrl,
+					name: `${asset.name} (background removed)`,
+					kind: "image",
+				},
+			],
+			source: "ai",
+		});
+		if (added === 0 || !mediaIds[0]) {
+			return fail(
+				`Removed the background from "${asset.name}" but couldn't add the result to your media library.`,
+			);
+		}
+
+		return withDelta(
+			before,
+			ok(
+				`Removed the background from "${asset.name}" → new asset "${mediaIds[0]}". Use addClip to place it on the timeline.`,
+				{
+					mediaId: mediaIds[0],
+					url: removed.processedUrl,
+					width: removed.width,
+					height: removed.height,
+				},
+			),
+		);
+	}
+
 	// ---- LIFECYCLE --------------------------------------------------------
 
 	/** Trailer appended to a successful undo/redo — the ids/times the agent
@@ -5064,6 +5177,8 @@ export function createDirectorApi(
 		updateText,
 		// motion
 		animateItem,
+		// AI cleanup
+		removeBackground,
 		// lifecycle
 		undo,
 		redo,

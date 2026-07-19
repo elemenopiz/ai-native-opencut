@@ -2102,6 +2102,24 @@ export function toolCatalog(): ToolDescriptor[] {
 				}),
 		},
 		{
+			name: "removeBackground",
+			description:
+				"remove the background from an EXISTING image item (cleanup on real footage, e.g. a product shot or a portrait that needs to sit on a new background) — not a generation. Prefer this over generating a fresh cutout when the user already has the shot; extract a frame first (extractFrame) if the source is a video. Adds the matted result to your media library as a NEW asset — call addClip to place it on the timeline.",
+			mutating: true,
+			inputSchema: {
+				type: "object",
+				properties: {
+					itemId: {
+						type: "string",
+						description:
+							"Target IMAGE item id — a slot id or any other image element id (from getReel(), or the id addClip/reserveSlot returned).",
+					},
+				},
+				required: ["itemId"],
+			},
+			handler: (d, a) => d.removeBackground({ itemId: str(a.itemId) }),
+		},
+		{
 			name: "addClip",
 			description:
 				"place EXISTING footage found via searchMedia onto the timeline as a real clip (not a generative slot). Pass the FULL mediaId from a searchMedia hit.",

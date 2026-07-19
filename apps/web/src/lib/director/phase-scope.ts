@@ -227,10 +227,12 @@ export const PHASE_TOOL_ASSIGNMENTS: Readonly<
 	updateText: ["polish"],
 	applyTransition: ["polish"],
 	applyEffect: ["polish"],
-	// animateItem: polish — motion on EXISTING footage is the same "dress up an
-	// already-cut reel" bucket as applyEffect/applyTransition (poach plan item
-	// #2, docs/poach/vyra-poach-plan.md).
+	// animateItem/removeBackground: polish — motion + AI matting cleanup on
+	// EXISTING footage are the same "dress up an already-cut reel" bucket as
+	// applyEffect/applyTransition (poach plan items #2/#3,
+	// docs/poach/vyra-poach-plan.md).
 	animateItem: ["polish"],
+	removeBackground: ["polish"],
 	addClip: ["polish"],
 	export: ["polish"],
 	approveFinalCut: ["polish"],

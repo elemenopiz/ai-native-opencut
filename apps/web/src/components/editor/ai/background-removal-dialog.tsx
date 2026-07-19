@@ -16,15 +16,9 @@ import {
 } from "@/components/ui/dialog";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Image01Icon, Upload04Icon } from "@hugeicons/core-free-icons";
+import type { BackgroundRemovalResult } from "@/lib/studio/background-removal";
 
 // ----- Types -----
-
-interface BackgroundRemovalResult {
-	originalUrl: string;
-	processedUrl: string;
-	width: number;
-	height: number;
-}
 
 interface BackgroundRemovalDialogProps {
 	isOpen: boolean;

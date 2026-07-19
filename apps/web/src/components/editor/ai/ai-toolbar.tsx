@@ -9,16 +9,13 @@ import { useAIStore } from "@/stores/ai-store";
 import { useEditor } from "@/hooks/use-editor";
 import { useAssetsPanelStore } from "@/stores/assets-panel-store";
 import { addItemsToProjectMedia } from "@/lib/studio/add-to-editor";
+import {
+	removeImageBackground,
+	type BackgroundRemovalResult,
+} from "@/lib/studio/background-removal";
 import { Separator } from "@/components/ui/separator";
 import { AIToolbarButtons } from "./ai-toolbar-buttons";
 import { BackgroundRemovalDialog } from "./background-removal-dialog";
-
-interface BackgroundRemovalResult {
-	originalUrl: string;
-	processedUrl: string;
-	width: number;
-	height: number;
-}
 
 /**
  * Mounts the built-but-unmounted `AIToolbarButtons` in the preview toolbar and
@@ -64,42 +61,8 @@ export function AIToolbar({ className }: { className?: string }) {
 	}, []);
 
 	const handleRemoveBackground = useCallback(
-		async (source: File | string): Promise<BackgroundRemovalResult | null> => {
-			const originalUrl =
-				typeof source === "string" ? source : URL.createObjectURL(source);
-
-			// The client method takes a File; fetch remote/timeline sources first.
-			let file: File;
-			if (typeof source === "string") {
-				const res = await fetch(source);
-				const blob = await res.blob();
-				file = new File([blob], "frame.png", {
-					type: blob.type || "image/png",
-				});
-			} else {
-				file = source;
-			}
-
-			const { imageUrl } = await aiClient.removeBackground(file);
-
-			// Measure the processed image so callers get real dimensions.
-			const dims = await new Promise<{ width: number; height: number }>(
-				(resolve) => {
-					const img = new Image();
-					img.onload = () =>
-						resolve({ width: img.naturalWidth, height: img.naturalHeight });
-					img.onerror = () => resolve({ width: 0, height: 0 });
-					img.src = imageUrl;
-				},
-			);
-
-			return {
-				originalUrl,
-				processedUrl: imageUrl,
-				width: dims.width,
-				height: dims.height,
-			};
-		},
+		async (source: File | string): Promise<BackgroundRemovalResult | null> =>
+			removeImageBackground(source, aiClient),
 		[],
 	);
 
