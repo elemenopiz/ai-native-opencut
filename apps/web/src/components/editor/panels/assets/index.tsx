@@ -6,6 +6,7 @@ import { FEATURE_UNDERSTANDING_PASS } from "@/lib/feature-flags";
 import { type Tab, useAssetsPanelStore } from "@/stores/assets-panel-store";
 import { TabBar } from "./tabbar";
 import { DirectorView } from "./views/director";
+import { ToolsView } from "./views/tools";
 import { Captions } from "./views/captions";
 import { SpeakerCaptionsPanel } from "./views/speaker-captions";
 import { MediaView } from "./views/assets";
@@ -37,6 +38,10 @@ export function AssetsPanel() {
 		// "What the AI sees": the Understanding Pass surfaced + role corrections.
 		insights: <InsightsView />,
 		director: <DirectorView />,
+		// The utility panels relocated out of Director's chat surface (B-Roll,
+		// Reframe, Tracking, A/B Test, Shorts, Scenes, Thumbnail, Chapters,
+		// Dubbing, YouTube Reels, Script→Video, Templates, Ideas, Workflows).
+		tools: <ToolsView />,
 		text: <TextView />,
 		captions: <Captions />,
 		speakers: <SpeakerCaptionsPanel />,

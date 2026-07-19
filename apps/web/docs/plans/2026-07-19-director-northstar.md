@@ -105,6 +105,28 @@ review-and-apply UX for AI edits; this is how agentic editing becomes trustworth
 | then | P3 Story Engine (design doc first, then fleet) | new `lib/director/story/` + orchestration | P1+P2-selects+P4+P5 |
 | later | P7 v2 (vc side-by-side) · P4 autonomous polish loop (gated) · P8 scored tier | — | gates |
 
+## EDITING-FIRST RE-RANK (2026-07-19, ADR-007 — supersedes the sequencing above where they conflict)
+
+User decision: the Director must be fully valuable with **zero generations** (consent +
+cost roadblocks on gen; see ADR-007). The north-star sentence already fits ("raw footage +
+a goal → a cut you'd ship") — the re-rank changes *order*, not destination:
+
+1. **P0 floor: prod transcription root-cause** (on-device Whisper init failure in the
+   webpack prod build — un-root-caused; dialog-aware editing stands on it).
+2. **Dialog-aware editing core:** filler-word/silence smart cleanup (extends the shipped
+   auto-cut engine with transcript signals) → **text-based editing** (edit the transcript,
+   the timeline follows — Descript's killer feature on a real timeline; fork-sweep-confirmed
+   ecosystem gap) → radio-cut-first assembly (P3 v1 scoped to speech footage).
+3. **Selects (P2-ext)** re-scoped: "find the best 30 seconds of this hour" is an
+   editing-first deliverable, not a generation input.
+4. **Composition plays on existing primitives:** transcript-driven b-roll placement (CLIP
+   search × transcript topics over talking-head), multicam-by-audio-sync + speaker-switch
+   (speaker-captions seam exists), punch-in variety macro (fake multicam from one camera —
+   deterministic, model-free), music ducking + LUFS normalize (F3 backlog joins P5).
+5. **P7 Proposals + P4 critic** unchanged — they are the trust and taste layers of exactly
+   this experience. P8 eval fixtures become zero-generation projects first.
+Persona/gen-side work: parked dark (Gate A stands); new gen backends not roadmapped.
+
 ## Gates for the user
 
 - **Story Engine cost shape** — one "make me a cut" run = N model calls (plan + assembly

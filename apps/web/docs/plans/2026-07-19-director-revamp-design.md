@@ -167,6 +167,13 @@ will revisit."** → Remove the *visible surfaces* only, keep the machinery 100%
 - Revisit path = re-add the mount; make the removal a clean, self-contained diff so flipping it
   back on is trivial. Do NOT delete store/machinery/backend plumbing.
 
+**CORRECTION (user, 2026-07-20): the removal above was over-broad.** The user meant ONLY the
+"Keeping a character? Pick a persona →" hint/CTA inside the generation form — NOT the Personas
+tab. Restored @ffbb62b9: Personas tab + PersonaManager mount are BACK in the Generate panel.
+Still removed (correct reading of the request): the in-form persona hint CTA + `onGoToPersonas`
+prop, and the Style Bible chip. The e2e now pins tab-PRESENT + hint/chip-ABSENT. Do not
+re-remove the tab.
+
 ### GATE B — Conversation persistence storage (item 9)
 
 New persisted data shape = one-way door (migration + replay-into-context budget). Options:
