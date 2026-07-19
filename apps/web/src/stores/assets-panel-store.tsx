@@ -3,6 +3,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
 	AiViewIcon,
+	BubbleChatIcon,
 	ClosedCaptionIcon,
 	Folder03Icon,
 	GridViewIcon,
@@ -10,7 +11,6 @@ import {
 	MagicWand05Icon,
 	TextIcon,
 	Settings01Icon,
-	SparklesIcon,
 	Happy01Icon,
 	CrownIcon,
 	Search01Icon,
@@ -63,7 +63,9 @@ export const tabs = {
 		label: "Insights",
 	},
 	director: {
-		icon: createHugeiconsIcon({ icon: SparklesIcon }),
+		// Matches the "Direct" chat chip's icon in director.tsx (same
+		// BubbleChatIcon) — rail tab and in-panel chip read as the same surface.
+		icon: createHugeiconsIcon({ icon: BubbleChatIcon }),
 		label: "Director",
 	},
 	// Operations-on-existing-media launcher — the utility panels relocated out
