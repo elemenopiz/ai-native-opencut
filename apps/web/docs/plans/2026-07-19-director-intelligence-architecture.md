@@ -185,6 +185,29 @@ Not rebuilding the generation backends or the model router. Not a generic "AI do
 scope — the loop is bounded to editorial intelligence over the user's project. Not un-hiding any
 beta flag without the gate. The floor mission's items 1–9 are prerequisites, tracked separately.
 
+## Step-0 orchestrator revisions (2026-07-19, advisor-tier red-team — binding for the build)
+
+1. **Bet 2 v1 is ADVISORY-ONLY** (door #5 closed by demotion): `critiqueEdit` emits an
+   `EditCritique` with proposed *executable* verbs but never auto-executes; the autonomous
+   critique→fix loop is out of scope and returns later behind its own gate with hard
+   iteration/spend ceilings. Recorded as ADR-006.
+2. **Bet 2 v1 has NO credits wiring** — "`budget.ts` reserve→settle" above is imprecise:
+   `budget.ts` is the shot-allocation cost model; reserve→settle is the server credits path
+   (money floor ⇒ gated). v1 = flag-gated, manual-invoke, ≤12 sampled frames, single model
+   call; billing wiring is a separate gated follow-up branch.
+3. **Bet 2 v1 is perception-lite** (frames + beat grid + transcript) — no dependency on
+   Bet 1's deepened fields; Bets 1 and 2 build in parallel.
+4. **Door #2 downgraded:** the understanding store is a dedicated schema-less IndexedDB
+   (`byorn-asset-understanding`, DB_VERSION 1, keyPath `mediaId`); additive optional fields
+   need no version bump. Policy: lazy read-time upgrade — missing fields ⇒ shallow record ⇒
+   demand-driven re-extract. No migration door unless indexes change.
+5. **Bet 3 shape:** sibling `UserPreferenceModel` (not an extension of `UserBibleDefaults`);
+   minimal honest signals only (choice-event log + distilled counters/top-k). Split build:
+   3a distill+storage (disjoint), 3b `director-api.ts` call-site hook after Bet 2 merges
+   (file-cluster collision).
+6. **Bet 1 brief must report measured per-extraction cost** — the ADR-004 un-hide gate
+   conversation runs on a number, not a guess.
+
 ## Open design questions (for the red-team to sharpen)
 
 - Perception depth: how much of Bet 1 is worth it for the critic vs. diminishing returns? (Name the
