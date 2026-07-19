@@ -422,49 +422,62 @@ export function PodcastClipsView() {
 				// Distribute across multiple tracks so overlapping words are all visible
 				const trackBuckets = distributeElementsToTracks(subtitleElements);
 
-				for (let t = 0; t < trackBuckets.length; t++) {
-					const subTrackId = editor.timeline.addTrack({
-						type: "text",
-						index: 0,
-					});
-					const label =
-						trackBuckets.length === 1
-							? "Popover Subs"
-							: `Popover Subs ${t + 1}`;
-					editor.timeline.renameTrack({ trackId: subTrackId, name: label });
-
-					for (const el of trackBuckets[t]) {
-						editor.timeline.insertElement({
-							placement: { mode: "explicit", trackId: subTrackId },
-							element: el,
-						});
-					}
+				// Applying a clip can create several tracks and dozens of word/card
+				// elements — all of that is one user action, so it must undo as one.
+				const supportsTransaction =
+					typeof editor.command.beginTransaction === "function";
+				if (supportsTransaction) {
+					editor.command.beginTransaction({ name: "Apply podcast clip" });
 				}
-
-				// Add question card track if cards were generated
-				if (cards.length > 0) {
-					const cardTrackId = editor.timeline.addTrack({
-						type: "text",
-						index: 0,
-					});
-					editor.timeline.renameTrack({
-						trackId: cardTrackId,
-						name: "Topic Cards",
-					});
-
-					for (const card of cards) {
-						const cardElement = buildQuestionCardElement({
-							question: card.question,
-							startTime: card.timestamp,
-							theme: cardTemplate,
-							emoji: card.emoji,
-							useTransparentBackground: cardTransparentBg,
+				try {
+					for (let t = 0; t < trackBuckets.length; t++) {
+						const subTrackId = editor.timeline.addTrack({
+							type: "text",
+							index: 0,
 						});
-						editor.timeline.insertElement({
-							placement: { mode: "explicit", trackId: cardTrackId },
-							element: cardElement,
-						});
+						const label =
+							trackBuckets.length === 1
+								? "Popover Subs"
+								: `Popover Subs ${t + 1}`;
+						editor.timeline.renameTrack({ trackId: subTrackId, name: label });
+
+						for (const el of trackBuckets[t]) {
+							editor.timeline.insertElement({
+								placement: { mode: "explicit", trackId: subTrackId },
+								element: el,
+							});
+						}
 					}
+
+					// Add question card track if cards were generated
+					if (cards.length > 0) {
+						const cardTrackId = editor.timeline.addTrack({
+							type: "text",
+							index: 0,
+						});
+						editor.timeline.renameTrack({
+							trackId: cardTrackId,
+							name: "Topic Cards",
+						});
+
+						for (const card of cards) {
+							const cardElement = buildQuestionCardElement({
+								question: card.question,
+								startTime: card.timestamp,
+								theme: cardTemplate,
+								emoji: card.emoji,
+								useTransparentBackground: cardTransparentBg,
+							});
+							editor.timeline.insertElement({
+								placement: { mode: "explicit", trackId: cardTrackId },
+								element: cardElement,
+							});
+						}
+					}
+					if (supportsTransaction) editor.command.commitTransaction();
+				} catch (applyErr) {
+					if (supportsTransaction) editor.command.rollbackTransaction();
+					throw applyErr;
 				}
 
 				const summary = `${subtitleElements.length} words across ${trackBuckets.length} tracks${cards.length > 0 ? `, ${cards.length} cards` : ""}`;
@@ -543,18 +556,31 @@ export function PodcastClipsView() {
 			// Distribute across multiple tracks so overlapping words are all visible
 			const trackBuckets = distributeElementsToTracks(subtitleElements);
 
-			for (let t = 0; t < trackBuckets.length; t++) {
-				const trackId = editor.timeline.addTrack({ type: "text", index: 0 });
-				const label =
-					trackBuckets.length === 1 ? "Popover Subs" : `Popover Subs ${t + 1}`;
-				editor.timeline.renameTrack({ trackId, name: label });
+			const supportsTransaction =
+				typeof editor.command.beginTransaction === "function";
+			if (supportsTransaction) {
+				editor.command.beginTransaction({ name: "Add popover subtitles" });
+			}
+			try {
+				for (let t = 0; t < trackBuckets.length; t++) {
+					const trackId = editor.timeline.addTrack({ type: "text", index: 0 });
+					const label =
+						trackBuckets.length === 1
+							? "Popover Subs"
+							: `Popover Subs ${t + 1}`;
+					editor.timeline.renameTrack({ trackId, name: label });
 
-				for (const el of trackBuckets[t]) {
-					editor.timeline.insertElement({
-						placement: { mode: "explicit", trackId },
-						element: el,
-					});
+					for (const el of trackBuckets[t]) {
+						editor.timeline.insertElement({
+							placement: { mode: "explicit", trackId },
+							element: el,
+						});
+					}
 				}
+				if (supportsTransaction) editor.command.commitTransaction();
+			} catch (applyErr) {
+				if (supportsTransaction) editor.command.rollbackTransaction();
+				throw applyErr;
 			}
 
 			bgTasks.updateTask(taskId, {
@@ -617,24 +643,38 @@ export function PodcastClipsView() {
 
 			bgTasks.updateTask(taskId, { progress: "Adding cards to timeline..." });
 
-			const cardTrackId = editor.timeline.addTrack({ type: "text", index: 0 });
-			editor.timeline.renameTrack({
-				trackId: cardTrackId,
-				name: "Topic Cards",
-			});
+			const supportsCardsTransaction =
+				typeof editor.command.beginTransaction === "function";
+			if (supportsCardsTransaction) {
+				editor.command.beginTransaction({ name: "Add question cards" });
+			}
+			try {
+				const cardTrackId = editor.timeline.addTrack({
+					type: "text",
+					index: 0,
+				});
+				editor.timeline.renameTrack({
+					trackId: cardTrackId,
+					name: "Topic Cards",
+				});
 
-			for (const card of result.cards) {
-				const cardElement = buildQuestionCardElement({
-					question: card.question,
-					startTime: card.timestamp,
-					theme: cardTemplate,
-					emoji: card.emoji,
-					useTransparentBackground: cardTransparentBg,
-				});
-				editor.timeline.insertElement({
-					placement: { mode: "explicit", trackId: cardTrackId },
-					element: cardElement,
-				});
+				for (const card of result.cards) {
+					const cardElement = buildQuestionCardElement({
+						question: card.question,
+						startTime: card.timestamp,
+						theme: cardTemplate,
+						emoji: card.emoji,
+						useTransparentBackground: cardTransparentBg,
+					});
+					editor.timeline.insertElement({
+						placement: { mode: "explicit", trackId: cardTrackId },
+						element: cardElement,
+					});
+				}
+				if (supportsCardsTransaction) editor.command.commitTransaction();
+			} catch (cardsErr) {
+				if (supportsCardsTransaction) editor.command.rollbackTransaction();
+				throw cardsErr;
 			}
 
 			bgTasks.updateTask(taskId, {

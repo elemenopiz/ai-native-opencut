@@ -220,41 +220,52 @@ export function QuickActionsBar({
 		const currentSegments = useTranscriptStore.getState().segments;
 		if (currentSegments.length === 0) return;
 
-		const trackId = editor.timeline.addTrack({ type: "text", index: 0 });
-		const canvasSize = editor.project.getActive().settings.canvasSize;
-		const subtitleY = canvasSize.height * 0.38;
+		const supportsTransaction =
+			typeof editor.command.beginTransaction === "function";
+		if (supportsTransaction) {
+			editor.command.beginTransaction({ name: "Add subtitles" });
+		}
+		try {
+			const trackId = editor.timeline.addTrack({ type: "text", index: 0 });
+			const canvasSize = editor.project.getActive().settings.canvasSize;
+			const subtitleY = canvasSize.height * 0.38;
 
-		for (let i = 0; i < currentSegments.length; i++) {
-			const seg = currentSegments[i];
-			editor.timeline.insertElement({
-				placement: { mode: "explicit", trackId: trackId },
-				element: {
-					...DEFAULT_TEXT_ELEMENT,
-					name: `Subtitle ${i + 1}`,
-					content: seg.text,
-					duration: seg.end - seg.start,
-					startTime: seg.start,
-					fontSize: 4,
-					fontWeight: "bold",
-					color: "#ffffff",
-					textAlign: "center",
-					background: {
-						enabled: true,
-						color: "#000000",
-						cornerRadius: 4,
-						paddingX: 12,
-						paddingY: 6,
-						offsetX: 0,
-						offsetY: 0,
+			for (let i = 0; i < currentSegments.length; i++) {
+				const seg = currentSegments[i];
+				editor.timeline.insertElement({
+					placement: { mode: "explicit", trackId: trackId },
+					element: {
+						...DEFAULT_TEXT_ELEMENT,
+						name: `Subtitle ${i + 1}`,
+						content: seg.text,
+						duration: seg.end - seg.start,
+						startTime: seg.start,
+						fontSize: 4,
+						fontWeight: "bold",
+						color: "#ffffff",
+						textAlign: "center",
+						background: {
+							enabled: true,
+							color: "#000000",
+							cornerRadius: 4,
+							paddingX: 12,
+							paddingY: 6,
+							offsetX: 0,
+							offsetY: 0,
+						},
+						opacity: 0.95,
+						transform: {
+							scale: 1,
+							position: { x: 0, y: subtitleY },
+							rotate: 0,
+						},
 					},
-					opacity: 0.95,
-					transform: {
-						scale: 1,
-						position: { x: 0, y: subtitleY },
-						rotate: 0,
-					},
-				},
-			});
+				});
+			}
+			if (supportsTransaction) editor.command.commitTransaction();
+		} catch (err) {
+			if (supportsTransaction) editor.command.rollbackTransaction();
+			throw err;
 		}
 	}, [editor, subtitleTrackId]);
 
@@ -322,18 +333,31 @@ export function QuickActionsBar({
 			// Distribute across multiple tracks so overlapping words are all visible
 			const trackBuckets = distributeElementsToTracks(subtitleElements);
 
-			for (let t = 0; t < trackBuckets.length; t++) {
-				const trackId = editor.timeline.addTrack({ type: "text", index: 0 });
-				const label =
-					trackBuckets.length === 1 ? "Popover Subs" : `Popover Subs ${t + 1}`;
-				editor.timeline.renameTrack({ trackId, name: label });
+			const supportsTransaction =
+				typeof editor.command.beginTransaction === "function";
+			if (supportsTransaction) {
+				editor.command.beginTransaction({ name: "Add popover subtitles" });
+			}
+			try {
+				for (let t = 0; t < trackBuckets.length; t++) {
+					const trackId = editor.timeline.addTrack({ type: "text", index: 0 });
+					const label =
+						trackBuckets.length === 1
+							? "Popover Subs"
+							: `Popover Subs ${t + 1}`;
+					editor.timeline.renameTrack({ trackId, name: label });
 
-				for (const el of trackBuckets[t]) {
-					editor.timeline.insertElement({
-						placement: { mode: "explicit", trackId },
-						element: el,
-					});
+					for (const el of trackBuckets[t]) {
+						editor.timeline.insertElement({
+							placement: { mode: "explicit", trackId },
+							element: el,
+						});
+					}
 				}
+				if (supportsTransaction) editor.command.commitTransaction();
+			} catch (applyErr) {
+				if (supportsTransaction) editor.command.rollbackTransaction();
+				throw applyErr;
 			}
 
 			bgTasks.updateTask(taskId, {
