@@ -16,7 +16,7 @@ import {
 	createSearchIndexCache,
 	shouldPollForIndex,
 } from "@/lib/search/search-index-cache";
-import type { SearchHit } from "@/lib/search/embedding-types";
+import type { SearchHit, ZeroShotTag } from "@/lib/search/embedding-types";
 
 export interface VisualSearchState {
 	hits: SearchHit[];
@@ -27,6 +27,13 @@ export interface VisualSearchState {
 	indexing: Record<string, { phase: string; progress: number }>;
 	/** True if at least one media asset has been indexed. */
 	hasIndex: boolean;
+	/**
+	 * True when the current `hits` are a near-miss backfill — nothing cleared
+	 * the strong-match threshold, so the panel is showing its best guesses
+	 * instead of a blank "no matches" state. UI should hint at the lower
+	 * confidence rather than presenting these as equal to a normal result set.
+	 */
+	isNearMiss: boolean;
 }
 
 const DEBOUNCE_MS = 300;
@@ -49,6 +56,65 @@ function dotProduct(a: Float32Array, b: Float32Array): number {
 	return sum;
 }
 
+/** Lowercase alnum tokens — deliberately simple, this only feeds string matching. */
+function tokenize(text: string): string[] {
+	return text.toLowerCase().match(/[a-z0-9]+/g) ?? [];
+}
+
+/**
+ * Ranking-only bonus that blends in lexical signal already sitting in memory:
+ * the asset's filename and the zero-shot tags computed once at index time
+ * (`embedding-service.ts`'s `indexMedia`, scored against `ZERO_SHOT_LABELS`).
+ * No extra embedding calls, no IndexedDB reads — just string matching.
+ *
+ * This catches cases pure CLIP similarity tends to miss: camera-generated
+ * filenames a user later searches for verbatim ("DJI_0043"), or a query that
+ * happens to name one of the fixed zero-shot labels exactly ("b-roll",
+ * "interview"). It's capped well under a typical strong-match cosine score so
+ * text alone can never manufacture a "strong" hit on its own — it only
+ * nudges ranking order and widens the near-miss backfill below.
+ */
+function lexicalBonus(
+	queryTokens: string[],
+	name: string,
+	tags: ZeroShotTag[],
+): number {
+	if (queryTokens.length === 0) return 0;
+	const nameTokens = tokenize(name);
+	let bonus = 0;
+	for (const qt of queryTokens) {
+		if (qt.length < 3) continue; // skip short/stopword-ish tokens ("a", "of")
+		if (nameTokens.includes(qt)) bonus += 0.06;
+		else if (
+			nameTokens.some(
+				(nt) => nt.length >= 3 && (nt.includes(qt) || qt.includes(nt)),
+			)
+		)
+			bonus += 0.03;
+	}
+	for (const tag of tags) {
+		const tagTokens = tokenize(tag.label);
+		if (queryTokens.some((qt) => tagTokens.includes(qt))) {
+			bonus += 0.05 * Math.max(tag.score, 0);
+		}
+	}
+	return Math.min(bonus, LEXICAL_BONUS_CAP);
+}
+
+/** Ceiling on {@link lexicalBonus} — see its doc comment for why. */
+const LEXICAL_BONUS_CAP = 0.15;
+
+/**
+ * How far below the strong-match threshold a near-miss backfill is allowed
+ * to reach. Only used when NOTHING clears the strong threshold — genuine
+ * strong matches always win outright; this is purely a "don't show a blank
+ * empty state when there's plausible signal" backstop, per query.
+ */
+const NEAR_MISS_FLOOR_RATIO = 0.5;
+/** Cap on backfilled near-miss candidates — a long list of low-confidence
+ *  guesses is worse than a short, honestly-labeled one. */
+const NEAR_MISS_MAX = 12;
+
 export function useVisualSearch() {
 	const editor = useEditor();
 	const [hits, setHits] = useState<SearchHit[]>([]);
@@ -59,6 +125,7 @@ export function useVisualSearch() {
 		Record<string, { phase: string; progress: number }>
 	>({});
 	const [hasIndex, setHasIndex] = useState(false);
+	const [isNearMiss, setIsNearMiss] = useState(false);
 	// React-free vector cache + staleness signal (see search-index-cache.ts for
 	// why staleness keys off indexed STATUSES, not the store count — the
 	// migration re-index rewrites records in place without changing the count).
@@ -116,6 +183,7 @@ export function useVisualSearch() {
 			if (trimmed.length < MIN_QUERY_LEN) {
 				setHits([]);
 				setError(null);
+				setIsNearMiss(false);
 				lastQueryRef.current = "";
 				return;
 			}
@@ -132,6 +200,7 @@ export function useVisualSearch() {
 				// Embed the query in-browser through the seam; vectors come back
 				// L2-normalized, so dotProduct below is still cosine similarity.
 				const [queryVec] = await embeddings.embedTexts([trimmed]);
+				const queryTokens = tokenize(trimmed);
 
 				const limit = opts?.limit ?? 30;
 				// 0.18 was tuned against the retired server backend (laion2b
@@ -140,7 +209,13 @@ export function useVisualSearch() {
 				const assets = editor.media.getAssets();
 				const byId = new Map(assets.map((a) => [a.id, a]));
 
-				const candidates: SearchHit[] = [];
+				// Score every indexed asset once. `hit.score` stays a pure cosine
+				// similarity (unchanged contract — see SearchHit's doc comment);
+				// `hybridScore` folds in the lexical bonus and is used only to pick
+				// and order results below, never surfaced directly. Deferring the
+				// threshold cut until after scoring lets a query with zero strong
+				// hits still offer its best near-misses instead of going blank.
+				const allCandidates: { hit: SearchHit; hybridScore: number }[] = [];
 				for (const media of cache.records) {
 					const asset = byId.get(media.mediaId);
 					if (!asset) continue;
@@ -153,25 +228,48 @@ export function useVisualSearch() {
 							bestTs = frame.timestampSec;
 						}
 					}
-					if (bestScore >= threshold) {
-						candidates.push({
+					const hybridScore =
+						bestScore + lexicalBonus(queryTokens, asset.name, media.tags);
+					allCandidates.push({
+						hit: {
 							mediaId: media.mediaId,
 							timestampSec: bestTs,
 							score: bestScore,
 							mediaName: asset.name,
 							mediaType: asset.type,
 							thumbnailUrl: asset.thumbnailUrl,
-						});
+						},
+						hybridScore,
+					});
+				}
+				allCandidates.sort((a, b) => b.hybridScore - a.hybridScore);
+
+				const strong = allCandidates.filter((c) => c.hybridScore >= threshold);
+				let nearMiss = false;
+				let selected = strong;
+				if (strong.length === 0) {
+					// Nothing cleared the bar — relax it and see if there's anything
+					// plausible worth showing instead of an empty state. Bounded on
+					// both ends: a floor well below "strong" so obvious non-matches
+					// stay excluded, and a small max count so this reads as "a few
+					// weak guesses," not a full result page.
+					const floor = threshold * NEAR_MISS_FLOOR_RATIO;
+					const backfill = allCandidates.filter((c) => c.hybridScore >= floor);
+					if (backfill.length > 0) {
+						nearMiss = true;
+						selected = backfill.slice(0, NEAR_MISS_MAX);
 					}
 				}
-				candidates.sort((a, b) => b.score - a.score);
+
 				if (seq !== searchSeqRef.current) return; // superseded by a newer search
-				setHits(candidates.slice(0, limit));
+				setHits(selected.slice(0, limit).map((c) => c.hit));
+				setIsNearMiss(nearMiss);
 				lastQueryRef.current = trimmed;
 			} catch (err) {
 				if (seq !== searchSeqRef.current) return;
 				setError(err instanceof Error ? err.message : "Search failed");
 				setHits([]);
+				setIsNearMiss(false);
 			} finally {
 				if (seq === searchSeqRef.current) setIsSearching(false);
 			}
@@ -194,6 +292,12 @@ export function useVisualSearch() {
 			const seq = ++searchSeqRef.current;
 			setIsSearching(true);
 			setError(null);
+			// findSimilar has no query text to apply a lexical bonus to, and its
+			// higher threshold (0.7) already targets "highly similar," where a
+			// near-miss backfill would be more surprising than useful — but the
+			// flag from a prior text search must still be cleared so its hint
+			// banner doesn't linger over these results.
+			setIsNearMiss(false);
 			try {
 				if (await cache.isStale()) await refreshIndex();
 				const source = cache.records.find((m) => m.mediaId === mediaId);
@@ -279,6 +383,7 @@ export function useVisualSearch() {
 		indexedCount,
 		indexing,
 		hasIndex,
+		isNearMiss,
 		search,
 		debouncedSearch,
 		findSimilar,
