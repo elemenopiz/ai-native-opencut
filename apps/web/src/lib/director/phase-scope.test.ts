@@ -204,7 +204,7 @@ test("every phase includes the always-on core", () => {
 	}
 });
 
-test("per-phase active counts stay generous but bounded (15–29)", () => {
+test("per-phase active counts stay generous but bounded (15–32)", () => {
 	// Target is 15–22 (Google's 10–20 guidance, buckets deliberately generous).
 	// Polish is REQUIRED to carry the full timeline/text/audio surface plus
 	// export/approveFinalCut/voice verbs plus generate+reroll on top of the
@@ -216,15 +216,19 @@ test("per-phase active counts stay generous but bounded (15–29)", () => {
 	// Board items in the same turn — see phase-scope.ts), pushing the shared
 	// ceiling to 28. animateItem (poach plan item #2, "motion on existing
 	// footage" — same bucket as applyEffect/applyTransition) landed
-	// polish-only, pushing the shared ceiling to 29. Still about half the
-	// catalog and close to guidance.
+	// polish-only, pushing the shared ceiling to 29. The P5 craft trio
+	// (cutOnBeat/tightenToLength/duckMusicUnderSpeech — free, instant edits on
+	// existing footage, same "editing on an already-cut reel" bucket as
+	// trim/removeSilence) landed polish-only too, pushing the shared ceiling
+	// to 32. Still a bit over half the catalog and in the same spirit as
+	// guidance.
 	for (const phase of PHASES) {
 		const count = activeToolNamesForPhase(phase).length;
 		expect(
 			count,
 			`${phase} bucket too small (${count})`,
 		).toBeGreaterThanOrEqual(15);
-		expect(count, `${phase} bucket too fat (${count})`).toBeLessThanOrEqual(29);
+		expect(count, `${phase} bucket too fat (${count})`).toBeLessThanOrEqual(32);
 	}
 });
 

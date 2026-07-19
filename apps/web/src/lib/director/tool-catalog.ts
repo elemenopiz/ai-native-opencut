@@ -123,12 +123,14 @@ export const textAlignOf = (
 
 /** Validate a loose `animateItem.property` arg; falls back to "opacity" (the
  *  cheapest-to-get-wrong default) for anything unrecognized — `animateItem`
- *  itself only cares that it's one of the four, so this never needs to fail. */
+ *  itself only cares that it's one of the five, so this never needs to fail. */
 export const animatePropertyOf = (
 	v: unknown,
-): "position" | "scale" | "rotation" | "opacity" => {
+): "position" | "scale" | "rotation" | "opacity" | "volume" => {
 	const s = v == null ? undefined : String(v);
-	return s === "position" || s === "scale" || s === "rotation" ? s : "opacity";
+	return s === "position" || s === "scale" || s === "rotation" || s === "volume"
+		? s
+		: "opacity";
 };
 
 /**
@@ -1941,6 +1943,111 @@ export function toolCatalog(): ToolDescriptor[] {
 					minCut: numOrUndefined(a.minCut),
 				}),
 		},
+		// ── craft (P5 macros — free, instant edits on your OWN footage; no
+		// generation, no model call) ─────────────────────────────────────────
+		{
+			name: "cutOnBeat",
+			description:
+				"snap every cut point on a video track onto the nearest analyzed beat — free, instant, works on your own footage (no generation, no model call). Needs a beat grid already analyzed (the timeline's beat-snap toggle) and at least two cut-together clips on the target track to have a join to snap. Prefer this over manually nudging trim/move when the user wants cuts to feel musical.",
+			mutating: true,
+			inputSchema: {
+				type: "object",
+				properties: {
+					trackId: {
+						type: "string",
+						description:
+							"FULL track id to snap cuts on. Omit to use the main video track.",
+					},
+					toleranceSec: secs(
+						"a cut within this many seconds of a beat gets pulled onto it (default 0.15).",
+					),
+					minClipDurationSec: secs(
+						"never snap a cut if it would shrink either side below this duration (default 0.5).",
+					),
+				},
+				additionalProperties: false,
+			},
+			handler: (d, a) =>
+				d.cutOnBeat({
+					trackId: strOrUndefined(a.trackId),
+					toleranceSec: numOrUndefined(a.toleranceSec),
+					minClipDurationSec: numOrUndefined(a.minClipDurationSec),
+				}),
+		},
+		{
+			name: "tightenToLength",
+			description:
+				"shrink a cut-together sequence down to a target runtime — free, instant, works on your own footage (no generation, no model call). Shaves dead air / low-interest material first, then proportionally trims what's left; never trims into protected speech (protectSpeech, default true). If the target can't be fully reached, applies the best partial tighten and reports the shortfall instead of silently missing it.",
+			mutating: true,
+			inputSchema: {
+				type: "object",
+				properties: {
+					targetSec: secs(
+						"desired total runtime of the target track, in SECONDS.",
+					),
+					trackId: {
+						type: "string",
+						description:
+							"FULL track id to tighten. Omit to use the main video track.",
+					},
+					protectSpeech: {
+						type: "boolean",
+						description:
+							"never trim into detected speech (voiceover elements + transcribed dialogue). Default true.",
+					},
+					minClipDurationSec: secs(
+						"never trim an element below this duration (default 0.5).",
+					),
+					convergenceToleranceSec: secs(
+						'how close to targetSec counts as "reached" (default 0.25).',
+					),
+				},
+				required: ["targetSec"],
+			},
+			handler: (d, a) =>
+				d.tightenToLength({
+					targetSec: numOrZeroTime(a.targetSec),
+					trackId: strOrUndefined(a.trackId),
+					protectSpeech: boolOrUndefined(a.protectSpeech),
+					minClipDurationSec: numOrUndefined(a.minClipDurationSec),
+					convergenceToleranceSec: numOrUndefined(a.convergenceToleranceSec),
+				}),
+		},
+		{
+			name: "duckMusicUnderSpeech",
+			description:
+				"duck a music bed's volume under speech — free, instant, works on your own footage (no generation, no model call). Finds speech from voiceover clips and/or transcribed dialogue, then keyframes the music-bed element(s) down during it and back up cleanly after, with a built-in flutter guard between close-together lines. Needs at least one detectable speech source and one music-bed element already on the timeline (addMusicBed).",
+			mutating: true,
+			inputSchema: {
+				type: "object",
+				properties: {
+					duckDb: {
+						type: "number",
+						description:
+							"how far to duck, in dB relative to normal (default -12).",
+					},
+					attackSec: secs("ramp-down time once speech starts (default 0.15)."),
+					releaseSec: secs("ramp-back-up time once speech ends (default 0.4)."),
+					mergeGapSec: secs(
+						"speech gaps shorter than this are treated as one continuous interval (default 0.3).",
+					),
+					trackId: {
+						type: "string",
+						description:
+							"FULL audio track id to scope ducking to. Omit to duck every music-bed element on the timeline.",
+					},
+				},
+				additionalProperties: false,
+			},
+			handler: (d, a) =>
+				d.duckMusicUnderSpeech({
+					duckDb: numOrUndefined(a.duckDb),
+					attackSec: numOrUndefined(a.attackSec),
+					releaseSec: numOrUndefined(a.releaseSec),
+					mergeGapSec: numOrUndefined(a.mergeGapSec),
+					trackId: strOrUndefined(a.trackId),
+				}),
+		},
 		// ── text (elementId is a FULL id, never a reel short id) ─────────────
 		{
 			name: "addText",
@@ -2068,7 +2175,7 @@ export function toolCatalog(): ToolDescriptor[] {
 		{
 			name: "animateItem",
 			description:
-				"add motion to an EXISTING timeline item — position/scale/rotation/opacity, static or keyframed. Prefer this over generating a new clip when the footage is already right and just needs to MOVE: a slow Ken Burns push/pull on a static photo, an opacity fade in/out, a slide-in title, a zoom-punch on a beat. Pass `value` for a one-time static set, OR `keyframes` (ordered value@time points, seconds from the item's own start) to animate over time — never both.",
+				"add motion (or a volume ramp) to an EXISTING timeline item — position/scale/rotation/opacity/volume, static or keyframed. Prefer this over generating a new clip when the footage is already right and just needs to MOVE (or its audio needs to duck): a slow Ken Burns push/pull on a static photo, an opacity fade in/out, a slide-in title, a zoom-punch on a beat, or a music/dialogue volume ramp. `volume` targets anything with audio (a plain audio clip OR a video clip's own embedded audio); every other property is visual-only (video/image/text/sticker). Pass `value` for a one-time static set, OR `keyframes` (ordered value@time points, seconds from the item's own start) to animate over time — never both.",
 			mutating: true,
 			inputSchema: {
 				type: "object",
@@ -2080,9 +2187,9 @@ export function toolCatalog(): ToolDescriptor[] {
 					},
 					property: {
 						type: "string",
-						enum: ["position", "scale", "rotation", "opacity"],
+						enum: ["position", "scale", "rotation", "opacity", "volume"],
 						description:
-							"Which property to set/animate. position needs {x, y} values; scale/rotation/opacity need a plain number (scale: 1 = 100%; opacity: 0–1; rotation: degrees).",
+							"Which property to set/animate. position needs {x, y} values; scale/rotation/opacity/volume need a plain number (scale: 1 = 100%; opacity: 0–1; rotation: degrees; volume: 1 = 100%, 0 = silent). volume is the one AUDIO-capable property (works on audio clips and video clips' embedded audio) — every other property is visual-only.",
 					},
 					value: {
 						oneOf: [
