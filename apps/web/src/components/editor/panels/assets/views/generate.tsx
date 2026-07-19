@@ -158,7 +158,6 @@ export function GenerateView() {
 						onGenerate={handleGenerate}
 						onGenerateMultiframe={handleGenerateMultiframe}
 						busy={busy}
-						onGoToPersonas={() => setSection("personas")}
 					/>
 				</TabsContent>
 

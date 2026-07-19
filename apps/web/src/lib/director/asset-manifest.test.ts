@@ -389,6 +389,81 @@ describe("buildLibraryManifest — dims, provenance, and style facets", () => {
 		expect(m.digest).not.toContain("warm amber");
 	});
 
+	it("surfaces a hero's DEEPENED perception facets (Bet 1): motion/shotType/emotion ride the digest STRING compactly, composition/audio/continuityFingerprint stay structural", () => {
+		const list: ManifestAsset[] = [dimensionedAsset()];
+		const understanding: AssetUnderstandingLookup = () => ({
+			mediaId: "m1",
+			role: "hero",
+			caption: "founder to-camera",
+			motion: "handheld",
+			shotType: "close-up",
+			emotion: "tense",
+			composition: { subjectPosition: "center", ruleOfThirds: true },
+			audio: { hasSpeech: true, energy: "high" },
+			continuityFingerprint: {
+				lighting: "soft key",
+				whiteBalance: "warm",
+				wardrobe: "navy blazer",
+				colorSignature: "warm amber grade",
+			},
+		});
+		const m = buildLibraryManifest({ assets: list, understanding });
+
+		// Structural: every deepened facet is carried on the hero, re-queryable.
+		expect(m.heroes[0]?.motion).toBe("handheld");
+		expect(m.heroes[0]?.shotType).toBe("close-up");
+		expect(m.heroes[0]?.emotion).toBe("tense");
+		expect(m.heroes[0]?.composition).toEqual({
+			subjectPosition: "center",
+			ruleOfThirds: true,
+		});
+		expect(m.heroes[0]?.audio).toEqual({ hasSpeech: true, energy: "high" });
+		expect(m.heroes[0]?.continuityFingerprint).toEqual({
+			lighting: "soft key",
+			whiteBalance: "warm",
+			wardrobe: "navy blazer",
+			colorSignature: "warm amber grade",
+		});
+
+		// A FEW TOKENS in the flowing digest string: shotType label + motion + emotion.
+		expect(m.digest).toContain('"founder to-camera" [CU·handheld·tense]');
+		// The richer structural-only facets never bloat the always-on line.
+		expect(m.digest).not.toContain("navy blazer");
+		expect(m.digest).not.toContain("warm amber grade");
+		expect(m.digest).not.toContain("soft key");
+	});
+
+	it("degrades silently: a hero with NO deepened facets carries none of them and adds zero bytes to the digest bracket", () => {
+		const list: ManifestAsset[] = [dimensionedAsset()];
+		const understanding: AssetUnderstandingLookup = () => ({
+			mediaId: "m1",
+			role: "hero",
+			caption: "plain hero",
+		});
+		const m = buildLibraryManifest({ assets: list, understanding });
+
+		expect(m.heroes[0]?.motion).toBeUndefined();
+		expect(m.heroes[0]?.shotType).toBeUndefined();
+		expect(m.heroes[0]?.emotion).toBeUndefined();
+		expect(m.heroes[0]?.composition).toBeUndefined();
+		expect(m.heroes[0]?.audio).toBeUndefined();
+		expect(m.heroes[0]?.continuityFingerprint).toBeUndefined();
+		expect(m.digest).toContain('"plain hero".'); // no trailing bracket at all
+		expect(m.digest).not.toContain("[");
+	});
+
+	it("renders a partial bracket when only SOME deepened facets are present (e.g. shotType but no motion/emotion)", () => {
+		const list: ManifestAsset[] = [dimensionedAsset()];
+		const understanding: AssetUnderstandingLookup = () => ({
+			mediaId: "m1",
+			role: "hero",
+			caption: "wide establishing hero",
+			shotType: "wide",
+		});
+		const m = buildLibraryManifest({ assets: list, understanding });
+		expect(m.digest).toContain('"wide establishing hero" [wide]');
+	});
+
 	it("appends the orientation-mismatch clause to the digest when the canvas conflicts (grounded path)", () => {
 		const list: ManifestAsset[] = [
 			dimensionedAsset({

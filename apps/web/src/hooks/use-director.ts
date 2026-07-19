@@ -443,6 +443,14 @@ export function useDirector(): DirectorApi {
 							: Promise.resolve([]),
 				}),
 				board: createBoardApi(editor),
+				// Whole-edit critic (Director-intelligence Bet 2 v1, flag-gated —
+				// see `tool-catalog.ts`'s `editCriticEnabled`). Wired to the SAME
+				// tool-less vision relay `critic` above uses (`callVisionRelay`):
+				// `EditCriticRelay`'s shape (`{system, content} => Promise<string>`)
+				// is a subset of `callVisionRelay`'s, so it's a drop-in. The tool
+				// itself is entirely absent from the catalog while the flag is off,
+				// so this wiring is inert until NEXT_PUBLIC_FEATURE_EDIT_CRITIC=true.
+				editCritic: { relay: callVisionRelay },
 			}),
 		[editor],
 	);

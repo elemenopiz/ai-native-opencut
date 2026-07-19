@@ -303,6 +303,77 @@ export interface ProjectInfo {
 }
 
 /**
+ * One timeline element inside a {@link TimelineTrackSnapshot} — the compact,
+ * agent-readable row `getTimeline` reports for EVERY element on a track, not
+ * just generative slots (see {@link DirectorApi.getTimeline}).
+ */
+export interface TimelineElementSnapshot {
+	/** Full element id (same id space as `SlotSnapshot.id`/`getReel().slots[].id`). */
+	id: string;
+	/** Timeline element kind — mirrors `TimelineElement["type"]` (`@/types/timeline`). */
+	kind: "video" | "image" | "text" | "audio" | "sticker" | "effect";
+	/** Timeline start time in seconds. */
+	startSec: number;
+	/** Duration in seconds. */
+	durationSec: number;
+	/**
+	 * Human label: the source asset's name (video/image/audio), the text
+	 * content (truncated), or `"generative slot"` for an element with no
+	 * placed source yet (a reserved slot awaiting its first take).
+	 */
+	label: string;
+	/**
+	 * True ⇒ this element carries a `.generation` recipe (video/image/audio all
+	 * eligible — an audio element can be a TTS voiceover slot). Lets the agent
+	 * tell an uploaded clip apart from a Director-generated one.
+	 */
+	isGenerative: boolean;
+	/**
+	 * Present ONLY when `isGenerative` AND the element is also a REEL slot
+	 * (image/video carrying a recipe — see `isSlotElement` in `director-api.ts`).
+	 * Equal to the matching `SlotSnapshot.id` in `getReel().slots`, so the agent
+	 * can cross-reference instead of double-counting a slot as both a reel slot
+	 * and a plain timeline clip. Absent for generative AUDIO (voiceover)
+	 * elements, which carry a recipe but are never reel slots.
+	 */
+	slotId?: string;
+}
+
+/** One track's compact digest inside a {@link TimelineSnapshot}. */
+export interface TimelineTrackSnapshot {
+	id: string;
+	/** Track kind — mirrors `TrackType` (`@/types/timeline`). */
+	kind: "video" | "text" | "audio" | "sticker" | "effect";
+	/** Total elements on this track (may exceed `elements.length` — see `overflowCount`). */
+	elementCount: number;
+	/** Elements in start-time order, capped for prompt/token economy. */
+	elements: TimelineElementSnapshot[];
+	/** Set when `elementCount` exceeds the cap: how many elements were omitted from `elements`. */
+	overflowCount?: number;
+}
+
+/**
+ * Compact, agent-readable snapshot of the WHOLE timeline — every element on
+ * every track (uploaded clips, text overlays, audio, AND generative slots),
+ * not just the generative reel (see {@link DirectorApi.getReel}, which only
+ * ever sees `.generation`-bearing image/video elements). This is the fix for
+ * "Director reports an empty reel on a hand-built timeline": a project can
+ * have zero reel slots and still hold real, visible content here.
+ */
+export interface TimelineSnapshot {
+	tracks: TimelineTrackSnapshot[];
+	/** Total timeline duration in seconds (same value as `getReel().totalDuration`). */
+	totalDurationSec: number;
+	/**
+	 * The compact one-line digest string, e.g. `"TIMELINE: 3 tracks · 5 clips
+	 * (4 uploaded, 1 generative) · 2 text · 1 audio · 0:42 total."` or
+	 * `"TIMELINE: empty."` for no tracks/elements. Same string folded into the
+	 * system prompt by `buildContextBlock` (`agent.ts`).
+	 */
+	digest: string;
+}
+
+/**
  * One backend the Director may route a shot to, as seen by the AGENT (not the
  * server registry). Mirrors the client-safe fields of `/api/studio/backends`
  * plus a RELATIVE cost tier — enough for the model to pick intent-appropriately

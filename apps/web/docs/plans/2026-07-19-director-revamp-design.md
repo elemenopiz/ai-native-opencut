@@ -167,6 +167,13 @@ will revisit."** → Remove the *visible surfaces* only, keep the machinery 100%
 - Revisit path = re-add the mount; make the removal a clean, self-contained diff so flipping it
   back on is trivial. Do NOT delete store/machinery/backend plumbing.
 
+**CORRECTION (user, 2026-07-20): the removal above was over-broad.** The user meant ONLY the
+"Keeping a character? Pick a persona →" hint/CTA inside the generation form — NOT the Personas
+tab. Restored @ffbb62b9: Personas tab + PersonaManager mount are BACK in the Generate panel.
+Still removed (correct reading of the request): the in-form persona hint CTA + `onGoToPersonas`
+prop, and the Style Bible chip. The e2e now pins tab-PRESENT + hint/chip-ABSENT. Do not
+re-remove the tab.
+
 ### GATE B — Conversation persistence storage (item 9)
 
 New persisted data shape = one-way door (migration + replay-into-context budget). Options:
@@ -231,6 +238,13 @@ rework. Non-goal per mission.
 
 **Wave plan:** Wave 1 = A + B + E (disjoint file sets, parallel). Wave 2 (after B merges) =
 C + D. Wave 3 = F-local, then F-server to the gate.
+
+**Build-orchestrator revision (2026-07-19 Step 0):** Part B stalled (0 commits) → re-dispatched
+as **B+D combined** against current `main` (same file cluster; splitting it across two
+sequential agents violates file-cluster partitioning). Part E's branch lacks the e2e
+reconcile — `e2e/persona-consistency.e2e.ts` still asserts the removed testids — so E
+integrates via a fresh agent that cherry-picks the two UI commits and rewrites the spec to
+pin the *absence* of the picker/chip (re-adding stays an intentional act).
 
 `director.tsx` is the hot shared surface → B is the sequencing pivot; C/D/F queue behind it.
 A and E are disjoint and can run alongside. Fan-out cap = the non-overlapping file sets.

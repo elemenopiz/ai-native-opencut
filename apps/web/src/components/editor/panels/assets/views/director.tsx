@@ -10,10 +10,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	SparklesIcon,
 	SentIcon,
-	AiMicIcon,
 	TextIcon,
-	Image01Icon,
-	ArrowRight01Icon,
 	Bookmark01Icon,
 	Delete02Icon,
 	FilmRoll01Icon,
@@ -40,18 +37,7 @@ import { serializeConsistencyContext } from "@/lib/director/consistency-prompt";
 import { summarizeBrief } from "@/lib/director/director-brief";
 import { getUnderstandingCaptions } from "@/lib/director/understanding-lookup";
 import { toast } from "sonner";
-import { TemplatePanel } from "@/components/editor/ai/template-panel";
-import { BRollSuggestionsPanel } from "@/components/editor/ai/broll-suggestions-panel";
-import { YouTubeReelsPanel } from "@/components/editor/youtube/youtube-reels-panel";
-import { AIDubbingPanel } from "@/components/editor/panels/assets/views/ai-dubbing";
-import { AutoChaptersPanel } from "@/components/editor/panels/assets/views/auto-chapters";
-import { SmartReframePanel } from "@/components/editor/panels/assets/views/smart-reframe";
-import { MotionTrackingPanel } from "@/components/editor/panels/assets/views/motion-tracking";
-import { ABTestingPanel } from "@/components/editor/panels/assets/views/ab-testing";
-import { ScriptToVideoPanel } from "@/components/editor/panels/assets/views/script-to-video";
-import { ShortsComposerPanel } from "@/components/editor/panels/assets/views/shorts-composer";
-import { SceneDetectionPanel } from "@/components/editor/panels/assets/views/scene-detection";
-import { ThumbnailGenPanel } from "@/components/editor/panels/assets/views/thumbnail-gen";
+import { useAssetsPanelStore } from "@/stores/assets-panel-store";
 
 // ----- Thinking Messages -----
 
@@ -78,6 +64,83 @@ const THINKING_MESSAGES = [
 	"Applying the viral filter to this answer...",
 ];
 
+// ----- Agent status (Item 3 — thought bubbles) -----
+//
+// `thinking_delta` used to spawn its own `> 💭 …` assistant message — raw
+// chain-of-thought, rendered (and savable) exactly like a real answer. It no
+// longer creates a message at all: it drives the transient "thinking" status
+// row instead (the dashed-spinner region below), via a short, de-jargoned
+// status derived from either the tool currently running or a coarse read of
+// the reasoning buffer — never the raw token stream itself.
+
+/** Per-tool-action → a plain-language status the status row can show while
+ *  that step runs. Falls back to a generic phrase for anything unlisted. */
+const TOOL_STATUS_LABELS: Record<string, string> = {
+	searchMedia: "Checking your library…",
+	findDuplicateAssets: "Checking your library…",
+	getLibraryManifest: "Checking your library…",
+	getProjectInfo: "Checking your project…",
+	getTimeline: "Checking the timeline…",
+	getReel: "Checking the reel…",
+	storyboard: "Planning the shots…",
+	proposeReel: "Planning the shots…",
+	reviseProposal: "Revising the plan…",
+	acceptProposal: "Locking in the plan…",
+	reserveSlot: "Setting up the shot…",
+	setPrompt: "Refining the prompt…",
+	generate: "Generating a take…",
+	reroll: "Trying another take…",
+	remix: "Touching up the take…",
+	compareTake: "Comparing takes…",
+	reviewTake: "Reviewing the footage…",
+	chooseTake: "Picking the best take…",
+	extractFrame: "Grabbing a frame…",
+	chainFrom: "Carrying the look forward…",
+	intakeReferences: "Studying your references…",
+	addVoiceover: "Adding narration…",
+	addMusicBed: "Adding music…",
+	getTranscript: "Reading the transcript…",
+	removeSilence: "Trimming the silence…",
+	trim: "Trimming the clip…",
+	split: "Splitting the clip…",
+	move: "Repositioning the clip…",
+	reorder: "Reordering the shots…",
+	remove: "Removing the clip…",
+	addText: "Adding text…",
+	updateText: "Updating the text…",
+	applyTransition: "Adding a transition…",
+	applyEffect: "Applying an effect…",
+	addClip: "Adding the clip…",
+	export: "Exporting…",
+	getBudgetStatus: "Checking the budget…",
+	setBudget: "Adjusting the budget…",
+	updateBrief: "Noting your preference…",
+	critiqueEdit: "Reviewing the edit…",
+};
+
+function toolStatusLabel(action: string): string {
+	return TOOL_STATUS_LABELS[action] ?? "Working on it…";
+}
+
+/** Coarse keyword read of the accumulating reasoning buffer → a short,
+ *  de-jargoned status. Deliberately never returns the buffer itself. */
+const THINKING_STATUS_RULES: Array<{ pattern: RegExp; label: string }> = [
+	{ pattern: /librar|search|asset|footage/i, label: "Checking your library…" },
+	{ pattern: /storyboard|plan|shot|scene/i, label: "Planning the shots…" },
+	{ pattern: /generat/i, label: "Generating a take…" },
+	{ pattern: /review|frame|compar/i, label: "Reviewing the footage…" },
+	{ pattern: /budget|cost|credit/i, label: "Checking the budget…" },
+	{ pattern: /music|voiceover|audio|narrat/i, label: "Sorting out the audio…" },
+	{ pattern: /transcript|speech|dialogue/i, label: "Reading the transcript…" },
+];
+
+function deriveThinkingStatus(buf: string): string {
+	for (const rule of THINKING_STATUS_RULES) {
+		if (rule.pattern.test(buf)) return rule.label;
+	}
+	return "Thinking…";
+}
+
 function useThinkingMessage(isThinking: boolean) {
 	const [index, setIndex] = useState(() =>
 		Math.floor(Math.random() * THINKING_MESSAGES.length),
@@ -100,182 +163,13 @@ function useThinkingMessage(isThinking: boolean) {
 
 // ----- Types -----
 
-interface WorkflowStep {
-	id: string;
-	label: string;
-	description: string;
-	icon: typeof SparklesIcon;
-	action: string;
-	isCompleted?: boolean;
-}
-
-type StudioMode =
-	| "chat"
-	| "workflow"
-	| "transcript"
-	| "templates"
-	| "ideas"
-	| "broll"
-	| "youtube-reels"
-	| "dubbing"
-	| "chapters"
-	| "reframe"
-	| "tracking"
-	| "ab-testing"
-	| "script-to-video"
-	| "shorts"
-	| "scenes"
-	| "thumbnail";
-
-// ----- Workflow Steps -----
-
-const VIDEO_WORKFLOWS: {
-	id: string;
-	title: string;
-	description: string;
-	steps: WorkflowStep[];
-}[] = [
-	{
-		id: "youtube",
-		title: "YouTube video",
-		description: "Plan, script, and produce a YouTube video",
-		steps: [
-			{
-				id: "brainstorm",
-				label: "Brainstorm the idea",
-				description:
-					"Describe your topic and audience. AI helps refine your angle.",
-				icon: SparklesIcon,
-				action: "brainstorm",
-			},
-			{
-				id: "outline",
-				label: "Create an outline",
-				description:
-					"AI generates a structured outline with key points and timestamps.",
-				icon: TextIcon,
-				action: "outline",
-			},
-			{
-				id: "script",
-				label: "Write the script",
-				description:
-					"Turn the outline into a full script with intro, body, and CTA.",
-				icon: TextIcon,
-				action: "script",
-			},
-			{
-				id: "record",
-				label: "Record and import",
-				description:
-					"Record your video following the script, then import it here.",
-				icon: AiMicIcon,
-				action: "import",
-			},
-			{
-				id: "transcribe",
-				label: "Transcribe and edit",
-				description: "Transcribe the recording, then edit text to edit video.",
-				icon: AiMicIcon,
-				action: "transcribe",
-			},
-			{
-				id: "polish",
-				label: "Polish with AI",
-				description:
-					"Remove fillers, silences, add subtitles, generate thumbnail.",
-				icon: Image01Icon,
-				action: "polish",
-			},
-		],
-	},
-	{
-		id: "short",
-		title: "Short-form content",
-		description: "TikTok, Reels, or YouTube Shorts",
-		steps: [
-			{
-				id: "hook",
-				label: "Craft the hook",
-				description: "AI helps write a 3-second hook that stops the scroll.",
-				icon: SparklesIcon,
-				action: "hook",
-			},
-			{
-				id: "script",
-				label: "Script the content",
-				description:
-					"Keep it tight — AI structures your message for 30-60 seconds.",
-				icon: TextIcon,
-				action: "script-short",
-			},
-			{
-				id: "record",
-				label: "Record vertically",
-				description: "Film in 9:16 portrait mode following the script.",
-				icon: AiMicIcon,
-				action: "import",
-			},
-			{
-				id: "edit",
-				label: "Fast-cut edit",
-				description: "Remove silences and filler for punchy pacing.",
-				icon: SparklesIcon,
-				action: "fast-edit",
-			},
-			{
-				id: "subtitles",
-				label: "Add bold subtitles",
-				description: "Most viewers watch muted — add animated captions.",
-				icon: TextIcon,
-				action: "subtitles",
-			},
-		],
-	},
-	{
-		id: "podcast",
-		title: "Podcast episode",
-		description: "Record, clean, and clip a podcast",
-		steps: [
-			{
-				id: "plan",
-				label: "Plan the episode",
-				description:
-					"AI helps structure topics, questions, and talking points.",
-				icon: SparklesIcon,
-				action: "plan-podcast",
-			},
-			{
-				id: "import",
-				label: "Import recording",
-				description: "Import your podcast recording.",
-				icon: AiMicIcon,
-				action: "import",
-			},
-			{
-				id: "clean",
-				label: "Clean the audio",
-				description: "Remove background noise and normalize levels.",
-				icon: SparklesIcon,
-				action: "clean-audio",
-			},
-			{
-				id: "transcribe",
-				label: "Transcribe and find clips",
-				description: "Transcribe to easily navigate and find the best moments.",
-				icon: TextIcon,
-				action: "transcribe",
-			},
-			{
-				id: "clip",
-				label: "Create highlight clips",
-				description: "AI identifies the best segments for social media clips.",
-				icon: Image01Icon,
-				action: "highlights",
-			},
-		],
-	},
-];
+// Director chat is a two-mode conversational surface: freeform brainstorm/agent
+// chat, or (when a transcript exists) AI-assisted transcript editing. The other
+// 12 utility panels that used to hang off this switch (Templates, Ideas,
+// Workflows, B-Roll, Reframe, Tracking, A/B Test, Shorts, Scenes, Thumbnail,
+// Dubbing, YouTube Reels, Script→Video) now live in the sibling "Tools" tab
+// (`./tools.tsx`) — see the Director-revamp design doc, Item 4.
+type StudioMode = "chat" | "transcript";
 
 // ----- Chat Prompts -----
 
@@ -327,19 +221,31 @@ export function DirectorView() {
 	const { isConnected } = useAIStatus();
 	const toggleSetupGuide = useAIStore((s) => s.toggleSetupGuide);
 	const saveIdea = useAIStore((s) => s.saveIdea);
-	const savedIdeas = useAIStore((s) => s.savedIdeas);
-	const removeIdea = useAIStore((s) => s.removeIdea);
-	const clearIdeas = useAIStore((s) => s.clearIdeas);
 	const messages = useAIStore((s) => s.studioMessages);
 	const addMessage = useAIStore((s) => s.addStudioMessage);
 	const updateMessage = useAIStore((s) => s.updateStudioMessage);
 	const clearMessages = useAIStore((s) => s.clearStudioMessages);
+	const directorDraftByProject = useAIStore((s) => s.directorDraftByProject);
+	const setDirectorDraft = useAIStore((s) => s.setDirectorDraft);
 	const transcriptSegments = useTranscriptStore((s) => s.segments);
 	const hasTranscript = transcriptSegments.length > 0;
+
+	// Cross-tab deep links to/from the "Tools" tab (Ideas list, Workflows
+	// launcher) — see `assets-panel-store.ts`. Tools and Director are separate
+	// panel tabs (only the active one is mounted), so a plain callback can't
+	// cross that boundary; these two small store fields do it instead.
+	const openToolsPanel = useAssetsPanelStore((s) => s.openToolsPanel);
+	const pendingDirectorPrompt = useAssetsPanelStore(
+		(s) => s.pendingDirectorPrompt,
+	);
+	const clearPendingDirectorPrompt = useAssetsPanelStore(
+		(s) => s.clearPendingDirectorPrompt,
+	);
 
 	// ── Orchestrator (Director API) ──
 	const editor = useEditor();
 	const director = useDirector();
+	const projectId = editor.project.getActiveOrNull()?.metadata.id ?? "";
 
 	// Cost-preview approval gate (concept: cost-preview gate). Pending confirmation
 	// for a gated verb the chat agent proposed but paused on — it runs only after
@@ -350,11 +256,32 @@ export function DirectorView() {
 	const [chatApproval, setChatApproval] = useState<AgentApproval | null>(null);
 
 	const [mode, setMode] = useState<StudioMode>("chat");
-	const [inputValue, setInputValue] = useState("");
+	// Item 5 — project-keyed draft (`ai-store`) instead of bare local state, so
+	// the typed-but-unsent prompt survives a Direct↔Tools tab switch/unmount and
+	// never bleeds across projects. `setInputValue` keeps the call sites below
+	// unchanged; it just writes through to the store now.
+	const inputValue = directorDraftByProject[projectId] ?? "";
+	const setInputValue = useCallback(
+		(text: string) => setDirectorDraft(projectId, text),
+		[projectId, setDirectorDraft],
+	);
 	const [isThinking, setIsThinking] = useState(false);
+	// Item 3 — the live status the "thinking" row shows during an agent run
+	// (current tool, or a de-jargoned read of the reasoning stream); null falls
+	// back to the idle rotating flavor message below.
+	const [agentStatus, setAgentStatus] = useState<string | null>(null);
 	const thinkingMessage = useThinkingMessage(isThinking);
-	const [selectedWorkflow, setSelectedWorkflow] = useState<string | null>(null);
-	const [completedSteps, setCompletedSteps] = useState<Set<string>>(new Set());
+	// Item 6 — a finished run's tool-step chip ids, keyed by a per-run id, once
+	// the post-run timeout collapses them into one summary line; `expandedToolRuns`
+	// tracks which of those the user has clicked open again. Render-time-only
+	// grouping over the flat message list — the underlying step messages in the
+	// store are never mutated or dropped.
+	const [collapsedToolRuns, setCollapsedToolRuns] = useState<
+		Record<string, string[]>
+	>({});
+	const [expandedToolRuns, setExpandedToolRuns] = useState<Set<string>>(
+		new Set(),
+	);
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 	const scrollRef = useRef<HTMLDivElement>(null);
 	// Live agent run: the AbortController for the in-flight chat run, so the Stop
@@ -410,6 +337,16 @@ export function DirectorView() {
 		}
 	}, [messages, isThinking]);
 
+	// Consume a prompt handed off from the Tools tab (e.g. Workflows' "Ask AI
+	// about next step") — prefill the chat input and focus it, once.
+	useEffect(() => {
+		if (!pendingDirectorPrompt) return;
+		setMode("chat");
+		setInputValue(pendingDirectorPrompt);
+		clearPendingDirectorPrompt();
+		requestAnimationFrame(() => inputRef.current?.focus());
+	}, [pendingDirectorPrompt, clearPendingDirectorPrompt, setInputValue]);
+
 	// Run the gated verb the chat agent paused on, after the user approves its
 	// cost. Executes the exact proposed action deterministically (bypassing the
 	// LLM) so approval spends on precisely what was previewed.
@@ -427,6 +364,7 @@ export function DirectorView() {
 			addMessage({
 				id: crypto.randomUUID(),
 				role: "assistant",
+				kind: "step",
 				content: `${step.ok ? "✅" : "⚠️"} \`${step.action}\` — ${step.message}`,
 			});
 		} finally {
@@ -472,17 +410,18 @@ export function DirectorView() {
 			abortRef.current = controller;
 
 			// A "live" bubble whose content we grow in place as tokens arrive; a
-			// fresh one starts after each tool step. `thinkId`/`textId` are the two
-			// bubbles for the CURRENT turn (reasoning, then the answer text).
-			const live = { textId: "", textBuf: "", thinkId: "", thinkBuf: "" };
+			// fresh one starts after each tool step. `textId` is the CURRENT turn's
+			// answer bubble; `thinkBuf` accumulates reasoning text WITHOUT ever
+			// becoming a message (Item 3 — it only drives `agentStatus`, below).
+			const live = { textId: "", textBuf: "", thinkBuf: "" };
 			const commitLive = () => {
 				live.textId = "";
 				live.textBuf = "";
-				live.thinkId = "";
 				live.thinkBuf = "";
 			};
 			// callId → the message id of its "running…" chip, so tool_finish can
-			// update the same bubble in place.
+			// update the same bubble in place. Also doubles as this run's ordered
+			// list of step-chip ids for Item 6's post-run collapse.
 			const toolMsgIds = new Map<string, string>();
 			let streamedText = false;
 			// One persistent "spent X of $Y" bubble, updated in place as budgeted
@@ -492,26 +431,26 @@ export function DirectorView() {
 			const onEvent = (event: DirectorEvent) => {
 				switch (event.type) {
 					case "thinking_delta": {
+						// Item 3: raw chain-of-thought never becomes a message (no more
+						// `> 💭` bubble). It only feeds the transient status row via a
+						// coarse, de-jargoned read of the buffer.
 						live.thinkBuf += event.text;
-						const content = `> 💭 ${live.thinkBuf}`;
-						if (!live.thinkId) {
-							live.thinkId = crypto.randomUUID();
-							addMessage({ id: live.thinkId, role: "assistant", content });
-						} else {
-							updateMessage(live.thinkId, content);
-						}
+						setAgentStatus(deriveThinkingStatus(live.thinkBuf));
 						break;
 					}
 					case "text_delta": {
 						streamedText = true;
-						// Once the answer text starts, this turn's reasoning is done.
-						live.thinkId = "";
+						// Once the answer text starts, this turn's reasoning is done —
+						// the status row goes quiet (falls back to the idle flavor text).
+						live.thinkBuf = "";
+						setAgentStatus(null);
 						live.textBuf += event.text;
 						if (!live.textId) {
 							live.textId = crypto.randomUUID();
 							addMessage({
 								id: live.textId,
 								role: "assistant",
+								kind: "text",
 								content: live.textBuf,
 							});
 						} else {
@@ -521,6 +460,7 @@ export function DirectorView() {
 					}
 					case "tool_start": {
 						commitLive();
+						setAgentStatus(toolStatusLabel(event.action));
 						const id = crypto.randomUUID();
 						toolMsgIds.set(event.callId, id);
 						const cost = event.cost
@@ -531,6 +471,7 @@ export function DirectorView() {
 						addMessage({
 							id,
 							role: "assistant",
+							kind: "step",
 							content: `⏳ \`${event.action}\`${cost} — running…`,
 						});
 						break;
@@ -543,6 +484,7 @@ export function DirectorView() {
 							addMessage({
 								id: crypto.randomUUID(),
 								role: "assistant",
+								kind: "step",
 								content,
 							});
 						break;
@@ -565,7 +507,12 @@ export function DirectorView() {
 								: `💰 Spent ${usdToCredits(event.spentUsd)} credits`;
 						if (!budgetMsgId) {
 							budgetMsgId = crypto.randomUUID();
-							addMessage({ id: budgetMsgId, role: "assistant", content });
+							addMessage({
+								id: budgetMsgId,
+								role: "assistant",
+								kind: "step",
+								content,
+							});
 						} else {
 							updateMessage(budgetMsgId, content);
 						}
@@ -576,6 +523,7 @@ export function DirectorView() {
 						// Approval is surfaced by the result's `awaitingApproval` (dialog);
 						// cancellation by the closing note below. Just seal the live bubble.
 						commitLive();
+						setAgentStatus(null);
 						break;
 					}
 				}
@@ -595,6 +543,7 @@ export function DirectorView() {
 					addMessage({
 						id: crypto.randomUUID(),
 						role: "assistant",
+						kind: "step",
 						content: `⏹ ${result.finalMessage || "Stopped."}`,
 					});
 				} else if (!streamedText && result.finalMessage) {
@@ -603,6 +552,7 @@ export function DirectorView() {
 					addMessage({
 						id: crypto.randomUUID(),
 						role: "assistant",
+						kind: "text",
 						content: result.finalMessage,
 					});
 				}
@@ -610,6 +560,21 @@ export function DirectorView() {
 				// user can approve (or dismiss) the exact proposed spend.
 				if (result.awaitingApproval) {
 					setChatApproval(result.awaitingApproval);
+				} else if (!result.cancelled && toolMsgIds.size > 0) {
+					// Item 6 — a settled run's tool chips collapse into one summary
+					// line a few seconds later (click to expand back to the detail),
+					// plus a transient toast for the outcome. Skipped while a cost
+					// approval is pending (the chips are still live context for that
+					// decision) or after a cancel (the partial trail stays visible).
+					const runId = crypto.randomUUID();
+					const stepIds = Array.from(toolMsgIds.values());
+					setTimeout(() => {
+						setCollapsedToolRuns((prev) => ({ ...prev, [runId]: stepIds }));
+						toast.success(
+							`Done — ${stepIds.length} step${stepIds.length === 1 ? "" : "s"}`,
+							{ description: "Tap the summary to see what ran." },
+						);
+					}, 2500);
 				}
 			} catch (error) {
 				commitLive();
@@ -622,6 +587,7 @@ export function DirectorView() {
 				addMessage({
 					id: crypto.randomUUID(),
 					role: "assistant",
+					kind: "step",
 					content: isRelayIssue
 						? `${detail} Check ANTHROPIC_API_KEY / GEMINI_API_KEY / DIRECTOR_MODEL in apps/web/.env.local.`
 						: isConfigIssue
@@ -631,6 +597,7 @@ export function DirectorView() {
 			} finally {
 				abortRef.current = null;
 				setIsThinking(false);
+				setAgentStatus(null);
 			}
 			return;
 		}
@@ -661,6 +628,7 @@ export function DirectorView() {
 						addMessage({
 							id: assistantId,
 							role: "assistant",
+							kind: "text",
 							content: accumulated,
 						});
 						messageAdded = true;
@@ -677,6 +645,7 @@ export function DirectorView() {
 					addMessage({
 						id: assistantId,
 						role: "assistant",
+						kind: "text",
 						content: "Here's what I suggest based on your request.",
 					});
 				} else {
@@ -697,6 +666,7 @@ export function DirectorView() {
 				addMessage({
 					id: assistantId,
 					role: "assistant",
+					kind: "step",
 					content: errorContent,
 				});
 			} else {
@@ -715,6 +685,7 @@ export function DirectorView() {
 		addMessage,
 		updateMessage,
 		director,
+		setInputValue,
 	]);
 
 	const handleKeyDown = useCallback(
@@ -738,20 +709,6 @@ export function DirectorView() {
 		});
 	};
 
-	const handleStepClick = (stepId: string) => {
-		setCompletedSteps((prev) => {
-			const next = new Set(prev);
-			if (next.has(stepId)) {
-				next.delete(stepId);
-			} else {
-				next.add(stepId);
-			}
-			return next;
-		});
-	};
-
-	const activeWorkflow = VIDEO_WORKFLOWS.find((w) => w.id === selectedWorkflow);
-
 	return (
 		<div className="relative flex h-full flex-col overflow-hidden">
 			{/* Header */}
@@ -766,7 +723,9 @@ export function DirectorView() {
 						</Badge>
 					)}
 				</div>
-				{/* Tab strip — scrolls horizontally so every panel stays reachable. */}
+				{/* Tab strip — Director is chat-only now (Direct + Script when a
+				    transcript exists); every other panel lives in the sibling
+				    "Tools" tab (see design doc Item 4 / ./tools.tsx). */}
 				<div className="flex items-center gap-1 min-w-0 flex-1 overflow-x-auto [&>button]:shrink-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 					<Button
 						variant={mode === "chat" ? "secondary" : "ghost"}
@@ -798,137 +757,6 @@ export function DirectorView() {
 							Script
 						</Button>
 					)}
-					<Button
-						variant={mode === "templates" ? "secondary" : "ghost"}
-						size="sm"
-						className="h-6 text-[10px] px-2"
-						onClick={() => setMode("templates")}
-					>
-						Templates
-					</Button>
-					<Button
-						variant={mode === "ideas" ? "secondary" : "ghost"}
-						size="sm"
-						className="h-6 text-[10px] px-2 gap-1"
-						onClick={() => setMode("ideas")}
-					>
-						Ideas
-						{savedIdeas.length > 0 && (
-							<span className="bg-primary text-primary-foreground rounded-full text-[8px] size-4 flex items-center justify-center font-bold">
-								{savedIdeas.length}
-							</span>
-						)}
-					</Button>
-					{hasTranscript && (
-						<Button
-							variant={mode === "broll" ? "secondary" : "ghost"}
-							size="sm"
-							className="h-6 text-[10px] px-2"
-							onClick={() => setMode("broll")}
-						>
-							B-Roll
-						</Button>
-					)}
-					{/* Dubbing is retired with the Python TTS chain (see
-					    lib/local-ai/retired-features.ts). */}
-					{hasTranscript && isFeatureAvailable("dubbing") && (
-						<Button
-							variant={mode === "dubbing" ? "secondary" : "ghost"}
-							size="sm"
-							className="h-6 text-[10px] px-2"
-							onClick={() => setMode("dubbing")}
-						>
-							Dub
-						</Button>
-					)}
-					{hasTranscript && (
-						<Button
-							variant={mode === "chapters" ? "secondary" : "ghost"}
-							size="sm"
-							className="h-6 text-[10px] px-2"
-							onClick={() => setMode("chapters")}
-						>
-							Chapters
-						</Button>
-					)}
-					<Button
-						variant={mode === "workflow" ? "secondary" : "ghost"}
-						size="sm"
-						className="h-6 text-[10px] px-2"
-						onClick={() => setMode("workflow")}
-					>
-						Workflows
-					</Button>
-					{/* YouTube import ran on the retired stack's yt-dlp service. */}
-					{isFeatureAvailable("youtubeImport") && (
-						<Button
-							variant={mode === "youtube-reels" ? "secondary" : "ghost"}
-							size="sm"
-							className="h-6 text-[10px] px-2"
-							onClick={() => setMode("youtube-reels")}
-						>
-							YT Reels
-						</Button>
-					)}
-					<Button
-						variant={mode === "reframe" ? "secondary" : "ghost"}
-						size="sm"
-						className="h-6 text-[10px] px-2"
-						onClick={() => setMode("reframe")}
-					>
-						Reframe
-					</Button>
-					<Button
-						variant={mode === "tracking" ? "secondary" : "ghost"}
-						size="sm"
-						className="h-6 text-[10px] px-2"
-						onClick={() => setMode("tracking")}
-					>
-						Tracking
-					</Button>
-					<Button
-						variant={mode === "ab-testing" ? "secondary" : "ghost"}
-						size="sm"
-						className="h-6 text-[10px] px-2"
-						onClick={() => setMode("ab-testing")}
-					>
-						A/B Test
-					</Button>
-					{/* Script-to-video is retired with the Python stack. */}
-					{isFeatureAvailable("scriptToVideo") && (
-						<Button
-							variant={mode === "script-to-video" ? "secondary" : "ghost"}
-							size="sm"
-							className="h-6 text-[10px] px-2"
-							onClick={() => setMode("script-to-video")}
-						>
-							Script→Video
-						</Button>
-					)}
-					<Button
-						variant={mode === "shorts" ? "secondary" : "ghost"}
-						size="sm"
-						className="h-6 text-[10px] px-2"
-						onClick={() => setMode("shorts")}
-					>
-						Shorts
-					</Button>
-					<Button
-						variant={mode === "scenes" ? "secondary" : "ghost"}
-						size="sm"
-						className="h-6 text-[10px] px-2"
-						onClick={() => setMode("scenes")}
-					>
-						Scenes
-					</Button>
-					<Button
-						variant={mode === "thumbnail" ? "secondary" : "ghost"}
-						size="sm"
-						className="h-6 text-[10px] px-2"
-						onClick={() => setMode("thumbnail")}
-					>
-						Thumbnail
-					</Button>
 				</div>
 			</div>
 
@@ -1034,106 +862,163 @@ export function DirectorView() {
 							</div>
 						)}
 
-						{messages.map((msg) => (
-							<div key={msg.id} className="mb-3">
-								{msg.role === "user" ? (
-									<div className="rounded-lg bg-primary text-primary-foreground ml-6 px-3 py-2 text-xs">
-										{msg.content}
-									</div>
-								) : (
-									<div className="rounded-lg bg-muted mr-2 px-3 py-2.5">
-										<div className="prose-studio text-xs leading-relaxed">
-											<ReactMarkdown
-												components={{
-													h1: ({ children }) => (
-														<h3 className="text-sm font-bold mt-2 mb-1">
-															{children}
-														</h3>
-													),
-													h2: ({ children }) => (
-														<h4 className="text-xs font-bold mt-2 mb-1">
-															{children}
-														</h4>
-													),
-													h3: ({ children }) => (
-														<h4 className="text-xs font-semibold mt-1.5 mb-0.5">
-															{children}
-														</h4>
-													),
-													p: ({ children }) => (
-														<p className="mb-1.5 last:mb-0">{children}</p>
-													),
-													strong: ({ children }) => (
-														<strong className="font-semibold text-foreground">
-															{children}
-														</strong>
-													),
-													em: ({ children }) => (
-														<em className="italic">{children}</em>
-													),
-													ul: ({ children }) => (
-														<ul className="list-disc pl-4 mb-1.5 space-y-0.5">
-															{children}
-														</ul>
-													),
-													ol: ({ children }) => (
-														<ol className="list-decimal pl-4 mb-1.5 space-y-0.5">
-															{children}
-														</ol>
-													),
-													li: ({ children }) => <li>{children}</li>,
-													code: ({ children, className }) => {
-														const isBlock = className?.includes("language-");
-														if (isBlock) {
-															return (
-																<pre className="bg-background rounded px-2 py-1.5 my-1.5 overflow-x-auto text-[10px] font-mono">
-																	<code>{children}</code>
-																</pre>
-															);
-														}
-														return (
-															<code className="bg-background rounded px-1 py-0.5 text-[10px] font-mono">
-																{children}
-															</code>
-														);
-													},
-													blockquote: ({ children }) => (
-														<blockquote className="border-l-2 border-primary/40 pl-2 my-1.5 text-muted-foreground italic">
-															{children}
-														</blockquote>
-													),
-												}}
+						{(() => {
+							// Item 6 — render-time grouping: a settled run's step-chip ids
+							// collapse into one summary bubble at their first id (the
+							// "anchor"); the rest of that run's ids are hidden. Expanding
+							// a run (click) drops it out of this computation entirely, so
+							// every original chip reappears untouched.
+							const collapseSummaryByAnchor = new Map<
+								string,
+								{ runId: string; count: number }
+							>();
+							const hiddenStepMessageIds = new Set<string>();
+							for (const [runId, stepIds] of Object.entries(
+								collapsedToolRuns,
+							)) {
+								if (expandedToolRuns.has(runId) || stepIds.length === 0)
+									continue;
+								const [anchor, ...rest] = stepIds;
+								collapseSummaryByAnchor.set(anchor, {
+									runId,
+									count: stepIds.length,
+								});
+								for (const stepId of rest) hiddenStepMessageIds.add(stepId);
+							}
+
+							return messages.map((msg) => {
+								if (hiddenStepMessageIds.has(msg.id)) return null;
+								const collapsed = collapseSummaryByAnchor.get(msg.id);
+								if (collapsed) {
+									return (
+										<div key={msg.id} className="mb-3">
+											<button
+												type="button"
+												onClick={() =>
+													setExpandedToolRuns((prev) =>
+														new Set(prev).add(collapsed.runId),
+													)
+												}
+												className="w-full text-left rounded-lg bg-muted/60 mr-2 px-3 py-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
 											>
+												Done — {collapsed.count} step
+												{collapsed.count === 1 ? "" : "s"}
+											</button>
+										</div>
+									);
+								}
+								return (
+									<div key={msg.id} className="mb-3">
+										{msg.role === "user" ? (
+											<div className="rounded-lg bg-primary text-primary-foreground ml-6 px-3 py-2 text-xs">
 												{msg.content}
-											</ReactMarkdown>
-										</div>
-										<div className="flex items-center gap-1 mt-2 pt-1.5 border-t border-border/50">
-											<Button
-												variant="ghost"
-												size="sm"
-												className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground gap-1"
-												onClick={() => {
-													saveIdea(msg.content);
-													toast.success("Idea saved", {
-														description: "View it in the Ideas tab.",
-														action: {
-															label: "View",
-															onClick: () => setMode("ideas"),
-														},
-													});
-												}}
-											>
-												<HugeiconsIcon
-													icon={Bookmark01Icon}
-													className="size-3"
-												/>
-												Save idea
-											</Button>
-										</div>
+											</div>
+										) : (
+											<div className="rounded-lg bg-muted mr-2 px-3 py-2.5">
+												<div className="prose-studio text-xs leading-relaxed">
+													<ReactMarkdown
+														components={{
+															// Item 2 — down-rank h1/h2 to inline emphasis: same
+															// size/weight as body text, no heading-level block
+															// spacing, so a reply can't read as a wall of
+															// headed sections.
+															h1: ({ children }) => (
+																<p className="font-semibold mb-1.5 last:mb-0">
+																	{children}
+																</p>
+															),
+															h2: ({ children }) => (
+																<p className="font-semibold mb-1.5 last:mb-0">
+																	{children}
+																</p>
+															),
+															h3: ({ children }) => (
+																<h4 className="text-xs font-semibold mt-1.5 mb-0.5">
+																	{children}
+																</h4>
+															),
+															p: ({ children }) => (
+																<p className="mb-1.5 last:mb-0">{children}</p>
+															),
+															strong: ({ children }) => (
+																<strong className="font-semibold text-foreground">
+																	{children}
+																</strong>
+															),
+															em: ({ children }) => (
+																<em className="italic">{children}</em>
+															),
+															ul: ({ children }) => (
+																<ul className="list-disc pl-4 mb-1.5 space-y-0.5">
+																	{children}
+																</ul>
+															),
+															ol: ({ children }) => (
+																<ol className="list-decimal pl-4 mb-1.5 space-y-0.5">
+																	{children}
+																</ol>
+															),
+															li: ({ children }) => <li>{children}</li>,
+															code: ({ children, className }) => {
+																const isBlock =
+																	className?.includes("language-");
+																if (isBlock) {
+																	return (
+																		<pre className="bg-background rounded px-2 py-1.5 my-1.5 overflow-x-auto text-[10px] font-mono">
+																			<code>{children}</code>
+																		</pre>
+																	);
+																}
+																return (
+																	<code className="bg-background rounded px-1 py-0.5 text-[10px] font-mono">
+																		{children}
+																	</code>
+																);
+															},
+															blockquote: ({ children }) => (
+																<blockquote className="border-l-2 border-primary/40 pl-2 my-1.5 text-muted-foreground italic">
+																	{children}
+																</blockquote>
+															),
+														}}
+													>
+														{msg.content}
+													</ReactMarkdown>
+												</div>
+												{/* Item 3 — "Save idea" renders ONLY on a final answer
+												    bubble, never on a step/status row (tool chips,
+												    budget bubble, cancel/error notes). */}
+												{msg.kind !== "step" && (
+													<div className="flex items-center gap-1 mt-2 pt-1.5 border-t border-border/50">
+														<Button
+															variant="ghost"
+															size="sm"
+															className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground gap-1"
+															onClick={() => {
+																saveIdea(msg.content);
+																toast.success("Idea saved", {
+																	description: "View it in the Tools tab.",
+																	action: {
+																		label: "View",
+																		onClick: () => openToolsPanel("ideas"),
+																	},
+																});
+															}}
+														>
+															<HugeiconsIcon
+																icon={Bookmark01Icon}
+																className="size-3"
+															/>
+															Save idea
+														</Button>
+													</div>
+												)}
+											</div>
+										)}
 									</div>
-								)}
-							</div>
-						))}
+								);
+							});
+						})()}
 
 						{isThinking && (
 							<div className="mx-2 my-1">
@@ -1141,7 +1026,7 @@ export function DirectorView() {
 									<div className="flex items-center gap-2">
 										<Spinner className="size-3 text-primary/60" />
 										<span className="text-[11px] text-primary/70 font-medium animate-pulse">
-											{thinkingMessage}
+											{agentStatus ?? thinkingMessage}
 										</span>
 									</div>
 								</div>
@@ -1229,309 +1114,6 @@ export function DirectorView() {
 						</div>
 					</div>
 				</>
-			)}
-
-			{/* ── Templates Mode ── */}
-			{mode === "templates" && <TemplatePanel className="flex-1 min-h-0" />}
-
-			{/* ── B-Roll Mode ── */}
-			{mode === "broll" && <BRollSuggestionsPanel className="flex-1 min-h-0" />}
-
-			{/* ── Dubbing Mode ── */}
-			{mode === "dubbing" && isFeatureAvailable("dubbing") && (
-				<div className="flex-1 min-h-0 overflow-y-auto">
-					<AIDubbingPanel />
-				</div>
-			)}
-
-			{/* ── Auto Chapters Mode ── */}
-			{mode === "chapters" && (
-				<div className="flex-1 min-h-0 overflow-y-auto">
-					<AutoChaptersPanel />
-				</div>
-			)}
-
-			{/* ── YouTube Reels Mode ── */}
-			{mode === "youtube-reels" && isFeatureAvailable("youtubeImport") && (
-				<div className="flex-1 min-h-0 overflow-y-auto px-2 py-3">
-					<YouTubeReelsPanel />
-				</div>
-			)}
-
-			{/* ── Smart Reframe Mode ── */}
-			{mode === "reframe" && <SmartReframePanel className="flex-1 min-h-0" />}
-
-			{/* ── Motion Tracking Mode ── */}
-			{mode === "tracking" && (
-				<MotionTrackingPanel className="flex-1 min-h-0" />
-			)}
-
-			{/* ── A/B Testing Mode ── */}
-			{mode === "ab-testing" && <ABTestingPanel className="flex-1 min-h-0" />}
-
-			{/* ── Script-to-Video Mode ── */}
-			{mode === "script-to-video" && isFeatureAvailable("scriptToVideo") && (
-				<ScriptToVideoPanel className="flex-1 min-h-0" />
-			)}
-
-			{/* ── Shorts Composer Mode ── */}
-			{mode === "shorts" && <ShortsComposerPanel className="flex-1 min-h-0" />}
-
-			{/* ── Scene Detection Mode ── */}
-			{mode === "scenes" && <SceneDetectionPanel className="flex-1 min-h-0" />}
-
-			{/* ── Thumbnail Generator Mode ── */}
-			{mode === "thumbnail" && <ThumbnailGenPanel className="flex-1 min-h-0" />}
-
-			{/* ── Ideas Mode ── */}
-			{mode === "ideas" && (
-				<div className="flex-1 min-h-0 overflow-y-auto px-2 py-3">
-					{savedIdeas.length === 0 ? (
-						<div className="flex flex-col items-center justify-center h-full gap-2 text-center px-4">
-							<HugeiconsIcon
-								icon={Bookmark01Icon}
-								className="size-8 text-muted-foreground/30"
-							/>
-							<p className="text-xs font-medium">No saved ideas yet</p>
-							<p className="text-[10px] text-muted-foreground leading-relaxed">
-								Chat with AI and hit &ldquo;Save idea&rdquo; on any response to
-								collect it here.
-							</p>
-							<Button
-								variant="outline"
-								size="sm"
-								className="h-7 text-[11px] mt-2"
-								onClick={() => setMode("chat")}
-							>
-								<HugeiconsIcon icon={SparklesIcon} className="size-3 mr-1" />
-								Start brainstorming
-							</Button>
-						</div>
-					) : (
-						<>
-							<div className="flex items-center justify-between px-1 mb-2">
-								<p className="text-[11px] text-muted-foreground">
-									{savedIdeas.length} saved idea
-									{savedIdeas.length !== 1 ? "s" : ""}
-								</p>
-								<Button
-									variant="ghost"
-									size="sm"
-									className="h-6 text-[10px] px-1.5 text-muted-foreground"
-									onClick={clearIdeas}
-								>
-									<HugeiconsIcon
-										icon={Delete02Icon}
-										className="size-3 mr-0.5"
-									/>
-									Clear all
-								</Button>
-							</div>
-							<div className="flex flex-col gap-2">
-								{savedIdeas.map((idea) => (
-									<div
-										key={idea.id}
-										className="rounded-lg border px-3 py-2.5 group relative"
-									>
-										<div className="text-xs leading-relaxed line-clamp-6 pr-6">
-											<ReactMarkdown
-												components={{
-													p: ({ children }) => (
-														<p className="mb-1 last:mb-0">{children}</p>
-													),
-													strong: ({ children }) => (
-														<strong className="font-semibold">
-															{children}
-														</strong>
-													),
-													ul: ({ children }) => (
-														<ul className="list-disc pl-4 mb-1 space-y-0.5">
-															{children}
-														</ul>
-													),
-													ol: ({ children }) => (
-														<ol className="list-decimal pl-4 mb-1 space-y-0.5">
-															{children}
-														</ol>
-													),
-													li: ({ children }) => <li>{children}</li>,
-												}}
-											>
-												{idea.content.length > 500
-													? `${idea.content.slice(0, 500)}...`
-													: idea.content}
-											</ReactMarkdown>
-										</div>
-										<div className="flex items-center justify-between mt-2 pt-1.5 border-t border-border/50">
-											<span className="text-[9px] text-muted-foreground">
-												{new Date(idea.savedAt).toLocaleDateString(undefined, {
-													month: "short",
-													day: "numeric",
-													hour: "2-digit",
-													minute: "2-digit",
-												})}
-											</span>
-											<Button
-												variant="ghost"
-												size="sm"
-												className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-destructive"
-												onClick={() => removeIdea(idea.id)}
-											>
-												<HugeiconsIcon icon={Delete02Icon} className="size-3" />
-											</Button>
-										</div>
-									</div>
-								))}
-							</div>
-						</>
-					)}
-				</div>
-			)}
-
-			{/* ── Workflow Mode ── */}
-			{mode === "workflow" && !activeWorkflow && (
-				<div className="flex-1 min-h-0 overflow-y-auto px-2 py-3">
-					<p className="text-[11px] text-muted-foreground px-1 mb-2">
-						Follow a step-by-step guide to create your video from idea to
-						export.
-					</p>
-					{VIDEO_WORKFLOWS.map((workflow) => (
-						<button
-							key={workflow.id}
-							type="button"
-							onClick={() => setSelectedWorkflow(workflow.id)}
-							className="flex items-start gap-3 rounded-lg border px-3 py-2.5 text-left hover:bg-accent transition-colors w-full mb-2"
-						>
-							<HugeiconsIcon
-								icon={SparklesIcon}
-								className="size-4 text-primary mt-0.5 shrink-0"
-							/>
-							<div className="flex-1 min-w-0">
-								<p className="text-xs font-medium">{workflow.title}</p>
-								<p className="text-[10px] text-muted-foreground mt-0.5">
-									{workflow.description}
-								</p>
-								<Badge variant="secondary" className="text-[9px] mt-1.5">
-									{workflow.steps.length} steps
-								</Badge>
-							</div>
-							<HugeiconsIcon
-								icon={ArrowRight01Icon}
-								className="size-3.5 text-muted-foreground mt-1 shrink-0"
-							/>
-						</button>
-					))}
-				</div>
-			)}
-
-			{/* ── Active Workflow ── */}
-			{mode === "workflow" && activeWorkflow && (
-				<div className="flex-1 min-h-0 overflow-y-auto px-2 py-3">
-					<div className="flex items-center gap-2 px-1 mb-1">
-						<button
-							type="button"
-							onClick={() => setSelectedWorkflow(null)}
-							className="text-[10px] text-muted-foreground hover:text-foreground"
-						>
-							Workflows
-						</button>
-						<span className="text-[10px] text-muted-foreground">/</span>
-						<span className="text-[11px] font-medium">
-							{activeWorkflow.title}
-						</span>
-					</div>
-
-					{/* Progress */}
-					<div className="flex items-center gap-2 px-1 mb-2">
-						<div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-							<div
-								className="h-full bg-primary rounded-full transition-all"
-								style={{
-									width: `${(completedSteps.size / activeWorkflow.steps.length) * 100}%`,
-								}}
-							/>
-						</div>
-						<span className="text-[10px] text-muted-foreground tabular-nums">
-							{completedSteps.size}/{activeWorkflow.steps.length}
-						</span>
-					</div>
-
-					{/* Steps */}
-					<div className="flex flex-col gap-2">
-						{activeWorkflow.steps.map((step, index) => {
-							const isCompleted = completedSteps.has(step.id);
-							const isActive =
-								!isCompleted &&
-								(index === 0 ||
-									completedSteps.has(activeWorkflow.steps[index - 1].id));
-
-							return (
-								<button
-									key={step.id}
-									type="button"
-									onClick={() => handleStepClick(step.id)}
-									className={cn(
-										"flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-all",
-										isCompleted && "border-green-500/30 bg-green-500/5",
-										isActive && "border-primary/30 bg-primary/5",
-										!isCompleted && !isActive && "opacity-60",
-									)}
-								>
-									<div
-										className={cn(
-											"flex items-center justify-center size-5 rounded-full text-[9px] font-bold shrink-0 mt-0.5",
-											isCompleted
-												? "bg-green-500 text-white"
-												: isActive
-													? "bg-primary text-primary-foreground"
-													: "bg-muted text-muted-foreground",
-										)}
-									>
-										{isCompleted ? "\u2713" : index + 1}
-									</div>
-
-									<div className="flex-1 min-w-0">
-										<p
-											className={cn(
-												"text-[11px] font-medium",
-												isCompleted && "line-through text-muted-foreground",
-											)}
-										>
-											{step.label}
-										</p>
-										<p className="text-[10px] text-muted-foreground mt-0.5 leading-relaxed">
-											{step.description}
-										</p>
-									</div>
-								</button>
-							);
-						})}
-
-						{/* Ask AI about this step */}
-						{isConnected && (
-							<Button
-								variant="outline"
-								size="sm"
-								className="h-7 text-[11px] mt-1"
-								onClick={() => {
-									setMode("chat");
-									const currentStep = activeWorkflow.steps.find(
-										(step) => !completedSteps.has(step.id),
-									);
-									if (currentStep) {
-										setInputValue(
-											`Help me with "${currentStep.label}" for my ${activeWorkflow.title}. ${currentStep.description}`,
-										);
-										requestAnimationFrame(() => inputRef.current?.focus());
-									}
-								}}
-							>
-								<HugeiconsIcon icon={SparklesIcon} className="size-3 mr-1" />
-								Ask AI about next step
-							</Button>
-						)}
-					</div>
-				</div>
 			)}
 
 			{/* Cost-preview approval gate — chat agent's paused generate/reroll. */}

@@ -4,8 +4,10 @@
  * nothing but "the user of this machine". Nothing here leaves the device.
  *
  * One IndexedDB database (`byorn-user-memory`) with two object stores:
- *  - `kv` — a single-blob store holding the {@link UserMemory} root (the distilled
- *    {@link UserBibleDefaults}). Mirrors the saved-sounds "one JSON value" shape.
+ *  - `kv` — a small-blob store holding the {@link UserMemory} root (the distilled
+ *    {@link UserBibleDefaults}), the Bet-3 behavioral preference-event log, and its
+ *    distilled {@link UserPreferenceModel} — one key each, same "one JSON value per
+ *    key" shape as the saved-sounds store.
  *  - `media` — a keyed store of {@link UserMediaMemoryEntry} rows (keyPath
  *    `contentHash`), so re-importing the same library media in a new project can
  *    reuse its understanding instead of paying for the pass again.
@@ -16,14 +18,19 @@
  * layer is a valid state everywhere and never breaks the caller.
  *
  * The pure promotion/seeding rules live in `lib/director/cross-project-memory.ts`;
- * this module is the async glue that reads current state, applies those rules, and
- * persists the result.
+ * the pure behavioral-distill rules live in `lib/director/preference-learning.ts`.
+ * This module is the async glue that reads current state, applies those rules, and
+ * persists the result — for both.
  */
 
 import {
 	promoteBibleToUserDefaults,
 	seedBibleFromUserDefaults,
 } from "@/lib/director/cross-project-memory";
+import type {
+	PreferenceEvent,
+	UserPreferenceModel,
+} from "@/lib/director/preference-learning";
 import type { AssetUnderstanding } from "@/lib/search/asset-understanding";
 import type { ProjectBible } from "@/types/project";
 import {
@@ -39,6 +46,10 @@ const KV_STORE = "kv";
 const MEDIA_STORE = "media";
 /** The single key under which the {@link UserMemory} root blob lives in `kv`. */
 const ROOT_KEY = "root";
+/** The key under which the Bet-3 preference-event log lives in `kv`. */
+const PREFERENCE_EVENTS_KEY = "preferenceEvents";
+/** The key under which the distilled Bet-3 {@link UserPreferenceModel} lives in `kv`. */
+const PREFERENCE_MODEL_KEY = "preferenceModel";
 /** Cap on the reusable-media library so it never grows without bound (oldest evicted). */
 export const MAX_USER_MEDIA_MEMORY = 500;
 
@@ -184,6 +195,94 @@ export async function seedProjectBibleFromUserMemory(
 	return seedBibleFromUserDefaults(defaults, now);
 }
 
+// ── Bet-3 preference-event log + distilled model (behavioral memory) ─────────
+
+/**
+ * Read the raw preference-event log, or `[]` when there is none / storage is
+ * unavailable. Never throws — absence is a valid state (mirrors every other
+ * read in this module).
+ */
+export async function getPreferenceEventLog(): Promise<PreferenceEvent[]> {
+	try {
+		const value = await tx<PreferenceEvent[] | undefined>(
+			KV_STORE,
+			"readonly",
+			(store) => store.get(PREFERENCE_EVENTS_KEY),
+		);
+		return value ?? [];
+	} catch {
+		return [];
+	}
+}
+
+/**
+ * Persist the (already capped) preference-event log verbatim. Best-effort;
+ * no-op when storage is unavailable. Callers should cap the log themselves
+ * (see `appendPreferenceEvent` in `lib/director/preference-learning.ts`) —
+ * this function does not re-cap.
+ */
+export async function savePreferenceEventLog(
+	events: PreferenceEvent[],
+): Promise<void> {
+	try {
+		await tx(KV_STORE, "readwrite", (store) =>
+			store.put(events, PREFERENCE_EVENTS_KEY),
+		);
+	} catch {
+		// Best-effort: a persistence hiccup must never break the verb that triggered it.
+	}
+}
+
+/**
+ * Read the distilled {@link UserPreferenceModel}, or `undefined` when none has
+ * been distilled yet / storage is unavailable. Never throws.
+ */
+export async function getUserPreferenceModel(): Promise<
+	UserPreferenceModel | undefined
+> {
+	try {
+		const value = await tx<UserPreferenceModel | undefined>(
+			KV_STORE,
+			"readonly",
+			(store) => store.get(PREFERENCE_MODEL_KEY),
+		);
+		return value ?? undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/** Persist the distilled preference model. Best-effort; no-op when storage is unavailable. */
+export async function saveUserPreferenceModel(
+	model: UserPreferenceModel,
+): Promise<void> {
+	try {
+		await tx(KV_STORE, "readwrite", (store) =>
+			store.put(model, PREFERENCE_MODEL_KEY),
+		);
+	} catch {
+		// Best-effort.
+	}
+}
+
+/** Drop the preference-event log and its distilled model. Best-effort. */
+export async function clearPreferenceMemory(): Promise<void> {
+	try {
+		await tx(KV_STORE, "readwrite", (store) =>
+			store.delete(PREFERENCE_EVENTS_KEY),
+		);
+	} catch {
+		// Best-effort.
+	}
+	try {
+		await tx(KV_STORE, "readwrite", (store) =>
+			store.delete(PREFERENCE_MODEL_KEY),
+		);
+	} catch {
+		// Best-effort.
+	}
+}
+
 // ── reusable-media understanding library (keyed by content identity) ─────────
 
 /**
@@ -295,7 +394,10 @@ export async function getUserMemorySummary(): Promise<UserMemorySummary> {
 	};
 }
 
-/** Wipe ALL cross-project memory — bible defaults and the reusable-media library. Best-effort. */
+/**
+ * Wipe ALL cross-project memory — bible defaults, the reusable-media library,
+ * and the Bet-3 behavioral preference log + distilled model. Best-effort.
+ */
 export async function clearAllUserMemory(): Promise<void> {
 	try {
 		await tx(KV_STORE, "readwrite", (store) => store.delete(ROOT_KEY));
@@ -303,4 +405,5 @@ export async function clearAllUserMemory(): Promise<void> {
 		// Best-effort.
 	}
 	await clearUserMediaMemory();
+	await clearPreferenceMemory();
 }

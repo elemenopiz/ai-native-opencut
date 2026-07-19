@@ -74,6 +74,35 @@ export function adaptUnderstandingForManifest(
 					},
 				}
 			: {}),
+		// Deepened perception (Bet 1 — director-intelligence architecture): carried
+		// through when present, same "spread only when set" discipline as
+		// styleProbe above. A SHALLOW canonical record (predates the widening, or
+		// degraded) simply has none of these — the manifest side degrades silently.
+		...(u.motion ? { motion: u.motion } : {}),
+		...(u.shotType ? { shotType: u.shotType } : {}),
+		...(u.composition
+			? {
+					composition: {
+						subjectPosition: u.composition.subjectPosition,
+						headroom: u.composition.headroom,
+						ruleOfThirds: u.composition.ruleOfThirds,
+					},
+				}
+			: {}),
+		...(u.emotion ? { emotion: u.emotion } : {}),
+		...(u.audio
+			? { audio: { hasSpeech: u.audio.hasSpeech, energy: u.audio.energy } }
+			: {}),
+		...(u.continuityFingerprint
+			? {
+					continuityFingerprint: {
+						lighting: u.continuityFingerprint.lighting,
+						whiteBalance: u.continuityFingerprint.whiteBalance,
+						wardrobe: u.continuityFingerprint.wardrobe,
+						colorSignature: u.continuityFingerprint.colorSignature,
+					},
+				}
+			: {}),
 	};
 }
 

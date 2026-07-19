@@ -6,6 +6,7 @@ import { FEATURE_UNDERSTANDING_PASS } from "@/lib/feature-flags";
 import { type Tab, useAssetsPanelStore } from "@/stores/assets-panel-store";
 import { TabBar } from "./tabbar";
 import { DirectorView } from "./views/director";
+import { ToolsView } from "./views/tools";
 import { Captions } from "./views/captions";
 import { SpeakerCaptionsPanel } from "./views/speaker-captions";
 import { MediaView } from "./views/assets";
@@ -18,7 +19,6 @@ import { VisualsCombinedView } from "./views/visuals-combined";
 import { BrandKitView } from "./views/brand-kit";
 import { VisualSearchView } from "./views/visual-search";
 import { MulticamPanel } from "./views/multicam";
-import { TemplateGalleryPanel } from "./views/template-gallery";
 
 export function AssetsPanel() {
 	const { activeTab, setActiveTab } = useAssetsPanelStore();
@@ -38,6 +38,10 @@ export function AssetsPanel() {
 		// "What the AI sees": the Understanding Pass surfaced + role corrections.
 		insights: <InsightsView />,
 		director: <DirectorView />,
+		// The utility panels relocated out of Director's chat surface (B-Roll,
+		// Reframe, Tracking, A/B Test, Shorts, Scenes, Thumbnail, Chapters,
+		// Dubbing, YouTube Reels, Script→Video, Templates, Ideas, Workflows).
+		tools: <ToolsView />,
 		text: <TextView />,
 		captions: <Captions />,
 		speakers: <SpeakerCaptionsPanel />,
@@ -47,9 +51,6 @@ export function AssetsPanel() {
 		// Multicam controls the main preview by toggling angle-track visibility —
 		// the preview panel is its viewer surface.
 		multicam: <MulticamPanel className="h-full" />,
-		// Searchable project-template gallery. Distinct from the Director's
-		// "Templates" mode (TemplatePanel), which applies AI reel templates.
-		templates: <TemplateGalleryPanel className="h-full" />,
 		search: <VisualSearchView />,
 		brandkit: <BrandKitView />,
 		settings: <SettingsView />,

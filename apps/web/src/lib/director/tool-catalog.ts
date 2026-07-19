@@ -43,6 +43,28 @@ import type {
 	ShotSource,
 } from "./reel-proposal";
 
+// ── feature gate: critiqueEdit (Director-intelligence Bet 2 v1) ────────────
+//
+// Same NEXT_PUBLIC_FEATURE_* build-time-flag shape as `lib/feature-flags.ts`
+// (collabEnabled/understandingPassEnabled/podcastAiEnabled), scoped locally to
+// this file rather than added to the shared registry — `critiqueEdit` is the
+// only consumer today. `critiqueEdit` is a manual-invoke, ADVISORY-ONLY tool
+// (ADR-006: proposed fixes are never auto-executed, no credits wiring) but is
+// still a NEW paid vision-model op, so it stays OFF by default like the other
+// beta-pool-guarding flags. OFF ⇒ the descriptor below is never added to the
+// catalog array — the tool is entirely ABSENT, not merely hidden, so there is
+// zero behavior change for every existing caller.
+
+/** Pure predicate for the gate — takes the raw env value so both branches are unit-testable. Only the exact string "true" enables it. */
+export function editCriticEnabled(
+	value: string | undefined = process.env.NEXT_PUBLIC_FEATURE_EDIT_CRITIC,
+): boolean {
+	return value === "true";
+}
+
+/** Read as a module const so Next inlines the value at build; flip by setting NEXT_PUBLIC_FEATURE_EDIT_CRITIC=true. */
+const FEATURE_EDIT_CRITIC = editCriticEnabled();
+
 // ── coercion helpers (moved here from agent.ts; the single arg-coercion site) ──
 
 /** Required positive numeric arg; falls back to `fallback` for 0/negative/NaN. */
@@ -558,6 +580,14 @@ export function toolCatalog(): ToolDescriptor[] {
 				message: "Current reel returned.",
 				data: d.getReel(),
 			}),
+		},
+		{
+			name: "getTimeline",
+			description:
+				"inspect the FULL timeline — every track and every element (uploaded clips, text overlays, audio, AND generative slots), not just the generative reel getReel() shows. A one-line TIMELINE digest already rides your system prompt every turn — call this only to re-check mid-task after the timeline may have changed, or to read exact element ids/labels/positions the digest omits. Elements carrying a `slotId` are also reel slots (cross-reference getReel(), don't double-count).",
+			mutating: false,
+			inputSchema: EMPTY,
+			handler: (d) => d.getTimeline(),
 		},
 		{
 			name: "getSlot",
@@ -2211,6 +2241,22 @@ export function toolCatalog(): ToolDescriptor[] {
 					download: boolOrUndefined(a.download),
 				}),
 		},
+		// ── whole-edit critic (Director-intelligence Bet 2 v1, flag-gated) ────
+		// FEATURE_EDIT_CRITIC default OFF ⇒ this descriptor is never added to the
+		// array, so the tool is entirely ABSENT from the catalog (not merely
+		// hidden) until the flag flips. See the gate's doc comment above.
+		...(FEATURE_EDIT_CRITIC
+			? [
+					{
+						name: "critiqueEdit",
+						description:
+							"ADVISORY-ONLY whole-edit critic: judges the ASSEMBLED TIMELINE as a film — pacing vs energy, hook in the first ~2s, shot variety, cuts-on-beat rhythm, dead air, continuity breaks, emotional arc. Samples up to 12 frames spread across the cut in ONE vision-model call. Returns a structured critique whose issues each carry a proposed fix as an EXECUTABLE verb call — but this NEVER runs the fix itself; you (or the user) must invoke it separately. Manual invoke only — never call this proactively/automatically.",
+						mutating: false,
+						inputSchema: EMPTY,
+						handler: (d) => d.critiqueEdit(),
+					} satisfies ToolDescriptor,
+				]
+			: []),
 	];
 }
 

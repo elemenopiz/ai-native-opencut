@@ -20,6 +20,17 @@ import { pipeline, env } from "@huggingface/transformers";
 // look for models on the local server, so this stays a pure client feature.
 env.allowLocalModels = false;
 
+// Serve the ONNX-runtime wasm SAME-ORIGIN from /onnx/ (vendored by
+// scripts/copy-onnx-runtime.mjs) instead of transformers' default third-party
+// jsDelivr CDN. Setting wasmPaths before the first pipeline() call suppresses
+// that default (transformers only injects the CDN path when wasmPaths is unset).
+// This removes a runtime dependency on jsDelivr — when it was slow, rate-limited,
+// blocked (corporate/regional networks), or down, ORT init threw a bare
+// "network error" and transcription failed with no working fallback on prod.
+if (env.backends?.onnx?.wasm) {
+	env.backends.onnx.wasm.wasmPaths = `${self.location.origin}/onnx/`;
+}
+
 /** Minimal structural view of the dedicated-worker global (avoids webworker/DOM lib clashes). */
 type WorkerScope = {
 	postMessage(message: unknown): void;
