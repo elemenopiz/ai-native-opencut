@@ -285,10 +285,21 @@ export function Captions() {
 			// (transcribeFileWithEngine — shared with the single-track path above),
 			// offset its segments onto the shared timeline axis, and merge them
 			// into one transcript spanning every audio track.
+			//
+			// Whole-video mode sweeps in every video/audio element on the timeline,
+			// which routinely includes clips with NO audio stream at all (muted
+			// B-roll/overlay inserts) — decoding those throws on-device, and the
+			// server fallback fails too (ffmpeg has nothing to extract), so the AI
+			// backend call for that one source is a guaranteed 500. That's a
+			// per-source problem, not a reason to lose the whole merged transcript,
+			// so each source gets its own try/catch and is skipped on failure.
 			const mergedSegments: TranscriptionSegment[] = [];
 			let mergedLanguage = "en";
-			// Primary source drives the supplementary speaker/emotion passes below.
-			const primaryFile = ensureFileExtension(sources[0].file);
+			let languageSet = false;
+			// Primary source (the first one that actually transcribes) drives the
+			// supplementary speaker/emotion passes below.
+			let primarySourceFile: File | null = null;
+			const skippedSources: string[] = [];
 
 			for (let i = 0; i < sources.length; i++) {
 				const source = sources[i];
@@ -301,19 +312,37 @@ export function Captions() {
 				setProcessingStep(progressLabel);
 				bgTasks.updateTask(taskId, { progress: progressLabel });
 
-				const sourceResult = await transcribeFileWithEngine({
-					file,
-					engine,
-					language: resolvedLanguage,
-					onProgress: (label) => {
-						const combined =
-							sources.length > 1 ? `${source.label}: ${label}` : label;
-						setProcessingStep(combined);
-						bgTasks.updateTask(taskId, { progress: combined });
-					},
-				});
+				let sourceResult: Awaited<ReturnType<typeof transcribeFileWithEngine>>;
+				try {
+					sourceResult = await transcribeFileWithEngine({
+						file,
+						engine,
+						language: resolvedLanguage,
+						onProgress: (label) => {
+							const combined =
+								sources.length > 1 ? `${source.label}: ${label}` : label;
+							setProcessingStep(combined);
+							bgTasks.updateTask(taskId, { progress: combined });
+						},
+					});
+				} catch (sourceErr) {
+					// Most commonly: no usable audio in this source (decode failure
+					// on-device, or the backend rejects it — see comment above).
+					// Skip it and keep going; the rest of the timeline may still
+					// produce a usable transcript.
+					console.warn(
+						`Transcription skipped for "${source.label}" — no usable audio:`,
+						sourceErr,
+					);
+					skippedSources.push(source.label);
+					continue;
+				}
 
-				if (i === 0) mergedLanguage = sourceResult.language ?? mergedLanguage;
+				if (!primarySourceFile) primarySourceFile = file;
+				if (!languageSet) {
+					mergedLanguage = sourceResult.language ?? mergedLanguage;
+					languageSet = true;
+				}
 
 				for (const seg of sourceResult.segments) {
 					mergedSegments.push({
@@ -330,6 +359,15 @@ export function Captions() {
 			}
 
 			mergedSegments.sort((a, b) => a.start - b.start);
+
+			if (skippedSources.length > 0) {
+				toast.warning(
+					`Skipped ${skippedSources.length} of ${sources.length} source${
+						sources.length > 1 ? "s" : ""
+					} with no usable audio`,
+					{ description: skippedSources.join(", ") },
+				);
+			}
 
 			setProcessingStep("Processing segments...");
 			bgTasks.updateTask(taskId, { progress: "Processing segments..." });
@@ -361,7 +399,11 @@ export function Captions() {
 
 			if (validSegments.length === 0) {
 				setError(
-					"No speech detected in the video. Try a different language or check that the video has audio.",
+					skippedSources.length > 0
+						? `Couldn't transcribe any source — none of the ${sources.length} selected clip${
+								sources.length > 1 ? "s" : ""
+							} had usable audio (${skippedSources.join(", ")}).`
+						: "No speech detected in the video. Try a different language or check that the video has audio.",
 				);
 				return;
 			}
@@ -400,9 +442,15 @@ export function Captions() {
 
 			// ── Auto Speaker Diarization + Emotion Detection ──
 			// Run both in parallel: speaker labels and emotion annotations.
-			// Scoped to the primary (first) source only — running these per
-			// source in whole-video mode would multiply backend/credit usage by
-			// the track count for a supplementary feature.
+			// Scoped to the primary (first successfully-transcribed) source only —
+			// running these per source in whole-video mode would multiply
+			// backend/credit usage by the track count for a supplementary feature.
+			// `primarySourceFile` is guaranteed set here: validSegments is
+			// non-empty (checked above), which only happens after at least one
+			// source transcribed successfully. The sources[0] fallback is
+			// belt-and-suspenders for the type checker.
+			const primaryFile =
+				primarySourceFile ?? ensureFileExtension(sources[0].file);
 			let speakerChangeTimes: number[] = [];
 			setProcessingStep("Detecting speakers & emotions...");
 			bgTasks.updateTask(taskId, {
