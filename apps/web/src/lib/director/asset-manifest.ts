@@ -69,6 +69,51 @@ export interface ManifestStyleProbe {
 }
 
 /**
+ * Camera-motion energy class (mirrors `MotionClass` in
+ * `@/lib/search/asset-understanding` — own-copy discipline, see
+ * {@link AssetUnderstanding}).
+ */
+export type ManifestMotionClass = "static" | "pan" | "handheld" | "fast-cut";
+
+/** Framing distance (mirrors `ShotType`). */
+export type ManifestShotType =
+	| "wide"
+	| "medium"
+	| "close-up"
+	| "extreme-close-up"
+	| "insert";
+
+/** Compact per-shot-type label for the digest's bracket annotation (a few chars each). */
+const SHOT_TYPE_LABEL: Record<ManifestShotType, string> = {
+	wide: "wide",
+	medium: "med",
+	"close-up": "CU",
+	"extreme-close-up": "ECU",
+	insert: "insert",
+};
+
+/** MINIMAL LOCAL MIRROR of `CompositionNote`. */
+export interface ManifestComposition {
+	subjectPosition?: string;
+	headroom?: string;
+	ruleOfThirds?: boolean;
+}
+
+/** MINIMAL LOCAL MIRROR of `AudioProbe`. */
+export interface ManifestAudioProbe {
+	hasSpeech?: boolean;
+	energy?: "low" | "medium" | "high";
+}
+
+/** MINIMAL LOCAL MIRROR of `ContinuityFingerprint`. */
+export interface ManifestContinuityFingerprint {
+	lighting?: string;
+	whiteBalance?: string;
+	wardrobe?: string;
+	colorSignature?: string;
+}
+
+/**
  * MINIMAL LOCAL MIRROR of the sibling "Understanding Pass" agent's per-asset
  * export. We consume ONLY these fields; the real interface is being built in
  * parallel and may carry more. Keeping our own copy (rather than importing) is
@@ -93,6 +138,19 @@ export interface AssetUnderstanding {
 	 * stripped at the manifest boundary.
 	 */
 	styleProbe?: ManifestStyleProbe;
+	/**
+	 * DEEPENED perception facets (Bet 1 — director-intelligence architecture),
+	 * mirroring `AssetUnderstanding`'s optional widening in
+	 * `@/lib/search/asset-understanding`. A SHALLOW understanding row (predates
+	 * the widening, or degraded) simply omits all of these — every consumer
+	 * below degrades silently, same contract as `styleProbe`.
+	 */
+	motion?: ManifestMotionClass;
+	shotType?: ManifestShotType;
+	composition?: ManifestComposition;
+	emotion?: string;
+	audio?: ManifestAudioProbe;
+	continuityFingerprint?: ManifestContinuityFingerprint;
 }
 
 /**
@@ -262,6 +320,21 @@ export interface ManifestHero {
 	orientation?: string;
 	/** Look probe (palette / lens+mood / setting), when the Understanding Pass produced one. */
 	styleProbe?: ManifestStyleProbe;
+	/**
+	 * DEEPENED perception facets, when the Understanding Pass produced them
+	 * (see {@link AssetUnderstanding}). `motion`/`shotType`/`emotion` additionally
+	 * ride a compact bracket in the digest STRING itself (see
+	 * {@link formatHeroFacets}) — a few tokens per hero; `composition`/`audio`/
+	 * `continuityFingerprint` are carried here structurally only (same
+	 * "structural, not in the flowing text" precedent as `styleProbe`), reachable
+	 * via a deeper re-query without bloating the always-injected line.
+	 */
+	motion?: ManifestMotionClass;
+	shotType?: ManifestShotType;
+	composition?: ManifestComposition;
+	emotion?: string;
+	audio?: ManifestAudioProbe;
+	continuityFingerprint?: ManifestContinuityFingerprint;
 }
 
 /** A named face-anchor (a persona) and how many assets matched it. */
@@ -495,6 +568,14 @@ export function buildLibraryManifest(input: {
 				...(asset.source != null ? { source: asset.source } : {}),
 				...(orientation != null ? { orientation } : {}),
 				...(u.styleProbe != null ? { styleProbe: u.styleProbe } : {}),
+				...(u.motion != null ? { motion: u.motion } : {}),
+				...(u.shotType != null ? { shotType: u.shotType } : {}),
+				...(u.composition != null ? { composition: u.composition } : {}),
+				...(u.emotion != null ? { emotion: u.emotion } : {}),
+				...(u.audio != null ? { audio: u.audio } : {}),
+				...(u.continuityFingerprint != null
+					? { continuityFingerprint: u.continuityFingerprint }
+					: {}),
 			});
 		}
 
@@ -699,10 +780,27 @@ function formatRoleSegments(
 }
 
 /**
+ * Compact `[...]` bracket for a hero's DEEPENED perception facets — a few
+ * tokens, appended straight after the caption in the digest STRING (unlike
+ * `styleProbe`/`composition`/`audio`/`continuityFingerprint`, which ride the
+ * structured {@link ManifestHero} only). Only `shotType`/`motion`/`emotion`
+ * are cheap+legible enough for the always-injected prompt line; e.g.
+ * `[CU·handheld·tense]`. Returns `""` (zero bytes) when the hero has none —
+ * the silent-degrade contract every other facet in this module follows.
+ */
+function formatHeroFacets(h: ManifestHero): string {
+	const bits: string[] = [];
+	if (h.shotType) bits.push(SHOT_TYPE_LABEL[h.shotType]);
+	if (h.motion) bits.push(h.motion);
+	if (h.emotion) bits.push(h.emotion);
+	return bits.length ? ` [${bits.join("·")}]` : "";
+}
+
+/**
  * The grounded digest, e.g.:
  * `LIBRARY (31 assets): 4 hero · 1 logo · 3 face-anchor (Mara ×2) · 23 b-roll.
- *  Heroes: #4 "product on marble, backlit", #7 "founder to-camera". 23 more
- *  b-roll — searchable via searchMedia.`
+ *  Heroes: #4 "product on marble, backlit" [CU·handheld·tense], #7 "founder
+ *  to-camera". 23 more b-roll — searchable via searchMedia.`
  */
 function formatGroundedDigest(m: {
 	total: number;
@@ -716,7 +814,7 @@ function formatGroundedDigest(m: {
 
 	if (m.heroes.length) {
 		const named = m.heroes
-			.map((h) => `${h.ref} ${JSON.stringify(h.caption)}`)
+			.map((h) => `${h.ref} ${JSON.stringify(h.caption)}${formatHeroFacets(h)}`)
 			.join(", ");
 		parts.push(`Heroes: ${named}.`);
 	}

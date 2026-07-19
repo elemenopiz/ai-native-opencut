@@ -11,7 +11,12 @@
  *  - a {@link AssetUnderstanding} — the stable contract sibling systems (the
  *    "Asset Manifest" and "Project Bible") code against: a one-line caption, a
  *    ROLE belief + confidence, open-vocab tags observed across MULTIPLE frames,
- *    faces reconciled to personas, and an optional style probe.
+ *    faces reconciled to personas, and an optional style probe. It also carries
+ *    an optional DEEPENED continuity-aware fingerprint — motion, shot type,
+ *    composition, emotion/tone, an audio classification, and a
+ *    {@link ContinuityFingerprint} (lighting/white-balance/wardrobe/color) for
+ *    match-cutting and identity. All additive/optional — see
+ *    {@link isDeepUnderstanding} for detecting a record that predates this.
  *  - {@link buildUnderstandingUserBlocks} / {@link ASSET_UNDERSTANDING_SYSTEM_PROMPT}
  *    frame ONE tool-less "look at these frames and describe the asset" model call,
  *    the frames riding as Anthropic image blocks (real pixels, reusing
@@ -121,6 +126,81 @@ export interface StyleProbe {
 	setting?: string;
 }
 
+// ── deepened perception (Bet 1 — director-intelligence architecture) ──────────
+// The fields below are the "continuity-aware fingerprint" widening: ALL optional,
+// additive, and versionless — the store is a schema-less keyPath-only IndexedDB
+// (see `asset-understanding-store.ts`), so a record produced before this change
+// simply lacks them. That's the "shallow" record {@link isDeepUnderstanding}
+// detects; nothing here requires a migration or invalidates an old record.
+
+/** Camera-motion energy class the frames establish. */
+export type MotionClass = "static" | "pan" | "handheld" | "fast-cut";
+
+/** All motion classes, in a stable order. */
+export const MOTION_CLASSES: readonly MotionClass[] = [
+	"static",
+	"pan",
+	"handheld",
+	"fast-cut",
+] as const;
+
+/** Framing distance the frames establish. */
+export type ShotType =
+	| "wide"
+	| "medium"
+	| "close-up"
+	| "extreme-close-up"
+	| "insert";
+
+/** All shot types, in a stable order (wide → tightest). */
+export const SHOT_TYPES: readonly ShotType[] = [
+	"wide",
+	"medium",
+	"close-up",
+	"extreme-close-up",
+	"insert",
+] as const;
+
+/** A brief structured composition note — subject placement, not a full analysis. */
+export interface CompositionNote {
+	/** Where the subject sits in frame, e.g. "center", "left-third", "right-third". */
+	subjectPosition?: string;
+	/** Headroom above the subject, e.g. "tight", "normal", "excess". */
+	headroom?: string;
+	/** True ⇒ the frame roughly follows the rule of thirds. */
+	ruleOfThirds?: boolean;
+}
+
+/**
+ * A coarse audio classification for the clip. Deliberately NOT a recompute of
+ * the transcript or the beat grid (both already exist as sibling passes —
+ * `getTranscript` / `useBeatGridStore`) — this is a cheap same-call label the
+ * VLM can read off the frames' audio track alongside everything else.
+ */
+export interface AudioProbe {
+	/** True ⇒ the clip has audible speech. */
+	hasSpeech?: boolean;
+	/** Coarse loudness/energy classification. */
+	energy?: "low" | "medium" | "high";
+}
+
+/**
+ * Short string descriptors that anchor CONTINUITY across shots — the piece
+ * that fuses with persona/seed-lock for match-cutting and identity checks
+ * (lighting/white-balance/wardrobe/color matching across cuts of "the same
+ * scene"). Each field is a compact phrase, not a full description.
+ */
+export interface ContinuityFingerprint {
+	/** Lighting setup/quality, e.g. "soft key, warm backlight". */
+	lighting?: string;
+	/** White-balance read, e.g. "warm/tungsten", "cool/daylight", "neutral". */
+	whiteBalance?: string;
+	/** Wardrobe descriptor, when a person is visible. */
+	wardrobe?: string;
+	/** Dominant color grade/signature phrase (distinct from {@link StyleProbe.palette} — this is the MATCH-CUTTING fingerprint, not the mood probe). */
+	colorSignature?: string;
+}
+
 /**
  * The structured, per-asset understanding produced at ingest — the layer ABOVE
  * raw CLIP vectors. This is the STABLE contract the Asset Manifest and Project
@@ -154,10 +234,40 @@ export interface AssetUnderstanding {
 	faces: AssetFace[];
 	/** Optional look probe (palette / lens+mood / setting). Absent ⇒ nothing derived. */
 	styleProbe?: StyleProbe;
+	/**
+	 * Camera-motion energy class, when the frames establish one. Part of the
+	 * DEEPENED fields — see {@link isDeepUnderstanding}.
+	 */
+	motion?: MotionClass;
+	/**
+	 * Framing distance, when the frames establish one. Part of the DEEPENED
+	 * fields — see {@link isDeepUnderstanding}.
+	 */
+	shotType?: ShotType;
+	/** Brief structured composition note. Absent ⇒ nothing derived. */
+	composition?: CompositionNote;
+	/** The felt emotional register of the clip (one or two words), when legible. */
+	emotion?: string;
+	/** Coarse audio classification (speech presence + energy). Absent ⇒ nothing derived. */
+	audio?: AudioProbe;
+	/** Continuity fingerprint for match-cutting/identity. Absent ⇒ nothing derived. */
+	continuityFingerprint?: ContinuityFingerprint;
 	/** VLM model name that produced this understanding (for invalidation on upgrade). */
 	modelName: string;
 	/** When the understanding was produced (epoch ms). */
 	createdAt: number;
+}
+
+/**
+ * True ⇒ `u` carries the DEEPENED perception fields (motion + shotType — the
+ * two always-inferable-from-frames facets the widened extraction prompt
+ * always asks for). False ⇒ a "shallow" record: either produced before this
+ * widening, or a degraded/fail-safe record. Callers use this to detect an
+ * asset worth a demand-driven re-extraction — the trigger itself is a
+ * follow-up; this is only the detector.
+ */
+export function isDeepUnderstanding(u: AssetUnderstanding): boolean {
+	return u.motion != null && u.shotType != null;
 }
 
 /** The minimal persona shape the pass needs to reconcile faces (decoupled from the store). */
@@ -235,12 +345,14 @@ export const ASSET_UNDERSTANDING_SYSTEM_PROMPT = [
 	"You are the ingest EYE of an AI video editor. You are shown 1–8 frames sampled IN TIME ORDER from ONE media asset a user just imported (a video clip or a still). You may also be given a KNOWN CAST list (personas already in the project) and an optional HINT.",
 	"Your job is to describe what the asset IS, as a compact structured record, so the editor can file it by role and by who is in it. Describe ONLY what is actually visible across the frames; never invent a subject, a person, a role, or a look the frames don't show.",
 	"Reply with ONE minified JSON object and nothing else:",
-	'{"caption":"<one sentence>","role":"hero"|"product"|"logo"|"face-anchor"|"b-roll"|"screen-rec","roleConfidence":<0-1>,"tags":["<open-vocab object/person/scene tags>"],"faces":[{"persona":"<exact KNOWN CAST name, or empty if not a known person>","descriptor":"<age range, build, hair, face, wardrobe, distinguishing features>","recurring":<true if this person appears across multiple frames>,"anchorIndex":<0-based frame index where this face is clearest>,"confidence":<0-1>}],"style":{"palette":"<color grade>","lensMood":"<lens/DoF/film stock/mood>","setting":"<environment, time of day, lighting>"}}',
+	'{"caption":"<one sentence>","role":"hero"|"product"|"logo"|"face-anchor"|"b-roll"|"screen-rec","roleConfidence":<0-1>,"tags":["<open-vocab object/person/scene tags>"],"faces":[{"persona":"<exact KNOWN CAST name, or empty if not a known person>","descriptor":"<age range, build, hair, face, wardrobe, distinguishing features>","recurring":<true if this person appears across multiple frames>,"anchorIndex":<0-based frame index where this face is clearest>,"confidence":<0-1>}],"style":{"palette":"<color grade>","lensMood":"<lens/DoF/film stock/mood>","setting":"<environment, time of day, lighting>"},"motion":"static"|"pan"|"handheld"|"fast-cut","shotType":"wide"|"medium"|"close-up"|"extreme-close-up"|"insert","composition":{"subjectPosition":"<e.g. center, left-third, right-third>","headroom":"<tight|normal|excess>","ruleOfThirds":<true|false>},"emotion":"<1-2 words for the felt register, e.g. joyful, tense, somber>","audio":{"hasSpeech":<true|false>,"energy":"low"|"medium"|"high"},"continuity":{"lighting":"<short phrase>","whiteBalance":"<warm|cool|neutral, or a short phrase>","wardrobe":"<short phrase, omit if no person>","colorSignature":"<dominant grade/color phrase>"}}',
 	"Rules:",
 	"- role: pick the SINGLE best fit. hero = the featured subject/money shot; product = a product beauty/detail shot; logo = a brand mark/wordmark/bug; face-anchor = a person's face clear and front-on enough to anchor identity; b-roll = generic supporting/background footage; screen-rec = a screen recording / screencast / UI capture. roleConfidence reflects how sure you are.",
 	"- tags: 6–18 concise OPEN-vocabulary tags for the salient objects, people, actions, and scene — across ALL the frames, not just the first. Prefer concrete nouns. Do not pad with near-duplicates.",
 	"- faces: include an entry ONLY for a clearly visible human face. If the person matches a KNOWN CAST member, set persona to that EXACT name; otherwise leave persona empty and give a good descriptor. Omit the faces array entirely when no human face is present. Never guess a cast name you were not given.",
 	"- style: fill the fields the frames actually establish; omit a field (or the whole style object) when the frames say nothing about it. Keep each a compact phrase.",
+	"- motion and shotType: ALWAYS pick the single best fit from the given options — every clip has SOME camera motion and SOME framing distance, so never omit these two.",
+	"- composition, emotion, audio, continuity: fill ONLY the sub-fields the frames actually establish; omit a sub-field (or the whole object) when unclear. Keep every phrase compact (a few words). continuity.wardrobe applies only when a person is visible.",
 	"- Prefer the HINT for intent, but the FRAMES are the source of truth. When unsure about role or a face, lower the confidence rather than inventing certainty.",
 ].join("\n");
 
@@ -366,6 +478,14 @@ export function parseAssetUnderstanding(
 	const tags = parseTags(obj.tags);
 	const faces = parseFaces(obj.faces, ctx.imageCount, ctx.personas);
 	const styleProbe = parseStyleProbe(obj.style);
+	const motion = normalizeMotion(obj.motion) ?? undefined;
+	const shotType = normalizeShotType(obj.shotType) ?? undefined;
+	const composition = parseComposition(obj.composition);
+	const emotion = cleanStr(obj.emotion ?? obj.tone);
+	const audio = parseAudioProbe(obj.audio);
+	const continuityFingerprint = parseContinuityFingerprint(
+		obj.continuity ?? obj.continuityFingerprint,
+	);
 
 	return {
 		mediaId: ctx.mediaId,
@@ -375,8 +495,126 @@ export function parseAssetUnderstanding(
 		tags,
 		faces,
 		...(styleProbe ? { styleProbe } : {}),
+		...(motion ? { motion } : {}),
+		...(shotType ? { shotType } : {}),
+		...(composition ? { composition } : {}),
+		...(emotion ? { emotion } : {}),
+		...(audio ? { audio } : {}),
+		...(continuityFingerprint ? { continuityFingerprint } : {}),
 		modelName: ctx.modelName,
 		createdAt: ctx.now ?? Date.now(),
+	};
+}
+
+/** Map a loose motion string (synonyms included) to a canonical {@link MotionClass}, or null. */
+export function normalizeMotion(raw: unknown): MotionClass | null {
+	const s = String(raw ?? "")
+		.toLowerCase()
+		.trim();
+	if (!s) return null;
+	if ((MOTION_CLASSES as readonly string[]).includes(s))
+		return s as MotionClass;
+	if (s.includes("handheld") || s.includes("shaky") || s.includes("shake"))
+		return "handheld";
+	if (s.includes("fast") || s.includes("whip") || s.includes("quick cut"))
+		return "fast-cut";
+	if (
+		s.includes("pan") ||
+		s.includes("tilt") ||
+		s.includes("dolly") ||
+		s.includes("track") ||
+		s.includes("moving") ||
+		s.includes("gimbal")
+	)
+		return "pan";
+	if (
+		s.includes("static") ||
+		s.includes("locked") ||
+		s.includes("tripod") ||
+		s.includes("still") ||
+		s.includes("fixed")
+	)
+		return "static";
+	return null;
+}
+
+/** Map a loose shot-type string (synonyms included) to a canonical {@link ShotType}, or null. */
+export function normalizeShotType(raw: unknown): ShotType | null {
+	const s = String(raw ?? "")
+		.toLowerCase()
+		.trim();
+	if (!s) return null;
+	if ((SHOT_TYPES as readonly string[]).includes(s)) return s as ShotType;
+	// Check the most specific first so "extreme close-up" isn't caught by the
+	// looser "close" rule.
+	if (s.includes("extreme close") || s === "ecu" || s.includes("macro"))
+		return "extreme-close-up";
+	if (s.includes("close") || s === "cu") return "close-up";
+	if (s.includes("insert") || s.includes("detail shot")) return "insert";
+	if (s.includes("medium") || s === "ms" || s.includes("mid shot"))
+		return "medium";
+	if (
+		s.includes("wide") ||
+		s.includes("establishing") ||
+		s === "ws" ||
+		s.includes("long shot")
+	)
+		return "wide";
+	return null;
+}
+
+/** Coerce a loose `composition` object into a {@link CompositionNote}, or undefined when empty. */
+function parseComposition(raw: unknown): CompositionNote | undefined {
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+	const obj = raw as Record<string, unknown>;
+	const subjectPosition = cleanStr(obj.subjectPosition ?? obj.position);
+	const headroom = cleanStr(obj.headroom);
+	const ruleOfThirds =
+		typeof obj.ruleOfThirds === "boolean" ? obj.ruleOfThirds : undefined;
+	if (!subjectPosition && !headroom && ruleOfThirds === undefined)
+		return undefined;
+	return {
+		...(subjectPosition ? { subjectPosition } : {}),
+		...(headroom ? { headroom } : {}),
+		...(ruleOfThirds !== undefined ? { ruleOfThirds } : {}),
+	};
+}
+
+/** Coerce a loose `audio` object into an {@link AudioProbe}, or undefined when empty. */
+function parseAudioProbe(raw: unknown): AudioProbe | undefined {
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+	const obj = raw as Record<string, unknown>;
+	const hasSpeech =
+		typeof obj.hasSpeech === "boolean" ? obj.hasSpeech : undefined;
+	const energyRaw = cleanStr(obj.energy)?.toLowerCase();
+	const energy =
+		energyRaw === "low" || energyRaw === "medium" || energyRaw === "high"
+			? energyRaw
+			: undefined;
+	if (hasSpeech === undefined && !energy) return undefined;
+	return {
+		...(hasSpeech !== undefined ? { hasSpeech } : {}),
+		...(energy ? { energy } : {}),
+	};
+}
+
+/** Coerce a loose `continuity` object into a {@link ContinuityFingerprint}, or undefined when empty. */
+function parseContinuityFingerprint(
+	raw: unknown,
+): ContinuityFingerprint | undefined {
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+	const obj = raw as Record<string, unknown>;
+	const lighting = cleanStr(obj.lighting);
+	const whiteBalance = cleanStr(obj.whiteBalance ?? obj.whitebalance ?? obj.wb);
+	const wardrobe = cleanStr(obj.wardrobe);
+	const colorSignature = cleanStr(obj.colorSignature ?? obj.color);
+	if (!lighting && !whiteBalance && !wardrobe && !colorSignature)
+		return undefined;
+	return {
+		...(lighting ? { lighting } : {}),
+		...(whiteBalance ? { whiteBalance } : {}),
+		...(wardrobe ? { wardrobe } : {}),
+		...(colorSignature ? { colorSignature } : {}),
 	};
 }
 
@@ -896,8 +1134,48 @@ export const ASSET_UNDERSTANDING_RESPONSE_SCHEMA = {
 			},
 			propertyOrdering: ["palette", "lensMood", "setting"],
 		},
+		motion: { type: "STRING", enum: [...MOTION_CLASSES] },
+		shotType: { type: "STRING", enum: [...SHOT_TYPES] },
+		composition: {
+			type: "OBJECT",
+			properties: {
+				subjectPosition: { type: "STRING" },
+				headroom: { type: "STRING" },
+				ruleOfThirds: { type: "BOOLEAN" },
+			},
+			propertyOrdering: ["subjectPosition", "headroom", "ruleOfThirds"],
+		},
+		emotion: { type: "STRING" },
+		audio: {
+			type: "OBJECT",
+			properties: {
+				hasSpeech: { type: "BOOLEAN" },
+				energy: { type: "STRING", enum: ["low", "medium", "high"] },
+			},
+			propertyOrdering: ["hasSpeech", "energy"],
+		},
+		continuity: {
+			type: "OBJECT",
+			properties: {
+				lighting: { type: "STRING" },
+				whiteBalance: { type: "STRING" },
+				wardrobe: { type: "STRING" },
+				colorSignature: { type: "STRING" },
+			},
+			propertyOrdering: [
+				"lighting",
+				"whiteBalance",
+				"wardrobe",
+				"colorSignature",
+			],
+		},
 	},
-	required: ["caption", "role", "roleConfidence", "tags"],
+	// motion/shotType join the required set: the prompt asks for them on EVERY
+	// clip (unlike composition/emotion/audio/continuity, which stay optional —
+	// the model omits those when the frames don't establish them). This is the
+	// signal `isDeepUnderstanding` reads: a record produced under this schema
+	// always carries both.
+	required: ["caption", "role", "roleConfidence", "tags", "motion", "shotType"],
 	propertyOrdering: [
 		"caption",
 		"role",
@@ -905,6 +1183,12 @@ export const ASSET_UNDERSTANDING_RESPONSE_SCHEMA = {
 		"tags",
 		"faces",
 		"style",
+		"motion",
+		"shotType",
+		"composition",
+		"emotion",
+		"audio",
+		"continuity",
 	],
 } as const;
 

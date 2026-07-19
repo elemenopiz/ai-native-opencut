@@ -69,6 +69,47 @@ describe("adaptUnderstandingForManifest", () => {
 		expect(m.styleProbe).toBeUndefined();
 	});
 
+	it("carries the DEEPENED perception fields through when present (Bet 1)", () => {
+		const u = canonical({
+			motion: "handheld",
+			shotType: "close-up",
+			composition: { subjectPosition: "center", ruleOfThirds: true },
+			emotion: "tense",
+			audio: { hasSpeech: true, energy: "high" },
+			continuityFingerprint: {
+				lighting: "soft key",
+				whiteBalance: "warm",
+				wardrobe: "navy blazer",
+				colorSignature: "warm amber",
+			},
+		});
+		const m = adaptUnderstandingForManifest(u);
+		expect(m.motion).toBe("handheld");
+		expect(m.shotType).toBe("close-up");
+		expect(m.composition).toEqual({
+			subjectPosition: "center",
+			ruleOfThirds: true,
+		});
+		expect(m.emotion).toBe("tense");
+		expect(m.audio).toEqual({ hasSpeech: true, energy: "high" });
+		expect(m.continuityFingerprint).toEqual({
+			lighting: "soft key",
+			whiteBalance: "warm",
+			wardrobe: "navy blazer",
+			colorSignature: "warm amber",
+		});
+	});
+
+	it("degrades silently: a SHALLOW canonical record (no deepened fields) omits them all from the manifest shape", () => {
+		const m = adaptUnderstandingForManifest(canonical());
+		expect(m.motion).toBeUndefined();
+		expect(m.shotType).toBeUndefined();
+		expect(m.composition).toBeUndefined();
+		expect(m.emotion).toBeUndefined();
+		expect(m.audio).toBeUndefined();
+		expect(m.continuityFingerprint).toBeUndefined();
+	});
+
 	it("carries caption, confidence, tags, and the named face fields", () => {
 		const u = canonical({
 			caption: "founder to-camera",
