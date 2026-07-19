@@ -517,6 +517,14 @@ export function toolCatalog(): ToolDescriptor[] {
 			}),
 		},
 		{
+			name: "getTimeline",
+			description:
+				"inspect the FULL timeline — every track and every element (uploaded clips, text overlays, audio, AND generative slots), not just the generative reel getReel() shows. A one-line TIMELINE digest already rides your system prompt every turn — call this only to re-check mid-task after the timeline may have changed, or to read exact element ids/labels/positions the digest omits. Elements carrying a `slotId` are also reel slots (cross-reference getReel(), don't double-count).",
+			mutating: false,
+			inputSchema: EMPTY,
+			handler: (d) => d.getTimeline(),
+		},
+		{
 			name: "getSlot",
 			description: "inspect ONE slot (prompt, status, takes) by id.",
 			mutating: false,
@@ -676,7 +684,7 @@ export function toolCatalog(): ToolDescriptor[] {
 				required: ["itemId"],
 			},
 			handler: (d, a) => d.discardBoardItem({ itemId: str(a.itemId) }),
-			},
+		},
 		{
 			name: "readPlaybook",
 			description:
