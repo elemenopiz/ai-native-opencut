@@ -118,56 +118,71 @@ export function SpeakerCaptionsPanel({ className }: { className?: string }) {
 			return;
 		}
 
-		// Replace a previously-applied speaker-caption track so re-applying with a
-		// different style/grouping doesn't stack duplicates.
-		removeAppliedTrack();
+		// Removing the old track, adding the new one, and inserting every
+		// segment is one user action ("apply") — must undo as a single step.
+		const supportsTransaction =
+			typeof editor.command.beginTransaction === "function";
+		if (supportsTransaction) {
+			editor.command.beginTransaction({ name: "Apply speaker captions" });
+		}
 
-		const preset = getCaptionPreset(captionPreset);
-		const canvasSize = editor.project.getActive().settings.canvasSize;
-		const baseY = canvasSize.height * preset.yPositionRatio;
+		let trackId: string;
+		try {
+			// Replace a previously-applied speaker-caption track so re-applying with a
+			// different style/grouping doesn't stack duplicates.
+			removeAppliedTrack();
 
-		const trackId = editor.timeline.addTrack({ type: "text", index: 0 });
-		editor.timeline.renameTrack({ trackId, name: "Speaker Captions" });
+			const preset = getCaptionPreset(captionPreset);
+			const canvasSize = editor.project.getActive().settings.canvasSize;
+			const baseY = canvasSize.height * preset.yPositionRatio;
 
-		for (let i = 0; i < captionSegments.length; i++) {
-			const seg = captionSegments[i];
+			trackId = editor.timeline.addTrack({ type: "text", index: 0 });
+			editor.timeline.renameTrack({ trackId, name: "Speaker Captions" });
 
-			// Word timings are element-local (0-based) for the renderer's karaoke path.
-			const wordTimings = seg.words.map((w) => ({
-				word: w.word,
-				start: w.start - seg.start,
-				end: w.end - seg.start,
-			}));
+			for (let i = 0; i < captionSegments.length; i++) {
+				const seg = captionSegments[i];
 
-			const position = (speakerPositions[seg.speaker] ??
-				"center") as SpeakerPosition;
-			const x = canvasSize.width * POSITION_X_RATIO[position];
+				// Word timings are element-local (0-based) for the renderer's karaoke path.
+				const wordTimings = seg.words.map((w) => ({
+					word: w.word,
+					start: w.start - seg.start,
+					end: w.end - seg.start,
+				}));
 
-			editor.timeline.insertElement({
-				placement: { mode: "explicit", trackId },
-				element: {
-					...DEFAULT_TEXT_ELEMENT,
-					...buildCaptionElementStyle({
-						preset,
-						elementKey: `${trackId}-${i}`,
-					}),
-					// Tint the base (unspoken) color per speaker so each diarized
-					// speaker is visually distinct; the preset's highlight/active
-					// colors still drive the karaoke fill.
-					color: seg.speakerColor,
-					name: `${seg.speakerLabel} ${i + 1}`,
-					content: seg.text,
-					startTime: seg.start,
-					duration: seg.end - seg.start,
-					...(wordTimings.length > 0 ? { wordTimings } : {}),
-					opacity: 1,
-					transform: {
-						scale: 1,
-						position: { x, y: baseY },
-						rotate: 0,
+				const position = (speakerPositions[seg.speaker] ??
+					"center") as SpeakerPosition;
+				const x = canvasSize.width * POSITION_X_RATIO[position];
+
+				editor.timeline.insertElement({
+					placement: { mode: "explicit", trackId },
+					element: {
+						...DEFAULT_TEXT_ELEMENT,
+						...buildCaptionElementStyle({
+							preset,
+							elementKey: `${trackId}-${i}`,
+						}),
+						// Tint the base (unspoken) color per speaker so each diarized
+						// speaker is visually distinct; the preset's highlight/active
+						// colors still drive the karaoke fill.
+						color: seg.speakerColor,
+						name: `${seg.speakerLabel} ${i + 1}`,
+						content: seg.text,
+						startTime: seg.start,
+						duration: seg.end - seg.start,
+						...(wordTimings.length > 0 ? { wordTimings } : {}),
+						opacity: 1,
+						transform: {
+							scale: 1,
+							position: { x, y: baseY },
+							rotate: 0,
+						},
 					},
-				},
-			});
+				});
+			}
+			if (supportsTransaction) editor.command.commitTransaction();
+		} catch (err) {
+			if (supportsTransaction) editor.command.rollbackTransaction();
+			throw err;
 		}
 
 		setAppliedTrackId(trackId);

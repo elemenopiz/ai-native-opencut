@@ -568,44 +568,58 @@ export function Captions() {
 				}
 			}
 
-			// Auto-separate audio from video so it appears as its own track
-			const tracksAfterSplit = editor.timeline.getTracks();
-			for (const track of tracksAfterSplit) {
-				if (track.type !== "video") continue;
-				for (const el of track.elements) {
-					const videoEl = el as TimelineElement & {
-						mediaId?: string;
-						muted?: boolean;
-					};
-					if (!videoEl.mediaId || videoEl.muted) continue;
+			// Auto-separate audio from video so it appears as its own track.
+			// Every mute+insert pair below should collapse into one undo step.
+			const supportsSeparateAudioTransaction =
+				typeof editor.command.beginTransaction === "function";
+			if (supportsSeparateAudioTransaction) {
+				editor.command.beginTransaction({ name: "Separate audio from video" });
+			}
+			try {
+				const tracksAfterSplit = editor.timeline.getTracks();
+				for (const track of tracksAfterSplit) {
+					if (track.type !== "video") continue;
+					for (const el of track.elements) {
+						const videoEl = el as TimelineElement & {
+							mediaId?: string;
+							muted?: boolean;
+						};
+						if (!videoEl.mediaId || videoEl.muted) continue;
 
-					// Mute the video element and create a matching audio element
-					editor.timeline.updateElements({
-						updates: [
-							{
-								trackId: track.id,
-								elementId: el.id,
-								updates: { muted: true },
+						// Mute the video element and create a matching audio element
+						editor.timeline.updateElements({
+							updates: [
+								{
+									trackId: track.id,
+									elementId: el.id,
+									updates: { muted: true },
+								},
+							],
+						});
+
+						editor.timeline.insertElement({
+							element: {
+								type: "audio",
+								sourceType: "upload",
+								mediaId: videoEl.mediaId,
+								name: `${el.name} (audio)`,
+								startTime: el.startTime,
+								duration: el.duration,
+								trimStart: el.trimStart,
+								trimEnd: el.trimEnd,
+								sourceDuration: el.sourceDuration,
+								volume: 1,
 							},
-						],
-					});
-
-					editor.timeline.insertElement({
-						element: {
-							type: "audio",
-							sourceType: "upload",
-							mediaId: videoEl.mediaId,
-							name: `${el.name} (audio)`,
-							startTime: el.startTime,
-							duration: el.duration,
-							trimStart: el.trimStart,
-							trimEnd: el.trimEnd,
-							sourceDuration: el.sourceDuration,
-							volume: 1,
-						},
-						placement: { mode: "auto" },
-					});
+							placement: { mode: "auto" },
+						});
+					}
 				}
+				if (supportsSeparateAudioTransaction)
+					editor.command.commitTransaction();
+			} catch (separateErr) {
+				if (supportsSeparateAudioTransaction)
+					editor.command.rollbackTransaction();
+				throw separateErr;
 			}
 
 			setSubtitleTracks([]);
@@ -672,50 +686,65 @@ export function Captions() {
 		preset: CaptionStylePreset;
 		yOffset?: number;
 	}) => {
-		const trackId = editor.timeline.addTrack({ type: "text", index: 0 });
-		editor.timeline.renameTrack({
-			trackId,
-			name: `Subs: ${languageLabel}`,
-		});
-		const canvasSize = editor.project.getActive().settings.canvasSize;
-		// Translations stack above the original track via an explicit yOffset;
-		// otherwise use the preset's vertical placement.
-		const subtitleY = canvasSize.height * (yOffset ?? preset.yPositionRatio);
-
-		for (let i = 0; i < subtitleSegments.length; i++) {
-			const seg = subtitleSegments[i];
-
-			// Build word timings relative to the element's local time (0-based)
-			const wordTimings = seg.words?.map((w) => ({
-				word: w.word,
-				start: w.start - seg.start,
-				end: w.end - seg.start,
-			}));
-
-			editor.timeline.insertElement({
-				placement: { mode: "explicit", trackId },
-				element: {
-					...DEFAULT_TEXT_ELEMENT,
-					...buildCaptionElementStyle({
-						preset,
-						elementKey: `${trackId}-${i}`,
-					}),
-					name: `${languageLabel} ${i + 1}`,
-					content: seg.text,
-					duration: seg.end - seg.start,
-					startTime: seg.start,
-					...(wordTimings && wordTimings.length > 0 ? { wordTimings } : {}),
-					opacity: 1,
-					transform: {
-						scale: 1,
-						position: { x: 0, y: subtitleY },
-						rotate: 0,
-					},
-				},
+		// One track + N caption elements should be one undo step, not N+1.
+		const supportsTransaction =
+			typeof editor.command.beginTransaction === "function";
+		if (supportsTransaction) {
+			editor.command.beginTransaction({
+				name: `Add ${languageLabel} subtitles`,
 			});
 		}
 
-		return trackId;
+		try {
+			const trackId = editor.timeline.addTrack({ type: "text", index: 0 });
+			editor.timeline.renameTrack({
+				trackId,
+				name: `Subs: ${languageLabel}`,
+			});
+			const canvasSize = editor.project.getActive().settings.canvasSize;
+			// Translations stack above the original track via an explicit yOffset;
+			// otherwise use the preset's vertical placement.
+			const subtitleY = canvasSize.height * (yOffset ?? preset.yPositionRatio);
+
+			for (let i = 0; i < subtitleSegments.length; i++) {
+				const seg = subtitleSegments[i];
+
+				// Build word timings relative to the element's local time (0-based)
+				const wordTimings = seg.words?.map((w) => ({
+					word: w.word,
+					start: w.start - seg.start,
+					end: w.end - seg.start,
+				}));
+
+				editor.timeline.insertElement({
+					placement: { mode: "explicit", trackId },
+					element: {
+						...DEFAULT_TEXT_ELEMENT,
+						...buildCaptionElementStyle({
+							preset,
+							elementKey: `${trackId}-${i}`,
+						}),
+						name: `${languageLabel} ${i + 1}`,
+						content: seg.text,
+						duration: seg.end - seg.start,
+						startTime: seg.start,
+						...(wordTimings && wordTimings.length > 0 ? { wordTimings } : {}),
+						opacity: 1,
+						transform: {
+							scale: 1,
+							position: { x: 0, y: subtitleY },
+							rotate: 0,
+						},
+					},
+				});
+			}
+
+			if (supportsTransaction) editor.command.commitTransaction();
+			return trackId;
+		} catch (err) {
+			if (supportsTransaction) editor.command.rollbackTransaction();
+			throw err;
+		}
 	};
 
 	const handleAddSubtitles = () => {
@@ -1033,6 +1062,11 @@ export function Captions() {
 	};
 
 	const handleRemoveSubtitles = () => {
+		const supportsTransaction =
+			typeof editor.command.beginTransaction === "function";
+		if (supportsTransaction) {
+			editor.command.beginTransaction({ name: "Remove all subtitle tracks" });
+		}
 		for (const track of subtitleTracks) {
 			try {
 				editor.timeline.removeTrack({ trackId: track.trackId });
@@ -1040,6 +1074,7 @@ export function Captions() {
 				// Track may already have been removed manually
 			}
 		}
+		if (supportsTransaction) editor.command.commitTransaction();
 		setSubtitleTracks([]);
 		toast.success("All subtitle tracks removed");
 	};

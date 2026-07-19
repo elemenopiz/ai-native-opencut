@@ -24,23 +24,36 @@ export function insertSubtitleCuesAsTextTrack({
 		return null;
 	}
 
-	const trackId = editor.timeline.addTrack({ type: "text", index: 0 });
-	if (trackName) {
-		editor.timeline.renameTrack({ trackId, name: trackName });
+	// One track + N cue elements is one user action — collapse into one undo step.
+	const supportsTransaction =
+		typeof editor.command.beginTransaction === "function";
+	if (supportsTransaction) {
+		editor.command.beginTransaction({ name: trackName ?? "Import subtitles" });
 	}
 
-	const canvasSize = editor.project.getActive().settings.canvasSize;
+	try {
+		const trackId = editor.timeline.addTrack({ type: "text", index: 0 });
+		if (trackName) {
+			editor.timeline.renameTrack({ trackId, name: trackName });
+		}
 
-	for (let index = 0; index < cues.length; index++) {
-		editor.timeline.insertElement({
-			placement: { mode: "explicit", trackId },
-			element: buildSubtitleTextElement({
-				index,
-				cue: cues[index],
-				canvasSize,
-			}),
-		});
+		const canvasSize = editor.project.getActive().settings.canvasSize;
+
+		for (let index = 0; index < cues.length; index++) {
+			editor.timeline.insertElement({
+				placement: { mode: "explicit", trackId },
+				element: buildSubtitleTextElement({
+					index,
+					cue: cues[index],
+					canvasSize,
+				}),
+			});
+		}
+
+		if (supportsTransaction) editor.command.commitTransaction();
+		return { trackId, count: cues.length };
+	} catch (err) {
+		if (supportsTransaction) editor.command.rollbackTransaction();
+		throw err;
 	}
-
-	return { trackId, count: cues.length };
 }
