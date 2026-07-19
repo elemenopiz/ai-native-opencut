@@ -30,6 +30,16 @@ export interface ExportOptions {
 	includeAudio?: boolean;
 	includeWatermark?: boolean;
 	/**
+	 * Force an audio-only export — drop the video track entirely regardless
+	 * of what `hasVisualContent` (renderer-manager.ts) would otherwise decide.
+	 * Reuses the BUG17 `includeVideoTrack` seam in `SceneExporter`; the only
+	 * difference from the automatic path is that this is a user choice (the
+	 * "Podcast (audio only)" preset) rather than an inference from the
+	 * project's tracks. Still subject to the same "nothing to export"
+	 * fail-fast when there's no audio to carry the file.
+	 */
+	audioOnly?: boolean;
+	/**
 	 * Output pixel dimensions for a platform preset (e.g. 1080x1920 for
 	 * TikTok/Reels). The scene is still built and rendered at the project's
 	 * own canvasSize — this only controls the final output canvas, which the

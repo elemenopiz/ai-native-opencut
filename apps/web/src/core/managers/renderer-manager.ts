@@ -137,8 +137,15 @@ export class RendererManager {
 		onProgress?: ({ progress }: { progress: number }) => void;
 		onCancel?: () => boolean;
 	}): Promise<ExportResult> {
-		const { format, quality, fps, includeAudio, includeWatermark, dimensions } =
-			options;
+		const {
+			format,
+			quality,
+			fps,
+			includeAudio,
+			includeWatermark,
+			dimensions,
+			audioOnly,
+		} = options;
 
 		try {
 			const tracks = this.editor.timeline.getTracks();
@@ -213,12 +220,22 @@ export class RendererManager {
 			// GIF exports, or an audio track with no elements/all muted). If
 			// there's neither, there is nothing whatsoever to export, so fail fast
 			// with a clear message instead of producing an empty/blank file.
-			const includeVideo = hasVisualContent({ tracks });
+			//
+			// `audioOnly` (the "Podcast" preset, or a direct caller opting in)
+			// forces the video track off even when `hasVisualContent` would
+			// otherwise say yes — e.g. a podcast project with a static cover image
+			// or waveform visual. It's a user choice layered on top of the same
+			// `includeVideoTrack` seam, not a separate code path: the "nothing to
+			// export" fail-fast still applies, now keyed on audio alone whenever
+			// `audioOnly` is set, since the (possibly present) visual content is
+			// being deliberately dropped.
+			const includeVideo = audioOnly ? false : hasVisualContent({ tracks });
 			if (!includeVideo && !audioBuffer) {
 				return {
 					success: false,
-					error:
-						"Nothing to export — this project has no visual content and no audio. Add a clip, text, or sticker, or enable audio, before exporting.",
+					error: audioOnly
+						? "Nothing to export — audio-only export needs an audio track, but this project has none. Add or enable audio before exporting."
+						: "Nothing to export — this project has no visual content and no audio. Add a clip, text, or sticker, or enable audio, before exporting.",
 				};
 			}
 
