@@ -15,7 +15,6 @@ import {
 	Search01Icon,
 	UserGroupIcon,
 	Camera01Icon,
-	GridIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 
@@ -29,7 +28,6 @@ export const TAB_KEYS = [
 	"elements",
 	"visuals",
 	"multicam",
-	"templates",
 	"search",
 	"brandkit",
 	// "What the AI sees" — an inspection lens, so it sits with the other
@@ -89,10 +87,6 @@ export const tabs = {
 	multicam: {
 		icon: createHugeiconsIcon({ icon: Camera01Icon }),
 		label: "Multicam",
-	},
-	templates: {
-		icon: createHugeiconsIcon({ icon: GridIcon }),
-		label: "Templates",
 	},
 	search: {
 		icon: createHugeiconsIcon({ icon: Search01Icon }),
