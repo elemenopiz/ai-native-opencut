@@ -30,8 +30,15 @@
  *   project". Their consumers drain them after project load.
  * - UI-preference stores (panels, keybindings, studio settings, playback
  *   prefs) — user-scoped, not project-scoped.
+ *
+ * Director-revamp Item 9 (F-local conversation persistence): `useAIStore`'s
+ * `studioMessages` was the exact same bug class — a flat, un-scoped array —
+ * before that pass wired `resetForProjectSwitch()` in here. The PERSISTED
+ * conversations (IndexedDB, project-scoped by design) are untouched by this;
+ * only the live in-memory chat view resets, same as everything else here.
  */
 
+import { useAIStore } from "@/stores/ai-store";
 import { useAssetsPanelStore } from "@/stores/assets-panel-store";
 import { useBackgroundTasksStore } from "@/stores/background-tasks-store";
 import { useBeatGridStore } from "@/stores/beat-grid-store";
@@ -66,4 +73,9 @@ export function resetProjectScopedStores(): void {
 	useTimelineStore.getState().setClipboard(null);
 	usePropertiesStore.getState().closeClipEffects();
 	useAssetsPanelStore.getState().clearHighlight();
+	// The live Director chat view (item 9, F-local) — resets so the previous
+	// project's conversation never bleeds onto the newly-opened one; the
+	// editor page's Director view then lazily attaches a (new or existing)
+	// conversation for THIS project on its own next message.
+	useAIStore.getState().resetForProjectSwitch();
 }

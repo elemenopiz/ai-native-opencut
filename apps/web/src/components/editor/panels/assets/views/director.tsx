@@ -12,8 +12,9 @@ import {
 	SentIcon,
 	TextIcon,
 	Bookmark01Icon,
-	Delete02Icon,
-	FilmRoll01Icon,
+	Add01Icon,
+	Clock01Icon,
+	BubbleChatIcon,
 	StopIcon,
 } from "@hugeicons/core-free-icons";
 import { aiClient } from "@/lib/ai-client";
@@ -38,6 +39,18 @@ import { summarizeBrief } from "@/lib/director/director-brief";
 import { getUnderstandingCaptions } from "@/lib/director/understanding-lookup";
 import { toast } from "sonner";
 import { useAssetsPanelStore } from "@/stores/assets-panel-store";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+	getConversation,
+	listConversationsForProject,
+	type DirectorConversationSummary,
+} from "@/services/storage/director-conversation-store";
 
 // ----- Thinking Messages -----
 
@@ -161,6 +174,83 @@ function useThinkingMessage(isThinking: boolean) {
 	return THINKING_MESSAGES[index];
 }
 
+// ----- Conversation history (Item 9 — F-local list/reopen) -----
+
+/** Same shape as `commit-item.tsx`'s version-history helper, taking an epoch
+ *  ms timestamp instead of an ISO string (conversation records use epoch ms
+ *  throughout — see `director-conversation-store.ts`). */
+function formatRelativeTime(epochMs: number): string {
+	const diffMs = Date.now() - epochMs;
+	const diffSec = Math.floor(diffMs / 1000);
+	const diffMin = Math.floor(diffSec / 60);
+	const diffHr = Math.floor(diffMin / 60);
+	const diffDay = Math.floor(diffHr / 24);
+
+	if (diffSec < 60) return "just now";
+	if (diffMin < 60) return `${diffMin}m ago`;
+	if (diffHr < 24) return `${diffHr}h ago`;
+	if (diffDay < 7) return `${diffDay}d ago`;
+	return new Date(epochMs).toLocaleDateString();
+}
+
+// ----- Friendly error copy -----
+//
+// A caught agent-loop error used to render its raw `error.message` straight
+// into the chat bubble (e.g. "Claude relay error (401): Unauthorized Check
+// ANTHROPIC_API_KEY / ... apps/web/.env.local."). That's an internal detail,
+// not something a user should have to parse. `classifyAgentError` maps the
+// raw detail to a short human line for the bubble's PRIMARY copy; the raw
+// detail itself rides `StudioMessage.errorDetail` and only surfaces behind
+// the bubble's "Show details" toggle (render path below).
+
+/** A short, human bubble line for a caught agent-loop error. Never echoes
+ *  the raw `detail` string. Exported for the (cheap) unit tests alongside
+ *  this file. */
+export function classifyAgentError(detail: string): string {
+	const isConfigIssue = detail.includes("No Director brain");
+	const isRelayIssue = detail.includes("Claude relay");
+	const isAuthish = /\b(401|403)\b/.test(detail);
+	if (isConfigIssue) return "AI isn't set up on this deployment yet.";
+	if (isRelayIssue && isAuthish) return "I couldn't sign in to the AI service.";
+	if (isRelayIssue)
+		return "I couldn't reach the AI service — try again in a moment.";
+	return "Something went wrong. Try again in a moment.";
+}
+
+/** Non-production-only developer pointer, appended to a relay error's detail
+ *  (mirrors the pre-existing hardcoded hint) — never shown in the bubble's
+ *  primary copy, and never at all in production. */
+function relayDevHint(): string {
+	return process.env.NODE_ENV !== "production"
+		? " Check ANTHROPIC_API_KEY / GEMINI_API_KEY / DIRECTOR_MODEL in apps/web/.env.local."
+		: "";
+}
+
+/**
+ * Bounded silent auto-retry classifier: "it should just work" for a blip,
+ * not for a real failure. TRANSIENT (network hiccup, timeout, HTTP 429/5xx)
+ * → the send path retries the turn once, silently (no visible error, no UI
+ * change — see `handleSend`'s chat-mode catch). Everything else — auth
+ * (401/403), no-brain-configured, or any other 4xx — is treated as
+ * non-transient and surfaces the friendly line immediately, no retry
+ * (retrying an auth failure or a config error can't ever succeed, and
+ * masking it behind a delay just makes the real problem slower to see).
+ * Checked in this order so an auth-flavored relay error (401 inside a
+ * "Claude relay error" string) is never misread as transient.
+ */
+export function isTransientAgentError(detail: string): boolean {
+	if (detail.includes("No Director brain")) return false;
+	if (/\b(401|403)\b/.test(detail)) return false;
+	if (/\b(429|5\d\d)\b/.test(detail)) return true;
+	if (
+		/network|timeout|timed out|failed to fetch|ECONNRESET|ETIMEDOUT/i.test(
+			detail,
+		)
+	)
+		return true;
+	return false;
+}
+
 // ----- Types -----
 
 // Director chat is a two-mode conversational surface: freeform brainstorm/agent
@@ -224,9 +314,15 @@ export function DirectorView() {
 	const messages = useAIStore((s) => s.studioMessages);
 	const addMessage = useAIStore((s) => s.addStudioMessage);
 	const updateMessage = useAIStore((s) => s.updateStudioMessage);
-	const clearMessages = useAIStore((s) => s.clearStudioMessages);
 	const directorDraftByProject = useAIStore((s) => s.directorDraftByProject);
 	const setDirectorDraft = useAIStore((s) => s.setDirectorDraft);
+	// Item 9 (F-local) — conversation persistence. `ensureConversation` is
+	// called once per turn (below, in `handleSend`) so the write-through has a
+	// conversation to save to; `startNewConversation`/`openConversation` back
+	// the header's history affordance (New chat / reopen).
+	const ensureConversation = useAIStore((s) => s.ensureConversation);
+	const startNewConversation = useAIStore((s) => s.startNewConversation);
+	const openConversation = useAIStore((s) => s.openConversation);
 	const transcriptSegments = useTranscriptStore((s) => s.segments);
 	const hasTranscript = transcriptSegments.length > 0;
 
@@ -282,12 +378,56 @@ export function DirectorView() {
 	const [expandedToolRuns, setExpandedToolRuns] = useState<Set<string>>(
 		new Set(),
 	);
+	// Friendly-error bubbles: which ones have their "Show details" expander
+	// open. Render-time-only, mirrors `expandedToolRuns`'s pattern.
+	const [expandedErrorDetails, setExpandedErrorDetails] = useState<Set<string>>(
+		new Set(),
+	);
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 	const scrollRef = useRef<HTMLDivElement>(null);
 	// Live agent run: the AbortController for the in-flight chat run, so the Stop
 	// button can cancel a long multi-step run cooperatively (completed steps keep
 	// their effect on the reel).
 	const abortRef = useRef<AbortController | null>(null);
+
+	// Item 9 (F-local) — the compact history popover's list, lazily fetched
+	// from IndexedDB each time it opens (never held as global store state —
+	// it's a read-only listing view, not something other parts of the UI need).
+	const [conversationHistory, setConversationHistory] = useState<
+		DirectorConversationSummary[]
+	>([]);
+	const [historyOpen, setHistoryOpen] = useState(false);
+	const loadConversationHistory = useCallback(() => {
+		if (!projectId) {
+			setConversationHistory([]);
+			return;
+		}
+		listConversationsForProject(projectId).then(setConversationHistory);
+	}, [projectId]);
+
+	const handleNewChat = useCallback(() => {
+		startNewConversation(projectId);
+		setHistoryOpen(false);
+		requestAnimationFrame(() => inputRef.current?.focus());
+	}, [projectId, startNewConversation]);
+
+	const handleReopenConversation = useCallback(
+		async (id: string) => {
+			const record = await getConversation(id);
+			setHistoryOpen(false);
+			if (!record) {
+				// Fail-soft: the record vanished (evicted, storage cleared elsewhere)
+				// between listing it and clicking it — just refresh the list rather
+				// than leaving a dead entry in view.
+				toast.error("That conversation is no longer available.");
+				loadConversationHistory();
+				return;
+			}
+			openConversation(record);
+			setMode("chat");
+		},
+		[openConversation, loadConversationHistory],
+	);
 
 	const handleStopAgent = useCallback(() => {
 		abortRef.current?.abort();
@@ -387,6 +527,11 @@ export function DirectorView() {
 			return;
 		}
 
+		// Item 9 (F-local) — attach the live chat to a persisted conversation
+		// before the first message of a turn, so `addMessage`'s write-through
+		// (in ai-store) has somewhere to save to. No-op if already attached to
+		// this project's conversation.
+		ensureConversation(projectId);
 		addMessage({
 			id: crypto.randomUUID(),
 			role: "user",
@@ -530,14 +675,39 @@ export function DirectorView() {
 			};
 
 			try {
-				const result = await runDirectorAgent({
-					director,
-					chat: (message, system) =>
-						aiClient.chat(message, system).then((r) => r.response),
-					userMessage: trimmed,
-					onEvent,
-					signal: controller.signal,
-				});
+				const runOnce = () =>
+					runDirectorAgent({
+						director,
+						chat: (message, system) =>
+							aiClient.chat(message, system).then((r) => r.response),
+						userMessage: trimmed,
+						onEvent,
+						signal: controller.signal,
+					});
+
+				let result: Awaited<ReturnType<typeof runDirectorAgent>>;
+				try {
+					result = await runOnce();
+				} catch (firstError) {
+					const detail = firstError instanceof Error ? firstError.message : "";
+					// Bounded silent auto-retry — "it should just work" for a blip,
+					// not for a real failure: exactly ONE retry, and ONLY before any
+					// tool call has run this turn (never re-runs an already-executed,
+					// possibly side-effecting tool — e.g. a generation that already
+					// spent credits). No visible UI change while it waits — the
+					// "thinking" status row just stays up; if the retry also fails,
+					// it falls through to the ONE friendly error bubble below (never
+					// two visible errors for one send).
+					const canRetry =
+						toolMsgIds.size === 0 &&
+						!streamedText &&
+						isTransientAgentError(detail) &&
+						!controller.signal.aborted;
+					if (!canRetry) throw firstError;
+					await new Promise((resolve) => setTimeout(resolve, 1500));
+					if (controller.signal.aborted) throw firstError;
+					result = await runOnce();
+				}
 				commitLive();
 				if (result.cancelled) {
 					addMessage({
@@ -581,18 +751,23 @@ export function DirectorView() {
 				const detail = error instanceof Error ? error.message : "";
 				// Relay failures and the no-brain-configured error carry their own
 				// actionable explanation (the local Ollama fallback is retired, so
-				// there is no silent-degrade path to hint at anymore).
+				// there is no silent-degrade path to hint at anymore) — but that
+				// explanation is a developer detail, not chat copy: it rides
+				// `errorDetail` behind the bubble's "Show details" toggle, never the
+				// primary line (see the render path below, and `classifyAgentError`).
 				const isRelayIssue = detail.includes("Claude relay");
-				const isConfigIssue = detail.includes("No Director brain");
 				addMessage({
 					id: crypto.randomUUID(),
 					role: "assistant",
 					kind: "step",
-					content: isRelayIssue
-						? `${detail} Check ANTHROPIC_API_KEY / GEMINI_API_KEY / DIRECTOR_MODEL in apps/web/.env.local.`
-						: isConfigIssue
-							? detail
-							: `Something went wrong: ${detail || "Unknown error"}.`,
+					content: classifyAgentError(detail),
+					...(detail
+						? {
+								errorDetail: isRelayIssue
+									? `${detail}${relayDevHint()}`
+									: detail,
+							}
+						: {}),
 				});
 			} finally {
 				abortRef.current = null;
@@ -658,19 +833,30 @@ export function DirectorView() {
 		} catch (error) {
 			const detail = error instanceof Error ? error.message : "";
 			const isOllamaDown = detail.includes("503") || detail.includes("Ollama");
-			const errorContent = isOllamaDown
-				? "Ollama is not running or no LLM model is loaded. Open the AI Setup guide (click the AI indicator in the header) to pull a model like `llama3.2:1b`."
-				: `Something went wrong: ${detail || "Unknown error"}. Make sure the AI backend and Ollama are running with a model loaded.`;
+			// As above (chat-mode catch): the actionable detail is a developer
+			// hint, not chat copy — friendly line up front, raw detail behind the
+			// bubble's "Show details" toggle.
+			const friendly = isOllamaDown
+				? "The local AI backend isn't running."
+				: "Something went wrong. Try again in a moment.";
+			const errorDetail = isOllamaDown
+				? `${detail} Open the AI Setup guide (click the AI indicator in the header) to pull a model like \`llama3.2:1b\`.`
+				: `${detail} Make sure the AI backend and Ollama are running with a model loaded.`;
 
 			if (!messageAdded) {
 				addMessage({
 					id: assistantId,
 					role: "assistant",
 					kind: "step",
-					content: errorContent,
+					content: friendly,
+					errorDetail,
 				});
 			} else {
-				updateMessage(assistantId, errorContent);
+				// Streaming had already started before this failed — degrade to the
+				// friendly line only (updateStudioMessage's signature is content-only;
+				// still fully compliant, just without the details expander for this
+				// rare mid-stream-failure edge case).
+				updateMessage(assistantId, friendly);
 			}
 		} finally {
 			setIsThinking(false);
@@ -686,6 +872,8 @@ export function DirectorView() {
 		updateMessage,
 		director,
 		setInputValue,
+		ensureConversation,
+		projectId,
 	]);
 
 	const handleKeyDown = useCallback(
@@ -712,41 +900,32 @@ export function DirectorView() {
 	return (
 		<div className="relative flex h-full flex-col overflow-hidden">
 			{/* Header */}
-			<div className="bg-background h-11 shrink-0 px-4 pr-2 flex items-center justify-between border-b">
-				<div className="flex items-center gap-2 shrink-0">
-					{activeModel && (
-						<Badge
-							variant="secondary"
-							className="text-[10px] px-1.5 py-0 font-mono"
-						>
-							{activeModel}
-						</Badge>
-					)}
-				</div>
+			<div className="bg-background h-11 shrink-0 px-4 pr-2 flex items-center gap-2 border-b">
+				{activeModel && (
+					<Badge
+						variant="secondary"
+						className="text-[10px] px-1.5 py-0 font-mono shrink-0"
+					>
+						{activeModel}
+					</Badge>
+				)}
 				{/* Tab strip — Director is chat-only now (Direct + Script when a
 				    transcript exists); every other panel lives in the sibling
-				    "Tools" tab (see design doc Item 4 / ./tools.tsx). */}
-				<div className="flex items-center gap-1 min-w-0 flex-1 overflow-x-auto [&>button]:shrink-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+				    "Tools" tab (see design doc Item 4 / ./tools.tsx). Stays LEFT;
+				    the history/new-chat controls live in the `ml-auto` group below,
+				    far right — quiet, not crowding the mode chips. */}
+				<div className="flex items-center gap-1 min-w-0 overflow-x-auto [&>button]:shrink-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 					<Button
 						variant={mode === "chat" ? "secondary" : "ghost"}
 						size="sm"
 						className="h-6 text-[10px] px-2 gap-1"
 						onClick={() => setMode("chat")}
 					>
-						<HugeiconsIcon icon={FilmRoll01Icon} className="size-3" />
+						{/* Same icon as the Director rail tab (assets-panel-store.tsx) —
+						    the chip and the tab that opens it read as one surface. */}
+						<HugeiconsIcon icon={BubbleChatIcon} className="size-3" />
 						Direct
 					</Button>
-					{(mode === "chat" || mode === "transcript") &&
-						messages.length > 0 && (
-							<Button
-								variant="ghost"
-								size="sm"
-								className="h-6 text-[10px] px-1.5 text-muted-foreground"
-								onClick={clearMessages}
-							>
-								<HugeiconsIcon icon={Delete02Icon} className="size-3" />
-							</Button>
-						)}
 					{hasTranscript && (
 						<Button
 							variant={mode === "transcript" ? "secondary" : "ghost"}
@@ -758,6 +937,77 @@ export function DirectorView() {
 						</Button>
 					)}
 				</div>
+				{/* Far-right, quiet controls: conversation history (Item 9 F-local)
+				    + New chat. "Clear" was folded into New chat when the reopen UI
+				    landed — with real persistence, a separate destructive "clear"
+				    would just be a near-duplicate (New chat already preserves the
+				    old conversation, reopenable from History) — so there's no
+				    standalone delete button here. */}
+				{mode === "chat" && (
+					<div className="ml-auto flex items-center gap-1 shrink-0">
+						<DropdownMenu
+							open={historyOpen}
+							onOpenChange={(open) => {
+								setHistoryOpen(open);
+								if (open) loadConversationHistory();
+							}}
+						>
+							<DropdownMenuTrigger asChild>
+								<Button
+									variant="ghost"
+									size="sm"
+									className="h-6 w-6 p-0 text-muted-foreground"
+									title="Conversation history"
+								>
+									<HugeiconsIcon icon={Clock01Icon} className="size-3" />
+								</Button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent
+								align="end"
+								className="w-64 max-h-72 overflow-y-auto"
+							>
+								<DropdownMenuItem onClick={handleNewChat} className="gap-1.5">
+									<HugeiconsIcon icon={Add01Icon} className="size-3.5" />
+									<span className="text-xs">New chat</span>
+								</DropdownMenuItem>
+								{conversationHistory.length > 0 && <DropdownMenuSeparator />}
+								{conversationHistory.length === 0 ? (
+									<div className="px-2 py-2 text-[11px] text-muted-foreground">
+										No saved conversations yet
+									</div>
+								) : (
+									conversationHistory.map((conv) => (
+										<DropdownMenuItem
+											key={conv.id}
+											onClick={() => handleReopenConversation(conv.id)}
+											className="flex-col items-start gap-0"
+										>
+											<span className="text-xs truncate w-full">
+												{conv.title}
+											</span>
+											<span className="text-[10px] text-muted-foreground">
+												{formatRelativeTime(conv.updatedAt)} ·{" "}
+												{conv.messageCount} message
+												{conv.messageCount === 1 ? "" : "s"}
+											</span>
+										</DropdownMenuItem>
+									))
+								)}
+							</DropdownMenuContent>
+						</DropdownMenu>
+						{messages.length > 0 && (
+							<Button
+								variant="ghost"
+								size="sm"
+								className="h-6 w-6 p-0 text-muted-foreground"
+								onClick={handleNewChat}
+								title="New chat"
+							>
+								<HugeiconsIcon icon={Add01Icon} className="size-3" />
+							</Button>
+						)}
+					</div>
+				)}
 			</div>
 
 			{/* Not connected banner — points at the retired local stack's docker
@@ -985,6 +1235,34 @@ export function DirectorView() {
 														{msg.content}
 													</ReactMarkdown>
 												</div>
+												{/* Friendly-error bubbles: raw technical detail (relay/
+												    HTTP error, dev-only env hint) stays collapsed behind
+												    this toggle — never in the primary copy above. */}
+												{msg.errorDetail && (
+													<div className="mt-1.5 pt-1.5 border-t border-border/50">
+														<button
+															type="button"
+															onClick={() =>
+																setExpandedErrorDetails((prev) => {
+																	const next = new Set(prev);
+																	if (next.has(msg.id)) next.delete(msg.id);
+																	else next.add(msg.id);
+																	return next;
+																})
+															}
+															className="text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2"
+														>
+															{expandedErrorDetails.has(msg.id)
+																? "Hide details"
+																: "Show details"}
+														</button>
+														{expandedErrorDetails.has(msg.id) && (
+															<pre className="mt-1 whitespace-pre-wrap break-words text-[10px] text-muted-foreground/80 font-mono">
+																{msg.errorDetail}
+															</pre>
+														)}
+													</div>
+												)}
 												{/* Item 3 — "Save idea" renders ONLY on a final answer
 												    bubble, never on a step/status row (tool chips,
 												    budget bubble, cancel/error notes). */}
