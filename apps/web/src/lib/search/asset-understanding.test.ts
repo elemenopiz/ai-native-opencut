@@ -14,9 +14,13 @@ import {
 	geminiUnderstandAsset,
 	gridDiff,
 	isCreditGateError,
+	isDeepUnderstanding,
 	isGeminiModel,
 	type LumaGrid,
+	MOTION_CLASSES,
+	normalizeMotion,
 	normalizeRole,
+	normalizeShotType,
 	parseAssetUnderstanding,
 	type PersonaRef,
 	pickShotRepresentatives,
@@ -24,6 +28,7 @@ import {
 	renderPersonaRoster,
 	segmentShots,
 	selectUnderstandAssetFn,
+	SHOT_TYPES,
 	UnderstandingRelayError,
 } from "./asset-understanding";
 
@@ -104,6 +109,115 @@ describe("parseAssetUnderstanding — happy path", () => {
 		expect(normalizeRole("background filler")).toBe("b-roll");
 		expect(normalizeRole("nonsense")).toBeNull();
 		for (const r of ASSET_ROLES) expect(normalizeRole(r)).toBe(r);
+	});
+});
+
+describe("parseAssetUnderstanding — deepened perception (Bet 1)", () => {
+	it("parses motion/shotType/composition/emotion/audio/continuity when present", () => {
+		const u = parseAssetUnderstanding(
+			JSON.stringify({
+				caption: "founder pacing while talking, handheld",
+				role: "face-anchor",
+				roleConfidence: 0.7,
+				tags: ["founder"],
+				motion: "handheld",
+				shotType: "medium",
+				composition: {
+					subjectPosition: "center",
+					headroom: "normal",
+					ruleOfThirds: true,
+				},
+				emotion: "energetic",
+				audio: { hasSpeech: true, energy: "high" },
+				continuity: {
+					lighting: "soft key, warm backlight",
+					whiteBalance: "warm/tungsten",
+					wardrobe: "navy blazer",
+					colorSignature: "warm amber grade",
+				},
+			}),
+			CTX(),
+		);
+		expect(u.motion).toBe("handheld");
+		expect(u.shotType).toBe("medium");
+		expect(u.composition).toEqual({
+			subjectPosition: "center",
+			headroom: "normal",
+			ruleOfThirds: true,
+		});
+		expect(u.emotion).toBe("energetic");
+		expect(u.audio).toEqual({ hasSpeech: true, energy: "high" });
+		expect(u.continuityFingerprint).toEqual({
+			lighting: "soft key, warm backlight",
+			whiteBalance: "warm/tungsten",
+			wardrobe: "navy blazer",
+			colorSignature: "warm amber grade",
+		});
+		expect(isDeepUnderstanding(u)).toBe(true);
+	});
+
+	it("degrades silently: a reply with none of the deep fields omits them all, isDeepUnderstanding false", () => {
+		const u = parseAssetUnderstanding(
+			JSON.stringify({ role: "b-roll", tags: ["sky"] }),
+			CTX(),
+		);
+		expect(u.motion).toBeUndefined();
+		expect(u.shotType).toBeUndefined();
+		expect(u.composition).toBeUndefined();
+		expect(u.emotion).toBeUndefined();
+		expect(u.audio).toBeUndefined();
+		expect(u.continuityFingerprint).toBeUndefined();
+		expect(isDeepUnderstanding(u)).toBe(false);
+	});
+
+	it("a SHALLOW old-shape record (no new fields, e.g. from before this widening) round-trips through JSON and isDeepUnderstanding", () => {
+		const shallow: AssetUnderstanding = {
+			mediaId: "m1",
+			caption: "product on marble",
+			role: "product",
+			roleConfidence: 0.6,
+			tags: ["product", "marble"],
+			faces: [],
+			modelName: "vlm-v1",
+			createdAt: 42,
+		};
+		const roundTripped = JSON.parse(
+			JSON.stringify(shallow),
+		) as AssetUnderstanding;
+		expect(roundTripped).toEqual(shallow);
+		expect(isDeepUnderstanding(roundTripped)).toBe(false);
+	});
+
+	it("normalizes motion synonyms (handheld/shaky, static/tripod, pan/dolly/gimbal, fast/whip)", () => {
+		expect(normalizeMotion("shaky cam")).toBe("handheld");
+		expect(normalizeMotion("locked off tripod")).toBe("static");
+		expect(normalizeMotion("slow dolly")).toBe("pan");
+		expect(normalizeMotion("whip pan cuts")).toBe("fast-cut");
+		expect(normalizeMotion("nonsense")).toBeNull();
+		for (const m of MOTION_CLASSES) expect(normalizeMotion(m)).toBe(m);
+	});
+
+	it("normalizes shot-type synonyms (ECU before CU, insert, medium, wide/establishing)", () => {
+		expect(normalizeShotType("extreme close up on the eyes")).toBe(
+			"extreme-close-up",
+		);
+		expect(normalizeShotType("tight close-up")).toBe("close-up");
+		expect(normalizeShotType("product detail shot")).toBe("insert");
+		expect(normalizeShotType("mid shot")).toBe("medium");
+		expect(normalizeShotType("establishing wide")).toBe("wide");
+		expect(normalizeShotType("nonsense")).toBeNull();
+		for (const s of SHOT_TYPES) expect(normalizeShotType(s)).toBe(s);
+	});
+
+	it("motion/shotType are REQUIRED in the Gemini response schema (the isDeepUnderstanding signal)", () => {
+		expect(ASSET_UNDERSTANDING_RESPONSE_SCHEMA.required).toContain("motion");
+		expect(ASSET_UNDERSTANDING_RESPONSE_SCHEMA.required).toContain("shotType");
+		expect(ASSET_UNDERSTANDING_RESPONSE_SCHEMA.properties.motion.enum).toEqual([
+			...MOTION_CLASSES,
+		]);
+		expect(
+			ASSET_UNDERSTANDING_RESPONSE_SCHEMA.properties.shotType.enum,
+		).toEqual([...SHOT_TYPES]);
 	});
 });
 
