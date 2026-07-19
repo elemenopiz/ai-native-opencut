@@ -6,15 +6,25 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Download04Icon, Add01Icon, Cancel01Icon } from "@hugeicons/core-free-icons";
-import { PLATFORM_PRESETS, createQueueItem, type ExportQueueItem } from "@/lib/export-presets";
+import {
+	Download04Icon,
+	Add01Icon,
+	Cancel01Icon,
+} from "@hugeicons/core-free-icons";
+import {
+	PLATFORM_PRESETS,
+	createQueueItem,
+	type ExportQueueItem,
+} from "@/lib/export-presets";
 import { useEditor } from "@/hooks/use-editor";
 import { toast } from "sonner";
 
 export function BatchExportPanel({ className }: { className?: string }) {
 	const editor = useEditor();
 	const [queue, setQueue] = useState<ExportQueueItem[]>([]);
-	const [selectedPresets, setSelectedPresets] = useState<Set<string>>(new Set());
+	const [selectedPresets, setSelectedPresets] = useState<Set<string>>(
+		new Set(),
+	);
 
 	const togglePreset = useCallback((id: string) => {
 		setSelectedPresets((prev) => {
@@ -48,7 +58,9 @@ export function BatchExportPanel({ className }: { className?: string }) {
 		for (const item of queued) {
 			setQueue((prev) =>
 				prev.map((q) =>
-					q.id === item.id ? { ...q, status: "exporting", progress: 0, startedAt: Date.now() } : q,
+					q.id === item.id
+						? { ...q, status: "exporting", progress: 0, startedAt: Date.now() }
+						: q,
 				),
 			);
 
@@ -65,6 +77,16 @@ export function BatchExportPanel({ className }: { className?: string }) {
 					options: {
 						format: preset.format,
 						quality: preset.quality,
+						// Batch presets never surface an audio toggle, so default to
+						// including audio the same way the main export dialog does
+						// (DEFAULT_EXPORT_OPTIONS.includeAudio ?? true). GIF presets, if
+						// ever added here, are still muted correctly downstream —
+						// RendererManager.exportProject forces `withAudio` off for
+						// format === "gif" regardless of this flag.
+						includeAudio: true,
+						// Forces no video track for presets like "Podcast (Audio Only)";
+						// undefined/false is a no-op for every other preset.
+						audioOnly: preset.audioOnly,
 					},
 				});
 
@@ -76,7 +98,12 @@ export function BatchExportPanel({ className }: { className?: string }) {
 				setQueue((prev) =>
 					prev.map((q) =>
 						q.id === item.id
-							? { ...q, status: "completed", progress: 100, completedAt: Date.now() }
+							? {
+									...q,
+									status: "completed",
+									progress: 100,
+									completedAt: Date.now(),
+								}
 							: q,
 					),
 				);
@@ -107,7 +134,10 @@ export function BatchExportPanel({ className }: { className?: string }) {
 		<div className={cn("flex flex-col h-full", className)}>
 			<div className="px-4 py-3 border-b space-y-2">
 				<div className="flex items-center gap-2">
-					<HugeiconsIcon icon={Download04Icon} className="size-4 text-primary" />
+					<HugeiconsIcon
+						icon={Download04Icon}
+						className="size-4 text-primary"
+					/>
 					<span className="text-xs font-medium">Batch Export</span>
 					{queue.length > 0 && (
 						<Badge variant="secondary" className="text-[8px] px-1 py-0">
@@ -120,7 +150,9 @@ export function BatchExportPanel({ className }: { className?: string }) {
 			<ScrollArea className="flex-1 min-h-0">
 				<div className="px-4 py-3 space-y-3">
 					<div className="space-y-1.5">
-						<span className="text-[10px] font-medium text-muted-foreground">Presets</span>
+						<span className="text-[10px] font-medium text-muted-foreground">
+							Presets
+						</span>
 						<div className="grid grid-cols-2 gap-1">
 							{PLATFORM_PRESETS.map((preset) => (
 								<button
@@ -128,16 +160,27 @@ export function BatchExportPanel({ className }: { className?: string }) {
 									type="button"
 									className={cn(
 										"rounded border p-1.5 text-left transition-colors",
-										selectedPresets.has(preset.id) ? "border-primary bg-primary/5" : "hover:bg-accent/50",
+										selectedPresets.has(preset.id)
+											? "border-primary bg-primary/5"
+											: "hover:bg-accent/50",
 									)}
 									onClick={() => togglePreset(preset.id)}
 								>
-									<span className="text-[10px] font-medium block">{preset.name}</span>
-									<span className="text-[8px] text-muted-foreground">{preset.description}</span>
+									<span className="text-[10px] font-medium block">
+										{preset.name}
+									</span>
+									<span className="text-[8px] text-muted-foreground">
+										{preset.description}
+									</span>
 								</button>
 							))}
 						</div>
-						<Button size="sm" variant="outline" className="w-full h-7 text-[10px]" onClick={addToQueue}>
+						<Button
+							size="sm"
+							variant="outline"
+							className="w-full h-7 text-[10px]"
+							onClick={addToQueue}
+						>
 							<HugeiconsIcon icon={Add01Icon} className="size-3 mr-1" />
 							Add Selected to Queue
 						</Button>
@@ -145,22 +188,30 @@ export function BatchExportPanel({ className }: { className?: string }) {
 
 					{queue.length > 0 && (
 						<div className="space-y-1.5">
-							<span className="text-[10px] font-medium text-muted-foreground">Queue</span>
+							<span className="text-[10px] font-medium text-muted-foreground">
+								Queue
+							</span>
 							{queue.map((item) => (
-								<div key={item.id} className="rounded border p-2 flex items-center gap-2">
+								<div
+									key={item.id}
+									className="rounded border p-2 flex items-center gap-2"
+								>
 									<div className="flex-1 min-w-0">
 										<span className="text-[10px] font-medium block truncate">
 											{item.preset.name}
 										</span>
-										<span className={cn(
-											"text-[8px]",
-											item.status === "completed" && "text-green-500",
-											item.status === "error" && "text-destructive",
-											item.status === "exporting" && "text-primary",
-											item.status === "queued" && "text-muted-foreground",
-										)}>
+										<span
+											className={cn(
+												"text-[8px]",
+												item.status === "completed" && "text-green-500",
+												item.status === "error" && "text-destructive",
+												item.status === "exporting" && "text-primary",
+												item.status === "queued" && "text-muted-foreground",
+											)}
+										>
 											{item.status === "queued" && "Queued"}
-											{item.status === "exporting" && `Exporting ${item.progress}%`}
+											{item.status === "exporting" &&
+												`Exporting ${item.progress}%`}
 											{item.status === "completed" && "Completed"}
 											{item.status === "error" && item.error}
 										</span>
