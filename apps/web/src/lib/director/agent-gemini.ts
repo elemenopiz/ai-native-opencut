@@ -48,6 +48,7 @@ import {
 	autoReviewSlot,
 	budgetPauseMessage,
 	buildFrontierSystemPrompt,
+	capHistoryMessages,
 	collectGeneratedSlotIds,
 	evaluateApprovalGate,
 	evaluateBudgetGate,
@@ -61,6 +62,7 @@ import {
 	type AgentToolStep,
 	type CritiqueFn,
 	type DirectorEventSink,
+	type DirectorHistoryMessage,
 } from "./agent";
 import { toGeminiDeclarations } from "./tool-catalog";
 import {
@@ -404,15 +406,26 @@ const geminiCritique: CritiqueFn = async (intent, frames, context) => {
 export async function runDirectorAgentGemini(opts: {
 	director: DirectorApi;
 	userMessage: string;
+	/** Reopened/ongoing conversation's earlier turns — same seam and cap as the
+	 *  frontier loop ({@link capHistoryMessages}), translated to Gemini's
+	 *  `user`/`model` roles instead of `user`/`assistant`. */
+	priorMessages?: DirectorHistoryMessage[];
 	onStep?: (step: AgentToolStep) => void;
 	onEvent?: DirectorEventSink;
 	signal?: AbortSignal;
 }): Promise<AgentRunResult> {
-	const { director, userMessage, onStep, onEvent, signal } = opts;
+	const { director, userMessage, priorMessages, onStep, onEvent, signal } =
+		opts;
 	const steps: AgentToolStep[] = [];
 	const system = buildGeminiSystemPrompt(director);
 	const allDeclarations = toGeminiDeclarations();
 	const contents: GeminiContent[] = [
+		...capHistoryMessages(priorMessages).map(
+			(m): GeminiContent => ({
+				role: m.role === "assistant" ? "model" : "user",
+				parts: [{ text: m.content }],
+			}),
+		),
 		{ role: "user", parts: [{ text: userMessage }] },
 	];
 

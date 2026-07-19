@@ -20,7 +20,7 @@ import {
 import { aiClient } from "@/lib/ai-client";
 import { isFeatureAvailable } from "@/lib/local-ai/retired-features";
 import { useAIStatus } from "@/hooks/use-ai-status";
-import { useAIStore } from "@/stores/ai-store";
+import { useAIStore, getConversationHistoryForAgent } from "@/stores/ai-store";
 import { useTranscriptStore } from "@/stores/transcript-store";
 import { useEditor } from "@/hooks/use-editor";
 import { useDirector } from "@/hooks/use-director";
@@ -532,6 +532,11 @@ export function DirectorView() {
 		// (in ai-store) has somewhere to save to. No-op if already attached to
 		// this project's conversation.
 		ensureConversation(projectId);
+		// Item 9 payoff — snapshot the conversation's prior turns BEFORE this
+		// turn's user message is appended below, so the agent run gets the
+		// history that existed going INTO this turn, never a self-referencing
+		// copy of the message it's about to answer. Empty on a fresh chat.
+		const priorMessages = getConversationHistoryForAgent();
 		addMessage({
 			id: crypto.randomUUID(),
 			role: "user",
@@ -681,6 +686,7 @@ export function DirectorView() {
 						chat: (message, system) =>
 							aiClient.chat(message, system).then((r) => r.response),
 						userMessage: trimmed,
+						priorMessages,
 						onEvent,
 						signal: controller.signal,
 					});

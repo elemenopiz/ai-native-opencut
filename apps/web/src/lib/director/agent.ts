@@ -202,6 +202,58 @@ export const MAX_TOOL_CALLS = 24;
 /** Bound on model round-trips (also covers pause_turn re-sends). */
 export const MAX_MODEL_CALLS = 30;
 
+// ── conversation history replay (Director-revamp Item 9) ─────────────────────
+//
+// Reopening (or continuing) a persisted conversation should let the model
+// actually SEE the earlier turns, not just the chat panel replaying them
+// visually. `getConversationHistoryForAgent` (`stores/ai-store.ts`) is the
+// producer seam: it already applies the store's OWN replay policy (last N
+// messages verbatim + a synthetic truncation-notice row, flattened tool/step
+// chips as plain text). `priorMessages` below is the CONSUMER seam — both
+// brains prepend it to the outgoing history, capped independently of (and
+// tighter than) the store's replay window, because this bound is about the
+// MODEL's context budget, not what's rendered on screen.
+
+/** One prior turn from a reopened/ongoing conversation, ready to replay into a fresh run. */
+export interface DirectorHistoryMessage {
+	role: "user" | "assistant";
+	content: string;
+}
+
+/**
+ * Hard caps on how much prior-conversation history rides the model's context.
+ * Two independent bounds, both enforced by {@link capHistoryMessages}:
+ *  - at most this many of the MOST RECENT messages,
+ *  - AND at most this many total content characters (oldest-first trim),
+ * so a handful of huge messages can't blow the budget even under the count
+ * cap. Distinct from {@link MAX_TOOL_CALLS}/{@link MAX_MODEL_CALLS} above,
+ * which bound a single turn's tool-use loop, not cross-turn history — there
+ * was no existing history-length cap before this pass.
+ */
+export const MAX_HISTORY_MESSAGES = 20;
+/** Companion char budget to {@link MAX_HISTORY_MESSAGES} — see that doc comment. */
+export const MAX_HISTORY_CHARS = 8000;
+
+/**
+ * Apply the {@link MAX_HISTORY_MESSAGES}/{@link MAX_HISTORY_CHARS} caps to a
+ * conversation's prior turns: keep the most recent messages, trimming from
+ * the OLDEST end first so the turns closest to "now" always survive. Pure and
+ * order-preserving; safe to call with `undefined`/empty input.
+ */
+export function capHistoryMessages(
+	messages: DirectorHistoryMessage[] | undefined,
+): DirectorHistoryMessage[] {
+	if (!messages || messages.length === 0) return [];
+	const byCount = messages.slice(-MAX_HISTORY_MESSAGES);
+	let totalChars = byCount.reduce((sum, m) => sum + m.content.length, 0);
+	let start = 0;
+	while (totalChars > MAX_HISTORY_CHARS && start < byCount.length - 1) {
+		totalChars -= byCount[start].content.length;
+		start++;
+	}
+	return byCount.slice(start);
+}
+
 /** The browser-side endpoint of the stateless server relay. */
 const AGENT_RELAY_URL = "/api/llm/agent";
 
@@ -1502,15 +1554,23 @@ export function buildFrontierSystemPrompt(director: DirectorApi): string {
 async function runDirectorAgentFrontier(opts: {
 	director: DirectorApi;
 	userMessage: string;
+	/** Reopened/ongoing conversation's earlier turns — see the "conversation
+	 *  history replay" section above. Prepended AFTER the system prompt, BEFORE
+	 *  the current user turn; capped by {@link capHistoryMessages}. */
+	priorMessages?: DirectorHistoryMessage[];
 	onStep?: (step: AgentToolStep) => void;
 	onEvent?: DirectorEventSink;
 	signal?: AbortSignal;
 }): Promise<AgentRunResult> {
-	const { director, userMessage, onStep, onEvent, signal } = opts;
+	const { director, userMessage, priorMessages, onStep, onEvent, signal } =
+		opts;
 	const steps: AgentToolStep[] = [];
 	const system = buildFrontierSystemPrompt(director);
 	const tools = anthropicToolDefs();
 	const messages: Anthropic.MessageParam[] = [
+		...capHistoryMessages(priorMessages).map(
+			(m): Anthropic.MessageParam => ({ role: m.role, content: m.content }),
+		),
 		{ role: "user", content: userMessage },
 	];
 
@@ -1997,6 +2057,10 @@ export async function runDirectorAgent(opts: {
 	director: DirectorApi;
 	chat: AgentChatFn;
 	userMessage: string;
+	/** Reopened/ongoing conversation's earlier turns, routed to whichever brain
+	 *  runs (see {@link DirectorHistoryMessage} and the "conversation history
+	 *  replay" section above). Ignored by the retired local brain. */
+	priorMessages?: DirectorHistoryMessage[];
 	onStep?: (step: AgentToolStep) => void;
 	/** Live progress sink — reasoning deltas + per-tool start/finish (see {@link DirectorEvent}). */
 	onEvent?: DirectorEventSink;
