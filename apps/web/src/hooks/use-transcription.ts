@@ -48,22 +48,34 @@ export function useTranscription() {
 				setProgress(10);
 
 				// On-device Whisper first; fall back to the server route on failure.
+				// In cloud deploys there is no server backend, so if BOTH fail we
+				// keep the on-device error — it's the real, actionable cause. The
+				// server's "cannot connect" would otherwise mask it (and prod
+				// strips console.warn, so that mask leaves no trace at all).
 				let result: Awaited<ReturnType<typeof aiClient.transcribe>>;
-				try {
-					if (isLocalWhisperSupported()) {
+				if (isLocalWhisperSupported()) {
+					try {
 						result = await transcribeLocally(file, {
 							language: language === "auto" ? undefined : language,
 							onProgress: (p) =>
 								setProgress(Math.min(90, Math.round(p.progress * 90))),
 						});
-					} else {
-						result = await aiClient.transcribe(file, language);
+					} catch (localErr) {
+						console.warn(
+							"On-device Whisper failed, trying server fallback:",
+							localErr,
+						);
+						try {
+							result = await aiClient.transcribe(file, language);
+						} catch (serverErr) {
+							console.error(
+								"Transcription failed (on-device and server):",
+								localErr,
+							);
+							throw localErr instanceof Error ? localErr : serverErr;
+						}
 					}
-				} catch (localErr) {
-					console.warn(
-						"On-device Whisper failed, falling back to server:",
-						localErr,
-					);
+				} else {
 					result = await aiClient.transcribe(file, language);
 				}
 
@@ -129,25 +141,37 @@ export async function transcribeFileWithEngine({
 	}
 
 	// Whisper — on-device first (Transformers.js/WebGPU), server route as fallback.
+	// Browsers without Worker/Web-Audio can't run it locally, so those go
+	// straight to the server engine.
+	if (!isLocalWhisperSupported()) {
+		return await aiClient.transcribe(file, language);
+	}
+
 	try {
-		if (isLocalWhisperSupported()) {
-			return await transcribeLocally(file, {
-				language,
-				onProgress: (p) => {
-					const label =
-						p.stage === "decoding"
-							? "Decoding audio on device..."
-							: p.stage === "loading-model"
-								? `Loading Whisper model... ${Math.round(p.progress * 100)}%`
-								: "Transcribing on device...";
-					onProgress?.(label);
-				},
-			});
-		}
-		return await aiClient.transcribe(file, language);
+		return await transcribeLocally(file, {
+			language,
+			onProgress: (p) => {
+				const label =
+					p.stage === "decoding"
+						? "Decoding audio on device..."
+						: p.stage === "loading-model"
+							? `Loading Whisper model... ${Math.round(p.progress * 100)}%`
+							: "Transcribing on device...";
+				onProgress?.(label);
+			},
+		});
 	} catch (localErr) {
-		console.warn("On-device Whisper failed, falling back to server:", localErr);
+		// On-device is the ONLY transcription path in cloud deploys (no server
+		// backend there). The server retry below is for genuinely self-hosted
+		// setups; if it ALSO fails, surface the on-device error rather than the
+		// server's "cannot connect" — the on-device cause is the actionable one.
+		console.warn("On-device Whisper failed, trying server fallback:", localErr);
 		onProgress?.("Falling back to server...");
-		return await aiClient.transcribe(file, language);
+		try {
+			return await aiClient.transcribe(file, language);
+		} catch (serverErr) {
+			console.error("Transcription failed (on-device and server):", localErr);
+			throw localErr instanceof Error ? localErr : serverErr;
+		}
 	}
 }

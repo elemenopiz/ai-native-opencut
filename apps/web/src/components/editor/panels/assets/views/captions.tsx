@@ -559,8 +559,12 @@ export function Captions() {
 				message.includes("Cannot connect") ||
 				message.includes("connection_refused")
 			) {
+				// Reaching this means on-device transcription was unavailable (or the
+				// selected engine is server-only) AND no backend was reachable. On the
+				// hosted app transcription runs in-browser, so lead with that; the
+				// self-hosting hint is secondary.
 				setError(
-					"Cannot connect to AI backend. Make sure it is running (docker compose up -d).",
+					"Transcription is unavailable right now. On-device transcription needs a Chromium-based browser (Chrome or Edge); if you're self-hosting, start the AI backend.",
 				);
 			} else if (message.includes("Sarvam API key")) {
 				setError(
