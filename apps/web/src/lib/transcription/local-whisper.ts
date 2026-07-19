@@ -167,20 +167,49 @@ export async function transcribeLocally(
 	const durationSec = audio.length / DECODE_SAMPLE_RATE;
 	options.onProgress?.({ stage: "loading-model", progress: 0 });
 
+	// `pickDevice()` selects "webgpu" whenever `navigator.gpu` exists on the
+	// API surface — it doesn't confirm a real adapter is obtainable (see
+	// src/lib/local-ai/device.ts). Browsers that expose the API but can't
+	// actually get a working adapter/device (GPU blocklisted, hardware
+	// acceleration disabled, some VM/remote-desktop Chromes) throw once
+	// `pipeline()` tries to initialize it. Keep a spare copy of the decoded
+	// audio so a same-worker WASM retry is possible if that happens — cloud
+	// deploys have no server engine to fall back to, so without this retry
+	// that whole class of browser has no working path to on-device Whisper.
+	const retryAudio = device === "webgpu" ? audio.slice() : null;
+
 	// Hold the warm worker for the duration of the transcribe; releasing when
 	// it settles starts the idle-unload countdown (see WorkerSlot).
 	const activeWorker = workerSlot.acquire();
+	let extraAcquire = false;
 
 	let output: { text?: string; chunks?: WhisperChunk[] };
 	try {
-		output = await runOnWorker(activeWorker, audio, {
-			modelId,
-			device,
-			language: options.language,
-			onProgress: options.onProgress,
-		});
+		try {
+			output = await runOnWorker(activeWorker, audio, {
+				modelId,
+				device,
+				language: options.language,
+				onProgress: options.onProgress,
+			});
+		} catch (err) {
+			if (!retryAudio) throw err;
+			// The worker may have been recycled (crashed) by runOnWorker's error
+			// handler above — acquire() transparently hands back the still-warm
+			// worker if it survived, or spawns a fresh one if it didn't.
+			extraAcquire = true;
+			const retryWorker = workerSlot.acquire();
+			const wasmModelId = resolveModelId(options.model, "wasm");
+			output = await runOnWorker(retryWorker, retryAudio, {
+				modelId: wasmModelId,
+				device: "wasm",
+				language: options.language,
+				onProgress: options.onProgress,
+			});
+		}
 	} finally {
 		workerSlot.release();
+		if (extraAcquire) workerSlot.release();
 	}
 
 	const drafts =
