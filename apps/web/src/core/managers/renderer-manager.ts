@@ -137,8 +137,15 @@ export class RendererManager {
 		onProgress?: ({ progress }: { progress: number }) => void;
 		onCancel?: () => boolean;
 	}): Promise<ExportResult> {
-		const { format, quality, fps, includeAudio, includeWatermark, dimensions } =
-			options;
+		const {
+			format,
+			quality,
+			fps,
+			includeAudio,
+			includeWatermark,
+			dimensions,
+			audioOnly,
+		} = options;
 
 		try {
 			const tracks = this.editor.timeline.getTracks();
@@ -213,7 +220,12 @@ export class RendererManager {
 			// GIF exports, or an audio track with no elements/all muted). If
 			// there's neither, there is nothing whatsoever to export, so fail fast
 			// with a clear message instead of producing an empty/blank file.
-			const includeVideo = hasVisualContent({ tracks });
+			//
+			// `audioOnly` (e.g. the "Podcast (Audio Only)" preset) forces this to
+			// `false` even when the timeline DOES have visual content — unlike the
+			// auto-detected BUG17 case above, the caller is explicitly asking for
+			// no video track, not just happening to have none.
+			const includeVideo = audioOnly ? false : hasVisualContent({ tracks });
 			if (!includeVideo && !audioBuffer) {
 				return {
 					success: false,

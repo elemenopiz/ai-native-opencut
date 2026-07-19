@@ -9,6 +9,14 @@ export interface ExportPreset {
 	quality: ExportQuality;
 	canvasSize: { width: number; height: number };
 	description: string;
+	/**
+	 * When true, the export drops its video track entirely (see
+	 * `ExportOptions.audioOnly` / `RendererManager.exportProject`) — used by
+	 * the "Podcast (Audio Only)" preset. `canvasSize` is still required by
+	 * the type but is unused for the output once `audioOnly` forces the
+	 * video track off.
+	 */
+	audioOnly?: boolean;
 }
 
 export const PLATFORM_PRESETS: ExportPreset[] = [
@@ -66,7 +74,8 @@ export const PLATFORM_PRESETS: ExportPreset[] = [
 		format: "mp4",
 		quality: "high",
 		canvasSize: { width: 1920, height: 1080 },
-		description: "Audio only, 320kbps",
+		description: "Audio only, no video track",
+		audioOnly: true,
 	},
 	{
 		id: "web-email",

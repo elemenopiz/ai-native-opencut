@@ -38,6 +38,17 @@ export interface ExportOptions {
 	 * is a pure passthrough with no extra blit.
 	 */
 	dimensions?: { width: number; height: number };
+	/**
+	 * Force an audio-only export: no video track is produced regardless of
+	 * whether the timeline has visual content (see `hasVisualContent` /
+	 * BUG17 in `renderer-manager.ts`, which normally only drops the video
+	 * track when there's nothing to paint). Used by presets like "Podcast
+	 * (Audio Only)" that must strip video even from a timeline with visible
+	 * clips. Still requires `includeAudio` (and actual audio content) to
+	 * produce anything — an audioOnly export with no audio fails fast the
+	 * same way an empty project does.
+	 */
+	audioOnly?: boolean;
 }
 
 export interface ExportResult {
