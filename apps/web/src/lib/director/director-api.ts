@@ -123,6 +123,7 @@ import type {
 } from "@/types/project";
 import { buildRemixSpec } from "@/lib/studio/remix";
 import {
+	extractFrameFull,
 	extractTakeLastFrame,
 	extractTakeFrames,
 } from "@/lib/media/last-frame";
@@ -130,10 +131,26 @@ import {
 	extractAndAddFrame,
 	firstFrameSourceTime,
 	lastFrameSourceTime,
+	playheadSourceTime,
 	resolveVideoDurationSec,
 	type DurationProbe,
 	type FrameDecoder,
 } from "@/lib/media/frame-extraction";
+import {
+	buildEditCritiqueUserBlocks,
+	detectVisualGaps,
+	EDIT_CRITIC_SYSTEM_PROMPT,
+	formatBeatGridSummary,
+	formatGapsNote,
+	formatTranscriptExcerpt,
+	parseEditCritique,
+	planFrameSamples,
+	type CritiqueFrame,
+	type EditCritique,
+	type EditCriticRelay,
+	type SamplableElement,
+	type TranscriptExcerptSegment,
+} from "./edit-critic";
 import { dataUrlToFile } from "@/lib/media/data-url";
 import { analyzeMediaSilence } from "@/lib/auto-cut";
 import { applyAutoCut, type AutoCutApplySummary } from "@/lib/auto-cut/apply";
@@ -246,6 +263,15 @@ export type {
 	AssetUnderstandingLookup,
 	LibraryManifest,
 } from "./asset-manifest";
+
+export type {
+	EditCritique,
+	EditCritiqueAxis,
+	EditCritiqueIssue,
+	EditCritiqueLocation,
+	EditCriticRelay,
+	ProposedFix,
+} from "./edit-critic";
 
 export type {
 	AssetCitation,
@@ -418,6 +444,20 @@ export interface CreateDirectorApiOptions {
 		fetch?: BoardFetchFn;
 		promote?: BoardPromoteFn;
 		discard?: BoardDiscardFn;
+	};
+	/**
+	 * Whole-edit critic seam (Director-intelligence Bet 2 v1 — see
+	 * `docs/plans/2026-07-19-director-intelligence-architecture.md` and
+	 * `docs/decisions/ADR-006-advisory-first-critic.md`). `relay` is ONE
+	 * tool-less vision-model round-trip powering the `critiqueEdit` verb —
+	 * mirrors `take-critic-adapter.ts`'s `VisionRelay` (wired to the agent's
+	 * relay in production). ABSENT ⇒ `critiqueEdit` reports it isn't configured
+	 * in this context rather than throwing — same graceful-degrade contract as
+	 * `critic`/`board`/`references`. ADVISORY ONLY: `critiqueEdit` never
+	 * executes a proposed fix itself, regardless of whether this is wired.
+	 */
+	editCritic?: {
+		relay?: EditCriticRelay;
 	};
 }
 
@@ -1257,6 +1297,178 @@ export function createDirectorApi(
 	function getLibraryManifest(): DirectorResult<LibraryManifest> {
 		const manifest = buildManifest();
 		return ok(manifest.digest, manifest);
+	}
+
+	/**
+	 * Whole-edit critic (Director-intelligence Bet 2 v1, ADVISORY-ONLY per
+	 * ADR-006) — judges the ASSEMBLED TIMELINE as a film: pacing, hook, shot
+	 * variety, cuts-on-beat rhythm, dead air, continuity, emotional arc. Samples
+	 * up to `MAX_EDIT_CRITIC_FRAMES` frames spread across the cut (weighted
+	 * toward the opening hook window — see `edit-critic.ts`'s
+	 * `planFrameSamples`), packages them with a compact TIMELINE digest,
+	 * beat-grid summary, and transcript excerpt into ONE vision-model call
+	 * through the injected `options.editCritic.relay`, then parses the reply
+	 * into a structured `EditCritique`.
+	 *
+	 * Every `EditCritiqueIssue.proposedFix` names an EXECUTABLE verb call but
+	 * this verb NEVER executes it — advisory only, a human runs it explicitly
+	 * later (ADR-006). Manual invoke only; nothing here auto-triggers. Read-only
+	 * — nothing mutates, no `delta`.
+	 *
+	 * Gracefully degrades to a failed result (never throws) when no relay is
+	 * wired, the timeline has nothing sample-able, no frame could be decoded,
+	 * or the relay call itself fails — same "injected seam, absent ⇒ report
+	 * unavailable" contract as `compareTake`'s `TakeCritic` / `getTranscript`'s
+	 * `options.transcripts`.
+	 */
+	async function critiqueEdit(): Promise<DirectorResult<EditCritique>> {
+		const relay = options.editCritic?.relay;
+		if (!relay) {
+			return fail(
+				"critiqueEdit needs a vision-model relay wired in this context — not configured.",
+			);
+		}
+
+		const tracks = editor.timeline.getTracks();
+		const allElements: {
+			kind: SamplableElement["kind"];
+			startSec: number;
+			durationSec: number;
+		}[] = [];
+		const samplable: SamplableElement[] = [];
+		// Keyed lookup back to the real TimelineElement (for trim-aware source-time
+		// math below) — built in this same walk so we never need to re-flatten the
+		// heterogeneous per-track-type `elements` arrays later.
+		const elementsById = new Map<string, TimelineElement>();
+		for (const track of tracks) {
+			for (const element of track.elements) {
+				elementsById.set(element.id, element);
+				const kind = element.type as SamplableElement["kind"];
+				allElements.push({
+					kind,
+					startSec: element.startTime,
+					durationSec: element.duration,
+				});
+				if (kind === "video" || kind === "image") {
+					samplable.push({
+						id: element.id,
+						kind,
+						startSec: element.startTime,
+						durationSec: element.duration,
+						mediaId: (element as { mediaId?: string }).mediaId,
+						label: labelOf(element),
+					});
+				}
+			}
+		}
+		if (samplable.length === 0) {
+			return fail("Timeline has no video/image content to critique yet.");
+		}
+
+		const totalDurationSec = editor.timeline.getTotalDuration();
+		const timelineRead = getTimeline();
+		const digest = timelineRead.data?.digest ?? "TIMELINE: empty.";
+
+		// Frame decode reuses the SAME injectable seam extractFrame/chainFrom use
+		// (options.frames?.decode, default extractFrameFull) — ephemeral decode
+		// only, nothing added to the media library. Only VIDEO elements are
+		// decodable here (mirrors extractFrame's own video-only restriction);
+		// image elements contribute to the digest/gaps but not sampled frames.
+		const decode = decodeFrame ?? extractFrameFull;
+		const plan = planFrameSamples(samplable);
+		const frames: CritiqueFrame[] = [];
+		for (const item of plan) {
+			if (!item.mediaId) continue;
+			const asset = editor.media.getAssetById(item.mediaId);
+			if (!asset || asset.type !== "video") continue;
+			const element = elementsById.get(item.elementId);
+			if (!element) continue;
+			const sourceTimeSec = playheadSourceTime(element, item.atSec);
+			try {
+				const frame = await decode(
+					{ videoFile: asset.file, videoUrl: asset.url, name: asset.name },
+					sourceTimeSec,
+				);
+				if (frame) {
+					frames.push({
+						dataUrl: frame.dataUrl,
+						atSec: item.atSec,
+						label: item.label,
+					});
+				}
+			} catch {
+				// Skip undecodable frames — same graceful-degrade contract as reviewTake.
+			}
+		}
+		if (frames.length === 0) {
+			return fail("Couldn't decode any frames from the timeline to critique.");
+		}
+
+		const gapsNote = formatGapsNote(
+			detectVisualGaps(allElements, totalDurationSec),
+		);
+
+		const manifest = buildManifest();
+		const beatGridSummary = formatBeatGridSummary(
+			manifest.beatGrid
+				? {
+						bpm: manifest.beatGrid.bpm,
+						beatCount: manifest.beatGrid.beatCount,
+						downbeatCount: manifest.beatGrid.downbeatCount,
+						energyClass: manifest.beatGrid.energyClass,
+						assetName: manifest.beatGrid.assetName,
+					}
+				: undefined,
+		);
+
+		let transcriptExcerpt = "";
+		if (options.transcripts) {
+			const segments: TranscriptExcerptSegment[] = [];
+			const seenMediaIds = new Set<string>();
+			for (const el of samplable) {
+				if (!el.mediaId || seenMediaIds.has(el.mediaId)) continue;
+				seenMediaIds.add(el.mediaId);
+				const t = options.transcripts(el.mediaId);
+				if (!t) continue;
+				for (const seg of t.segments) {
+					segments.push({
+						startSec: seg.start,
+						endSec: seg.end,
+						text: seg.text,
+					});
+				}
+			}
+			transcriptExcerpt = formatTranscriptExcerpt(segments);
+		}
+
+		const userBlocks = buildEditCritiqueUserBlocks({
+			digest,
+			gapsNote,
+			beatGridSummary,
+			transcriptExcerpt,
+			frames,
+		});
+
+		let replyText: string;
+		try {
+			replyText = await relay({
+				system: EDIT_CRITIC_SYSTEM_PROMPT,
+				content: userBlocks,
+			});
+		} catch (err) {
+			return fail(
+				`critiqueEdit's model call failed: ${
+					err instanceof Error ? err.message : "unknown error"
+				}.`,
+			);
+		}
+
+		const critique = parseEditCritique(replyText);
+		const issueNote =
+			critique.issues.length > 0
+				? ` ${critique.issues.length} issue(s) flagged (advisory only — nothing was changed).`
+				: " No issues flagged.";
+		return ok(`${critique.summary}${issueNote}`, critique);
 	}
 
 	/** The `getTranscript` verb's payload shape. */
@@ -4884,6 +5096,7 @@ export function createDirectorApi(
 		getProjectInfo,
 		getLibraryManifest,
 		getTranscript,
+		critiqueEdit,
 		getBackends,
 		// board (pending multi-take/-image drafts)
 		getBoard,
