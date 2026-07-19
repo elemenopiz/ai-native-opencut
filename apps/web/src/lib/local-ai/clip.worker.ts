@@ -28,6 +28,14 @@ import { l2Normalize } from "./vec";
 // look for models on the local server, so this stays a pure client feature.
 env.allowLocalModels = false;
 
+// Serve the ONNX-runtime wasm SAME-ORIGIN from /onnx/ (vendored by
+// scripts/copy-onnx-runtime.mjs) rather than transformers' default jsDelivr CDN,
+// so in-browser CLIP doesn't depend on a third-party CDN at runtime. See
+// transcription/whisper.worker.ts for the full rationale.
+if (env.backends?.onnx?.wasm) {
+	env.backends.onnx.wasm.wasmPaths = `${self.location.origin}/onnx/`;
+}
+
 /** Minimal structural view of the dedicated-worker global (avoids webworker/DOM lib clashes). */
 type WorkerScope = {
 	postMessage(message: unknown): void;

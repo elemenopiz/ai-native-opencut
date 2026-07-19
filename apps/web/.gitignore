@@ -10,3 +10,9 @@
 .font-cache/
 # BlamePrompt staging (auto-generated)
 .blameprompt/
+
+# Vendored ONNX-runtime wasm for on-device Whisper/CLIP — copied from
+# @huggingface/transformers by scripts/copy-onnx-runtime.mjs at dev/build time
+# so the browser loads it same-origin instead of from jsDelivr. Regenerated, not
+# committed (the .wasm is ~20MB).
+public/onnx/

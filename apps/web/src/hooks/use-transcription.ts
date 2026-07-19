@@ -147,8 +147,8 @@ export async function transcribeFileWithEngine({
 		return await aiClient.transcribe(file, language);
 	}
 
-	try {
-		return await transcribeLocally(file, {
+	const runLocal = () =>
+		transcribeLocally(file, {
 			language,
 			onProgress: (p) => {
 				const label =
@@ -160,18 +160,57 @@ export async function transcribeFileWithEngine({
 				onProgress?.(label);
 			},
 		});
-	} catch (localErr) {
-		// On-device is the ONLY transcription path in cloud deploys (no server
-		// backend there). The server retry below is for genuinely self-hosted
-		// setups; if it ALSO fails, surface the on-device error rather than the
-		// server's "cannot connect" — the on-device cause is the actionable one.
-		console.warn("On-device Whisper failed, trying server fallback:", localErr);
-		onProgress?.("Falling back to server...");
+
+	// On-device model weights (HF) and the ORT runtime load over the network, so
+	// a transient blip surfaces as a bare "network error". Files that already
+	// downloaded stay in the browser cache, so one retry resumes cheaply and
+	// usually succeeds — do that before giving up on the on-device path.
+	let localErr: unknown;
+	for (let attempt = 0; attempt < 2; attempt++) {
 		try {
-			return await aiClient.transcribe(file, language);
-		} catch (serverErr) {
-			console.error("Transcription failed (on-device and server):", localErr);
-			throw localErr instanceof Error ? localErr : serverErr;
+			return await runLocal();
+		} catch (err) {
+			localErr = err;
+			if (attempt === 0 && isTransientNetworkError(err)) {
+				console.warn(
+					"On-device Whisper hit a network error, retrying once:",
+					err,
+				);
+				onProgress?.("Retrying on device...");
+				continue;
+			}
+			break;
 		}
 	}
+
+	// Both on-device attempts failed. The server retry below is for genuinely
+	// self-hosted setups (no backend exists in cloud deploys); if it ALSO fails,
+	// surface the on-device error rather than the server's "cannot connect" — the
+	// on-device cause is the actionable one.
+	console.warn("On-device Whisper failed, trying server fallback:", localErr);
+	onProgress?.("Falling back to server...");
+	try {
+		return await aiClient.transcribe(file, language);
+	} catch (serverErr) {
+		console.error("Transcription failed (on-device and server):", localErr);
+		throw localErr instanceof Error ? localErr : serverErr;
+	}
+}
+
+/**
+ * True for the transient, retryable network failures the on-device model/runtime
+ * download can hit (CDN/HF hiccup, flaky connection). Deliberately narrow: a
+ * decode failure or unsupported-file error is NOT retryable and should fall
+ * through to the server fallback immediately.
+ */
+function isTransientNetworkError(err: unknown): boolean {
+	const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+	return (
+		msg.includes("network error") ||
+		msg.includes("failed to fetch") ||
+		msg.includes("networkerror") ||
+		msg.includes("load failed") ||
+		msg.includes("err_network") ||
+		msg.includes("err_connection")
+	);
 }

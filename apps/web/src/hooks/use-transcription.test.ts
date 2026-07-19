@@ -121,4 +121,55 @@ describe("transcribeFileWithEngine (whisper error handling)", () => {
 		expect(localCalled).toBe(false);
 		expect(out).toBe(served as never);
 	});
+
+	it("retries on-device ONCE on a transient network error, then succeeds", async () => {
+		let calls = 0;
+		const served = { segments: [{ id: 7 }], language: "en", duration: 4 };
+		localTranscribe = () => {
+			calls++;
+			return calls === 1
+				? Promise.reject(new Error("network error"))
+				: Promise.resolve(served as never);
+		};
+		const serverSpy = spyOn(aiClient, "transcribe");
+
+		const out = await transcribeFileWithEngine({
+			file: file(),
+			engine: "whisper",
+		});
+		expect(calls).toBe(2); // failed once, retried, succeeded
+		expect(out).toBe(served as never);
+		expect(serverSpy).not.toHaveBeenCalled(); // never touched the server
+	});
+
+	it("does NOT retry on-device for a non-network error", async () => {
+		let calls = 0;
+		localTranscribe = () => {
+			calls++;
+			return Promise.reject(new Error("Unable to decode audio data"));
+		};
+		const served = { segments: [], language: "en", duration: 1 };
+		spyOn(aiClient, "transcribe").mockImplementation(() =>
+			Promise.resolve(served as never),
+		);
+
+		await transcribeFileWithEngine({ file: file(), engine: "whisper" });
+		expect(calls).toBe(1); // decode errors are not retryable
+	});
+
+	it("after two on-device network errors, surfaces the on-device error", async () => {
+		let calls = 0;
+		localTranscribe = () => {
+			calls++;
+			return Promise.reject(new Error("network error"));
+		};
+		spyOn(aiClient, "transcribe").mockImplementation(() =>
+			Promise.reject(new Error("Cannot connect to AI backend.")),
+		);
+
+		await expect(
+			transcribeFileWithEngine({ file: file(), engine: "whisper" }),
+		).rejects.toThrow("network error");
+		expect(calls).toBe(2); // one retry, then gives up on-device
+	});
 });
