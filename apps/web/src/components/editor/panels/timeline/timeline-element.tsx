@@ -803,6 +803,7 @@ export function TimelineElement({
 					editor={editor}
 					element={element}
 					mediaFile={mediaAsset.file}
+					mediaId={mediaAsset.id}
 				/>
 			)}
 		</>
