@@ -223,6 +223,7 @@ deferred(user), all merges to LOCAL main only. Baselines carried from 2026-07-17
 | C24 | BUG32(priority), BUG17, fidelity-matrix e2e | lib/media/audio*, services/renderer/scene-exporter*, lib/export/**, e2e export specs | 2026-07-18 |
 | C25 | **RELEASED 2026-07-18** — complete on `campaign/audio-lifecycle` (BUG34+discard+BUG35 all verified locally; close-out in docs/campaigns/audio-lifecycle.md; BUG50–54 range UNUSED — no new bugs filed) | — | 2026-07-18 |
 | C26 | **RELEASED 2026-07-18** — campaign complete on `campaign/dogfood-assets` (close-out in docs/campaigns/dogfood-assets.md); BUG55–60 filed/fixed, BUG61–69 unused; drag/context-menu matrix (M8/M14/M15/M17/M18/M19/M20) + M10-full + reload-persistence DEFERRED(quiet-host) → fold into the next C21-series wave-closer hunt | — | 2026-07-18 |
+| Director-revamp (deep mission) | 9-item Director rethink (timeline-visibility, chat UX, tab declutter, draft persist, completion toast, persona/StyleBible UI removal, conversation persistence local+server). Design: `docs/plans/2026-07-19-director-revamp-design.md`. **One-executor for `director.tsx`.** | `director.tsx`, new `assets/views/tools.tsx`, `lib/director/{tool-catalog,director-api,agent,types}.ts`, `generate.tsx`, `generation-form.tsx`, `stores/ai-store.ts`, director-conversation storage/migration | 2026-07-19 |
 
 (C5 perf-wave released its territory 2026-07-17: complete on `campaign/perf-wave`, awaiting L0 merge gate.)
 
