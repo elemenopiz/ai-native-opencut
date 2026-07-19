@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { cn } from "@/utils/ui";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -64,26 +64,23 @@ const FILLER_WORDS = new Set([
  * Floating bar that appears after transcription with one-click editing
  * operations. Designed for non-editors who want to clean up a video
  * without learning video editing.
+ *
+ * Dismissal is owned by the parent (editor page): it also wraps this
+ * component in a layout slot that reserves vertical space, so the parent
+ * must stop rendering that slot on dismiss too, not just this component.
+ * See `onDismiss` below.
  */
-export function QuickActionsBar({ className }: { className?: string }) {
+export function QuickActionsBar({
+	className,
+	onDismiss,
+}: {
+	className?: string;
+	onDismiss: () => void;
+}) {
 	const segments = useTranscriptStore((s) => s.segments);
 	const editor = useEditor();
 	const { handleDeleteSegments } = useTextTimelineBridge();
 	const { runSmartCut } = useSmartCut();
-
-	// The bar has no owning parent state to hide it (the editor page mounts it
-	// purely off `hasTranscript`), so dismissal is local. Re-show it whenever a
-	// fresh transcript replaces the segments — a new `segments` array reference
-	// from setSegments means a (re-)transcription, and a stale dismiss shouldn't
-	// swallow the new bar.
-	const [dismissed, setDismissed] = useState(false);
-	const prevSegmentsRef = useRef(segments);
-	useEffect(() => {
-		if (prevSegmentsRef.current !== segments) {
-			prevSegmentsRef.current = segments;
-			setDismissed(false);
-		}
-	}, [segments]);
 
 	const [fillerStatus, setFillerStatus] = useState<ActionStatus>("idle");
 	const [fillerCount, setFillerCount] = useState(0);
@@ -379,7 +376,7 @@ export function QuickActionsBar({ className }: { className?: string }) {
 	}, [runSmartCut]);
 
 	// Early return AFTER all hooks to satisfy Rules of Hooks
-	if (segments.length === 0 || dismissed) return null;
+	if (segments.length === 0) return null;
 
 	const effectiveFillerCount =
 		fillerStatus === "done" ? fillerCount : currentFillerCount;
@@ -540,7 +537,7 @@ export function QuickActionsBar({ className }: { className?: string }) {
 						size="icon"
 						className="size-7 shrink-0 text-muted-foreground"
 						aria-label="Dismiss quick actions"
-						onClick={() => setDismissed(true)}
+						onClick={onDismiss}
 					>
 						<HugeiconsIcon icon={Cancel01Icon} className="size-3.5" />
 					</Button>

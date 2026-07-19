@@ -25,7 +25,7 @@ import { useLocalStorage } from "@/hooks/storage/use-local-storage";
 import { useTranscriptStore } from "@/stores/transcript-store";
 import { useEditor } from "@/hooks/use-editor";
 import { useTranscribePrompt } from "@/hooks/use-transcribe-prompt";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { TextElement, Take } from "@/types/timeline";
 import { BackgroundTasksWidget } from "@/components/editor/background-tasks";
 import { CommandPalette } from "@/components/editor/command-palette";
@@ -79,6 +79,24 @@ function EditorLayout() {
 		);
 	const hasTranscript =
 		hasMedia && (transcriptSegments.length > 0 || isTranscribing);
+
+	// Quick actions bar dismissal lives here (not inside QuickActionsBar)
+	// because this component also owns the layout slot that wraps it — a
+	// fixed-padding row between the main content panel and the timeline.
+	// If only the child unmounted to null on dismiss, that wrapping row
+	// would stay mounted (still gated on `hasTranscript`) and leave a
+	// residual gap in the timeline layout. Gating the row itself on this
+	// state collapses it fully. Re-show whenever a fresh transcript replaces
+	// the segments — a new `segments` array reference means a
+	// (re-)transcription, and a stale dismiss shouldn't swallow the new bar.
+	const [quickActionsDismissed, setQuickActionsDismissed] = useState(false);
+	const prevTranscriptSegmentsRef = useRef(transcriptSegments);
+	useEffect(() => {
+		if (prevTranscriptSegmentsRef.current !== transcriptSegments) {
+			prevTranscriptSegmentsRef.current = transcriptSegments;
+			setQuickActionsDismissed(false);
+		}
+	}, [transcriptSegments]);
 
 	// First-run "Get started" guide lives in the right panel until the user
 	// dismisses it; after that the slot becomes the Generate panel so you can
@@ -268,10 +286,13 @@ function EditorLayout() {
 				)}
 			</ResizablePanel>
 
-			{/* Quick actions bar — appears between main content and timeline */}
-			{hasTranscript && (
+			{/* Quick actions bar — appears between main content and timeline.
+				The wrapping row itself is gated on dismissal (not just the bar
+				inside it) so the row's padding doesn't linger as a layout gap
+				after dismissal. */}
+			{hasTranscript && !quickActionsDismissed && (
 				<div className="flex justify-center px-3 py-1">
-					<QuickActionsBar />
+					<QuickActionsBar onDismiss={() => setQuickActionsDismissed(true)} />
 				</div>
 			)}
 
