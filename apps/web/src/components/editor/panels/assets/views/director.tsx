@@ -10,10 +10,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	SparklesIcon,
 	SentIcon,
-	AiMicIcon,
 	TextIcon,
-	Image01Icon,
-	ArrowRight01Icon,
 	Bookmark01Icon,
 	Delete02Icon,
 	FilmRoll01Icon,
@@ -40,18 +37,7 @@ import { serializeConsistencyContext } from "@/lib/director/consistency-prompt";
 import { summarizeBrief } from "@/lib/director/director-brief";
 import { getUnderstandingCaptions } from "@/lib/director/understanding-lookup";
 import { toast } from "sonner";
-import { TemplatePanel } from "@/components/editor/ai/template-panel";
-import { BRollSuggestionsPanel } from "@/components/editor/ai/broll-suggestions-panel";
-import { YouTubeReelsPanel } from "@/components/editor/youtube/youtube-reels-panel";
-import { AIDubbingPanel } from "@/components/editor/panels/assets/views/ai-dubbing";
-import { AutoChaptersPanel } from "@/components/editor/panels/assets/views/auto-chapters";
-import { SmartReframePanel } from "@/components/editor/panels/assets/views/smart-reframe";
-import { MotionTrackingPanel } from "@/components/editor/panels/assets/views/motion-tracking";
-import { ABTestingPanel } from "@/components/editor/panels/assets/views/ab-testing";
-import { ScriptToVideoPanel } from "@/components/editor/panels/assets/views/script-to-video";
-import { ShortsComposerPanel } from "@/components/editor/panels/assets/views/shorts-composer";
-import { SceneDetectionPanel } from "@/components/editor/panels/assets/views/scene-detection";
-import { ThumbnailGenPanel } from "@/components/editor/panels/assets/views/thumbnail-gen";
+import { useAssetsPanelStore } from "@/stores/assets-panel-store";
 
 // ----- Thinking Messages -----
 
@@ -100,182 +86,13 @@ function useThinkingMessage(isThinking: boolean) {
 
 // ----- Types -----
 
-interface WorkflowStep {
-	id: string;
-	label: string;
-	description: string;
-	icon: typeof SparklesIcon;
-	action: string;
-	isCompleted?: boolean;
-}
-
-type StudioMode =
-	| "chat"
-	| "workflow"
-	| "transcript"
-	| "templates"
-	| "ideas"
-	| "broll"
-	| "youtube-reels"
-	| "dubbing"
-	| "chapters"
-	| "reframe"
-	| "tracking"
-	| "ab-testing"
-	| "script-to-video"
-	| "shorts"
-	| "scenes"
-	| "thumbnail";
-
-// ----- Workflow Steps -----
-
-const VIDEO_WORKFLOWS: {
-	id: string;
-	title: string;
-	description: string;
-	steps: WorkflowStep[];
-}[] = [
-	{
-		id: "youtube",
-		title: "YouTube video",
-		description: "Plan, script, and produce a YouTube video",
-		steps: [
-			{
-				id: "brainstorm",
-				label: "Brainstorm the idea",
-				description:
-					"Describe your topic and audience. AI helps refine your angle.",
-				icon: SparklesIcon,
-				action: "brainstorm",
-			},
-			{
-				id: "outline",
-				label: "Create an outline",
-				description:
-					"AI generates a structured outline with key points and timestamps.",
-				icon: TextIcon,
-				action: "outline",
-			},
-			{
-				id: "script",
-				label: "Write the script",
-				description:
-					"Turn the outline into a full script with intro, body, and CTA.",
-				icon: TextIcon,
-				action: "script",
-			},
-			{
-				id: "record",
-				label: "Record and import",
-				description:
-					"Record your video following the script, then import it here.",
-				icon: AiMicIcon,
-				action: "import",
-			},
-			{
-				id: "transcribe",
-				label: "Transcribe and edit",
-				description: "Transcribe the recording, then edit text to edit video.",
-				icon: AiMicIcon,
-				action: "transcribe",
-			},
-			{
-				id: "polish",
-				label: "Polish with AI",
-				description:
-					"Remove fillers, silences, add subtitles, generate thumbnail.",
-				icon: Image01Icon,
-				action: "polish",
-			},
-		],
-	},
-	{
-		id: "short",
-		title: "Short-form content",
-		description: "TikTok, Reels, or YouTube Shorts",
-		steps: [
-			{
-				id: "hook",
-				label: "Craft the hook",
-				description: "AI helps write a 3-second hook that stops the scroll.",
-				icon: SparklesIcon,
-				action: "hook",
-			},
-			{
-				id: "script",
-				label: "Script the content",
-				description:
-					"Keep it tight — AI structures your message for 30-60 seconds.",
-				icon: TextIcon,
-				action: "script-short",
-			},
-			{
-				id: "record",
-				label: "Record vertically",
-				description: "Film in 9:16 portrait mode following the script.",
-				icon: AiMicIcon,
-				action: "import",
-			},
-			{
-				id: "edit",
-				label: "Fast-cut edit",
-				description: "Remove silences and filler for punchy pacing.",
-				icon: SparklesIcon,
-				action: "fast-edit",
-			},
-			{
-				id: "subtitles",
-				label: "Add bold subtitles",
-				description: "Most viewers watch muted — add animated captions.",
-				icon: TextIcon,
-				action: "subtitles",
-			},
-		],
-	},
-	{
-		id: "podcast",
-		title: "Podcast episode",
-		description: "Record, clean, and clip a podcast",
-		steps: [
-			{
-				id: "plan",
-				label: "Plan the episode",
-				description:
-					"AI helps structure topics, questions, and talking points.",
-				icon: SparklesIcon,
-				action: "plan-podcast",
-			},
-			{
-				id: "import",
-				label: "Import recording",
-				description: "Import your podcast recording.",
-				icon: AiMicIcon,
-				action: "import",
-			},
-			{
-				id: "clean",
-				label: "Clean the audio",
-				description: "Remove background noise and normalize levels.",
-				icon: SparklesIcon,
-				action: "clean-audio",
-			},
-			{
-				id: "transcribe",
-				label: "Transcribe and find clips",
-				description: "Transcribe to easily navigate and find the best moments.",
-				icon: TextIcon,
-				action: "transcribe",
-			},
-			{
-				id: "clip",
-				label: "Create highlight clips",
-				description: "AI identifies the best segments for social media clips.",
-				icon: Image01Icon,
-				action: "highlights",
-			},
-		],
-	},
-];
+// Director chat is a two-mode conversational surface: freeform brainstorm/agent
+// chat, or (when a transcript exists) AI-assisted transcript editing. The other
+// 12 utility panels that used to hang off this switch (Templates, Ideas,
+// Workflows, B-Roll, Reframe, Tracking, A/B Test, Shorts, Scenes, Thumbnail,
+// Dubbing, YouTube Reels, Script→Video) now live in the sibling "Tools" tab
+// (`./tools.tsx`) — see the Director-revamp design doc, Item 4.
+type StudioMode = "chat" | "transcript";
 
 // ----- Chat Prompts -----
 
@@ -327,15 +144,24 @@ export function DirectorView() {
 	const { isConnected } = useAIStatus();
 	const toggleSetupGuide = useAIStore((s) => s.toggleSetupGuide);
 	const saveIdea = useAIStore((s) => s.saveIdea);
-	const savedIdeas = useAIStore((s) => s.savedIdeas);
-	const removeIdea = useAIStore((s) => s.removeIdea);
-	const clearIdeas = useAIStore((s) => s.clearIdeas);
 	const messages = useAIStore((s) => s.studioMessages);
 	const addMessage = useAIStore((s) => s.addStudioMessage);
 	const updateMessage = useAIStore((s) => s.updateStudioMessage);
 	const clearMessages = useAIStore((s) => s.clearStudioMessages);
 	const transcriptSegments = useTranscriptStore((s) => s.segments);
 	const hasTranscript = transcriptSegments.length > 0;
+
+	// Cross-tab deep links to/from the "Tools" tab (Ideas list, Workflows
+	// launcher) — see `assets-panel-store.ts`. Tools and Director are separate
+	// panel tabs (only the active one is mounted), so a plain callback can't
+	// cross that boundary; these two small store fields do it instead.
+	const openToolsPanel = useAssetsPanelStore((s) => s.openToolsPanel);
+	const pendingDirectorPrompt = useAssetsPanelStore(
+		(s) => s.pendingDirectorPrompt,
+	);
+	const clearPendingDirectorPrompt = useAssetsPanelStore(
+		(s) => s.clearPendingDirectorPrompt,
+	);
 
 	// ── Orchestrator (Director API) ──
 	const editor = useEditor();
@@ -353,8 +179,6 @@ export function DirectorView() {
 	const [inputValue, setInputValue] = useState("");
 	const [isThinking, setIsThinking] = useState(false);
 	const thinkingMessage = useThinkingMessage(isThinking);
-	const [selectedWorkflow, setSelectedWorkflow] = useState<string | null>(null);
-	const [completedSteps, setCompletedSteps] = useState<Set<string>>(new Set());
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 	const scrollRef = useRef<HTMLDivElement>(null);
 	// Live agent run: the AbortController for the in-flight chat run, so the Stop
@@ -409,6 +233,16 @@ export function DirectorView() {
 			scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
 		}
 	}, [messages, isThinking]);
+
+	// Consume a prompt handed off from the Tools tab (e.g. Workflows' "Ask AI
+	// about next step") — prefill the chat input and focus it, once.
+	useEffect(() => {
+		if (!pendingDirectorPrompt) return;
+		setMode("chat");
+		setInputValue(pendingDirectorPrompt);
+		clearPendingDirectorPrompt();
+		requestAnimationFrame(() => inputRef.current?.focus());
+	}, [pendingDirectorPrompt, clearPendingDirectorPrompt]);
 
 	// Run the gated verb the chat agent paused on, after the user approves its
 	// cost. Executes the exact proposed action deterministically (bypassing the
@@ -738,20 +572,6 @@ export function DirectorView() {
 		});
 	};
 
-	const handleStepClick = (stepId: string) => {
-		setCompletedSteps((prev) => {
-			const next = new Set(prev);
-			if (next.has(stepId)) {
-				next.delete(stepId);
-			} else {
-				next.add(stepId);
-			}
-			return next;
-		});
-	};
-
-	const activeWorkflow = VIDEO_WORKFLOWS.find((w) => w.id === selectedWorkflow);
-
 	return (
 		<div className="relative flex h-full flex-col overflow-hidden">
 			{/* Header */}
@@ -766,7 +586,9 @@ export function DirectorView() {
 						</Badge>
 					)}
 				</div>
-				{/* Tab strip — scrolls horizontally so every panel stays reachable. */}
+				{/* Tab strip — Director is chat-only now (Direct + Script when a
+				    transcript exists); every other panel lives in the sibling
+				    "Tools" tab (see design doc Item 4 / ./tools.tsx). */}
 				<div className="flex items-center gap-1 min-w-0 flex-1 overflow-x-auto [&>button]:shrink-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 					<Button
 						variant={mode === "chat" ? "secondary" : "ghost"}
@@ -798,137 +620,6 @@ export function DirectorView() {
 							Script
 						</Button>
 					)}
-					<Button
-						variant={mode === "templates" ? "secondary" : "ghost"}
-						size="sm"
-						className="h-6 text-[10px] px-2"
-						onClick={() => setMode("templates")}
-					>
-						Templates
-					</Button>
-					<Button
-						variant={mode === "ideas" ? "secondary" : "ghost"}
-						size="sm"
-						className="h-6 text-[10px] px-2 gap-1"
-						onClick={() => setMode("ideas")}
-					>
-						Ideas
-						{savedIdeas.length > 0 && (
-							<span className="bg-primary text-primary-foreground rounded-full text-[8px] size-4 flex items-center justify-center font-bold">
-								{savedIdeas.length}
-							</span>
-						)}
-					</Button>
-					{hasTranscript && (
-						<Button
-							variant={mode === "broll" ? "secondary" : "ghost"}
-							size="sm"
-							className="h-6 text-[10px] px-2"
-							onClick={() => setMode("broll")}
-						>
-							B-Roll
-						</Button>
-					)}
-					{/* Dubbing is retired with the Python TTS chain (see
-					    lib/local-ai/retired-features.ts). */}
-					{hasTranscript && isFeatureAvailable("dubbing") && (
-						<Button
-							variant={mode === "dubbing" ? "secondary" : "ghost"}
-							size="sm"
-							className="h-6 text-[10px] px-2"
-							onClick={() => setMode("dubbing")}
-						>
-							Dub
-						</Button>
-					)}
-					{hasTranscript && (
-						<Button
-							variant={mode === "chapters" ? "secondary" : "ghost"}
-							size="sm"
-							className="h-6 text-[10px] px-2"
-							onClick={() => setMode("chapters")}
-						>
-							Chapters
-						</Button>
-					)}
-					<Button
-						variant={mode === "workflow" ? "secondary" : "ghost"}
-						size="sm"
-						className="h-6 text-[10px] px-2"
-						onClick={() => setMode("workflow")}
-					>
-						Workflows
-					</Button>
-					{/* YouTube import ran on the retired stack's yt-dlp service. */}
-					{isFeatureAvailable("youtubeImport") && (
-						<Button
-							variant={mode === "youtube-reels" ? "secondary" : "ghost"}
-							size="sm"
-							className="h-6 text-[10px] px-2"
-							onClick={() => setMode("youtube-reels")}
-						>
-							YT Reels
-						</Button>
-					)}
-					<Button
-						variant={mode === "reframe" ? "secondary" : "ghost"}
-						size="sm"
-						className="h-6 text-[10px] px-2"
-						onClick={() => setMode("reframe")}
-					>
-						Reframe
-					</Button>
-					<Button
-						variant={mode === "tracking" ? "secondary" : "ghost"}
-						size="sm"
-						className="h-6 text-[10px] px-2"
-						onClick={() => setMode("tracking")}
-					>
-						Tracking
-					</Button>
-					<Button
-						variant={mode === "ab-testing" ? "secondary" : "ghost"}
-						size="sm"
-						className="h-6 text-[10px] px-2"
-						onClick={() => setMode("ab-testing")}
-					>
-						A/B Test
-					</Button>
-					{/* Script-to-video is retired with the Python stack. */}
-					{isFeatureAvailable("scriptToVideo") && (
-						<Button
-							variant={mode === "script-to-video" ? "secondary" : "ghost"}
-							size="sm"
-							className="h-6 text-[10px] px-2"
-							onClick={() => setMode("script-to-video")}
-						>
-							Script→Video
-						</Button>
-					)}
-					<Button
-						variant={mode === "shorts" ? "secondary" : "ghost"}
-						size="sm"
-						className="h-6 text-[10px] px-2"
-						onClick={() => setMode("shorts")}
-					>
-						Shorts
-					</Button>
-					<Button
-						variant={mode === "scenes" ? "secondary" : "ghost"}
-						size="sm"
-						className="h-6 text-[10px] px-2"
-						onClick={() => setMode("scenes")}
-					>
-						Scenes
-					</Button>
-					<Button
-						variant={mode === "thumbnail" ? "secondary" : "ghost"}
-						size="sm"
-						className="h-6 text-[10px] px-2"
-						onClick={() => setMode("thumbnail")}
-					>
-						Thumbnail
-					</Button>
 				</div>
 			</div>
 
@@ -1115,10 +806,10 @@ export function DirectorView() {
 												onClick={() => {
 													saveIdea(msg.content);
 													toast.success("Idea saved", {
-														description: "View it in the Ideas tab.",
+														description: "View it in the Tools tab.",
 														action: {
 															label: "View",
-															onClick: () => setMode("ideas"),
+															onClick: () => openToolsPanel("ideas"),
 														},
 													});
 												}}
@@ -1229,309 +920,6 @@ export function DirectorView() {
 						</div>
 					</div>
 				</>
-			)}
-
-			{/* ── Templates Mode ── */}
-			{mode === "templates" && <TemplatePanel className="flex-1 min-h-0" />}
-
-			{/* ── B-Roll Mode ── */}
-			{mode === "broll" && <BRollSuggestionsPanel className="flex-1 min-h-0" />}
-
-			{/* ── Dubbing Mode ── */}
-			{mode === "dubbing" && isFeatureAvailable("dubbing") && (
-				<div className="flex-1 min-h-0 overflow-y-auto">
-					<AIDubbingPanel />
-				</div>
-			)}
-
-			{/* ── Auto Chapters Mode ── */}
-			{mode === "chapters" && (
-				<div className="flex-1 min-h-0 overflow-y-auto">
-					<AutoChaptersPanel />
-				</div>
-			)}
-
-			{/* ── YouTube Reels Mode ── */}
-			{mode === "youtube-reels" && isFeatureAvailable("youtubeImport") && (
-				<div className="flex-1 min-h-0 overflow-y-auto px-2 py-3">
-					<YouTubeReelsPanel />
-				</div>
-			)}
-
-			{/* ── Smart Reframe Mode ── */}
-			{mode === "reframe" && <SmartReframePanel className="flex-1 min-h-0" />}
-
-			{/* ── Motion Tracking Mode ── */}
-			{mode === "tracking" && (
-				<MotionTrackingPanel className="flex-1 min-h-0" />
-			)}
-
-			{/* ── A/B Testing Mode ── */}
-			{mode === "ab-testing" && <ABTestingPanel className="flex-1 min-h-0" />}
-
-			{/* ── Script-to-Video Mode ── */}
-			{mode === "script-to-video" && isFeatureAvailable("scriptToVideo") && (
-				<ScriptToVideoPanel className="flex-1 min-h-0" />
-			)}
-
-			{/* ── Shorts Composer Mode ── */}
-			{mode === "shorts" && <ShortsComposerPanel className="flex-1 min-h-0" />}
-
-			{/* ── Scene Detection Mode ── */}
-			{mode === "scenes" && <SceneDetectionPanel className="flex-1 min-h-0" />}
-
-			{/* ── Thumbnail Generator Mode ── */}
-			{mode === "thumbnail" && <ThumbnailGenPanel className="flex-1 min-h-0" />}
-
-			{/* ── Ideas Mode ── */}
-			{mode === "ideas" && (
-				<div className="flex-1 min-h-0 overflow-y-auto px-2 py-3">
-					{savedIdeas.length === 0 ? (
-						<div className="flex flex-col items-center justify-center h-full gap-2 text-center px-4">
-							<HugeiconsIcon
-								icon={Bookmark01Icon}
-								className="size-8 text-muted-foreground/30"
-							/>
-							<p className="text-xs font-medium">No saved ideas yet</p>
-							<p className="text-[10px] text-muted-foreground leading-relaxed">
-								Chat with AI and hit &ldquo;Save idea&rdquo; on any response to
-								collect it here.
-							</p>
-							<Button
-								variant="outline"
-								size="sm"
-								className="h-7 text-[11px] mt-2"
-								onClick={() => setMode("chat")}
-							>
-								<HugeiconsIcon icon={SparklesIcon} className="size-3 mr-1" />
-								Start brainstorming
-							</Button>
-						</div>
-					) : (
-						<>
-							<div className="flex items-center justify-between px-1 mb-2">
-								<p className="text-[11px] text-muted-foreground">
-									{savedIdeas.length} saved idea
-									{savedIdeas.length !== 1 ? "s" : ""}
-								</p>
-								<Button
-									variant="ghost"
-									size="sm"
-									className="h-6 text-[10px] px-1.5 text-muted-foreground"
-									onClick={clearIdeas}
-								>
-									<HugeiconsIcon
-										icon={Delete02Icon}
-										className="size-3 mr-0.5"
-									/>
-									Clear all
-								</Button>
-							</div>
-							<div className="flex flex-col gap-2">
-								{savedIdeas.map((idea) => (
-									<div
-										key={idea.id}
-										className="rounded-lg border px-3 py-2.5 group relative"
-									>
-										<div className="text-xs leading-relaxed line-clamp-6 pr-6">
-											<ReactMarkdown
-												components={{
-													p: ({ children }) => (
-														<p className="mb-1 last:mb-0">{children}</p>
-													),
-													strong: ({ children }) => (
-														<strong className="font-semibold">
-															{children}
-														</strong>
-													),
-													ul: ({ children }) => (
-														<ul className="list-disc pl-4 mb-1 space-y-0.5">
-															{children}
-														</ul>
-													),
-													ol: ({ children }) => (
-														<ol className="list-decimal pl-4 mb-1 space-y-0.5">
-															{children}
-														</ol>
-													),
-													li: ({ children }) => <li>{children}</li>,
-												}}
-											>
-												{idea.content.length > 500
-													? `${idea.content.slice(0, 500)}...`
-													: idea.content}
-											</ReactMarkdown>
-										</div>
-										<div className="flex items-center justify-between mt-2 pt-1.5 border-t border-border/50">
-											<span className="text-[9px] text-muted-foreground">
-												{new Date(idea.savedAt).toLocaleDateString(undefined, {
-													month: "short",
-													day: "numeric",
-													hour: "2-digit",
-													minute: "2-digit",
-												})}
-											</span>
-											<Button
-												variant="ghost"
-												size="sm"
-												className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-destructive"
-												onClick={() => removeIdea(idea.id)}
-											>
-												<HugeiconsIcon icon={Delete02Icon} className="size-3" />
-											</Button>
-										</div>
-									</div>
-								))}
-							</div>
-						</>
-					)}
-				</div>
-			)}
-
-			{/* ── Workflow Mode ── */}
-			{mode === "workflow" && !activeWorkflow && (
-				<div className="flex-1 min-h-0 overflow-y-auto px-2 py-3">
-					<p className="text-[11px] text-muted-foreground px-1 mb-2">
-						Follow a step-by-step guide to create your video from idea to
-						export.
-					</p>
-					{VIDEO_WORKFLOWS.map((workflow) => (
-						<button
-							key={workflow.id}
-							type="button"
-							onClick={() => setSelectedWorkflow(workflow.id)}
-							className="flex items-start gap-3 rounded-lg border px-3 py-2.5 text-left hover:bg-accent transition-colors w-full mb-2"
-						>
-							<HugeiconsIcon
-								icon={SparklesIcon}
-								className="size-4 text-primary mt-0.5 shrink-0"
-							/>
-							<div className="flex-1 min-w-0">
-								<p className="text-xs font-medium">{workflow.title}</p>
-								<p className="text-[10px] text-muted-foreground mt-0.5">
-									{workflow.description}
-								</p>
-								<Badge variant="secondary" className="text-[9px] mt-1.5">
-									{workflow.steps.length} steps
-								</Badge>
-							</div>
-							<HugeiconsIcon
-								icon={ArrowRight01Icon}
-								className="size-3.5 text-muted-foreground mt-1 shrink-0"
-							/>
-						</button>
-					))}
-				</div>
-			)}
-
-			{/* ── Active Workflow ── */}
-			{mode === "workflow" && activeWorkflow && (
-				<div className="flex-1 min-h-0 overflow-y-auto px-2 py-3">
-					<div className="flex items-center gap-2 px-1 mb-1">
-						<button
-							type="button"
-							onClick={() => setSelectedWorkflow(null)}
-							className="text-[10px] text-muted-foreground hover:text-foreground"
-						>
-							Workflows
-						</button>
-						<span className="text-[10px] text-muted-foreground">/</span>
-						<span className="text-[11px] font-medium">
-							{activeWorkflow.title}
-						</span>
-					</div>
-
-					{/* Progress */}
-					<div className="flex items-center gap-2 px-1 mb-2">
-						<div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-							<div
-								className="h-full bg-primary rounded-full transition-all"
-								style={{
-									width: `${(completedSteps.size / activeWorkflow.steps.length) * 100}%`,
-								}}
-							/>
-						</div>
-						<span className="text-[10px] text-muted-foreground tabular-nums">
-							{completedSteps.size}/{activeWorkflow.steps.length}
-						</span>
-					</div>
-
-					{/* Steps */}
-					<div className="flex flex-col gap-2">
-						{activeWorkflow.steps.map((step, index) => {
-							const isCompleted = completedSteps.has(step.id);
-							const isActive =
-								!isCompleted &&
-								(index === 0 ||
-									completedSteps.has(activeWorkflow.steps[index - 1].id));
-
-							return (
-								<button
-									key={step.id}
-									type="button"
-									onClick={() => handleStepClick(step.id)}
-									className={cn(
-										"flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-all",
-										isCompleted && "border-green-500/30 bg-green-500/5",
-										isActive && "border-primary/30 bg-primary/5",
-										!isCompleted && !isActive && "opacity-60",
-									)}
-								>
-									<div
-										className={cn(
-											"flex items-center justify-center size-5 rounded-full text-[9px] font-bold shrink-0 mt-0.5",
-											isCompleted
-												? "bg-green-500 text-white"
-												: isActive
-													? "bg-primary text-primary-foreground"
-													: "bg-muted text-muted-foreground",
-										)}
-									>
-										{isCompleted ? "\u2713" : index + 1}
-									</div>
-
-									<div className="flex-1 min-w-0">
-										<p
-											className={cn(
-												"text-[11px] font-medium",
-												isCompleted && "line-through text-muted-foreground",
-											)}
-										>
-											{step.label}
-										</p>
-										<p className="text-[10px] text-muted-foreground mt-0.5 leading-relaxed">
-											{step.description}
-										</p>
-									</div>
-								</button>
-							);
-						})}
-
-						{/* Ask AI about this step */}
-						{isConnected && (
-							<Button
-								variant="outline"
-								size="sm"
-								className="h-7 text-[11px] mt-1"
-								onClick={() => {
-									setMode("chat");
-									const currentStep = activeWorkflow.steps.find(
-										(step) => !completedSteps.has(step.id),
-									);
-									if (currentStep) {
-										setInputValue(
-											`Help me with "${currentStep.label}" for my ${activeWorkflow.title}. ${currentStep.description}`,
-										);
-										requestAnimationFrame(() => inputRef.current?.focus());
-									}
-								}}
-							>
-								<HugeiconsIcon icon={SparklesIcon} className="size-3 mr-1" />
-								Ask AI about next step
-							</Button>
-						)}
-					</div>
-				</div>
 			)}
 
 			{/* Cost-preview approval gate — chat agent's paused generate/reroll. */}
