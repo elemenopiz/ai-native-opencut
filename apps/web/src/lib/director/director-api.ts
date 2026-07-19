@@ -193,6 +193,7 @@ import type {
 	BoardItemSnapshot,
 	BoardPromoteFn,
 	BudgetStatus,
+	DirectorLookupFailureCode,
 	DirectorResult,
 	DuplicateAssetPair,
 	GenerationFailure,
@@ -218,6 +219,7 @@ export type {
 	BoardItemSnapshot,
 	BoardMutationResult,
 	BoardPromoteFn,
+	DirectorLookupFailureCode,
 	DirectorResult,
 	DuplicateAssetPair,
 	GenerateExecutor,
@@ -425,6 +427,91 @@ const fail = <T = undefined>(message: string): DirectorResult<T> => ({
 	ok: false,
 	message,
 });
+
+// ── structured recovery-error contract (poach plan item #1) ────────────────
+// The highest-traffic NOT-FOUND lookup paths (slot/track/item/effect/media)
+// get a machine-readable `code` + a coaching `message` that NAMES the
+// recovery verb, instead of a bare fact — see
+// `docs/poach/vyra-poach-plan.md` §1. Every other verb's failures are
+// untouched: this is purely additive on top of `fail`, not a replacement for
+// it. `code`/`error`/`available` are optional on `DirectorResult`, so callers
+// that only read `ok`/`message` see no difference at all.
+
+/** Cap an inlined options list to a sensible length so a large enum (effect
+ *  types, live slot ids) doesn't blow up the payload — the tail collapses to
+ *  a count instead of being silently dropped. */
+const AVAILABLE_CAP = 20;
+function capAvailable(items: readonly string[]): string[] {
+	if (items.length <= AVAILABLE_CAP) return [...items];
+	const shown = items.slice(0, AVAILABLE_CAP);
+	return [...shown, `…and ${items.length - AVAILABLE_CAP} more`];
+}
+
+/**
+ * Build a structured NOT-FOUND failure: `error` is the bare fact (what
+ * `message` used to be, verbatim), `message` adds the coaching suffix that
+ * names the recovery verb, and `available` (when given) inlines the valid
+ * options so the model can recover without a round-trip.
+ */
+function failLookup<T = undefined>(
+	code: DirectorLookupFailureCode,
+	error: string,
+	recovery: string,
+	available?: readonly string[],
+): DirectorResult<T> {
+	return {
+		ok: false,
+		code,
+		error,
+		message: `${error} ${recovery}`,
+		...(available ? { available: capAvailable(available) } : {}),
+	};
+}
+
+/** No slot with this id exists on the timeline right now (`findSlot` miss) —
+ *  by far the highest-traffic lookup failure (generate/setPrompt/trim/
+ *  applyEffect/… all resolve a slot first). */
+function failSlotNotFound<T = undefined>(slotId: string): DirectorResult<T> {
+	return failLookup(
+		"SLOT_NOT_FOUND",
+		`No slot with id "${slotId}".`,
+		"Use getReel() to see current slot ids.",
+	);
+}
+
+/** No timeline element (slot or otherwise — text, plain clip, …) with this
+ *  id exists (`findElement` miss). */
+function failItemNotFound<T = undefined>(itemId: string): DirectorResult<T> {
+	return failLookup(
+		"ITEM_NOT_FOUND",
+		`No element with id "${itemId}".`,
+		"Use getReel() for current slot ids, or re-check the id returned by the verb that created this element (addClip/addText/reserveSlot).",
+	);
+}
+
+/** No media-library asset with this id exists (`editor.media.getAssetById`
+ *  miss) — the addClip / removeBackground / frame-source lookup path. */
+function failMediaNotFound<T = undefined>(mediaId: string): DirectorResult<T> {
+	return failLookup(
+		"MEDIA_NOT_FOUND",
+		`No media asset with id "${mediaId}".`,
+		"Use searchMedia() or getLibraryManifest() to see available media ids.",
+	);
+}
+
+/** The requested effect type isn't in the registry — inlines the valid
+ *  types so the model can retry immediately instead of guessing again. */
+function failEffectNotFound<T = undefined>(
+	effectType: string,
+	validTypes: readonly string[],
+): DirectorResult<T> {
+	return failLookup(
+		"EFFECT_NOT_FOUND",
+		`Unknown effect type "${effectType}".`,
+		"Call getAllEffects() (or retry with one of the listed `available` types).",
+		validTypes,
+	);
+}
 
 // ── self-correcting-generation defaults ─────────────────────────────────────
 
@@ -1338,7 +1425,7 @@ export function createDirectorApi(
 
 	function getSlot(slotId: string): DirectorResult<SlotSnapshot> {
 		const located = findSlot(slotId);
-		if (!located) return fail(`No slot with id "${slotId}".`);
+		if (!located) return failSlotNotFound(slotId);
 		return ok("Slot found.", toSnapshot(located.element));
 	}
 
@@ -1498,7 +1585,7 @@ export function createDirectorApi(
 		trackId?: string;
 	}): DirectorResult<{ elementId: string }> {
 		const asset = editor.media.getAssetById(input.mediaId);
-		if (!asset) return fail(`No media asset with id "${input.mediaId}".`);
+		if (!asset) return failMediaNotFound(input.mediaId);
 
 		if (asset.type === "audio") {
 			return fail(
@@ -2201,7 +2288,7 @@ export function createDirectorApi(
 	}): DirectorResult<SlotSnapshot> {
 		const before = captureReel();
 		const located = findSlot(input.slotId);
-		if (!located) return fail(`No slot with id "${input.slotId}".`);
+		if (!located) return failSlotNotFound(input.slotId);
 
 		const nextSpec: GenerationSpec = {
 			...located.element.generation,
@@ -2376,7 +2463,7 @@ export function createDirectorApi(
 		backendId?: string,
 	): Promise<DirectorResult<SlotGenerationOutcome>> {
 		const located = findSlot(slotId);
-		if (!located) return fail(`No slot with id "${slotId}".`);
+		if (!located) return failSlotNotFound(slotId);
 
 		const baseSpec = located.element.generation;
 		if (!baseSpec.prompt) {
@@ -2791,7 +2878,7 @@ export function createDirectorApi(
 	> {
 		const before = captureReel();
 		const located = findSlot(input.slotId);
-		if (!located) return fail(`No slot with id "${input.slotId}".`);
+		if (!located) return failSlotNotFound(input.slotId);
 
 		const ids = [...new Set(input.backendIds.filter((s) => s && s.trim()))];
 		if (ids.length < 2) {
@@ -2978,7 +3065,7 @@ export function createDirectorApi(
 	}): Promise<DirectorResult<{ slotId: string; takeId: string }>> {
 		const before = captureReel();
 		const located = findSlot(input.slotId);
-		if (!located) return fail(`No slot with id "${input.slotId}".`);
+		if (!located) return failSlotNotFound(input.slotId);
 		if (!input.remixPrompt.trim())
 			return fail("remix requires a non-empty remixPrompt.");
 
@@ -3253,7 +3340,7 @@ export function createDirectorApi(
 		if (input.fromSlotId === input.toSlotId)
 			return fail("chainFrom needs two different slots.");
 		const to = findSlot(input.toSlotId);
-		if (!to) return fail(`No slot with id "${input.toSlotId}".`);
+		if (!to) return failSlotNotFound(input.toSlotId);
 
 		const extracted = await extractFrame({
 			slotId: input.fromSlotId,
@@ -3292,7 +3379,7 @@ export function createDirectorApi(
 	): DirectorResult<SlotSnapshot> {
 		const before = captureReel();
 		const located = findSlot(input.slotId);
-		if (!located) return fail(`No slot with id "${input.slotId}".`);
+		if (!located) return failSlotNotFound(input.slotId);
 
 		const takes = takesOf(located.element);
 		let takeId: string | undefined;
@@ -3470,7 +3557,7 @@ export function createDirectorApi(
 	}): DirectorResult<SlotSnapshot> {
 		const before = captureReel();
 		const located = findSlot(input.slotId);
-		if (!located) return fail(`No slot with id "${input.slotId}".`);
+		if (!located) return failSlotNotFound(input.slotId);
 
 		const takes = takesOf(located.element);
 		let take: Take | undefined;
@@ -3716,7 +3803,7 @@ export function createDirectorApi(
 		frames?: number;
 	}): Promise<DirectorResult<ReviewTakeData>> {
 		const located = findSlot(input.slotId);
-		if (!located) return fail(`No slot with id "${input.slotId}".`);
+		if (!located) return failSlotNotFound(input.slotId);
 
 		const take = pickReviewTake(located.element, input.takeId);
 		if (!take) {
@@ -4043,7 +4130,7 @@ export function createDirectorApi(
 	}): DirectorResult {
 		const before = captureReel();
 		const located = findSlot(input.slotId);
-		if (!located) return fail(`No slot with id "${input.slotId}".`);
+		if (!located) return failSlotNotFound(input.slotId);
 		const el = located.element;
 		editor.timeline.updateElementTrim({
 			elementId: el.id,
@@ -4063,7 +4150,7 @@ export function createDirectorApi(
 	}): DirectorResult {
 		const before = captureReel();
 		const located = findSlot(input.slotId);
-		if (!located) return fail(`No slot with id "${input.slotId}".`);
+		if (!located) return failSlotNotFound(input.slotId);
 		editor.timeline.moveElement({
 			sourceTrackId: located.track.id,
 			targetTrackId: input.targetTrackId ?? located.track.id,
@@ -4083,7 +4170,7 @@ export function createDirectorApi(
 	}): DirectorResult<{ newSlotIds: string[] }> {
 		const before = captureReel();
 		const located = findSlot(input.slotId);
-		if (!located) return fail(`No slot with id "${input.slotId}".`);
+		if (!located) return failSlotNotFound(input.slotId);
 		const right = editor.timeline.splitElements({
 			elements: [{ trackId: located.track.id, elementId: located.element.id }],
 			splitTime: input.atTime,
@@ -4143,7 +4230,7 @@ export function createDirectorApi(
 	function remove(input: { slotId: string }): DirectorResult {
 		const before = captureReel();
 		const located = findSlot(input.slotId);
-		if (!located) return fail(`No slot with id "${input.slotId}".`);
+		if (!located) return failSlotNotFound(input.slotId);
 		editor.timeline.deleteElements({
 			elements: [{ trackId: located.track.id, elementId: located.element.id }],
 		});
@@ -4168,7 +4255,7 @@ export function createDirectorApi(
 	}): Promise<DirectorResult<AutoCutApplySummary>> {
 		const before = captureReel();
 		const located = findSlot(input.slotId);
-		if (!located) return fail(`No slot with id "${input.slotId}".`);
+		if (!located) return failSlotNotFound(input.slotId);
 		const el = located.element;
 
 		// A placed clip carries `mediaId` directly; a generative slot mirrors its
@@ -4258,7 +4345,7 @@ export function createDirectorApi(
 	}): DirectorResult {
 		const before = captureReel();
 		const located = findSlot(input.slotId);
-		if (!located) return fail(`No slot with id "${input.slotId}".`);
+		if (!located) return failSlotNotFound(input.slotId);
 
 		const validTypes = getAllTransitions().map((t) => t.type);
 		if (!validTypes.includes(input.transitionType)) {
@@ -4298,13 +4385,11 @@ export function createDirectorApi(
 	}): DirectorResult<{ effectId: string }> {
 		const before = captureReel();
 		const located = findSlot(input.slotId);
-		if (!located) return fail(`No slot with id "${input.slotId}".`);
+		if (!located) return failSlotNotFound(input.slotId);
 
 		const validTypes = getAllEffects().map((e) => e.type);
 		if (!validTypes.includes(input.effectType)) {
-			return fail(
-				`Unknown effect type "${input.effectType}". Valid types: ${validTypes.join(", ")}.`,
-			);
+			return failEffectNotFound(input.effectType, validTypes);
 		}
 
 		const effectId = editor.timeline.addClipEffect({
@@ -4415,7 +4500,7 @@ export function createDirectorApi(
 		textAlign?: TextElement["textAlign"];
 	}): DirectorResult {
 		const located = findElement(input.elementId);
-		if (!located) return fail(`No element with id "${input.elementId}".`);
+		if (!located) return failItemNotFound(input.elementId);
 		if (located.element.type !== "text") {
 			return fail(
 				`Element "${input.elementId}" is a "${located.element.type}", not a text element.`,

@@ -164,13 +164,33 @@ export interface MutationDelta {
 }
 
 /**
+ * Stable, machine-readable failure code for the highest-traffic NOT-FOUND
+ * lookup paths (see `director-api.ts`'s `failLookup` + poach plan item #1,
+ * `docs/poach/vyra-poach-plan.md`). Intentionally scoped to lookup failures
+ * only — NOT a general-purpose error taxonomy for every verb; other failure
+ * kinds (bad args, unmet preconditions) keep returning a plain `{ ok, message }`
+ * with `code`/`error`/`available` absent, exactly as before.
+ */
+export type DirectorLookupFailureCode =
+	| "SLOT_NOT_FOUND"
+	| "TRACK_NOT_FOUND"
+	| "ITEM_NOT_FOUND"
+	| "EFFECT_NOT_FOUND"
+	| "MEDIA_NOT_FOUND";
+
+/**
  * Standard self-describing result. Every mutating verb returns one of these so
  * a human UI or an agent can branch on `ok` and surface `message` directly
  * instead of catching exceptions.
  */
 export interface DirectorResult<T = undefined> {
 	ok: boolean;
-	/** Plain-language explanation, suitable to show a user or feed an agent. */
+	/**
+	 * Plain-language explanation, suitable to show a user or feed an agent. On
+	 * a converted lookup failure (see `code`), this NAMES the recovery verb
+	 * ("…Use getReel() to see current slot ids.") instead of a bare fact.
+	 * ALWAYS populated, on both success and failure — unchanged contract.
+	 */
 	message: string;
 	/** Verb-specific payload (e.g. created slot ids, the resulting snapshot). */
 	data?: T;
@@ -181,6 +201,28 @@ export interface DirectorResult<T = undefined> {
 	 * are unaffected.
 	 */
 	delta?: MutationDelta;
+	/**
+	 * Stable machine-readable failure code, present ONLY on the converted
+	 * not-found lookup failures (slot/track/item/effect/media — see
+	 * {@link DirectorLookupFailureCode}). Additive/optional: absent on success,
+	 * absent on the many verbs not yet converted — existing consumers that read
+	 * only `ok`/`message` are unaffected either way.
+	 */
+	code?: DirectorLookupFailureCode;
+	/**
+	 * Short human/agent summary of the failure, paired with `code` (the bare
+	 * fact, without the coaching suffix `message` carries — e.g.
+	 * `'No slot with id "x".'` vs. `message`'s `'No slot with id "x". Use
+	 * getReel() to see current slot ids.'`). Additive/optional, same scope as
+	 * `code`.
+	 */
+	error?: string;
+	/**
+	 * Valid options inlined on a bad enum/id lookup failure (e.g. effect types,
+	 * live slot ids), capped to a sensible length (~20 + "…and N more").
+	 * Additive/optional, same scope as `code`.
+	 */
+	available?: string[];
 }
 
 /**
