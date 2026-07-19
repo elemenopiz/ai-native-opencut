@@ -90,7 +90,11 @@ function abbreviateSeed(seed: number): string {
 
 /** Muted "Style bible" chip — appears wherever a reel-level consistency
  *  context (session or persisted) exists, independent of persona state.
- *  Popover previews the folded text read-only; no editing surface here. */
+ *  Popover previews the folded text read-only; no editing surface here.
+ *  Currently unmounted (UI-only removal, 2026-07-19) — the render call sat
+ *  right below `styleBiblePreview` in the JSX; re-add `{styleBiblePreview &&
+ *  <StyleBibleChip text={styleBiblePreview} />}` there to bring it back. */
+// biome-ignore lint/correctness/noUnusedVariables: kept intentionally for the Style Bible chip re-mount, see doc comment above.
 function StyleBibleChip({ text }: { text: string }) {
 	return (
 		<Popover>
@@ -157,10 +161,6 @@ interface GenerationFormProps {
 	) => void | Promise<void>;
 	busy?: boolean;
 	className?: string;
-	/** Switch the panel to the Personas segment — wired by `generate.tsx`
-	 *  (which owns the segment state) so the no-persona hint row can jump
-	 *  a stranger straight to persona selection. */
-	onGoToPersonas?: () => void;
 }
 
 const GEN_MODES: { value: GenMode; label: string; hint: string }[] = [
@@ -221,7 +221,6 @@ export function GenerationForm({
 	onGenerateMultiframe,
 	busy,
 	className,
-	onGoToPersonas,
 }: GenerationFormProps) {
 	// Sticky settings — last choice becomes the default next time.
 	const {
@@ -346,6 +345,10 @@ export function GenerationForm({
 	// render (editor is a stable singleton so a memo keyed on it would never
 	// re-run when the underlying project/session state changes).
 	const editor = useEditor();
+	// Preview-only value for the (currently unmounted) StyleBibleChip — kept
+	// live intentionally so re-adding the chip render is the only step needed
+	// to bring the UI back; see StyleBibleChip's doc comment above.
+	// biome-ignore lint/correctness/noUnusedVariables: kept intentionally for the Style Bible chip re-mount.
 	const styleBiblePreview = getStyleBiblePreview(editor);
 
 	const isOmni = !activePersona && genMode === "omni";
@@ -962,19 +965,20 @@ export function GenerationForm({
 
 	return (
 		<div className={cn("flex flex-col gap-3", className)}>
-			{/* Consistency strip — makes character/style consistency visible and
-			    self-explanatory without reading docs. Persona chip (when active)
-			    gains a seed-lock badge mirroring the generate route's exact
-			    condition; a Style bible chip surfaces the reel-level look folded
-			    into every generation, independent of persona; and a no-persona
-			    hint jumps a stranger straight to the Personas tab. One of the
-			    persona chip / hint always renders, so this row isn't gated on
-			    styleBiblePreview alone. */}
-			<div className="flex flex-wrap items-center gap-2">
-				{/* Persona — when active, replaces mode selection below and drives
-				    reference-conditioned character consistency. Restyled to a quiet
-				    row: no border, a ✕ chip instead of an underlined "Clear" link. */}
-				{activePersona && (
+			{/* Consistency strip — passive status only (no picker UI): when a
+			    persona is active (set programmatically, e.g. by the Director),
+			    shows it with a seed-lock badge mirroring the generate route's
+			    exact condition and a way to clear it. Renders nothing in the
+			    no-persona case — there's no in-form entry point to pick one
+			    anymore. (The reel-level consistency-context preview chip that
+			    used to live here — styleBiblePreview/StyleBibleChip below — is
+			    intentionally unmounted too; the data flow that feeds it stays
+			    live so it can be re-shown later.) */}
+			{activePersona && (
+				<div className="flex flex-wrap items-center gap-2">
+					{/* Persona — when active, replaces mode selection below and drives
+					    reference-conditioned character consistency. Restyled to a quiet
+					    row: no border, a ✕ chip instead of an underlined "Clear" link. */}
 					<div
 						data-testid="consistency-persona-chip"
 						className="flex min-w-0 flex-1 items-center gap-2 rounded-xl bg-foreground/[0.04] p-2"
@@ -1018,21 +1022,8 @@ export function GenerationForm({
 							<HugeiconsIcon icon={Cancel01Icon} className="size-[11px]" />
 						</button>
 					</div>
-				)}
-
-				{!activePersona && (
-					<button
-						type="button"
-						data-testid="consistency-persona-hint"
-						onClick={onGoToPersonas}
-						className="flex-1 rounded-xl border border-dashed border-foreground/[0.14] px-3 py-2 text-left text-[11.5px] text-muted-foreground transition-colors hover:border-foreground/25 hover:text-foreground"
-					>
-						Keeping a character? Pick a persona <span aria-hidden>→</span>
-					</button>
-				)}
-
-				{styleBiblePreview && <StyleBibleChip text={styleBiblePreview} />}
-			</div>
+				</div>
+			)}
 
 			{/* Mode selection — Palmier-style text tabs on the main surface.
 			    Persona active ⇒ Consistency tier takes this slot instead, since

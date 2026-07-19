@@ -361,10 +361,12 @@ function expandIdArgs(
 }
 
 /**
- * Compact PROJECT/PERSONAS/MEDIA grounding block, built from
- * `DirectorApi.getProjectInfo` — cheap enough to rebuild every turn and small
- * enough to ride in the once-per-turn system prompt (summarized, not dumped:
- * personas and recent assets are pre-capped by `getProjectInfo`).
+ * Compact PROJECT/PERSONAS/LIBRARY/TIMELINE grounding block, built from
+ * `DirectorApi.getProjectInfo` + `DirectorApi.getTimeline` — cheap enough to
+ * rebuild every turn and small enough to ride in the once-per-turn system
+ * prompt (summarized, not dumped: personas and recent assets are pre-capped
+ * by `getProjectInfo`; the timeline line is a single-line digest, full detail
+ * stays behind the `getTimeline` verb).
  */
 export function buildContextBlock(director: DirectorApi): string {
 	const info = director.getProjectInfo().data;
@@ -393,6 +395,18 @@ export function buildContextBlock(director: DirectorApi): string {
 	// (via `asset-manifest.ts`) and it degrades to media-type counts + recent names
 	// when no Understanding Pass data is wired. `getLibraryManifest` re-queries it.
 	lines.push(info.manifest.digest);
+
+	// STANDING TIMELINE AWARENESS: the whole timeline (uploaded clips, text
+	// overlays, audio, AND generative slots) — not just the generative REEL
+	// below (`reelSummary`/`getReel`, which only ever sees `.generation`-bearing
+	// image/video elements). Without this line a hand-built timeline with no
+	// generative slots reported as an EMPTY reel even though it had real,
+	// visible content — the model needs this digest to know the project isn't
+	// empty just because the reel is. Same digest-in-prompt / detail-on-verb
+	// pattern as the LIBRARY line above: full per-element detail stays behind
+	// the re-queryable `getTimeline` verb.
+	const timeline = director.getTimeline().data;
+	lines.push(timeline?.digest ?? "TIMELINE: empty.");
 
 	return lines.join("\n");
 }
@@ -1440,7 +1454,7 @@ export async function callVisionRelay(request: {
 export function buildFrontierSystemPrompt(director: DirectorApi): string {
 	return [
 		"You are the Director — an AI that builds and edits a short video reel by calling tools.",
-		"A reel is an ordered list of generative SLOTS; each slot holds a prompt and one or more generated TAKES.",
+		"The REEL is the GENERATIVE LAYER: an ordered list of generative SLOTS, each holding a prompt and one or more generated TAKES. It sits ON TOP of the project's actual TIMELINE, which may ALSO hold uploaded clips, text overlays, and audio that are NOT reel slots — the TIMELINE line below (and the getTimeline verb) is the source of truth for the whole project; an empty REEL does NOT mean an empty project.",
 		"",
 		"UNITS: all durations and times are in SECONDS unless a field name ends in `Frames`.",
 		"IDS: every id shown to you (in the REEL below and in tool-result CHANGES reports) is a SHORT id. Pass short ids back verbatim in tool args — do not lengthen or invent them. Exceptions (always FULL ids, never shortened): `targetTrackId` (a track id), `elementId` (a text-overlay id from addText), and mediaIds from searchMedia.",

@@ -18,7 +18,6 @@ import { VisualsCombinedView } from "./views/visuals-combined";
 import { BrandKitView } from "./views/brand-kit";
 import { VisualSearchView } from "./views/visual-search";
 import { MulticamPanel } from "./views/multicam";
-import { TemplateGalleryPanel } from "./views/template-gallery";
 
 export function AssetsPanel() {
 	const { activeTab, setActiveTab } = useAssetsPanelStore();
@@ -47,9 +46,6 @@ export function AssetsPanel() {
 		// Multicam controls the main preview by toggling angle-track visibility —
 		// the preview panel is its viewer surface.
 		multicam: <MulticamPanel className="h-full" />,
-		// Searchable project-template gallery. Distinct from the Director's
-		// "Templates" mode (TemplatePanel), which applies AI reel templates.
-		templates: <TemplateGalleryPanel className="h-full" />,
 		search: <VisualSearchView />,
 		brandkit: <BrandKitView />,
 		settings: <SettingsView />,

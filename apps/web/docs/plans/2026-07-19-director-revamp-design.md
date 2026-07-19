@@ -232,6 +232,13 @@ rework. Non-goal per mission.
 **Wave plan:** Wave 1 = A + B + E (disjoint file sets, parallel). Wave 2 (after B merges) =
 C + D. Wave 3 = F-local, then F-server to the gate.
 
+**Build-orchestrator revision (2026-07-19 Step 0):** Part B stalled (0 commits) → re-dispatched
+as **B+D combined** against current `main` (same file cluster; splitting it across two
+sequential agents violates file-cluster partitioning). Part E's branch lacks the e2e
+reconcile — `e2e/persona-consistency.e2e.ts` still asserts the removed testids — so E
+integrates via a fresh agent that cherry-picks the two UI commits and rewrites the spec to
+pin the *absence* of the picker/chip (re-adding stays an intentional act).
+
 `director.tsx` is the hot shared surface → B is the sequencing pivot; C/D/F queue behind it.
 A and E are disjoint and can run alongside. Fan-out cap = the non-overlapping file sets.
 
