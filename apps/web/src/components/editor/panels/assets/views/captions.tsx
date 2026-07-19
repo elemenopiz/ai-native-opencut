@@ -300,6 +300,11 @@ export function Captions() {
 			// supplementary speaker/emotion passes below.
 			let primarySourceFile: File | null = null;
 			const skippedSources: string[] = [];
+			// The first real per-source error, kept so that if EVERY source fails we
+			// can surface the actual cause (e.g. on-device Whisper unavailable)
+			// instead of the generic "no usable audio" — the latter is only right
+			// when some sources genuinely lack an audio stream.
+			let firstSourceError: Error | null = null;
 
 			for (let i = 0; i < sources.length; i++) {
 				const source = sources[i];
@@ -334,6 +339,9 @@ export function Captions() {
 						`Transcription skipped for "${source.label}" — no usable audio:`,
 						sourceErr,
 					);
+					if (!firstSourceError && sourceErr instanceof Error) {
+						firstSourceError = sourceErr;
+					}
 					skippedSources.push(source.label);
 					continue;
 				}
@@ -398,6 +406,18 @@ export function Captions() {
 				}));
 
 			if (validSegments.length === 0) {
+				// Every source failed the SAME way → almost always systemic (e.g.
+				// on-device Whisper couldn't initialize), not literally "no audio".
+				// Rethrow the real error so the outer handler surfaces it (and logs
+				// it via console.error, which survives the prod console strip)
+				// instead of hiding it behind a friendly-but-wrong message.
+				if (
+					firstSourceError &&
+					skippedSources.length === sources.length &&
+					sources.length > 0
+				) {
+					throw firstSourceError;
+				}
 				setError(
 					skippedSources.length > 0
 						? `Couldn't transcribe any source — none of the ${sources.length} selected clip${
