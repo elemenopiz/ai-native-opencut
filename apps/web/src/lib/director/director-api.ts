@@ -34,11 +34,24 @@ import { useBeatGridStore } from "@/stores/beat-grid-store";
 import { usePersonaStore } from "@/stores/persona-store";
 import type {
 	GenerationSpec,
+	ImageElement,
 	Take,
 	TextElement,
 	TimelineElement,
 	TimelineTrack,
+	VisualElement,
 } from "@/types/timeline";
+import { isVisualElement } from "@/lib/timeline/element-utils";
+import {
+	removeImageBackground,
+	type BackgroundRemovalResult,
+} from "@/lib/studio/background-removal";
+import { addItemsToProjectMedia } from "@/lib/studio/add-to-editor";
+import type {
+	AnimationInterpolation,
+	AnimationPropertyPath,
+	AnimationValue,
+} from "@/types/animation";
 import {
 	buildConsistencyContext,
 	getStoredConsistencyContext,
@@ -216,6 +229,7 @@ import type {
 	BoardItemSnapshot,
 	BoardPromoteFn,
 	BudgetStatus,
+	DirectorLookupFailureCode,
 	DirectorResult,
 	DuplicateAssetPair,
 	GenerationFailure,
@@ -244,6 +258,7 @@ export type {
 	BoardItemSnapshot,
 	BoardMutationResult,
 	BoardPromoteFn,
+	DirectorLookupFailureCode,
 	DirectorResult,
 	DuplicateAssetPair,
 	GenerateExecutor,
@@ -303,6 +318,14 @@ interface LocatedSlot {
 	track: TimelineTrack;
 	element: SlotElement;
 }
+
+/** Friendly `animateItem` property names — map to one or two real
+ *  `AnimationPropertyPath`s (position is x+y together). */
+export type AnimateItemProperty = "position" | "scale" | "rotation" | "opacity";
+
+/** A coerced `animateItem` value: `{x,y}` for position, a plain number for
+ *  everything else. */
+type AnimateItemValue = number | { x: number; y: number };
 
 /**
  * A resolved music asset for {@link DirectorApi.addMusicBed}: the imported audio
@@ -452,6 +475,17 @@ export interface CreateDirectorApiOptions {
 		discard?: BoardDiscardFn;
 	};
 	/**
+	 * AI matting seam for `removeBackground` (poach plan item #3,
+	 * `docs/poach/vyra-poach-plan.md` §3) — see
+	 * `lib/studio/background-removal.ts`'s `removeImageBackground`, the SAME
+	 * pipeline `BackgroundRemovalDialog`'s caller (`ai-toolbar.tsx`) uses.
+	 * BROWSER-BOUND (fetch + `Image` decode), so headless tests inject a stub —
+	 * the same pattern as `references`/`frames`. Defaults to the real pipeline.
+	 */
+	removeBackground?: (
+		source: File | string,
+	) => Promise<BackgroundRemovalResult>;
+	/**
 	 * Whole-edit critic seam (Director-intelligence Bet 2 v1 — see
 	 * `docs/plans/2026-07-19-director-intelligence-architecture.md` and
 	 * `docs/decisions/ADR-006-advisory-first-critic.md`). `relay` is ONE
@@ -491,6 +525,91 @@ const fail = <T = undefined>(message: string): DirectorResult<T> => ({
 	ok: false,
 	message,
 });
+
+// ── structured recovery-error contract (poach plan item #1) ────────────────
+// The highest-traffic NOT-FOUND lookup paths (slot/track/item/effect/media)
+// get a machine-readable `code` + a coaching `message` that NAMES the
+// recovery verb, instead of a bare fact — see
+// `docs/poach/vyra-poach-plan.md` §1. Every other verb's failures are
+// untouched: this is purely additive on top of `fail`, not a replacement for
+// it. `code`/`error`/`available` are optional on `DirectorResult`, so callers
+// that only read `ok`/`message` see no difference at all.
+
+/** Cap an inlined options list to a sensible length so a large enum (effect
+ *  types, live slot ids) doesn't blow up the payload — the tail collapses to
+ *  a count instead of being silently dropped. */
+const AVAILABLE_CAP = 20;
+function capAvailable(items: readonly string[]): string[] {
+	if (items.length <= AVAILABLE_CAP) return [...items];
+	const shown = items.slice(0, AVAILABLE_CAP);
+	return [...shown, `…and ${items.length - AVAILABLE_CAP} more`];
+}
+
+/**
+ * Build a structured NOT-FOUND failure: `error` is the bare fact (what
+ * `message` used to be, verbatim), `message` adds the coaching suffix that
+ * names the recovery verb, and `available` (when given) inlines the valid
+ * options so the model can recover without a round-trip.
+ */
+function failLookup<T = undefined>(
+	code: DirectorLookupFailureCode,
+	error: string,
+	recovery: string,
+	available?: readonly string[],
+): DirectorResult<T> {
+	return {
+		ok: false,
+		code,
+		error,
+		message: `${error} ${recovery}`,
+		...(available ? { available: capAvailable(available) } : {}),
+	};
+}
+
+/** No slot with this id exists on the timeline right now (`findSlot` miss) —
+ *  by far the highest-traffic lookup failure (generate/setPrompt/trim/
+ *  applyEffect/… all resolve a slot first). */
+function failSlotNotFound<T = undefined>(slotId: string): DirectorResult<T> {
+	return failLookup(
+		"SLOT_NOT_FOUND",
+		`No slot with id "${slotId}".`,
+		"Use getReel() to see current slot ids.",
+	);
+}
+
+/** No timeline element (slot or otherwise — text, plain clip, …) with this
+ *  id exists (`findElement` miss). */
+function failItemNotFound<T = undefined>(itemId: string): DirectorResult<T> {
+	return failLookup(
+		"ITEM_NOT_FOUND",
+		`No element with id "${itemId}".`,
+		"Use getReel() for current slot ids, or re-check the id returned by the verb that created this element (addClip/addText/reserveSlot).",
+	);
+}
+
+/** No media-library asset with this id exists (`editor.media.getAssetById`
+ *  miss) — the addClip / removeBackground / frame-source lookup path. */
+function failMediaNotFound<T = undefined>(mediaId: string): DirectorResult<T> {
+	return failLookup(
+		"MEDIA_NOT_FOUND",
+		`No media asset with id "${mediaId}".`,
+		"Use searchMedia() or getLibraryManifest() to see available media ids.",
+	);
+}
+
+/** The requested effect type isn't in the registry — inlines the valid
+ *  types so the model can retry immediately instead of guessing again. */
+function failEffectNotFound<T = undefined>(
+	effectType: string,
+	validTypes: readonly string[],
+): DirectorResult<T> {
+	return failLookup(
+		"EFFECT_NOT_FOUND",
+		`Unknown effect type "${effectType}".`,
+		"Call getAllEffects() (or retry with one of the listed `available` types).",
+		validTypes,
+	);
+}
 
 // ── self-correcting-generation defaults ─────────────────────────────────────
 
@@ -715,6 +834,13 @@ export function createDirectorApi(
 	// tests inject a spy (see `CreateDirectorApiOptions.preferenceLearning`).
 	const logPreference =
 		options.preferenceLearning?.logEvent ?? logPreferenceEvent;
+
+	// AI-matting seam (removeBackground) — defaults to the real pipeline;
+	// headless tests inject a stub. Same pattern as `deriveReferences` below.
+	const removeImageBackgroundImpl: (
+		source: File | string,
+	) => Promise<BackgroundRemovalResult> =
+		options.removeBackground ?? removeImageBackground;
 
 	// Reference-intake seam: model derivation + anchor upload + persona create.
 	// Defaults are browser-bound (relay / R2 upload / persona store); tests inject.
@@ -1766,7 +1892,7 @@ export function createDirectorApi(
 
 	function getSlot(slotId: string): DirectorResult<SlotSnapshot> {
 		const located = findSlot(slotId);
-		if (!located) return fail(`No slot with id "${slotId}".`);
+		if (!located) return failSlotNotFound(slotId);
 		return ok("Slot found.", toSnapshot(located.element));
 	}
 
@@ -1926,7 +2052,7 @@ export function createDirectorApi(
 		trackId?: string;
 	}): DirectorResult<{ elementId: string }> {
 		const asset = editor.media.getAssetById(input.mediaId);
-		if (!asset) return fail(`No media asset with id "${input.mediaId}".`);
+		if (!asset) return failMediaNotFound(input.mediaId);
 
 		if (asset.type === "audio") {
 			return fail(
@@ -2629,7 +2755,7 @@ export function createDirectorApi(
 	}): DirectorResult<SlotSnapshot> {
 		const before = captureReel();
 		const located = findSlot(input.slotId);
-		if (!located) return fail(`No slot with id "${input.slotId}".`);
+		if (!located) return failSlotNotFound(input.slotId);
 
 		const nextSpec: GenerationSpec = {
 			...located.element.generation,
@@ -2804,7 +2930,7 @@ export function createDirectorApi(
 		backendId?: string,
 	): Promise<DirectorResult<SlotGenerationOutcome>> {
 		const located = findSlot(slotId);
-		if (!located) return fail(`No slot with id "${slotId}".`);
+		if (!located) return failSlotNotFound(slotId);
 
 		const baseSpec = located.element.generation;
 		if (!baseSpec.prompt) {
@@ -3289,7 +3415,7 @@ export function createDirectorApi(
 	> {
 		const before = captureReel();
 		const located = findSlot(input.slotId);
-		if (!located) return fail(`No slot with id "${input.slotId}".`);
+		if (!located) return failSlotNotFound(input.slotId);
 
 		const ids = [...new Set(input.backendIds.filter((s) => s && s.trim()))];
 		if (ids.length < 2) {
@@ -3493,7 +3619,7 @@ export function createDirectorApi(
 	}): Promise<DirectorResult<{ slotId: string; takeId: string }>> {
 		const before = captureReel();
 		const located = findSlot(input.slotId);
-		if (!located) return fail(`No slot with id "${input.slotId}".`);
+		if (!located) return failSlotNotFound(input.slotId);
 		if (!input.remixPrompt.trim())
 			return fail("remix requires a non-empty remixPrompt.");
 
@@ -3768,7 +3894,7 @@ export function createDirectorApi(
 		if (input.fromSlotId === input.toSlotId)
 			return fail("chainFrom needs two different slots.");
 		const to = findSlot(input.toSlotId);
-		if (!to) return fail(`No slot with id "${input.toSlotId}".`);
+		if (!to) return failSlotNotFound(input.toSlotId);
 
 		const extracted = await extractFrame({
 			slotId: input.fromSlotId,
@@ -3807,7 +3933,7 @@ export function createDirectorApi(
 	): DirectorResult<SlotSnapshot> {
 		const before = captureReel();
 		const located = findSlot(input.slotId);
-		if (!located) return fail(`No slot with id "${input.slotId}".`);
+		if (!located) return failSlotNotFound(input.slotId);
 
 		const takes = takesOf(located.element);
 		let takeId: string | undefined;
@@ -3995,7 +4121,7 @@ export function createDirectorApi(
 	}): DirectorResult<SlotSnapshot> {
 		const before = captureReel();
 		const located = findSlot(input.slotId);
-		if (!located) return fail(`No slot with id "${input.slotId}".`);
+		if (!located) return failSlotNotFound(input.slotId);
 
 		const takes = takesOf(located.element);
 		let take: Take | undefined;
@@ -4241,7 +4367,7 @@ export function createDirectorApi(
 		frames?: number;
 	}): Promise<DirectorResult<ReviewTakeData>> {
 		const located = findSlot(input.slotId);
-		if (!located) return fail(`No slot with id "${input.slotId}".`);
+		if (!located) return failSlotNotFound(input.slotId);
 
 		const take = pickReviewTake(located.element, input.takeId);
 		if (!take) {
@@ -4568,7 +4694,7 @@ export function createDirectorApi(
 	}): DirectorResult {
 		const before = captureReel();
 		const located = findSlot(input.slotId);
-		if (!located) return fail(`No slot with id "${input.slotId}".`);
+		if (!located) return failSlotNotFound(input.slotId);
 		const el = located.element;
 		editor.timeline.updateElementTrim({
 			elementId: el.id,
@@ -4588,7 +4714,7 @@ export function createDirectorApi(
 	}): DirectorResult {
 		const before = captureReel();
 		const located = findSlot(input.slotId);
-		if (!located) return fail(`No slot with id "${input.slotId}".`);
+		if (!located) return failSlotNotFound(input.slotId);
 		editor.timeline.moveElement({
 			sourceTrackId: located.track.id,
 			targetTrackId: input.targetTrackId ?? located.track.id,
@@ -4608,7 +4734,7 @@ export function createDirectorApi(
 	}): DirectorResult<{ newSlotIds: string[] }> {
 		const before = captureReel();
 		const located = findSlot(input.slotId);
-		if (!located) return fail(`No slot with id "${input.slotId}".`);
+		if (!located) return failSlotNotFound(input.slotId);
 		const right = editor.timeline.splitElements({
 			elements: [{ trackId: located.track.id, elementId: located.element.id }],
 			splitTime: input.atTime,
@@ -4668,7 +4794,7 @@ export function createDirectorApi(
 	function remove(input: { slotId: string }): DirectorResult {
 		const before = captureReel();
 		const located = findSlot(input.slotId);
-		if (!located) return fail(`No slot with id "${input.slotId}".`);
+		if (!located) return failSlotNotFound(input.slotId);
 		editor.timeline.deleteElements({
 			elements: [{ trackId: located.track.id, elementId: located.element.id }],
 		});
@@ -4693,7 +4819,7 @@ export function createDirectorApi(
 	}): Promise<DirectorResult<AutoCutApplySummary>> {
 		const before = captureReel();
 		const located = findSlot(input.slotId);
-		if (!located) return fail(`No slot with id "${input.slotId}".`);
+		if (!located) return failSlotNotFound(input.slotId);
 		const el = located.element;
 
 		// A placed clip carries `mediaId` directly; a generative slot mirrors its
@@ -4783,7 +4909,7 @@ export function createDirectorApi(
 	}): DirectorResult {
 		const before = captureReel();
 		const located = findSlot(input.slotId);
-		if (!located) return fail(`No slot with id "${input.slotId}".`);
+		if (!located) return failSlotNotFound(input.slotId);
 
 		const validTypes = getAllTransitions().map((t) => t.type);
 		if (!validTypes.includes(input.transitionType)) {
@@ -4823,13 +4949,11 @@ export function createDirectorApi(
 	}): DirectorResult<{ effectId: string }> {
 		const before = captureReel();
 		const located = findSlot(input.slotId);
-		if (!located) return fail(`No slot with id "${input.slotId}".`);
+		if (!located) return failSlotNotFound(input.slotId);
 
 		const validTypes = getAllEffects().map((e) => e.type);
 		if (!validTypes.includes(input.effectType)) {
-			return fail(
-				`Unknown effect type "${input.effectType}". Valid types: ${validTypes.join(", ")}.`,
-			);
+			return failEffectNotFound(input.effectType, validTypes);
 		}
 
 		const effectId = editor.timeline.addClipEffect({
@@ -4940,7 +5064,7 @@ export function createDirectorApi(
 		textAlign?: TextElement["textAlign"];
 	}): DirectorResult {
 		const located = findElement(input.elementId);
-		if (!located) return fail(`No element with id "${input.elementId}".`);
+		if (!located) return failItemNotFound(input.elementId);
 		if (located.element.type !== "text") {
 			return fail(
 				`Element "${input.elementId}" is a "${located.element.type}", not a text element.`,
@@ -4966,6 +5090,295 @@ export function createDirectorApi(
 			],
 		});
 		return ok(`Updated text element "${input.elementId}".`);
+	}
+
+	// ---- MOTION ---------------------------------------------------------
+	//
+	// Exposes the EXISTING animation/keyframe system (`@/types/animation`,
+	// `TimelineManager.upsertKeyframes`) as one verb — poach plan item #2
+	// (`docs/poach/vyra-poach-plan.md` §2). Reuses the same base
+	// `transform`/`opacity` fields + keyframe channels the Properties-panel UI
+	// already reads/writes; no parallel animation model.
+
+	/** Friendly property name → the underlying `AnimationPropertyPath`(s) it
+	 *  maps to (position is 2 channels — x and y move together). */
+	const ANIMATE_PROPERTY_PATHS: Record<
+		AnimateItemProperty,
+		AnimationPropertyPath[]
+	> = {
+		position: ["transform.position.x", "transform.position.y"],
+		scale: ["transform.scale"],
+		rotation: ["transform.rotate"],
+		opacity: ["opacity"],
+	};
+
+	/** Validate + narrow a raw `value` against the shape `property` expects
+	 *  (a plain number, or `{x,y}` for position). Returns `null` on a bad shape. */
+	function coerceAnimateValue(
+		property: AnimateItemProperty,
+		value: unknown,
+	): AnimateItemValue | null {
+		if (property === "position") {
+			if (
+				typeof value !== "object" ||
+				value === null ||
+				typeof (value as { x?: unknown }).x !== "number" ||
+				typeof (value as { y?: unknown }).y !== "number" ||
+				!Number.isFinite((value as { x: number }).x) ||
+				!Number.isFinite((value as { y: number }).y)
+			) {
+				return null;
+			}
+			const { x, y } = value as { x: number; y: number };
+			return { x, y };
+		}
+		return typeof value === "number" && Number.isFinite(value) ? value : null;
+	}
+
+	/**
+	 * Set (or keyframe-animate) a timeline item's position, scale, rotation, or
+	 * opacity — motion on EXISTING footage: Ken Burns pushes, slides, opacity
+	 * fades, zoom-punches. Exactly one of `value` (a single static set — no
+	 * animation channel created, just the base field) or `keyframes` (an
+	 * ordered `value@time` list — creates/updates a real animation channel,
+	 * interpolated at render time) must be given.
+	 *
+	 * `time` in each keyframe is SECONDS relative to the item's OWN start (not
+	 * the timeline playhead) — matches every other keyframe API in the repo.
+	 * All keyframe upserts for one call land as ONE undo entry (`upsertKeyframes`
+	 * batches internally), so a whole Ken Burns arc is a single undo step.
+	 */
+	function animateItem(input: {
+		itemId: string;
+		property: AnimateItemProperty;
+		value?: unknown;
+		keyframes?: Array<{
+			time: number;
+			value: unknown;
+			interpolation?: AnimationInterpolation;
+		}>;
+	}): DirectorResult<{
+		itemId: string;
+		property: AnimateItemProperty;
+		keyframeCount?: number;
+	}> {
+		const before = captureReel();
+		const located = findElement(input.itemId);
+		if (!located) return failItemNotFound(input.itemId);
+		if (!isVisualElement(located.element)) {
+			return fail(
+				`Element "${input.itemId}" is a "${located.element.type}" — animateItem only works on visual elements (video/image/text/sticker).`,
+			);
+		}
+
+		const hasValue = input.value !== undefined;
+		const hasKeyframes = input.keyframes !== undefined;
+		if (hasValue === hasKeyframes) {
+			return fail(
+				"animateItem requires EXACTLY ONE of `value` (static set) or `keyframes` (a value@time list) — not both, not neither.",
+			);
+		}
+
+		const paths = ANIMATE_PROPERTY_PATHS[input.property];
+
+		if (hasValue) {
+			const coerced = coerceAnimateValue(input.property, input.value);
+			if (coerced === null) {
+				return fail(
+					input.property === "position"
+						? 'animateItem requires `value: {x, y}` (both finite numbers) for property "position".'
+						: `animateItem requires a finite numeric \`value\` for property "${input.property}".`,
+				);
+			}
+			const patch: Partial<TimelineElement> =
+				input.property === "position"
+					? {
+							transform: {
+								...(located.element as VisualElement).transform,
+								position: coerced as { x: number; y: number },
+							},
+						}
+					: input.property === "scale"
+						? {
+								transform: {
+									...(located.element as VisualElement).transform,
+									scale: coerced as number,
+								},
+							}
+						: input.property === "rotation"
+							? {
+									transform: {
+										...(located.element as VisualElement).transform,
+										rotate: coerced as number,
+									},
+								}
+							: { opacity: coerced as number };
+
+			editor.timeline.updateElements({
+				updates: [
+					{
+						trackId: located.track.id,
+						elementId: input.itemId,
+						updates: patch,
+					},
+				],
+			});
+
+			const result = ok(`Set ${input.property} on "${input.itemId}".`, {
+				itemId: input.itemId,
+				property: input.property,
+			});
+			return isSlotElement(located.element)
+				? withDelta(before, result)
+				: result;
+		}
+
+		const keyframeInputs = input.keyframes ?? [];
+		if (keyframeInputs.length === 0) {
+			return fail("animateItem's `keyframes` list must not be empty.");
+		}
+		const keyframeEntries: Array<{
+			trackId: string;
+			elementId: string;
+			propertyPath: AnimationPropertyPath;
+			time: number;
+			value: AnimationValue;
+			interpolation?: AnimationInterpolation;
+		}> = [];
+		for (const kf of keyframeInputs) {
+			if (!Number.isFinite(kf.time) || kf.time < 0) {
+				return fail(
+					`animateItem keyframe has an invalid \`time\` (${kf.time}) — must be a non-negative number of SECONDS from the item's start.`,
+				);
+			}
+			const coerced = coerceAnimateValue(input.property, kf.value);
+			if (coerced === null) {
+				return fail(
+					input.property === "position"
+						? `animateItem keyframe at ${kf.time}s requires \`value: {x, y}\` (both finite numbers) for property "position".`
+						: `animateItem keyframe at ${kf.time}s requires a finite numeric \`value\` for property "${input.property}".`,
+				);
+			}
+			for (const propertyPath of paths) {
+				const axisValue =
+					input.property === "position"
+						? propertyPath.endsWith(".x")
+							? (coerced as { x: number }).x
+							: (coerced as { y: number }).y
+						: (coerced as number);
+				keyframeEntries.push({
+					trackId: located.track.id,
+					elementId: input.itemId,
+					propertyPath,
+					time: kf.time,
+					value: axisValue,
+					interpolation: kf.interpolation,
+				});
+			}
+		}
+
+		editor.timeline.upsertKeyframes({ keyframes: keyframeEntries });
+
+		const result = ok(
+			`Keyframed ${input.property} on "${input.itemId}" (${keyframeInputs.length} keyframe${
+				keyframeInputs.length === 1 ? "" : "s"
+			}).`,
+			{
+				itemId: input.itemId,
+				property: input.property,
+				keyframeCount: keyframeInputs.length,
+			},
+		);
+		return isSlotElement(located.element) ? withDelta(before, result) : result;
+	}
+
+	// ---- AI CLEANUP -------------------------------------------------------
+	//
+	// Wires the EXISTING AI matting pipeline (`lib/studio/background-removal.ts`,
+	// extracted from `ai-toolbar.tsx`'s `BackgroundRemovalDialog` caller so the
+	// dialog and this verb share ONE implementation) as an agent verb — poach
+	// plan item #3 (`docs/poach/vyra-poach-plan.md` §3). Never reimplements
+	// matting.
+
+	/**
+	 * Remove the background from an EXISTING image item — cleanup on real
+	 * footage, not a generation. A long-running local/network operation (like
+	 * `extractFrame`): awaits the full pipeline (matting + re-hosting the
+	 * result), then returns the finished asset — there is no intermediate
+	 * "queued" state to poll, mirroring `extractFrame`'s own single-await
+	 * completion shape. The matted result is added to the media library as a
+	 * NEW asset (the source item is untouched); call `addClip` to place it on
+	 * the timeline.
+	 */
+	async function removeBackground(input: { itemId: string }): Promise<
+		DirectorResult<{
+			mediaId: string;
+			url: string;
+			width: number;
+			height: number;
+		}>
+	> {
+		const before = captureReel();
+		const located = findElement(input.itemId);
+		if (!located) return failItemNotFound(input.itemId);
+		if (located.element.type !== "image") {
+			return fail(
+				`Element "${input.itemId}" is a "${located.element.type}" — removeBackground only works on IMAGE elements. Extract a frame first (extractFrame) to matte a still from a video shot.`,
+			);
+		}
+
+		const imageElement = located.element as ImageElement;
+		const asset = editor.media.getAssetById(imageElement.mediaId);
+		if (!asset) return failMediaNotFound(imageElement.mediaId);
+
+		let projectId: string;
+		try {
+			projectId = editor.project.getActive().metadata.id;
+		} catch {
+			return fail("No active project to add the matted result to.");
+		}
+
+		let removed: BackgroundRemovalResult;
+		try {
+			removed = await removeImageBackgroundImpl(asset.file);
+		} catch (err) {
+			return fail(
+				`Background removal failed: ${
+					err instanceof Error ? err.message : "unknown error"
+				}.`,
+			);
+		}
+
+		const { added, mediaIds } = await addItemsToProjectMedia({
+			editor,
+			projectId,
+			items: [
+				{
+					url: removed.processedUrl,
+					name: `${asset.name} (background removed)`,
+					kind: "image",
+				},
+			],
+			source: "ai",
+		});
+		if (added === 0 || !mediaIds[0]) {
+			return fail(
+				`Removed the background from "${asset.name}" but couldn't add the result to your media library.`,
+			);
+		}
+
+		return withDelta(
+			before,
+			ok(
+				`Removed the background from "${asset.name}" → new asset "${mediaIds[0]}". Use addClip to place it on the timeline.`,
+				{
+					mediaId: mediaIds[0],
+					url: removed.processedUrl,
+					width: removed.width,
+					height: removed.height,
+				},
+			),
+		);
 	}
 
 	// ---- LIFECYCLE --------------------------------------------------------
@@ -5289,6 +5702,10 @@ export function createDirectorApi(
 		// text
 		addText,
 		updateText,
+		// motion
+		animateItem,
+		// AI cleanup
+		removeBackground,
 		// lifecycle
 		undo,
 		redo,
