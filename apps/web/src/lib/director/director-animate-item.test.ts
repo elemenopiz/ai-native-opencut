@@ -2,6 +2,24 @@ import { afterEach, describe, expect, it } from "bun:test";
 import type { TimelineTrack } from "@/types/timeline";
 import { makeFakeEditor, type FakeElement } from "./fake-editor";
 
+/** The fields every VISUAL element needs beyond {type, mediaId, name} — the
+ *  fake editor's `insertElement` is typed against the REAL `EditorCore`
+ *  timeline surface, which requires a full valid element (same precedent as
+ *  `director-remove-background.test.ts`'s `visualBase`). */
+const visualBase = {
+	trimStart: 0,
+	trimEnd: 0,
+	transform: { scale: 1, position: { x: 0, y: 0 }, rotate: 0 },
+	opacity: 1,
+};
+
+/** The fields every AUDIO element needs beyond {type, sourceType, mediaId}. */
+const audioBase = {
+	name: "audio clip",
+	trimStart: 0,
+	trimEnd: 0,
+};
+
 /**
  * `animateItem` (poach plan item #2, `docs/poach/vyra-poach-plan.md` §2) —
  * exposes the EXISTING animation/keyframe system as one Director verb.
@@ -337,5 +355,214 @@ describe("animateItem — lookup + type-target failures", () => {
 
 		expect(result.ok).toBe(false);
 		expect(result.message).toContain("audio");
+	});
+
+	it("still rejects a non-volume property (scale) on an audio element", () => {
+		const fake = makeAnimatableFakeEditor();
+		const d = createDirectorApi(fake.editor);
+		const audioId = fake.editor.timeline.addVoiceoverSlot({});
+
+		const result = d.animateItem({
+			itemId: audioId,
+			property: "scale",
+			value: 1.5,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.message).toContain(
+			"animateItem only works on visual elements",
+		);
+	});
+});
+
+/**
+ * `volume` widening (P5 craft-macro wiring dependency: `duckMusicUnderSpeech`
+ * plans literal `animateItem` calls with `property: "volume"`). Unlike
+ * position/scale/rotation/opacity, `volume` targets anything that CARRIES
+ * AUDIO — a plain audio clip or a video clip's own embedded audio track —
+ * not just visual elements. See `director-api.ts`'s `isAnimatableTarget`.
+ */
+describe("animateItem — volume (the one audio-capable property)", () => {
+	it("sets volume directly on a plain audio element (no animation channel)", () => {
+		const fake = makeAnimatableFakeEditor();
+		patchEditorSingleton(fake.editor);
+		const d = createDirectorApi(fake.editor);
+		const audioId = fake.editor.timeline.insertElement({
+			element: {
+				type: "audio",
+				sourceType: "upload",
+				mediaId: "media_music",
+				volume: 1,
+				startTime: 0,
+				duration: 10,
+				...audioBase,
+			},
+			placement: { mode: "auto", trackType: "audio" },
+		});
+
+		const result = d.animateItem({
+			itemId: audioId,
+			property: "volume",
+			value: 0.25,
+		});
+
+		expect(result.ok).toBe(true);
+		const el = fake.find(audioId)?.element as FakeElement & {
+			volume?: number;
+			animations?: unknown;
+		};
+		expect(el.volume).toBe(0.25);
+		expect(el.animations).toBeUndefined();
+	});
+
+	it("keyframes volume on a plain AUDIO element (the duckMusicUnderSpeech shape)", () => {
+		const fake = makeAnimatableFakeEditor();
+		patchEditorSingleton(fake.editor);
+		const d = createDirectorApi(fake.editor);
+		const audioId = fake.editor.timeline.insertElement({
+			element: {
+				type: "audio",
+				sourceType: "upload",
+				mediaId: "media_music",
+				volume: 1,
+				startTime: 0,
+				duration: 10,
+				...audioBase,
+			},
+			placement: { mode: "auto", trackType: "audio" },
+		});
+
+		const result = d.animateItem({
+			itemId: audioId,
+			property: "volume",
+			keyframes: [
+				{ time: 0, value: 1 },
+				{ time: 1, value: 0.25 },
+				{ time: 3, value: 0.25 },
+				{ time: 3.5, value: 1 },
+			],
+		});
+
+		expect(result.ok).toBe(true);
+		expect(result.data?.keyframeCount).toBe(4);
+		const el = fake.find(audioId)?.element as FakeElement & {
+			animations?: {
+				channels: Record<
+					string,
+					{ keyframes: { value: number }[] } | undefined
+				>;
+			};
+		};
+		const channel = el.animations?.channels.volume;
+		expect(channel?.keyframes.map((k) => k.value)).toEqual([1, 0.25, 0.25, 1]);
+	});
+
+	it("still allows a STATIC volume set on a video element's embedded audio", () => {
+		const fake = makeAnimatableFakeEditor();
+		patchEditorSingleton(fake.editor);
+		const d = createDirectorApi(fake.editor);
+		const videoId = fake.editor.timeline.insertElement({
+			element: {
+				type: "video",
+				mediaId: "media_video",
+				name: "video clip",
+				startTime: 0,
+				duration: 10,
+				...visualBase,
+			},
+			placement: { mode: "auto", trackType: "video" },
+		});
+
+		const result = d.animateItem({
+			itemId: videoId,
+			property: "volume",
+			value: 0.4,
+		});
+
+		expect(result.ok).toBe(true);
+		const el = fake.find(videoId)?.element as FakeElement & {
+			volume?: number;
+		};
+		expect(el.volume).toBe(0.4);
+	});
+
+	it("rejects a KEYFRAMED volume on a video element — the animation-channel registry only recognizes volume on audio elements (documented limitation)", () => {
+		const fake = makeAnimatableFakeEditor();
+		patchEditorSingleton(fake.editor);
+		const d = createDirectorApi(fake.editor);
+		const videoId = fake.editor.timeline.insertElement({
+			element: {
+				type: "video",
+				mediaId: "media_video",
+				name: "video clip",
+				startTime: 0,
+				duration: 10,
+				...visualBase,
+			},
+			placement: { mode: "auto", trackType: "video" },
+		});
+
+		const result = d.animateItem({
+			itemId: videoId,
+			property: "volume",
+			keyframes: [{ time: 0, value: 0.5 }],
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.message).toContain(
+			"volume KEYFRAMES only work on audio elements",
+		);
+	});
+
+	it("rejects volume on a visual-only element (text) with a volume-specific message", () => {
+		const fake = makeAnimatableFakeEditor();
+		const d = createDirectorApi(fake.editor);
+		const added = d.addText({ content: "hello", startTime: 0, duration: 3 });
+		const textId = added.data?.elementId as string;
+
+		const result = d.animateItem({
+			itemId: textId,
+			property: "volume",
+			value: 0.5,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.message).toContain(
+			"volume property only works on elements that carry audio",
+		);
+	});
+
+	it("volume static set undoes cleanly", () => {
+		const fake = makeAnimatableFakeEditor();
+		patchEditorSingleton(fake.editor);
+		const d = createDirectorApi(fake.editor);
+		const audioId = fake.editor.timeline.insertElement({
+			element: {
+				type: "audio",
+				sourceType: "upload",
+				mediaId: "media_music",
+				volume: 1,
+				startTime: 0,
+				duration: 10,
+				...audioBase,
+			},
+			placement: { mode: "auto", trackType: "audio" },
+		});
+
+		const before = d.animateItem({
+			itemId: audioId,
+			property: "volume",
+			value: 0.3,
+		});
+		expect(before.ok).toBe(true);
+		expect(
+			(fake.find(audioId)?.element as FakeElement & { volume?: number }).volume,
+		).toBe(0.3);
+
+		const undoResult = d.undo();
+		expect(undoResult.ok).toBe(true);
+		expect(
+			(fake.find(audioId)?.element as FakeElement & { volume?: number }).volume,
+		).toBe(1);
 	});
 });

@@ -30,9 +30,13 @@
 import type { EditorCore } from "@/core";
 import { TIMELINE_CONSTANTS } from "@/constants/timeline-constants";
 import { generateUUID } from "@/utils/id";
-import { useBeatGridStore } from "@/stores/beat-grid-store";
+import {
+	getTimelineBeatMarkers,
+	useBeatGridStore,
+} from "@/stores/beat-grid-store";
 import { usePersonaStore } from "@/stores/persona-store";
 import type {
+	AudioElement,
 	GenerationSpec,
 	ImageElement,
 	Take,
@@ -41,7 +45,23 @@ import type {
 	TimelineTrack,
 	VisualElement,
 } from "@/types/timeline";
-import { isVisualElement } from "@/lib/timeline/element-utils";
+import {
+	canElementHaveAudio,
+	isVisualElement,
+} from "@/lib/timeline/element-utils";
+import { getMainTrack } from "@/lib/timeline/track-utils";
+import { sourceRangeToTimelineRange } from "@/lib/timeline/audio-sync-utils";
+import {
+	cutOnBeat as planCutOnBeat,
+	duckMusicUnderSpeech as planDuckMusicUnderSpeech,
+	tightenToLength as planTightenToLength,
+	type CraftBeatMarker,
+	type CraftClip,
+	type CraftOp,
+	type DuckMusicElement,
+	type TightenElementInput,
+	type TimeRangeSec,
+} from "./craft";
 import {
 	removeImageBackground,
 	type BackgroundRemovalResult,
@@ -325,8 +345,15 @@ interface LocatedSlot {
 }
 
 /** Friendly `animateItem` property names — map to one or two real
- *  `AnimationPropertyPath`s (position is x+y together). */
-export type AnimateItemProperty = "position" | "scale" | "rotation" | "opacity";
+ *  `AnimationPropertyPath`s (position is x+y together). `volume` is the one
+ *  AUDIO-capable property (see `animateItem`'s own doc comment) — every other
+ *  property stays VISUAL-only. */
+export type AnimateItemProperty =
+	| "position"
+	| "scale"
+	| "rotation"
+	| "opacity"
+	| "volume";
 
 /** A coerced `animateItem` value: `{x,y}` for position, a plain number for
  *  everything else. */
@@ -5184,7 +5211,26 @@ export function createDirectorApi(
 		scale: ["transform.scale"],
 		rotation: ["transform.rotate"],
 		opacity: ["opacity"],
+		volume: ["volume"],
 	};
+
+	/**
+	 * Which elements a given `property` may target. `volume` is the one
+	 * AUDIO-capable property — it works on anything that carries audio (a
+	 * plain audio clip OR a video clip's embedded audio track; see
+	 * `lib/media/audio.ts`'s `resolveClipVolume`, which already reads a
+	 * `volume` animation channel off ANY `canElementHaveAudio` element
+	 * regardless of whether the element type declares its own static
+	 * `volume` field). Every other property stays VISUAL-only, unchanged.
+	 */
+	function isAnimatableTarget(
+		element: TimelineElement,
+		property: AnimateItemProperty,
+	): boolean {
+		return property === "volume"
+			? canElementHaveAudio(element)
+			: isVisualElement(element);
+	}
 
 	/** Validate + narrow a raw `value` against the shape `property` expects
 	 *  (a plain number, or `{x,y}` for position). Returns `null` on a bad shape. */
@@ -5210,17 +5256,27 @@ export function createDirectorApi(
 	}
 
 	/**
-	 * Set (or keyframe-animate) a timeline item's position, scale, rotation, or
-	 * opacity — motion on EXISTING footage: Ken Burns pushes, slides, opacity
-	 * fades, zoom-punches. Exactly one of `value` (a single static set — no
-	 * animation channel created, just the base field) or `keyframes` (an
-	 * ordered `value@time` list — creates/updates a real animation channel,
+	 * Set (or keyframe-animate) a timeline item's position, scale, rotation,
+	 * opacity, or volume — motion (and audio ducking) on EXISTING footage: Ken
+	 * Burns pushes, slides, opacity fades, zoom-punches, or a music/dialogue
+	 * volume ramp. Exactly one of `value` (a single static set — no animation
+	 * channel created, just the base field) or `keyframes` (an ordered
+	 * `value@time` list — creates/updates a real animation channel,
 	 * interpolated at render time) must be given.
+	 *
+	 * `volume` is the one AUDIO property here — it targets anything that
+	 * carries audio (a plain audio clip OR a video clip's own embedded audio
+	 * track), not just visual elements; every other property stays
+	 * visual-only (video/image/text/sticker). This is the executable seam the
+	 * P5 craft macro `duckMusicUnderSpeech` (`lib/director/craft/`) plans
+	 * against — its `CraftOp`s are literal `animateItem` calls with
+	 * `property: "volume"`.
 	 *
 	 * `time` in each keyframe is SECONDS relative to the item's OWN start (not
 	 * the timeline playhead) — matches every other keyframe API in the repo.
 	 * All keyframe upserts for one call land as ONE undo entry (`upsertKeyframes`
-	 * batches internally), so a whole Ken Burns arc is a single undo step.
+	 * batches internally), so a whole Ken Burns arc (or a whole duck plan) is a
+	 * single undo step.
 	 */
 	function animateItem(input: {
 		itemId: string;
@@ -5239,9 +5295,11 @@ export function createDirectorApi(
 		const before = captureReel();
 		const located = findElement(input.itemId);
 		if (!located) return failItemNotFound(input.itemId);
-		if (!isVisualElement(located.element)) {
+		if (!isAnimatableTarget(located.element, input.property)) {
 			return fail(
-				`Element "${input.itemId}" is a "${located.element.type}" — animateItem only works on visual elements (video/image/text/sticker).`,
+				input.property === "volume"
+					? `Element "${input.itemId}" is a "${located.element.type}" — animateItem's volume property only works on elements that carry audio (video/audio).`
+					: `Element "${input.itemId}" is a "${located.element.type}" — animateItem only works on visual elements (video/image/text/sticker).`,
 			);
 		}
 
@@ -5250,6 +5308,27 @@ export function createDirectorApi(
 		if (hasValue === hasKeyframes) {
 			return fail(
 				"animateItem requires EXACTLY ONE of `value` (static set) or `keyframes` (a value@time list) — not both, not neither.",
+			);
+		}
+
+		// `volume` KEYFRAMES specifically need a real audio element: the
+		// animation-channel registry (`lib/animation/property-registry.ts`'s
+		// `ANIMATION_PROPERTY_REGISTRY.volume.supportsElement`, outside this
+		// module's scope) only recognizes a `volume` channel on `type ===
+		// "audio"` — `UpsertKeyframeCommand` silently no-ops the write on
+		// anything else, which would otherwise report a false `ok: true` with
+		// nothing actually changed. A STATIC `value` set has no such gate (it's
+		// a plain field write via `updateElements`, honored at export/playback
+		// by `lib/media/audio.ts`'s `resolveClipVolume` for ANY audio-capable
+		// element — see `isAnimatableTarget`), so video's embedded-audio volume
+		// can still be SET, just not yet keyframed/ducked.
+		if (
+			hasKeyframes &&
+			input.property === "volume" &&
+			located.element.type !== "audio"
+		) {
+			return fail(
+				`Element "${input.itemId}" is a "${located.element.type}" — animateItem's volume KEYFRAMES only work on audio elements today. A static \`value\` set still works on a video clip's embedded audio; keyframed ducking does not yet.`,
 			);
 		}
 
@@ -5286,7 +5365,9 @@ export function createDirectorApi(
 										rotate: coerced as number,
 									},
 								}
-							: { opacity: coerced as number };
+							: input.property === "volume"
+								? { volume: coerced as number }
+								: { opacity: coerced as number };
 
 			editor.timeline.updateElements({
 				updates: [
@@ -5364,6 +5445,516 @@ export function createDirectorApi(
 			},
 		);
 		return isSlotElement(located.element) ? withDelta(before, result) : result;
+	}
+
+	// ---- CRAFT (P5 macros — lib/director/craft/*) --------------------------
+	//
+	// Wires the pure, deterministic "craft" planners (cutOnBeat/tightenToLength/
+	// duckMusicUnderSpeech — `lib/director/craft/index.ts`) into agent-reachable
+	// verbs. Each macro is a PLANNER ONLY (see `craft/types.ts`'s `CraftOp` doc
+	// comment) — it never touches the editor. This section is the EXECUTOR
+	// half: gather a read-only digest off the live timeline, call the macro,
+	// then apply the returned `CraftOp[]` plan through `executeCraftPlan`.
+	//
+	// TARGETING: `trim`/`move` above resolve their target via `findSlot` — REEL
+	// SLOTS ONLY (a generative image/video element). A craft plan's `CraftOp`s
+	// address whatever elements the macro's input digest named — real,
+	// already-cut footage (the whole point of the "editing-first" P5 pillar,
+	// ADR-007), which is NOT slot-restricted (`addClip` places plain,
+	// non-generative clips; a "cut-together sequence" is exactly that kind of
+	// clip). So `executeCraftPlan` re-implements the trim/move mutation using
+	// `findElement` (any timeline element) instead of reusing the public
+	// `trim`/`move` closures — same underlying `editor.timeline.
+	// updateElementTrim`/`moveElement` primitives those verbs call, just
+	// targeted more broadly. `animateItem` needs no such swap: it already
+	// resolves via `findElement`.
+
+	/**
+	 * Apply a `CraftOp[]` plan from `lib/director/craft/*` as ONE undo step.
+	 * Stops at the FIRST failed op — never half-applies silently — and names
+	 * which step/verb/target failed.
+	 *
+	 * ROLLBACK SEMANTICS: wraps the whole sequence in `beginTransaction`/
+	 * `commitTransaction` (same primitive `withAgentBatch` above uses), and on
+	 * failure calls `rollbackTransaction()`. Per `CommandManager.
+	 * rollbackTransaction`'s OWN contract ("the commands in it have already
+	 * executed, so this only affects undo tracking"), that discards the
+	 * transaction's UNDO-HISTORY registration only — any ops that already
+	 * succeeded before the failing one remain APPLIED to the live timeline.
+	 * There is no cheaper "undo what I just did" primitive short of literally
+	 * replaying each already-executed command's own `.undo()`, which risks
+	 * unwinding past a state a concurrent read already observed. In practice
+	 * this is a narrow window: every caller below gathers its digest and calls
+	 * its macro SYNCHRONOUSLY, with no `await` before `executeCraftPlan` runs,
+	 * so nothing else can mutate the timeline mid-plan — a genuine partial
+	 * apply here means the plan itself referenced a stale/invalid target, not
+	 * a race. Callers should still treat a failure as "state may have
+	 * partially changed — call getTimeline to check", not as a clean no-op.
+	 */
+	function executeCraftPlan(
+		ops: CraftOp[],
+	): DirectorResult<{ opsApplied: number }> {
+		if (ops.length === 0) {
+			return ok("Nothing to apply — the plan produced zero operations.", {
+				opsApplied: 0,
+			});
+		}
+
+		editor.command.beginTransaction();
+		for (let i = 0; i < ops.length; i++) {
+			const op = ops[i];
+			const result = executeCraftOp(op);
+			if (!result.ok) {
+				editor.command.rollbackTransaction();
+				const argBag = op.args as { slotId?: unknown; itemId?: unknown };
+				const target = String(argBag.slotId ?? argBag.itemId ?? "?");
+				const partial =
+					i > 0
+						? ` ${i} earlier step(s) already applied to the timeline but were NOT recorded as one undo step — call getTimeline to check current state.`
+						: "";
+				return fail(
+					`Craft plan stopped at step ${i + 1}/${ops.length} ("${op.verb}" on "${target}"): ${result.message}.${partial}`,
+				);
+			}
+		}
+		editor.command.commitTransaction();
+		return ok(`Applied ${ops.length} operation(s) in one undo step.`, {
+			opsApplied: ops.length,
+		});
+	}
+
+	/**
+	 * Route one `CraftOp` to its executing primitive. Every macro in
+	 * `lib/director/craft/*` only ever emits `trim`/`move`/`animateItem` ops
+	 * (see each macro's own doc comment) — an unrecognized verb here means a
+	 * new macro landed without a matching executor, a loud failure rather
+	 * than a silent no-op.
+	 */
+	function executeCraftOp(op: CraftOp): DirectorResult<unknown> {
+		switch (op.verb) {
+			case "trim":
+				return executeCraftTrim(op.args);
+			case "move":
+				return executeCraftMove(op.args);
+			case "animateItem":
+				return executeCraftAnimateItem(op.args);
+			default:
+				return fail(
+					`executeCraftPlan: no executor wired for craft op verb "${op.verb}".`,
+				);
+		}
+	}
+
+	/** `trim` op executor — same `updateElementTrim` primitive the `trim` verb
+	 *  calls above, targeted via `findElement` (any element, not just reel
+	 *  slots — see the section header). `trimEnd` is never touched by a craft
+	 *  plan (every macro trims tails via `duration`/`startTime`/`trimStart`
+	 *  only), so it always carries the element's current value through. */
+	function executeCraftTrim(
+		args: Record<string, unknown>,
+	): DirectorResult<unknown> {
+		const slotId = String(args.slotId ?? "");
+		const located = findElement(slotId);
+		if (!located) return failItemNotFound(slotId);
+		editor.timeline.updateElementTrim({
+			elementId: located.element.id,
+			trimStart:
+				typeof args.trimStart === "number"
+					? args.trimStart
+					: located.element.trimStart,
+			trimEnd: located.element.trimEnd,
+			startTime:
+				typeof args.startTime === "number" ? args.startTime : undefined,
+			duration: typeof args.duration === "number" ? args.duration : undefined,
+		});
+		return ok(`Trimmed "${slotId}".`);
+	}
+
+	/** `move` op executor — same `moveElement` primitive the `move` verb calls
+	 *  above, targeted via `findElement`. Craft plans only ever reposition an
+	 *  element on its OWN track (re-packing after a trim), so source and
+	 *  target track are always the same. */
+	function executeCraftMove(
+		args: Record<string, unknown>,
+	): DirectorResult<unknown> {
+		const slotId = String(args.slotId ?? "");
+		const located = findElement(slotId);
+		if (!located) return failItemNotFound(slotId);
+		const newStartTime = Number(args.newStartTime);
+		if (!Number.isFinite(newStartTime)) {
+			return fail(
+				`Craft plan's move op for "${slotId}" has a non-numeric newStartTime.`,
+			);
+		}
+		editor.timeline.moveElement({
+			sourceTrackId: located.track.id,
+			targetTrackId: located.track.id,
+			elementId: located.element.id,
+			newStartTime,
+		});
+		return ok(`Moved "${slotId}" to ${newStartTime}s.`);
+	}
+
+	/** `animateItem` op executor — delegates straight to the real verb above
+	 *  (already `findElement`-scoped, no targeting swap needed). Every craft
+	 *  macro that emits this op (`duckMusicUnderSpeech`) always supplies
+	 *  `keyframes`, never a static `value`. */
+	function executeCraftAnimateItem(
+		args: Record<string, unknown>,
+	): DirectorResult<unknown> {
+		return animateItem({
+			itemId: String(args.itemId ?? ""),
+			property: (args.property as AnimateItemProperty | undefined) ?? "opacity",
+			value: args.value,
+			keyframes: args.keyframes as
+				| Array<{
+						time: number;
+						value: unknown;
+						interpolation?: AnimationInterpolation;
+				  }>
+				| undefined,
+		});
+	}
+
+	// ── shared digest gatherers (cutOnBeat / tightenToLength / duckMusicUnderSpeech) ──
+
+	/**
+	 * Own local mirror of `hooks/use-auto-duck.ts`'s `isVoiceoverElement` — same
+	 * "own copy, not import" discipline the craft macros themselves follow
+	 * (`craft/types.ts`'s header): `director-api.ts` is a PURE LOGIC module (no
+	 * React), and that hook file pulls in `react`/`sonner`/`useEditor`.
+	 */
+	const VOICEOVER_NAME_PATTERN = /voiceover|voice[\s-]over|\bvoice\b|\bvo\b/i;
+	function isLikelyVoiceoverElement(element: AudioElement): boolean {
+		if (element.generation) return element.generation.kind === "voiceover";
+		return VOICEOVER_NAME_PATTERN.test(element.name);
+	}
+
+	/** An audio-track element that ISN'T a voiceover — `duckMusicUnderSpeech`'s
+	 *  ducking target. */
+	function isMusicElement(element: TimelineElement): element is AudioElement {
+		return element.type === "audio" && !isLikelyVoiceoverElement(element);
+	}
+
+	/**
+	 * TIMELINE-absolute speech intervals, gathered two ways so this works
+	 * whether or not the project has been transcribed:
+	 *  1. Voiceover-shaped audio elements — their own timeline span IS speech,
+	 *     no transcript needed (mirrors `use-auto-duck.ts`'s default
+	 *     "voiceover-elements" span mode).
+	 *  2. Transcript-derived speech spans for any element with a resolvable
+	 *     `mediaId` + a cached transcript (`options.transcripts`) — dialogue
+	 *     baked into raw video/audio footage. Segment timestamps are
+	 *     ASSET-RELATIVE (`getTranscript`'s own convention); projected onto the
+	 *     timeline via `sourceRangeToTimelineRange`, clamped to the element's
+	 *     visible trim window (a segment entirely trimmed out contributes
+	 *     nothing).
+	 * Feeds both `tightenToLength` (as `protectedRanges`, when `protectSpeech`)
+	 * and `duckMusicUnderSpeech` (as `speechIntervals`).
+	 */
+	function gatherSpeechIntervals(): TimeRangeSec[] {
+		const intervals: TimeRangeSec[] = [];
+		for (const track of editor.timeline.getTracks()) {
+			for (const element of track.elements) {
+				if (element.type === "audio" && isLikelyVoiceoverElement(element)) {
+					intervals.push({
+						startSec: element.startTime,
+						endSec: element.startTime + element.duration,
+					});
+					continue;
+				}
+				const mediaId = (element as { mediaId?: string }).mediaId;
+				if (!mediaId || !options.transcripts) continue;
+				const transcript = options.transcripts(mediaId);
+				if (!transcript) continue;
+				for (const seg of transcript.segments) {
+					if (!seg.text.trim()) continue;
+					const range = sourceRangeToTimelineRange({
+						element,
+						range: { start: seg.start, end: seg.end },
+					});
+					if (!range) continue;
+					intervals.push({ startSec: range.start, endSec: range.end });
+				}
+			}
+		}
+		return intervals;
+	}
+
+	/** Music-bed elements on audio tracks (optionally scoped to one track) —
+	 *  `duckMusicUnderSpeech`'s ducking targets. */
+	function gatherMusicElements(trackId?: string): DuckMusicElement[] {
+		const out: DuckMusicElement[] = [];
+		for (const track of editor.timeline.getTracks()) {
+			if (track.type !== "audio") continue;
+			if (trackId && track.id !== trackId) continue;
+			for (const element of track.elements) {
+				if (!isMusicElement(element)) continue;
+				out.push({
+					elementId: element.id,
+					startSec: element.startTime,
+					durationSec: element.duration,
+				});
+			}
+		}
+		return out;
+	}
+
+	/** Resolve the target track for `cutOnBeat`/`tightenToLength`: an explicit
+	 *  `trackId`, else the main video track, else the first video track. */
+	function resolveCraftTrack(trackId?: string): TimelineTrack | undefined {
+		const tracks = editor.timeline.getTracks();
+		if (trackId) return tracks.find((t) => t.id === trackId);
+		return getMainTrack({ tracks }) ?? tracks.find((t) => t.type === "video");
+	}
+
+	/**
+	 * Snap every cut-together join on a video track onto the nearest analyzed
+	 * beat (`lib/director/craft/cut-on-beat.ts`) — free, instant, editing on
+	 * your own footage (no generation, no model call). Needs a beat grid
+	 * already analyzed and at least two clips on the target track to have a
+	 * join to snap. `trackId` defaults to the main video track. Executes the
+	 * whole plan as ONE undo step.
+	 */
+	function cutOnBeat(input: {
+		trackId?: string;
+		toleranceSec?: number;
+		minClipDurationSec?: number;
+	}): DirectorResult<{
+		opsApplied: number;
+		snappedCount: number;
+		skippedCount: number;
+	}> {
+		const grid = useBeatGridStore.getState().grid;
+		if (!grid) {
+			return fail(
+				"cutOnBeat needs an analyzed beat grid to snap cuts to — analyze a music/audio clip's beats first (the timeline's beat-snap toggle), then retry.",
+			);
+		}
+
+		const tracks = editor.timeline.getTracks();
+		const track = resolveCraftTrack(input.trackId);
+		if (!track) {
+			return fail(
+				input.trackId
+					? `No track with id "${input.trackId}".`
+					: "No video track on the timeline to cut on beat.",
+			);
+		}
+		if (track.elements.length < 2) {
+			return fail(
+				`Track "${track.id}" has fewer than two clips — cutOnBeat needs at least two cut-together clips to have a join to snap.`,
+			);
+		}
+
+		const before = captureReel();
+		const sorted = [...track.elements].sort(
+			(a, b) => a.startTime - b.startTime,
+		);
+		const clips: CraftClip[] = sorted.map((el) => ({
+			elementId: el.id,
+			startSec: el.startTime,
+			durationSec: el.duration,
+			trimStart: el.trimStart,
+		}));
+		const beats: CraftBeatMarker[] = getTimelineBeatMarkers({ tracks, grid });
+
+		const plan = planCutOnBeat(clips, beats, {
+			toleranceSec: input.toleranceSec,
+			minClipDurationSec: input.minClipDurationSec,
+		});
+		if (plan.reason) {
+			return fail(`cutOnBeat: ${plan.reason}.`);
+		}
+		if (plan.ops.length === 0) {
+			return ok(
+				"No cuts needed snapping — every join is already on the beat (within tolerance).",
+				{ opsApplied: 0, snappedCount: 0, skippedCount: plan.skipped.length },
+			);
+		}
+
+		const exec = executeCraftPlan(plan.ops);
+		if (!exec.ok) return fail(exec.message);
+
+		return withDelta(
+			before,
+			ok(
+				`Snapped ${plan.ops.length} cut(s) onto the beat grid.` +
+					(plan.skipped.length > 0
+						? ` ${plan.skipped.length} join(s) left alone (already on beat or out of tolerance).`
+						: ""),
+				{
+					opsApplied: exec.data?.opsApplied ?? plan.ops.length,
+					snappedCount: plan.ops.length,
+					skippedCount: plan.skipped.length,
+				},
+			),
+		);
+	}
+
+	/**
+	 * Shrink a cut-together sequence down to a target runtime
+	 * (`lib/director/craft/tighten-to-length.ts`) — free, instant, editing on
+	 * your own footage. Shaves low-interest material first, then
+	 * proportionally trims what's left; never trims into protected speech
+	 * (`protectSpeech`, default true). `trackId` defaults to the main video
+	 * track. If the target can't be fully reached, still applies the best
+	 * partial tighten and reports the shortfall — never silently misses the
+	 * target. Executes the whole plan as ONE undo step.
+	 */
+	function tightenToLength(input: {
+		targetSec: number;
+		trackId?: string;
+		protectSpeech?: boolean;
+		minClipDurationSec?: number;
+		convergenceToleranceSec?: number;
+	}): DirectorResult<{
+		opsApplied: number;
+		projectedDurationSec: number;
+		shortfallSec?: number;
+	}> {
+		if (!Number.isFinite(input.targetSec) || input.targetSec < 0) {
+			return fail("tightenToLength requires a non-negative `targetSec`.");
+		}
+
+		const track = resolveCraftTrack(input.trackId);
+		if (!track) {
+			return fail(
+				input.trackId
+					? `No track with id "${input.trackId}".`
+					: "No video track on the timeline to tighten.",
+			);
+		}
+		if (track.elements.length === 0) {
+			return fail(`Track "${track.id}" has no clips to tighten.`);
+		}
+
+		const before = captureReel();
+		const sorted = [...track.elements].sort(
+			(a, b) => a.startTime - b.startTime,
+		);
+		const elements: TightenElementInput[] = sorted.map((el) => ({
+			elementId: el.id,
+			startSec: el.startTime,
+			durationSec: el.duration,
+		}));
+
+		const protectSpeech = input.protectSpeech ?? true;
+		const protectedRanges = protectSpeech ? gatherSpeechIntervals() : [];
+
+		const plan = planTightenToLength({
+			elements,
+			targetDurationSec: input.targetSec,
+			protectedRanges,
+			minClipDurationSec: input.minClipDurationSec,
+			convergenceToleranceSec: input.convergenceToleranceSec,
+		});
+
+		const targetLabel = input.targetSec.toFixed(1);
+
+		if (plan.ops.length === 0) {
+			if (plan.shortfall) {
+				return ok(
+					`Nothing to trim — ${plan.shortfall.reason}. Currently ${plan.projectedDurationSec.toFixed(1)}s, target ${targetLabel}s.`,
+					{
+						opsApplied: 0,
+						projectedDurationSec: plan.projectedDurationSec,
+						shortfallSec: plan.shortfall.deltaSec,
+					},
+				);
+			}
+			return ok(
+				`Already at or under the ${targetLabel}s target — nothing to trim.`,
+				{ opsApplied: 0, projectedDurationSec: plan.projectedDurationSec },
+			);
+		}
+
+		const exec = executeCraftPlan(plan.ops);
+		if (!exec.ok) return fail(exec.message);
+
+		const shortfallNote = plan.shortfall
+			? ` Reached ${plan.projectedDurationSec.toFixed(1)}s — ${plan.shortfall.deltaSec.toFixed(1)}s short of the ${targetLabel}s target (${plan.shortfall.reason}).`
+			: ` Now ${plan.projectedDurationSec.toFixed(1)}s.`;
+
+		return withDelta(
+			before,
+			ok(`Tightened with ${plan.ops.length} operation(s).${shortfallNote}`, {
+				opsApplied: exec.data?.opsApplied ?? plan.ops.length,
+				projectedDurationSec: plan.projectedDurationSec,
+				shortfallSec: plan.shortfall?.deltaSec,
+			}),
+		);
+	}
+
+	/**
+	 * Duck a music bed's volume under speech
+	 * (`lib/director/craft/duck-music-under-speech.ts`) — free, instant,
+	 * editing on your own footage. Finds speech from voiceover clips and/or
+	 * transcribed dialogue (`gatherSpeechIntervals`), then keyframes the
+	 * music-bed element(s) down during it and back up cleanly after, with a
+	 * built-in flutter guard between close-together lines. Executes via the
+	 * widened `animateItem` volume path, as ONE undo step.
+	 */
+	function duckMusicUnderSpeech(input: {
+		duckDb?: number;
+		attackSec?: number;
+		releaseSec?: number;
+		mergeGapSec?: number;
+		trackId?: string;
+	}): DirectorResult<{
+		opsApplied: number;
+		elementsAffected: number;
+		mergedIntervalCount: number;
+	}> {
+		const speechIntervals = gatherSpeechIntervals();
+		if (speechIntervals.length === 0) {
+			return fail(
+				"duckMusicUnderSpeech needs speech to duck under — add a voiceover clip or transcribe your footage first.",
+			);
+		}
+
+		const musicElements = gatherMusicElements(input.trackId);
+		if (musicElements.length === 0) {
+			return fail(
+				input.trackId
+					? `No music-bed elements on track "${input.trackId}" to duck.`
+					: "No music bed on the timeline to duck — add one with addMusicBed first.",
+			);
+		}
+
+		const before = captureReel();
+		const plan = planDuckMusicUnderSpeech(speechIntervals, musicElements, {
+			duckAmountDb: input.duckDb,
+			attackSec: input.attackSec,
+			releaseSec: input.releaseSec,
+			mergeGapSec: input.mergeGapSec,
+		});
+
+		if (plan.ops.length === 0) {
+			return ok(
+				"No overlap between the music bed(s) and any speech — nothing to duck.",
+				{
+					opsApplied: 0,
+					elementsAffected: 0,
+					mergedIntervalCount: plan.mergedIntervalCount,
+				},
+			);
+		}
+
+		const exec = executeCraftPlan(plan.ops);
+		if (!exec.ok) return fail(exec.message);
+
+		return withDelta(
+			before,
+			ok(
+				`Ducked ${plan.ops.length} music element(s) under ${plan.mergedIntervalCount} speech interval(s).`,
+				{
+					opsApplied: exec.data?.opsApplied ?? plan.ops.length,
+					elementsAffected: plan.ops.length,
+					mergedIntervalCount: plan.mergedIntervalCount,
+				},
+			),
+		);
 	}
 
 	// ---- AI CLEANUP -------------------------------------------------------
@@ -5782,6 +6373,10 @@ export function createDirectorApi(
 		updateText,
 		// motion
 		animateItem,
+		// craft (P5 macros — lib/director/craft/*)
+		cutOnBeat,
+		tightenToLength,
+		duckMusicUnderSpeech,
 		// AI cleanup
 		removeBackground,
 		// lifecycle

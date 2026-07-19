@@ -243,6 +243,15 @@ export const PHASE_TOOL_ASSIGNMENTS: Readonly<
 	addClip: ["polish"],
 	export: ["polish"],
 	approveFinalCut: ["polish"],
+	// cutOnBeat/tightenToLength/duckMusicUnderSpeech (P5 craft macros): polish
+	// — same "editing on an already-cut reel" bucket as trim/removeSilence.
+	// Each needs a REAL cut-together sequence (and, for duckMusicUnderSpeech,
+	// a music bed) already on the timeline to do anything useful, which only
+	// exists once footage has been assembled — the same precondition
+	// trim/removeSilence share.
+	cutOnBeat: ["polish"],
+	tightenToLength: ["polish"],
+	duckMusicUnderSpeech: ["polish"],
 };
 
 /**
