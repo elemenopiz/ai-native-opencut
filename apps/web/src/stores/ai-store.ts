@@ -11,6 +11,15 @@ export interface StudioMessage {
 	id: string;
 	role: "user" | "assistant";
 	content: string;
+	/**
+	 * Distinguishes the model's actual reply ("text", the default when omitted)
+	 * from an in-run status/progress row ("step" — tool-call chips, the running
+	 * budget bubble, cancel/error notes). Director-revamp Item 3: only "text"
+	 * bubbles get the "Save idea" footer; "step" rows never do, and never carry
+	 * raw chain-of-thought either (`thinking_delta` no longer creates a message
+	 * of either kind — see `director.tsx`'s `agentStatus` status row instead).
+	 */
+	kind?: "text" | "step";
 }
 
 interface AIState {
@@ -26,6 +35,14 @@ interface AIState {
 	consecutiveFailures: number;
 	savedIdeas: SavedIdea[];
 	studioMessages: StudioMessage[];
+	/**
+	 * Director-revamp Item 5 — the chat input draft, lifted out of `director.tsx`'s
+	 * local `useState` so it survives a Direct↔Tools tab switch/unmount (panel tabs
+	 * mount only the active one) without bleeding between projects. Keyed by
+	 * projectId; in-memory only (no persist middleware — reload-survival is a
+	 * separate, later persistence pass, not this slice's job).
+	 */
+	directorDraftByProject: Record<string, string>;
 
 	setBackendStatus: (status: AIBackendStatus | null) => void;
 	setConnectionError: (error: string, errorType: AIErrorType) => void;
@@ -44,6 +61,7 @@ interface AIState {
 	addStudioMessage: (message: StudioMessage) => void;
 	updateStudioMessage: (id: string, content: string) => void;
 	clearStudioMessages: () => void;
+	setDirectorDraft: (projectId: string, text: string) => void;
 }
 
 export const useAIStore = create<AIState>()((set) => ({
@@ -59,6 +77,7 @@ export const useAIStore = create<AIState>()((set) => ({
 	consecutiveFailures: 0,
 	savedIdeas: [],
 	studioMessages: [],
+	directorDraftByProject: {},
 
 	setBackendStatus: (status) =>
 		set((state) => ({
@@ -151,4 +170,12 @@ export const useAIStore = create<AIState>()((set) => ({
 		})),
 
 	clearStudioMessages: () => set({ studioMessages: [] }),
+
+	setDirectorDraft: (projectId, text) =>
+		set((state) => ({
+			directorDraftByProject: {
+				...state.directorDraftByProject,
+				[projectId]: text,
+			},
+		})),
 }));

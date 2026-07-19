@@ -64,6 +64,83 @@ const THINKING_MESSAGES = [
 	"Applying the viral filter to this answer...",
 ];
 
+// ----- Agent status (Item 3 — thought bubbles) -----
+//
+// `thinking_delta` used to spawn its own `> 💭 …` assistant message — raw
+// chain-of-thought, rendered (and savable) exactly like a real answer. It no
+// longer creates a message at all: it drives the transient "thinking" status
+// row instead (the dashed-spinner region below), via a short, de-jargoned
+// status derived from either the tool currently running or a coarse read of
+// the reasoning buffer — never the raw token stream itself.
+
+/** Per-tool-action → a plain-language status the status row can show while
+ *  that step runs. Falls back to a generic phrase for anything unlisted. */
+const TOOL_STATUS_LABELS: Record<string, string> = {
+	searchMedia: "Checking your library…",
+	findDuplicateAssets: "Checking your library…",
+	getLibraryManifest: "Checking your library…",
+	getProjectInfo: "Checking your project…",
+	getTimeline: "Checking the timeline…",
+	getReel: "Checking the reel…",
+	storyboard: "Planning the shots…",
+	proposeReel: "Planning the shots…",
+	reviseProposal: "Revising the plan…",
+	acceptProposal: "Locking in the plan…",
+	reserveSlot: "Setting up the shot…",
+	setPrompt: "Refining the prompt…",
+	generate: "Generating a take…",
+	reroll: "Trying another take…",
+	remix: "Touching up the take…",
+	compareTake: "Comparing takes…",
+	reviewTake: "Reviewing the footage…",
+	chooseTake: "Picking the best take…",
+	extractFrame: "Grabbing a frame…",
+	chainFrom: "Carrying the look forward…",
+	intakeReferences: "Studying your references…",
+	addVoiceover: "Adding narration…",
+	addMusicBed: "Adding music…",
+	getTranscript: "Reading the transcript…",
+	removeSilence: "Trimming the silence…",
+	trim: "Trimming the clip…",
+	split: "Splitting the clip…",
+	move: "Repositioning the clip…",
+	reorder: "Reordering the shots…",
+	remove: "Removing the clip…",
+	addText: "Adding text…",
+	updateText: "Updating the text…",
+	applyTransition: "Adding a transition…",
+	applyEffect: "Applying an effect…",
+	addClip: "Adding the clip…",
+	export: "Exporting…",
+	getBudgetStatus: "Checking the budget…",
+	setBudget: "Adjusting the budget…",
+	updateBrief: "Noting your preference…",
+	critiqueEdit: "Reviewing the edit…",
+};
+
+function toolStatusLabel(action: string): string {
+	return TOOL_STATUS_LABELS[action] ?? "Working on it…";
+}
+
+/** Coarse keyword read of the accumulating reasoning buffer → a short,
+ *  de-jargoned status. Deliberately never returns the buffer itself. */
+const THINKING_STATUS_RULES: Array<{ pattern: RegExp; label: string }> = [
+	{ pattern: /librar|search|asset|footage/i, label: "Checking your library…" },
+	{ pattern: /storyboard|plan|shot|scene/i, label: "Planning the shots…" },
+	{ pattern: /generat/i, label: "Generating a take…" },
+	{ pattern: /review|frame|compar/i, label: "Reviewing the footage…" },
+	{ pattern: /budget|cost|credit/i, label: "Checking the budget…" },
+	{ pattern: /music|voiceover|audio|narrat/i, label: "Sorting out the audio…" },
+	{ pattern: /transcript|speech|dialogue/i, label: "Reading the transcript…" },
+];
+
+function deriveThinkingStatus(buf: string): string {
+	for (const rule of THINKING_STATUS_RULES) {
+		if (rule.pattern.test(buf)) return rule.label;
+	}
+	return "Thinking…";
+}
+
 function useThinkingMessage(isThinking: boolean) {
 	const [index, setIndex] = useState(() =>
 		Math.floor(Math.random() * THINKING_MESSAGES.length),
@@ -148,6 +225,8 @@ export function DirectorView() {
 	const addMessage = useAIStore((s) => s.addStudioMessage);
 	const updateMessage = useAIStore((s) => s.updateStudioMessage);
 	const clearMessages = useAIStore((s) => s.clearStudioMessages);
+	const directorDraftByProject = useAIStore((s) => s.directorDraftByProject);
+	const setDirectorDraft = useAIStore((s) => s.setDirectorDraft);
 	const transcriptSegments = useTranscriptStore((s) => s.segments);
 	const hasTranscript = transcriptSegments.length > 0;
 
@@ -166,6 +245,7 @@ export function DirectorView() {
 	// ── Orchestrator (Director API) ──
 	const editor = useEditor();
 	const director = useDirector();
+	const projectId = editor.project.getActiveOrNull()?.metadata.id ?? "";
 
 	// Cost-preview approval gate (concept: cost-preview gate). Pending confirmation
 	// for a gated verb the chat agent proposed but paused on — it runs only after
@@ -176,9 +256,32 @@ export function DirectorView() {
 	const [chatApproval, setChatApproval] = useState<AgentApproval | null>(null);
 
 	const [mode, setMode] = useState<StudioMode>("chat");
-	const [inputValue, setInputValue] = useState("");
+	// Item 5 — project-keyed draft (`ai-store`) instead of bare local state, so
+	// the typed-but-unsent prompt survives a Direct↔Tools tab switch/unmount and
+	// never bleeds across projects. `setInputValue` keeps the call sites below
+	// unchanged; it just writes through to the store now.
+	const inputValue = directorDraftByProject[projectId] ?? "";
+	const setInputValue = useCallback(
+		(text: string) => setDirectorDraft(projectId, text),
+		[projectId, setDirectorDraft],
+	);
 	const [isThinking, setIsThinking] = useState(false);
+	// Item 3 — the live status the "thinking" row shows during an agent run
+	// (current tool, or a de-jargoned read of the reasoning stream); null falls
+	// back to the idle rotating flavor message below.
+	const [agentStatus, setAgentStatus] = useState<string | null>(null);
 	const thinkingMessage = useThinkingMessage(isThinking);
+	// Item 6 — a finished run's tool-step chip ids, keyed by a per-run id, once
+	// the post-run timeout collapses them into one summary line; `expandedToolRuns`
+	// tracks which of those the user has clicked open again. Render-time-only
+	// grouping over the flat message list — the underlying step messages in the
+	// store are never mutated or dropped.
+	const [collapsedToolRuns, setCollapsedToolRuns] = useState<
+		Record<string, string[]>
+	>({});
+	const [expandedToolRuns, setExpandedToolRuns] = useState<Set<string>>(
+		new Set(),
+	);
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 	const scrollRef = useRef<HTMLDivElement>(null);
 	// Live agent run: the AbortController for the in-flight chat run, so the Stop
@@ -242,7 +345,7 @@ export function DirectorView() {
 		setInputValue(pendingDirectorPrompt);
 		clearPendingDirectorPrompt();
 		requestAnimationFrame(() => inputRef.current?.focus());
-	}, [pendingDirectorPrompt, clearPendingDirectorPrompt]);
+	}, [pendingDirectorPrompt, clearPendingDirectorPrompt, setInputValue]);
 
 	// Run the gated verb the chat agent paused on, after the user approves its
 	// cost. Executes the exact proposed action deterministically (bypassing the
@@ -261,6 +364,7 @@ export function DirectorView() {
 			addMessage({
 				id: crypto.randomUUID(),
 				role: "assistant",
+				kind: "step",
 				content: `${step.ok ? "✅" : "⚠️"} \`${step.action}\` — ${step.message}`,
 			});
 		} finally {
@@ -306,17 +410,18 @@ export function DirectorView() {
 			abortRef.current = controller;
 
 			// A "live" bubble whose content we grow in place as tokens arrive; a
-			// fresh one starts after each tool step. `thinkId`/`textId` are the two
-			// bubbles for the CURRENT turn (reasoning, then the answer text).
-			const live = { textId: "", textBuf: "", thinkId: "", thinkBuf: "" };
+			// fresh one starts after each tool step. `textId` is the CURRENT turn's
+			// answer bubble; `thinkBuf` accumulates reasoning text WITHOUT ever
+			// becoming a message (Item 3 — it only drives `agentStatus`, below).
+			const live = { textId: "", textBuf: "", thinkBuf: "" };
 			const commitLive = () => {
 				live.textId = "";
 				live.textBuf = "";
-				live.thinkId = "";
 				live.thinkBuf = "";
 			};
 			// callId → the message id of its "running…" chip, so tool_finish can
-			// update the same bubble in place.
+			// update the same bubble in place. Also doubles as this run's ordered
+			// list of step-chip ids for Item 6's post-run collapse.
 			const toolMsgIds = new Map<string, string>();
 			let streamedText = false;
 			// One persistent "spent X of $Y" bubble, updated in place as budgeted
@@ -326,26 +431,26 @@ export function DirectorView() {
 			const onEvent = (event: DirectorEvent) => {
 				switch (event.type) {
 					case "thinking_delta": {
+						// Item 3: raw chain-of-thought never becomes a message (no more
+						// `> 💭` bubble). It only feeds the transient status row via a
+						// coarse, de-jargoned read of the buffer.
 						live.thinkBuf += event.text;
-						const content = `> 💭 ${live.thinkBuf}`;
-						if (!live.thinkId) {
-							live.thinkId = crypto.randomUUID();
-							addMessage({ id: live.thinkId, role: "assistant", content });
-						} else {
-							updateMessage(live.thinkId, content);
-						}
+						setAgentStatus(deriveThinkingStatus(live.thinkBuf));
 						break;
 					}
 					case "text_delta": {
 						streamedText = true;
-						// Once the answer text starts, this turn's reasoning is done.
-						live.thinkId = "";
+						// Once the answer text starts, this turn's reasoning is done —
+						// the status row goes quiet (falls back to the idle flavor text).
+						live.thinkBuf = "";
+						setAgentStatus(null);
 						live.textBuf += event.text;
 						if (!live.textId) {
 							live.textId = crypto.randomUUID();
 							addMessage({
 								id: live.textId,
 								role: "assistant",
+								kind: "text",
 								content: live.textBuf,
 							});
 						} else {
@@ -355,6 +460,7 @@ export function DirectorView() {
 					}
 					case "tool_start": {
 						commitLive();
+						setAgentStatus(toolStatusLabel(event.action));
 						const id = crypto.randomUUID();
 						toolMsgIds.set(event.callId, id);
 						const cost = event.cost
@@ -365,6 +471,7 @@ export function DirectorView() {
 						addMessage({
 							id,
 							role: "assistant",
+							kind: "step",
 							content: `⏳ \`${event.action}\`${cost} — running…`,
 						});
 						break;
@@ -377,6 +484,7 @@ export function DirectorView() {
 							addMessage({
 								id: crypto.randomUUID(),
 								role: "assistant",
+								kind: "step",
 								content,
 							});
 						break;
@@ -399,7 +507,12 @@ export function DirectorView() {
 								: `💰 Spent ${usdToCredits(event.spentUsd)} credits`;
 						if (!budgetMsgId) {
 							budgetMsgId = crypto.randomUUID();
-							addMessage({ id: budgetMsgId, role: "assistant", content });
+							addMessage({
+								id: budgetMsgId,
+								role: "assistant",
+								kind: "step",
+								content,
+							});
 						} else {
 							updateMessage(budgetMsgId, content);
 						}
@@ -410,6 +523,7 @@ export function DirectorView() {
 						// Approval is surfaced by the result's `awaitingApproval` (dialog);
 						// cancellation by the closing note below. Just seal the live bubble.
 						commitLive();
+						setAgentStatus(null);
 						break;
 					}
 				}
@@ -429,6 +543,7 @@ export function DirectorView() {
 					addMessage({
 						id: crypto.randomUUID(),
 						role: "assistant",
+						kind: "step",
 						content: `⏹ ${result.finalMessage || "Stopped."}`,
 					});
 				} else if (!streamedText && result.finalMessage) {
@@ -437,6 +552,7 @@ export function DirectorView() {
 					addMessage({
 						id: crypto.randomUUID(),
 						role: "assistant",
+						kind: "text",
 						content: result.finalMessage,
 					});
 				}
@@ -444,6 +560,21 @@ export function DirectorView() {
 				// user can approve (or dismiss) the exact proposed spend.
 				if (result.awaitingApproval) {
 					setChatApproval(result.awaitingApproval);
+				} else if (!result.cancelled && toolMsgIds.size > 0) {
+					// Item 6 — a settled run's tool chips collapse into one summary
+					// line a few seconds later (click to expand back to the detail),
+					// plus a transient toast for the outcome. Skipped while a cost
+					// approval is pending (the chips are still live context for that
+					// decision) or after a cancel (the partial trail stays visible).
+					const runId = crypto.randomUUID();
+					const stepIds = Array.from(toolMsgIds.values());
+					setTimeout(() => {
+						setCollapsedToolRuns((prev) => ({ ...prev, [runId]: stepIds }));
+						toast.success(
+							`Done — ${stepIds.length} step${stepIds.length === 1 ? "" : "s"}`,
+							{ description: "Tap the summary to see what ran." },
+						);
+					}, 2500);
 				}
 			} catch (error) {
 				commitLive();
@@ -456,6 +587,7 @@ export function DirectorView() {
 				addMessage({
 					id: crypto.randomUUID(),
 					role: "assistant",
+					kind: "step",
 					content: isRelayIssue
 						? `${detail} Check ANTHROPIC_API_KEY / GEMINI_API_KEY / DIRECTOR_MODEL in apps/web/.env.local.`
 						: isConfigIssue
@@ -465,6 +597,7 @@ export function DirectorView() {
 			} finally {
 				abortRef.current = null;
 				setIsThinking(false);
+				setAgentStatus(null);
 			}
 			return;
 		}
@@ -495,6 +628,7 @@ export function DirectorView() {
 						addMessage({
 							id: assistantId,
 							role: "assistant",
+							kind: "text",
 							content: accumulated,
 						});
 						messageAdded = true;
@@ -511,6 +645,7 @@ export function DirectorView() {
 					addMessage({
 						id: assistantId,
 						role: "assistant",
+						kind: "text",
 						content: "Here's what I suggest based on your request.",
 					});
 				} else {
@@ -531,6 +666,7 @@ export function DirectorView() {
 				addMessage({
 					id: assistantId,
 					role: "assistant",
+					kind: "step",
 					content: errorContent,
 				});
 			} else {
@@ -549,6 +685,7 @@ export function DirectorView() {
 		addMessage,
 		updateMessage,
 		director,
+		setInputValue,
 	]);
 
 	const handleKeyDown = useCallback(
@@ -725,106 +862,163 @@ export function DirectorView() {
 							</div>
 						)}
 
-						{messages.map((msg) => (
-							<div key={msg.id} className="mb-3">
-								{msg.role === "user" ? (
-									<div className="rounded-lg bg-primary text-primary-foreground ml-6 px-3 py-2 text-xs">
-										{msg.content}
-									</div>
-								) : (
-									<div className="rounded-lg bg-muted mr-2 px-3 py-2.5">
-										<div className="prose-studio text-xs leading-relaxed">
-											<ReactMarkdown
-												components={{
-													h1: ({ children }) => (
-														<h3 className="text-sm font-bold mt-2 mb-1">
-															{children}
-														</h3>
-													),
-													h2: ({ children }) => (
-														<h4 className="text-xs font-bold mt-2 mb-1">
-															{children}
-														</h4>
-													),
-													h3: ({ children }) => (
-														<h4 className="text-xs font-semibold mt-1.5 mb-0.5">
-															{children}
-														</h4>
-													),
-													p: ({ children }) => (
-														<p className="mb-1.5 last:mb-0">{children}</p>
-													),
-													strong: ({ children }) => (
-														<strong className="font-semibold text-foreground">
-															{children}
-														</strong>
-													),
-													em: ({ children }) => (
-														<em className="italic">{children}</em>
-													),
-													ul: ({ children }) => (
-														<ul className="list-disc pl-4 mb-1.5 space-y-0.5">
-															{children}
-														</ul>
-													),
-													ol: ({ children }) => (
-														<ol className="list-decimal pl-4 mb-1.5 space-y-0.5">
-															{children}
-														</ol>
-													),
-													li: ({ children }) => <li>{children}</li>,
-													code: ({ children, className }) => {
-														const isBlock = className?.includes("language-");
-														if (isBlock) {
-															return (
-																<pre className="bg-background rounded px-2 py-1.5 my-1.5 overflow-x-auto text-[10px] font-mono">
-																	<code>{children}</code>
-																</pre>
-															);
-														}
-														return (
-															<code className="bg-background rounded px-1 py-0.5 text-[10px] font-mono">
-																{children}
-															</code>
-														);
-													},
-													blockquote: ({ children }) => (
-														<blockquote className="border-l-2 border-primary/40 pl-2 my-1.5 text-muted-foreground italic">
-															{children}
-														</blockquote>
-													),
-												}}
+						{(() => {
+							// Item 6 — render-time grouping: a settled run's step-chip ids
+							// collapse into one summary bubble at their first id (the
+							// "anchor"); the rest of that run's ids are hidden. Expanding
+							// a run (click) drops it out of this computation entirely, so
+							// every original chip reappears untouched.
+							const collapseSummaryByAnchor = new Map<
+								string,
+								{ runId: string; count: number }
+							>();
+							const hiddenStepMessageIds = new Set<string>();
+							for (const [runId, stepIds] of Object.entries(
+								collapsedToolRuns,
+							)) {
+								if (expandedToolRuns.has(runId) || stepIds.length === 0)
+									continue;
+								const [anchor, ...rest] = stepIds;
+								collapseSummaryByAnchor.set(anchor, {
+									runId,
+									count: stepIds.length,
+								});
+								for (const stepId of rest) hiddenStepMessageIds.add(stepId);
+							}
+
+							return messages.map((msg) => {
+								if (hiddenStepMessageIds.has(msg.id)) return null;
+								const collapsed = collapseSummaryByAnchor.get(msg.id);
+								if (collapsed) {
+									return (
+										<div key={msg.id} className="mb-3">
+											<button
+												type="button"
+												onClick={() =>
+													setExpandedToolRuns((prev) =>
+														new Set(prev).add(collapsed.runId),
+													)
+												}
+												className="w-full text-left rounded-lg bg-muted/60 mr-2 px-3 py-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
 											>
+												Done — {collapsed.count} step
+												{collapsed.count === 1 ? "" : "s"}
+											</button>
+										</div>
+									);
+								}
+								return (
+									<div key={msg.id} className="mb-3">
+										{msg.role === "user" ? (
+											<div className="rounded-lg bg-primary text-primary-foreground ml-6 px-3 py-2 text-xs">
 												{msg.content}
-											</ReactMarkdown>
-										</div>
-										<div className="flex items-center gap-1 mt-2 pt-1.5 border-t border-border/50">
-											<Button
-												variant="ghost"
-												size="sm"
-												className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground gap-1"
-												onClick={() => {
-													saveIdea(msg.content);
-													toast.success("Idea saved", {
-														description: "View it in the Tools tab.",
-														action: {
-															label: "View",
-															onClick: () => openToolsPanel("ideas"),
-														},
-													});
-												}}
-											>
-												<HugeiconsIcon
-													icon={Bookmark01Icon}
-													className="size-3"
-												/>
-												Save idea
-											</Button>
-										</div>
+											</div>
+										) : (
+											<div className="rounded-lg bg-muted mr-2 px-3 py-2.5">
+												<div className="prose-studio text-xs leading-relaxed">
+													<ReactMarkdown
+														components={{
+															// Item 2 — down-rank h1/h2 to inline emphasis: same
+															// size/weight as body text, no heading-level block
+															// spacing, so a reply can't read as a wall of
+															// headed sections.
+															h1: ({ children }) => (
+																<p className="font-semibold mb-1.5 last:mb-0">
+																	{children}
+																</p>
+															),
+															h2: ({ children }) => (
+																<p className="font-semibold mb-1.5 last:mb-0">
+																	{children}
+																</p>
+															),
+															h3: ({ children }) => (
+																<h4 className="text-xs font-semibold mt-1.5 mb-0.5">
+																	{children}
+																</h4>
+															),
+															p: ({ children }) => (
+																<p className="mb-1.5 last:mb-0">{children}</p>
+															),
+															strong: ({ children }) => (
+																<strong className="font-semibold text-foreground">
+																	{children}
+																</strong>
+															),
+															em: ({ children }) => (
+																<em className="italic">{children}</em>
+															),
+															ul: ({ children }) => (
+																<ul className="list-disc pl-4 mb-1.5 space-y-0.5">
+																	{children}
+																</ul>
+															),
+															ol: ({ children }) => (
+																<ol className="list-decimal pl-4 mb-1.5 space-y-0.5">
+																	{children}
+																</ol>
+															),
+															li: ({ children }) => <li>{children}</li>,
+															code: ({ children, className }) => {
+																const isBlock =
+																	className?.includes("language-");
+																if (isBlock) {
+																	return (
+																		<pre className="bg-background rounded px-2 py-1.5 my-1.5 overflow-x-auto text-[10px] font-mono">
+																			<code>{children}</code>
+																		</pre>
+																	);
+																}
+																return (
+																	<code className="bg-background rounded px-1 py-0.5 text-[10px] font-mono">
+																		{children}
+																	</code>
+																);
+															},
+															blockquote: ({ children }) => (
+																<blockquote className="border-l-2 border-primary/40 pl-2 my-1.5 text-muted-foreground italic">
+																	{children}
+																</blockquote>
+															),
+														}}
+													>
+														{msg.content}
+													</ReactMarkdown>
+												</div>
+												{/* Item 3 — "Save idea" renders ONLY on a final answer
+												    bubble, never on a step/status row (tool chips,
+												    budget bubble, cancel/error notes). */}
+												{msg.kind !== "step" && (
+													<div className="flex items-center gap-1 mt-2 pt-1.5 border-t border-border/50">
+														<Button
+															variant="ghost"
+															size="sm"
+															className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground gap-1"
+															onClick={() => {
+																saveIdea(msg.content);
+																toast.success("Idea saved", {
+																	description: "View it in the Tools tab.",
+																	action: {
+																		label: "View",
+																		onClick: () => openToolsPanel("ideas"),
+																	},
+																});
+															}}
+														>
+															<HugeiconsIcon
+																icon={Bookmark01Icon}
+																className="size-3"
+															/>
+															Save idea
+														</Button>
+													</div>
+												)}
+											</div>
+										)}
 									</div>
-								)}
-							</div>
-						))}
+								);
+							});
+						})()}
 
 						{isThinking && (
 							<div className="mx-2 my-1">
@@ -832,7 +1026,7 @@ export function DirectorView() {
 									<div className="flex items-center gap-2">
 										<Spinner className="size-3 text-primary/60" />
 										<span className="text-[11px] text-primary/70 font-medium animate-pulse">
-											{thinkingMessage}
+											{agentStatus ?? thinkingMessage}
 										</span>
 									</div>
 								</div>
