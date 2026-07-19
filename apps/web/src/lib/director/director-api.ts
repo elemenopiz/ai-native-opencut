@@ -148,6 +148,19 @@ import {
 	windowSegments,
 	type TranscriptSegmentLite,
 } from "@/lib/search/asset-transcript";
+import type { AssetUnderstanding } from "@/lib/search/asset-understanding";
+import { getAllUnderstandings } from "@/services/search/asset-understanding-store";
+import {
+	runStoryEngine,
+	type RunStoryEngineDeps,
+	type StoryEngineRelay,
+	type StoryPlanExecutionResult,
+} from "./story/run";
+import {
+	PENDING_REF_PREFIX as STORY_PENDING_REF_PREFIX,
+	isPendingElementRef as isPendingStoryRef,
+} from "./story/assembly";
+import type { StoryRunArtifacts } from "./story/types";
 import { useVoiceConsentStore } from "@/stores/voice-consent-store";
 import type { ClonedVoiceProfile } from "./voice-consent";
 import type { BibleApproval } from "@/types/project";
@@ -318,6 +331,21 @@ export type {
 	EditCriticRelay,
 	ProposedFix,
 } from "./edit-critic";
+
+export type { StoryEngineRelay } from "./story/run";
+export type {
+	AssemblyPlan,
+	AssemblyStrategy,
+	ExecutionReport,
+	FootageInventory,
+	MarkedGap,
+	StoryBrief,
+	StoryRunArtifacts,
+	TargetDurationResolution,
+	TargetDurationSource,
+	Treatment,
+	TreatmentSection,
+} from "./story/types";
 
 export type {
 	AssetCitation,
@@ -532,6 +560,32 @@ export interface CreateDirectorApiOptions {
 		relay?: EditCriticRelay;
 	};
 	/**
+	 * Story Engine seam (SE-4 — `docs/plans/2026-07-20-story-engine-design.md`)
+	 * powering the `draftCut` verb. `relay` is ONE tool-less, TEXT-ONLY model
+	 * round-trip for the Treatment stage's structured-output call — shaped
+	 * exactly like `editCritic.relay` above (`{system, content} → Promise<string>`,
+	 * see `story/run.ts`'s `StoryEngineRelay`) except `content` is plain text,
+	 * never vision blocks. ABSENT ⇒ `draftCut` reports it isn't configured in
+	 * this context rather than throwing — same graceful-degrade contract as
+	 * `editCritic`/`critic`/`board`. NO new feature flag gates this (design doc:
+	 * "no new gates for v1" — the treatment call rides the same relay/cost class
+	 * as any other Director turn); `use-director.ts` wires it to the SAME
+	 * `callAgentRelay` the edit critic uses.
+	 *
+	 * `getUnderstanding` is the async canonical-Understanding read `buildFootage
+	 * Inventory` needs (the CANONICAL `@/lib/search/asset-understanding` shape,
+	 * not `options.understanding`'s manifest-side mirror) — `draftCut` is
+	 * already async (it awaits `relay`), so it can afford one IndexedDB round
+	 * trip per run rather than requiring a synchronous cache the rest of the
+	 * app doesn't otherwise need. Defaults to the real `getAllUnderstandings`;
+	 * injectable so headless tests never touch IndexedDB — same pattern as
+	 * `preferenceLearning.getModel` defaulting to `getUserPreferenceModel`.
+	 */
+	storyEngine?: {
+		relay?: StoryEngineRelay;
+		getUnderstanding?: () => Promise<AssetUnderstanding[]>;
+	};
+	/**
 	 * Bet 3b preference-capture seam (see
 	 * `docs/plans/2026-07-19-director-intelligence-architecture.md` Bet 3 +
 	 * `preference-learning.ts`). `logEvent` persists one behavioral signal
@@ -569,6 +623,52 @@ const fail = <T = undefined>(message: string): DirectorResult<T> => ({
 	ok: false,
 	message,
 });
+
+/**
+ * PENDING-REF RESOLUTION (additive, Story Engine SE-4 — `story/assembly.ts`'s
+ * module doc "THE PENDING REF PROBLEM"): a `CraftOp[]` plan may carry
+ * `@pending:<addClipOpIndex>` tokens (see `story/assembly.ts`'s
+ * `pendingElementRef`/`isPendingElementRef`) in place of a real element id —
+ * a later op in the SAME plan addressing the clip an earlier `addClip` op in
+ * that SAME plan is ABOUT to create, which has no real id until that
+ * `addClip` actually executes. `executeCraftPlan` calls this before
+ * dispatching each op: every STRING arg value matching that convention is
+ * substituted with the real `elementId` the referenced `addClip` op
+ * returned (tracked in the caller's `pendingRefs` map as its plan loop
+ * runs). A ref pointing at an op that hasn't run yet, wasn't an `addClip`,
+ * or never returned an id is reported as an `error` (never thrown) — the
+ * caller turns that into the same "stop at the first failed op" contract any
+ * other op failure gets.
+ *
+ * Module-scope (not a closure inside `createDirectorApi`) because it closes
+ * over nothing but its own arguments — pure, and directly unit-testable
+ * without constructing a full `DirectorApi`/editor (see
+ * `director-draft-cut.test.ts`). Every PRE-EXISTING `executeCraftPlan` caller
+ * (`cutOnBeat`/`tightenToLength`/`duckMusicUnderSpeech`) addresses only real,
+ * already-placed element ids and never emits a pending-ref token, so this
+ * resolution pass is a no-op for them — purely additive.
+ */
+export function resolvePendingRefsInArgs(
+	args: Record<string, unknown>,
+	pendingRefs: ReadonlyMap<number, string>,
+): { args: Record<string, unknown> } | { error: string } {
+	const resolved: Record<string, unknown> = { ...args };
+	for (const [key, value] of Object.entries(args)) {
+		if (typeof value !== "string" || !isPendingStoryRef(value)) continue;
+		const rawIndex = value.slice(STORY_PENDING_REF_PREFIX.length);
+		const refIndex = Number(rawIndex);
+		const elementId = Number.isInteger(refIndex)
+			? pendingRefs.get(refIndex)
+			: undefined;
+		if (elementId === undefined) {
+			return {
+				error: `arg "${key}" references pending ref "${value}", which never resolved to a real element (no earlier addClip op produced it).`,
+			};
+		}
+		resolved[key] = elementId;
+	}
+	return { args: resolved };
+}
 
 // ── structured recovery-error contract (poach plan item #1) ────────────────
 // The highest-traffic NOT-FOUND lookup paths (slot/track/item/effect/media)
@@ -2172,6 +2272,136 @@ export function createDirectorApi(
 				`this id won't appear in REEL listings or mutation deltas; it's returned here so you can reference it.`,
 			{ elementId },
 		);
+	}
+
+	// ---- STORY ENGINE (SE-4 — lib/director/story/*) -----------------------
+	//
+	// `draftCut` is the Story Engine's ONE verb (`docs/plans/2026-07-20-story-
+	// engine-design.md`): brief → inventory → treatment → assembly → execution
+	// → optional self-check → chat summary, orchestrated PURELY by
+	// `runStoryEngine` (`story/run.ts`) over deps this function wires to the
+	// live editor. Editing-first (ADR-007) — never generates; a section with no
+	// matching footage becomes a `MarkedGap`, never invented material.
+
+	/**
+	 * Pure predicate mirroring `tool-catalog.ts`'s `editCriticEnabled` — own
+	 * local copy, NOT an import: `tool-catalog.ts` imports `DirectorApi` FROM
+	 * this file, so importing the other way would cycle (same "own copy, not
+	 * import" discipline this package uses throughout, e.g. `CraftOp` itself).
+	 * Gates whether `draftCut` even ATTEMPTS its optional stage-5 self-check —
+	 * `critiqueEdit` itself already degrades gracefully with no relay wired, so
+	 * this extra check is what keeps the self-check OFF by default outside the
+	 * flag, matching every other `critiqueEdit` call site in the app.
+	 */
+	function editCriticFeatureEnabled(): boolean {
+		return process.env.NEXT_PUBLIC_FEATURE_EDIT_CRITIC === "true";
+	}
+
+	/**
+	 * Assemble a first cut from the user's OWN footage in one call — see this
+	 * section's header. The whole assembled cut lands as ONE undo step: every
+	 * op `runStoryEngine`'s assembly stage produces is applied through
+	 * `executeCraftPlan` (pending-ref-aware — see its own doc comment), the
+	 * SAME transaction primitive `cutOnBeat`/`tightenToLength`/
+	 * `duckMusicUnderSpeech` use, so it inherits that function's rollback
+	 * semantics verbatim (a partial-apply failure leaves already-applied ops on
+	 * the live timeline, un-recorded as one undo step — call `getTimeline` to
+	 * check).
+	 *
+	 * Deps wired here: the standing `DirectorBrief` + the P1 preference-
+	 * defaults read for brief resolution; the real media library plus
+	 * `options.transcripts`/a fresh canonical-Understanding read/the live beat
+	 * grid for inventory; `options.storyEngine.relay` for the Treatment model
+	 * call (ABSENT ⇒ `draftCut` fails gracefully after inventory, never
+	 * throws); this API's own `critiqueEdit` for the optional self-check pass,
+	 * ONLY when the edit-critic feature flag is on AND a relay is configured
+	 * for it (advisory only, ADR-006).
+	 *
+	 * Not wrapped in `withDelta`/`captureReel`: like `addClip` itself, every op
+	 * this verb applies is a plain (non-generative) timeline clip, which never
+	 * appears in `getReel()`'s slot-scoped delta — the same reason `addClip`
+	 * above returns no `delta` either.
+	 */
+	async function draftCut(input: {
+		instruction: string;
+		targetSec?: number;
+	}): Promise<DirectorResult<StoryRunArtifacts>> {
+		const understandingReader =
+			options.storyEngine?.getUnderstanding ?? getAllUnderstandings;
+		let understandingRows: AssetUnderstanding[] = [];
+		try {
+			understandingRows = await understandingReader();
+		} catch {
+			// best-effort — inventory just omits the understanding facet.
+		}
+		const understandingById = new Map(
+			understandingRows.map((u) => [u.mediaId, u] as const),
+		);
+
+		// Same beat-grid read-through `buildManifest`/`cutOnBeat` already use —
+		// see either's own comment for why this is a synchronous `getState()`
+		// read, never a trigger for fresh analysis.
+		const beatGridState = useBeatGridStore.getState().grid;
+		const beats: CraftBeatMarker[] = beatGridState
+			? getTimelineBeatMarkers({
+					tracks: editor.timeline.getTracks(),
+					grid: beatGridState,
+				})
+			: [];
+
+		const deps: RunStoryEngineDeps = {
+			getDirectorBrief: () => {
+				try {
+					return editor.project.getDirectorBrief();
+				} catch {
+					return undefined;
+				}
+			},
+			getPreferenceModel: readPreferenceModel,
+			listAssets: () =>
+				editor.media.getAssets().map((a) => ({
+					id: a.id,
+					kind: a.type,
+					durationSec: a.duration,
+				})),
+			transcripts: options.transcripts,
+			understanding: (mediaId) => understandingById.get(mediaId),
+			beatGrid: beatGridState
+				? (mediaId) =>
+						mediaId === beatGridState.mediaId
+							? {
+									...(beatGridState.bpm != null
+										? { bpm: beatGridState.bpm }
+										: {}),
+									beatCount: beatGridState.beats.length,
+									downbeatCount: beatGridState.downbeats.length,
+									...(beatGridState.energyClass != null
+										? { energyClass: beatGridState.energyClass }
+										: {}),
+								}
+							: undefined
+				: undefined,
+			relay: options.storyEngine?.relay,
+			beats,
+			executePlan: (ops): StoryPlanExecutionResult => {
+				const exec = executeCraftPlan(ops);
+				return {
+					ok: exec.ok,
+					message: exec.message,
+					opsApplied: exec.data?.opsApplied ?? (exec.ok ? ops.length : 0),
+				};
+			},
+			getTimelineDurationSec: () => editor.timeline.getTotalDuration(),
+			critiqueEdit:
+				editCriticFeatureEnabled() && options.editCritic?.relay
+					? critiqueEdit
+					: undefined,
+		};
+
+		const outcome = await runStoryEngine(deps, input);
+		return outcome.ok
+			? ok(outcome.message, outcome.artifacts)
+			: fail(outcome.message);
 	}
 
 	// ---- STORYBOARD -------------------------------------------------------
@@ -5490,6 +5720,10 @@ export function createDirectorApi(
 	 * apply here means the plan itself referenced a stale/invalid target, not
 	 * a race. Callers should still treat a failure as "state may have
 	 * partially changed — call getTimeline to check", not as a clean no-op.
+	 *
+	 * PENDING-REF RESOLUTION (additive, Story Engine SE-4 — see
+	 * {@link resolvePendingRefsInArgs}'s own doc comment for the full
+	 * contract).
 	 */
 	function executeCraftPlan(
 		ops: CraftOp[],
@@ -5501,20 +5735,48 @@ export function createDirectorApi(
 		}
 
 		editor.command.beginTransaction();
+		const pendingRefs = new Map<number, string>();
 		for (let i = 0; i < ops.length; i++) {
 			const op = ops[i];
-			const result = executeCraftOp(op);
-			if (!result.ok) {
+			const resolution = resolvePendingRefsInArgs(op.args, pendingRefs);
+			if ("error" in resolution) {
 				editor.command.rollbackTransaction();
-				const argBag = op.args as { slotId?: unknown; itemId?: unknown };
-				const target = String(argBag.slotId ?? argBag.itemId ?? "?");
 				const partial =
 					i > 0
 						? ` ${i} earlier step(s) already applied to the timeline but were NOT recorded as one undo step — call getTimeline to check current state.`
 						: "";
-				return fail(
-					`Craft plan stopped at step ${i + 1}/${ops.length} ("${op.verb}" on "${target}"): ${result.message}.${partial}`,
+				return {
+					ok: false,
+					message: `Craft plan stopped at step ${i + 1}/${ops.length} ("${op.verb}"): ${resolution.error}.${partial}`,
+					data: { opsApplied: i },
+				};
+			}
+			const resolvedOp: CraftOp = { verb: op.verb, args: resolution.args };
+			const result = executeCraftOp(resolvedOp);
+			if (result.ok && resolvedOp.verb === "addClip") {
+				const elementId = (result.data as { elementId?: string } | undefined)
+					?.elementId;
+				if (elementId) pendingRefs.set(i, elementId);
+			}
+			if (!result.ok) {
+				editor.command.rollbackTransaction();
+				const argBag = resolvedOp.args as {
+					slotId?: unknown;
+					itemId?: unknown;
+					mediaId?: unknown;
+				};
+				const target = String(
+					argBag.slotId ?? argBag.itemId ?? argBag.mediaId ?? "?",
 				);
+				const partial =
+					i > 0
+						? ` ${i} earlier step(s) already applied to the timeline but were NOT recorded as one undo step — call getTimeline to check current state.`
+						: "";
+				return {
+					ok: false,
+					message: `Craft plan stopped at step ${i + 1}/${ops.length} ("${op.verb}" on "${target}"): ${result.message}.${partial}`,
+					data: { opsApplied: i },
+				};
 			}
 		}
 		editor.command.commitTransaction();
@@ -5524,10 +5786,12 @@ export function createDirectorApi(
 	}
 
 	/**
-	 * Route one `CraftOp` to its executing primitive. Every macro in
+	 * Route one `CraftOp` to its executing primitive. Every P5 macro in
 	 * `lib/director/craft/*` only ever emits `trim`/`move`/`animateItem` ops
-	 * (see each macro's own doc comment) — an unrecognized verb here means a
-	 * new macro landed without a matching executor, a loud failure rather
+	 * (see each macro's own doc comment); the Story Engine's `planAssembly`
+	 * (`story/assembly.ts`) additionally emits `addClip` (grounded on the real
+	 * `addClip` verb below) — an unrecognized verb here means a new
+	 * macro/planner landed without a matching executor, a loud failure rather
 	 * than a silent no-op.
 	 */
 	function executeCraftOp(op: CraftOp): DirectorResult<unknown> {
@@ -5538,11 +5802,32 @@ export function createDirectorApi(
 				return executeCraftMove(op.args);
 			case "animateItem":
 				return executeCraftAnimateItem(op.args);
+			case "addClip":
+				return executeCraftAddClip(op.args);
 			default:
 				return fail(
 					`executeCraftPlan: no executor wired for craft op verb "${op.verb}".`,
 				);
 		}
+	}
+
+	/** `addClip` op executor — delegates straight to the real `addClip` verb
+	 *  (see the module header note next to it); the Story Engine's `planAssembly`
+	 *  is the only craft-style planner that emits this op. */
+	function executeCraftAddClip(
+		args: Record<string, unknown>,
+	): DirectorResult<{ elementId: string }> {
+		const mediaId = String(args.mediaId ?? "");
+		if (!mediaId) {
+			return fail("Craft plan's addClip op is missing mediaId.");
+		}
+		return addClip({
+			mediaId,
+			startTime:
+				typeof args.startTime === "number" ? args.startTime : undefined,
+			duration: typeof args.duration === "number" ? args.duration : undefined,
+			trackId: typeof args.trackId === "string" ? args.trackId : undefined,
+		});
 	}
 
 	/** `trim` op executor — same `updateElementTrim` primitive the `trim` verb
@@ -5562,7 +5847,18 @@ export function createDirectorApi(
 				typeof args.trimStart === "number"
 					? args.trimStart
 					: located.element.trimStart,
-			trimEnd: located.element.trimEnd,
+			// Additive (Story Engine SE-4): the P5 craft macros never set `trimEnd`
+			// in a trim op's args (every one of them trims tails via `duration`/
+			// `startTime`/`trimStart` only — see this function's original doc
+			// note), so this branch was always the `located.element.trimEnd`
+			// fallback for them. `story/assembly.ts`'s radio-cut planner DOES set
+			// a real `trimEnd` (re-windowing a just-`addClip`'d whole-source clip
+			// onto a transcript segment's `[start, end)` — see its own "PENDING
+			// REF" doc note) and needs it honored, not silently dropped.
+			trimEnd:
+				typeof args.trimEnd === "number"
+					? args.trimEnd
+					: located.element.trimEnd,
 			startTime:
 				typeof args.startTime === "number" ? args.startTime : undefined,
 			duration: typeof args.duration === "number" ? args.duration : undefined,
@@ -6317,6 +6613,8 @@ export function createDirectorApi(
 		searchMedia,
 		findDuplicateAssets,
 		addClip,
+		// story engine (SE-4 — editing-first first-cut assembly)
+		draftCut,
 		// storyboard
 		storyboard,
 		intakeReferences,

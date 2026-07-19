@@ -12,6 +12,7 @@ import {
 	type BoardMutationResult,
 	type BoardPromoteFn,
 	type DirectorApi,
+	type StoryEngineRelay,
 } from "@/lib/director/director-api";
 import { createStudioExecutor } from "@/lib/director/studio-executor";
 import { apiFetch } from "@/lib/auth/unauthorized";
@@ -451,6 +452,20 @@ export function useDirector(): DirectorApi {
 				// itself is entirely absent from the catalog while the flag is off,
 				// so this wiring is inert until NEXT_PUBLIC_FEATURE_EDIT_CRITIC=true.
 				editCritic: { relay: callVisionRelay },
+				// Story Engine (SE-4): `draftCut`'s Treatment call rides the SAME
+				// `callAgentRelay` round-trip the edit critic uses (`callVisionRelay`
+				// wraps it) — no new feature flag (design doc: "no new gates for
+				// v1"), so this is unconditionally wired. `StoryEngineRelay`'s
+				// `content` is plain TEXT (never vision blocks — the treatment prompt
+				// is text-only), so this adapts it to `callVisionRelay`'s one-text-
+				// block content shape rather than reusing `EditCriticRelay` verbatim.
+				storyEngine: {
+					relay: (({ system, content }) =>
+						callVisionRelay({
+							system,
+							content: [{ type: "text", text: content }],
+						})) satisfies StoryEngineRelay,
+				},
 			}),
 		[editor],
 	);

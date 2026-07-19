@@ -2303,6 +2303,32 @@ export function toolCatalog(): ToolDescriptor[] {
 					trackId: strOrUndefined(a.trackId),
 				}),
 		},
+		{
+			name: "draftCut",
+			description:
+				"assemble a first cut from YOUR footage — no generation. One call: reads the brief plus your media library's transcripts/beat-grid, decides a story order (hook first), then cuts real clips onto the timeline as ONE undo step. Editing-first (ADR-007) — sections with no matching footage are left as marked gaps, never invented. May run one advisory self-check pass when the edit critic is configured (never auto-applies a fix). Best for 'make me a cut/recap/highlight reel from my footage' asks; NOT for building from nothing with generated shots (use storyboard for that).",
+			mutating: true,
+			inputSchema: {
+				type: "object",
+				properties: {
+					instruction: {
+						type: "string",
+						description:
+							'The user\'s own words for what to cut, verbatim — e.g. "make a 45s recap leading with the demo". Folds into the brief the story model reads.',
+					},
+					targetSec: secs(
+						"explicit target length IF the user stated one THIS turn. Omit to fall back to the project's standing brief target, then a learned default, then a natural length.",
+					),
+				},
+				required: ["instruction"],
+				additionalProperties: false,
+			},
+			handler: (d, a) =>
+				d.draftCut({
+					instruction: str(a.instruction),
+					targetSec: numOrUndefined(a.targetSec),
+				}),
+		},
 		// ── lifecycle ───────────────────────────────────────────────────────
 		{
 			name: "undo",

@@ -205,6 +205,17 @@ export const PHASE_TOOL_ASSIGNMENTS: Readonly<
 	seedStyleFromUnderstanding: ["briefing", "production"],
 	reserveSlot: ["briefing", "production"],
 	setPrompt: ["production"],
+	// draftCut (SE-4, editing-first first-cut assembly): briefing ONLY, and not
+	// a bug — this is the from-nothing entry point for an editing-first project
+	// (real footage, no generative slots). Its ops are plain `addClip`/`trim`/
+	// `move` clips, which — like `addClip` itself — never appear in
+	// `getReel().slots` (see director-api.ts's `addClip` doc comment), so
+	// `deriveDirectorPhase` (keyed on `getReel().slots.length`) stays "briefing"
+	// for such a project FOREVER, generative slots or not. Bucketing draftCut
+	// anywhere else would strand it: unreachable for the exact footage-only,
+	// zero-generation use case it exists for. Same "deciding + producing what
+	// to make in one shot" bucket as storyboard/proposeReel.
+	draftCut: ["briefing"],
 	// production: filling slots with takes
 	generate: ["briefing", "production", "polish"],
 	reroll: ["production", "polish"],
