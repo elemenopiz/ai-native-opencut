@@ -19,8 +19,16 @@ import { afterAll, afterEach, beforeEach, expect, mock, test } from "bun:test";
 import { webEnv } from "@byorn/env/web";
 
 /** Mutable session the auth mock returns — tests flip it per case. */
-let currentSession: { user: { id: string; email?: string } } | null = {
-	user: { id: "u1" },
+let currentSession: {
+	user: { id: string; email?: string; createdAt?: Date };
+} | null = {
+	user: {
+		id: "u1",
+		// Well before the AI-access cutoff — this default fixture represents a
+		// grandfathered existing user, since the relay bills our provider key and
+		// hasAiAccess must pass for the "signed-in user" happy paths below.
+		createdAt: new Date("2020-01-01T00:00:00.000Z"),
+	},
 };
 /** When set, the rate-limit mock returns this response (limited). */
 let limitedResponse: Response | undefined;
@@ -99,7 +107,9 @@ const savedDirectorModel = webEnv.DIRECTOR_MODEL;
 
 beforeEach(() => {
 	captured = null;
-	currentSession = { user: { id: "u1" } };
+	currentSession = {
+		user: { id: "u1", createdAt: new Date("2020-01-01T00:00:00.000Z") },
+	};
 	limitedResponse = undefined;
 	enforceRateLimitCalls = 0;
 	webEnv.GEMINI_API_KEY = "test-gemini-key";
@@ -133,7 +143,13 @@ test("key set + anonymous → 401 (the relay bills our key)", async () => {
 });
 
 test("a regular signed-in user goes through the rate limiter", async () => {
-	currentSession = { user: { id: "u1", email: "not-owner@example.com" } };
+	currentSession = {
+		user: {
+			id: "u1",
+			email: "not-owner@example.com",
+			createdAt: new Date("2020-01-01T00:00:00.000Z"),
+		},
+	};
 	const res = await POST(makeReq(validBody));
 	expect(res.status).toBe(200);
 	expect(enforceRateLimitCalls).toBe(1);

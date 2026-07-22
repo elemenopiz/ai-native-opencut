@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth/server";
+import { aiAccessDeniedResponse, hasAiAccess } from "@/lib/ai-access";
 import {
 	ensureBackendsRegistered,
 	getBackend,
@@ -70,6 +71,7 @@ export async function POST(req: Request) {
 		if (!session?.user) {
 			return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 		}
+		if (!hasAiAccess(session.user)) return aiAccessDeniedResponse();
 
 		const limited = await enforceRateLimit({
 			name: "studio:audio",

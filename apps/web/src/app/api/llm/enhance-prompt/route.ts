@@ -34,6 +34,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { webEnv } from "@byorn/env/web";
 import { auth } from "@/lib/auth/server";
+import { aiAccessDeniedResponse, hasAiAccess } from "@/lib/ai-access";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { reportError } from "@/lib/observability/logger";
 
@@ -292,6 +293,7 @@ export async function POST(req: Request) {
 	if (!session?.user) {
 		return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 	}
+	if (!hasAiAccess(session.user)) return aiAccessDeniedResponse();
 
 	const limited = await enforceRateLimit({
 		name: "llm:enhance",

@@ -12,6 +12,9 @@ import { cn } from "@/utils/ui";
 import { usePersonaStore } from "@/stores/persona-store";
 import { uploadReferenceFile } from "@/lib/studio/reference-upload";
 import { gateOn402 } from "@/lib/credits/client-gate";
+import { gateOnAiAccess } from "@/lib/credits/ai-access-gate";
+import { useAiAccess } from "@/hooks/use-ai-access";
+import { AiAccessNotice } from "@/components/ai-access-notice";
 import { useCreditsStore } from "@/stores/credits-store";
 
 interface PersonaManagerProps {
@@ -71,6 +74,7 @@ async function readImageDimensions(
 export function PersonaManager({ className }: PersonaManagerProps) {
 	const { personas, activePersonaId, load, create, remove, setActive } =
 		usePersonaStore();
+	const { signedIn, aiAccess, loading: aiAccessLoading } = useAiAccess();
 
 	const [name, setName] = useState("");
 	const [descriptor, setDescriptor] = useState("");
@@ -102,6 +106,7 @@ export function PersonaManager({ className }: PersonaManagerProps) {
 			toast.error("Describe the character first.");
 			return;
 		}
+		if (!aiAccess) return;
 		setGenerating(true);
 		try {
 			const res = await fetch("/api/studio/image", {
@@ -117,6 +122,9 @@ export function PersonaManager({ className }: PersonaManagerProps) {
 			if (!res.ok) {
 				// Insufficient credits (402) → open the "Out of credits" modal.
 				if (await gateOn402(res)) {
+					return;
+				}
+				if (await gateOnAiAccess(res)) {
 					return;
 				}
 				const data = (await res.json()) as { error?: string };
@@ -412,11 +420,16 @@ export function PersonaManager({ className }: PersonaManagerProps) {
 						</div>
 					) : (
 						<>
+							<AiAccessNotice
+								signedIn={signedIn}
+								aiAccess={aiAccess}
+								loading={aiAccessLoading}
+							/>
 							<Button
 								size="sm"
 								variant="outline"
 								className="w-full text-xs"
-								disabled={!descriptor.trim() || generating}
+								disabled={!descriptor.trim() || generating || !aiAccess}
 								onClick={generatePortraits}
 							>
 								{generating ? "Generating portraits…" : "Generate portraits"}

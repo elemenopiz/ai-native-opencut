@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { imageStills } from "@/lib/db/schema-studio";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth/server";
+import { aiAccessDeniedResponse, hasAiAccess } from "@/lib/ai-access";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import {
 	availableBackends,
@@ -34,6 +35,7 @@ export async function POST(req: Request) {
 		if (!session?.user) {
 			return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 		}
+		if (!hasAiAccess(session.user)) return aiAccessDeniedResponse();
 
 		// Cap paid image generation per account (both burst and daily volume).
 		const limited = await enforceRateLimit({

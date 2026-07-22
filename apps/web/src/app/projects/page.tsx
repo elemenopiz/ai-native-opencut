@@ -65,6 +65,7 @@ import { ProjectInfoDialog } from "@/components/editor/dialogs/project-info-dial
 import { RenameProjectDialog } from "@/components/editor/dialogs/rename-project-dialog";
 import { ShareProjectDialog } from "@/components/editor/dialogs/share-project-dialog";
 import { SharedProjectsSection } from "@/components/projects/shared-projects-section";
+import { AccountMenu } from "@/components/auth/account-menu";
 import { FEATURE_COLLAB } from "@/lib/feature-flags";
 import { cn } from "@/utils/ui";
 import { toast } from "sonner";
@@ -188,6 +189,12 @@ function ProjectsHeader() {
 				<div className="flex items-center gap-3 md:gap-4">
 					<SearchBar className="hidden md:block" />
 					<NewProjectButton />
+					{/* Sign-in is optional (anonymous editing is fully supported) — this
+					    dashboard had no auth-aware control at all, so an anonymous
+					    visitor landing here had no way to sign in. Mirrors the editor
+					    header's account control: an avatar menu once signed in, a
+					    subtle "Log in" button otherwise. */}
+					<AccountMenu />
 				</div>
 			</div>
 			<SearchBar className="block md:hidden mb-4" />

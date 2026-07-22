@@ -37,6 +37,8 @@ import {
 } from "@/lib/studio/options";
 import { estimateGenerationSeconds } from "@/lib/studio/generation-eta";
 import { useSession } from "@/lib/auth/client";
+import { useAiAccess } from "@/hooks/use-ai-access";
+import { AiAccessNotice } from "@/components/ai-access-notice";
 import { isOwnerEmail } from "@/lib/credits/signup-grant";
 import { useSavedVerifiedAssets } from "@/lib/studio/saved-verified-assets";
 import { useBackends } from "@/hooks/use-backends";
@@ -322,6 +324,9 @@ export function GenerationForm({
 	const { data: session } = useSession();
 	const isOwner = isOwnerEmail(session?.user?.email);
 	const savedVerifiedAssets = useSavedVerifiedAssets();
+	// Early-access / owner-only gate for AI generation — anonymous visitors and
+	// newly-created accounts can still browse/edit, just not spend AI credits.
+	const { signedIn, aiAccess, loading: aiAccessLoading } = useAiAccess();
 	// First & last frame mode.
 	const [firstFrameUrl, setFirstFrameUrl] = useState<string | null>(null);
 	const [lastFrameUrl, setLastFrameUrl] = useState<string | null>(null);
@@ -736,7 +741,14 @@ export function GenerationForm({
 	}
 
 	async function handleGenerate() {
-		if (!prompt.trim() || needsReference || refUploading || generating) return;
+		if (
+			!prompt.trim() ||
+			needsReference ||
+			refUploading ||
+			generating ||
+			!aiAccess
+		)
+			return;
 		if (inFlightRef.current) return;
 		inFlightRef.current = true;
 		try {
@@ -1186,6 +1198,12 @@ export function GenerationForm({
 				<p className="text-[11.5px] text-muted-foreground">{helperText}</p>
 			)}
 
+			<AiAccessNotice
+				signedIn={signedIn}
+				aiAccess={aiAccess}
+				loading={aiAccessLoading}
+			/>
+
 			{/* One calm surface: Prompt, tool row, Variations, the progress strip,
 			    and the bottom bar all live inside a single hairline-divided card. */}
 			<GenerationCard>
@@ -1358,7 +1376,11 @@ export function GenerationForm({
 					cost={cost}
 					onSubmit={handleGenerate}
 					submitDisabled={
-						!prompt.trim() || needsReference || refUploading || generating
+						!prompt.trim() ||
+						needsReference ||
+						refUploading ||
+						generating ||
+						!aiAccess
 					}
 					busy={generating}
 					submitLabel={submitLabel}

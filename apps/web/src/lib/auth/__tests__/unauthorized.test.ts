@@ -189,7 +189,7 @@ describe("handleUnauthorized / apiFetch — browser 401 handling", () => {
 			),
 		).toBe(true);
 		expect(toastCalls).toHaveLength(1);
-		expect(toastCalls[0]?.message).toBe("Sign up to use AI features");
+		expect(toastCalls[0]?.message).toBe("Sign in to continue");
 		expect(fakeWindow.dispatched).toHaveLength(1);
 		expect(fakeWindow.dispatched[0]?.type).toBe(UNAUTHORIZED_EVENT);
 

@@ -24,6 +24,8 @@ import { useAIStore, getConversationHistoryForAgent } from "@/stores/ai-store";
 import { useTranscriptStore } from "@/stores/transcript-store";
 import { useEditor } from "@/hooks/use-editor";
 import { useDirector } from "@/hooks/use-director";
+import { useAiAccess } from "@/hooks/use-ai-access";
+import { AiAccessNotice } from "@/components/ai-access-notice";
 import {
 	runDirectorAgent,
 	executeDirectorAction,
@@ -309,6 +311,7 @@ const TRANSCRIPT_PROMPTS = [
 
 export function DirectorView() {
 	const { isConnected } = useAIStatus();
+	const { signedIn, aiAccess, loading: aiAccessLoading } = useAiAccess();
 	const toggleSetupGuide = useAIStore((s) => s.toggleSetupGuide);
 	const saveIdea = useAIStore((s) => s.saveIdea);
 	const messages = useAIStore((s) => s.studioMessages);
@@ -352,6 +355,10 @@ export function DirectorView() {
 	const [chatApproval, setChatApproval] = useState<AgentApproval | null>(null);
 
 	const [mode, setMode] = useState<StudioMode>("chat");
+	// Chat mode is the cloud-brain path (/api/llm/agent) and needs AI access;
+	// "transcript" mode runs the local on-device backend (`isConnected`) and is
+	// unrelated to this gate — see the composer's disabled logic below.
+	const chatAiBlocked = mode === "chat" && !aiAccess;
 	// Item 5 — project-keyed draft (`ai-store`) instead of bare local state, so
 	// the typed-but-unsent prompt survives a Direct↔Tools tab switch/unmount and
 	// never bleeds across projects. `setInputValue` keeps the call sites below
@@ -524,6 +531,18 @@ export function DirectorView() {
 			toast.error("AI backend is not connected", {
 				description: "Start the AI backend to use the Director chat.",
 			});
+			return;
+		}
+
+		// Chat mode's cloud brain needs AI access — the composer is disabled for
+		// this case too (including on Enter, which calls handleSend directly),
+		// but guard here as well since that's the actual gate, not the button.
+		if (mode === "chat" && !aiAccess) {
+			toast(
+				signedIn
+					? "AI features are available to early-access members."
+					: "Sign in to use AI features",
+			);
 			return;
 		}
 
@@ -872,6 +891,8 @@ export function DirectorView() {
 		isThinking,
 		isConnected,
 		mode,
+		aiAccess,
+		signedIn,
 		hasTranscript,
 		transcriptSegments,
 		addMessage,
@@ -1320,6 +1341,14 @@ export function DirectorView() {
 
 					{/* Input — ALWAYS at bottom, outside scroll */}
 					<div className="border-t px-2 py-2 shrink-0 bg-background">
+						{mode === "chat" && (
+							<AiAccessNotice
+								signedIn={signedIn}
+								aiAccess={aiAccess}
+								loading={aiAccessLoading}
+								className="mb-2"
+							/>
+						)}
 						<div className="flex items-end gap-1.5">
 							<textarea
 								ref={inputRef}
@@ -1329,11 +1358,15 @@ export function DirectorView() {
 								placeholder={
 									!isConnected && mode !== "chat"
 										? "Connect AI backend first"
-										: mode === "transcript"
-											? "Tell AI how to edit the transcript..."
-											: "Describe your video idea..."
+										: chatAiBlocked
+											? signedIn
+												? "AI features are available to early-access members."
+												: "Sign in to use the Director"
+											: mode === "transcript"
+												? "Tell AI how to edit the transcript..."
+												: "Describe your video idea..."
 								}
-								disabled={!isConnected && mode !== "chat"}
+								disabled={(!isConnected && mode !== "chat") || chatAiBlocked}
 								rows={1}
 								className={cn(
 									"flex-1 resize-none rounded-md border bg-transparent px-2.5 py-2 text-xs outline-none",
@@ -1369,7 +1402,8 @@ export function DirectorView() {
 									disabled={
 										!inputValue.trim() ||
 										isThinking ||
-										(!isConnected && mode !== "chat")
+										(!isConnected && mode !== "chat") ||
+										chatAiBlocked
 									}
 								>
 									{isThinking ? (

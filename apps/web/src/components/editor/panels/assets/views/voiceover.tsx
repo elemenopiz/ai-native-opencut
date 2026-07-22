@@ -14,6 +14,8 @@ import {
 } from "@/components/ui/select";
 import { useEditor } from "@/hooks/use-editor";
 import { useTranscriptStore } from "@/stores/transcript-store";
+import { useAiAccess } from "@/hooks/use-ai-access";
+import { AiAccessNotice } from "@/components/ai-access-notice";
 import { aiClient } from "@/lib/ai-client";
 import { isFeatureAvailable } from "@/lib/local-ai/retired-features";
 import {
@@ -81,6 +83,7 @@ export function VoiceoverView() {
 	const editor = useEditor();
 	const segments = useTranscriptStore((s) => s.segments);
 	const hasTranscript = segments.length > 0;
+	const { signedIn, aiAccess, loading: aiAccessLoading } = useAiAccess();
 
 	// Engine selection — top-level toggle
 	const [engine, setEngine] = useState<TTSEngine>("standard");
@@ -334,6 +337,7 @@ export function VoiceoverView() {
 			toast.error("No text to generate speech from");
 			return;
 		}
+		if (!aiAccess) return;
 
 		const taskId = `vo-full-${Date.now()}`;
 		addTask({
@@ -373,7 +377,14 @@ export function VoiceoverView() {
 		} finally {
 			setIsGenerating(false);
 		}
-	}, [textToGenerate, translateForTTS, generateSpeech, addTask, updateTask]);
+	}, [
+		textToGenerate,
+		aiAccess,
+		translateForTTS,
+		generateSpeech,
+		addTask,
+		updateTask,
+	]);
 
 	// Generate per-segment and auto-add to timeline
 	const handleGeneratePerSegment = useCallback(async () => {
@@ -381,6 +392,7 @@ export function VoiceoverView() {
 			toast.error("No transcript segments to generate from");
 			return;
 		}
+		if (!aiAccess) return;
 
 		const taskId = `vo-seg-${Date.now()}`;
 		const langName =
@@ -478,6 +490,7 @@ export function VoiceoverView() {
 	}, [
 		segments,
 		hasTranscript,
+		aiAccess,
 		language,
 		needsTranslation,
 		editor,
@@ -809,12 +822,17 @@ export function VoiceoverView() {
 				)}
 
 				{/* ── Generate buttons ── */}
+				<AiAccessNotice
+					signedIn={signedIn}
+					aiAccess={aiAccess}
+					loading={aiAccessLoading}
+				/>
 				<div className="flex flex-col gap-1.5">
 					{hasTranscript && useTranscript && (
 						<Button
 							className="w-full"
 							onClick={handleGeneratePerSegment}
-							disabled={isGenerating}
+							disabled={isGenerating || !aiAccess}
 						>
 							{isGenerating && <Spinner className="mr-1" />}
 							Generate per segment
@@ -825,7 +843,7 @@ export function VoiceoverView() {
 						variant={hasTranscript && useTranscript ? "outline" : "default"}
 						className="w-full"
 						onClick={handleGenerate}
-						disabled={isGenerating || !textToGenerate}
+						disabled={isGenerating || !textToGenerate || !aiAccess}
 					>
 						{isGenerating && !generationProgress.includes("segment") && (
 							<Spinner className="mr-1" />

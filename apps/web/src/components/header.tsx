@@ -9,10 +9,18 @@ import { Menu02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { cn } from "@/utils/ui";
 import { ByornLogo } from "./footer";
+import { useSession } from "@/lib/auth/client";
 
 export function Header() {
 	const [isMenuOpen, setIsMenuOpen] = useState(false);
 	const closeMenu = () => setIsMenuOpen(false);
+	// Sign-in is optional now — anonymous visitors can use the editor freely.
+	// Still surface a subtle way in for anyone who wants to: `AccountMenu`
+	// (the editor header's account control) already handles the "already
+	// signed in" state everywhere else; this marketing header has never
+	// been auth-aware, so add the anonymous-only affordance here.
+	const { data: session, isPending } = useSession();
+	const signedIn = Boolean(session?.user);
 
 	const links = [
 		{
@@ -55,6 +63,13 @@ export function Header() {
 						</Button>
 					</div>
 					<div className="hidden items-center gap-3 md:flex">
+						{!isPending && !signedIn && (
+							<Link href="/login">
+								<Button variant="text" className="p-0 text-sm">
+									Sign in
+								</Button>
+							</Link>
+						)}
 						<Link href="/projects">
 							<Button className="text-sm">
 								Start editing
@@ -111,6 +126,28 @@ export function Header() {
 									</Link>
 								</motion.div>
 							))}
+							{!isPending && !signedIn && (
+								<motion.div
+									initial={{ scale: 0.98, opacity: 0 }}
+									animate={{
+										scale: isMenuOpen ? 1 : 0.98,
+										opacity: isMenuOpen ? 1 : 0,
+									}}
+									transition={{
+										duration: 0.4,
+										delay: isMenuOpen ? links.length * 0.1 : 0,
+										ease: [0.25, 0.46, 0.45, 0.94],
+									}}
+								>
+									<Link
+										href="/login"
+										className="text-2xl font-semibold"
+										onClick={() => setIsMenuOpen(false)}
+									>
+										Sign in
+									</Link>
+								</motion.div>
+							)}
 						</nav>
 					</div>
 				</div>

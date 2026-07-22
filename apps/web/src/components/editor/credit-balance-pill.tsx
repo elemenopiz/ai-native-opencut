@@ -4,28 +4,28 @@ import { useEffect } from "react";
 import Link from "next/link";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Coins01Icon } from "@hugeicons/core-free-icons";
-import { useSession } from "@/lib/auth/client";
+import { useAiAccess } from "@/hooks/use-ai-access";
 import { cn } from "@/utils/ui";
 import { LOW_CREDIT_THRESHOLD, useCreditsStore } from "@/stores/credits-store";
 
 /**
  * Header balance pill — shows the signed-in user's spendable credits next to the
  * account menu. Amber when low (< LOW_CREDIT_THRESHOLD). Links to the account
- * page's Credits section. Hidden while signed out (nothing to meter).
+ * page's Credits section. Hidden for anyone without AI access — signed out, or
+ * signed in without the early-access/owner entitlement — since there's nothing
+ * to meter (credits only apply to accounts that can spend them on AI).
  */
 export function CreditBalancePill() {
-	const { data: session, isPending } = useSession();
+	const { aiAccess, loading } = useAiAccess();
 	const spendable = useCreditsStore((s) => s.spendable);
 	const loaded = useCreditsStore((s) => s.loaded);
 	const refresh = useCreditsStore((s) => s.refresh);
 
-	const signedIn = Boolean(session?.user);
-
 	useEffect(() => {
-		if (signedIn) void refresh();
-	}, [signedIn, refresh]);
+		if (aiAccess) void refresh();
+	}, [aiAccess, refresh]);
 
-	if (isPending || !signedIn) return null;
+	if (loading || !aiAccess) return null;
 
 	const low = loaded && spendable < LOW_CREDIT_THRESHOLD;
 

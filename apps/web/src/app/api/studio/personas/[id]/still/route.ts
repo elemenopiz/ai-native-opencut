@@ -7,6 +7,7 @@ import type { ImageSize } from "@/lib/studio/image-generator";
 import { nanoid } from "nanoid";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth/server";
+import { aiAccessDeniedResponse, hasAiAccess } from "@/lib/ai-access";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { DEFAULT_BACKEND_ID } from "@/lib/studio/backends/registry";
 import { costFor } from "@/lib/credits/cost-table";
@@ -35,6 +36,7 @@ export async function POST(
 		if (!session?.user) {
 			return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 		}
+		if (!hasAiAccess(session.user)) return aiAccessDeniedResponse();
 
 		// Cap paid still rendering per account (both burst and daily volume).
 		const limited = await enforceRateLimit({

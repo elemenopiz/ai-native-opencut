@@ -28,6 +28,7 @@ import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { webEnv } from "@byorn/env/web";
 import { auth } from "@/lib/auth/server";
+import { aiAccessDeniedResponse, hasAiAccess } from "@/lib/ai-access";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { isOwnerEmail } from "@/lib/credits/signup-grant";
 import {
@@ -105,6 +106,7 @@ export async function POST(req: Request) {
 	if (!session?.user) {
 		return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 	}
+	if (!hasAiAccess(session.user)) return aiAccessDeniedResponse();
 
 	// Cap paid relay calls per account (both burst and daily volume). Owner
 	// accounts (see OWNER_EMAILS) are exempt from the free-tier cap — they

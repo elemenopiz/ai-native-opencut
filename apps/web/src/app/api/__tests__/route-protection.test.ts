@@ -99,8 +99,6 @@ const PUBLIC_ROUTES: Record<string, string> = {
 	"arrangements/[id]/route.ts": "public share read/remix by design",
 	"auth/[...all]/route.ts":
 		"the better-auth handler itself — IS the auth system",
-	"beta-gate/route.ts":
-		"the closed-beta door itself — anonymous by definition, per-IP rate-limited (beta:gate), compares the code server-side",
 	"health/route.ts": "deploy health probe, no user data",
 	"images/search/route.ts":
 		"key-based auth of its own (server env key or per-request X-Pexels-Api-Key); 401s without either",
@@ -122,6 +120,11 @@ const PUBLIC_ROUTES: Record<string, string> = {
  * and justified.
  */
 const EXCLUDED_SESSION_ROUTES: Record<string, string> = {
+	"ai-access/route.ts":
+		"calls auth.api.getSession but is a deliberately public probe — it reports " +
+		"{ signedIn, aiAccess } for ANY caller (session or none) and always 200s, " +
+		"even with no session, so it can never satisfy this sweep's " +
+		"`expect(status).toBe(401)` assertion (see lib/ai-access.ts)",
 	"mcp/bridge/route.ts":
 		"session-gated in production but intentionally falls back to a dev-wildcard " +
 		"user outside production (see DEV_WILDCARD_USER) — under bun test " +

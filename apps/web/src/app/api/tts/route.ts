@@ -29,6 +29,7 @@ import { headers } from "next/headers";
 import { z } from "zod";
 import { webEnv } from "@byorn/env/web";
 import { auth } from "@/lib/auth/server";
+import { aiAccessDeniedResponse, hasAiAccess } from "@/lib/ai-access";
 import { reportError } from "@/lib/observability/logger";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { fetchWithTimeout } from "@/lib/studio/fetch-timeout";
@@ -87,6 +88,7 @@ export async function POST(req: Request) {
 	if (!session?.user) {
 		return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 	}
+	if (!hasAiAccess(session.user)) return aiAccessDeniedResponse();
 
 	const limited = await enforceRateLimit({
 		name: "tts:generate",

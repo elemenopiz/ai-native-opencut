@@ -16,7 +16,9 @@
  *
  * The export stub itself is opt-OUT via `NEXT_PUBLIC_E2E_STUB_EXPORT=0`: a perf
  * bench that wants the E2E build's scripted setup surface (window-exposed
- * `editor`) and beta-gate bypass, but needs the *real* canvas/mediabunny/
+ * `editor`) and the optional-auth middleware bypass (proxy.ts's E2E_BUILD
+ * early-return — there's no access code to bypass anymore, just the
+ * `/account` session redirect), but needs the *real* canvas/mediabunny/
  * WebCodecs export path for genuine timing, can build with
  * `NEXT_PUBLIC_E2E=1 NEXT_PUBLIC_E2E_STUB_EXPORT=0` instead of maintaining a
  * separate throwaway build (both flags are inlined at build time, like every

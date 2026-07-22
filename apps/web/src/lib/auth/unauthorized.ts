@@ -106,11 +106,13 @@ export function handleUnauthorized(
 
 	lastPromptAt = now;
 
-	// An invitation, not an error: in the closed beta, anonymous editing is the
-	// normal state and this is the first money-moment touchpoint.
-	toast("Sign up to use AI features", {
+	// An invitation, not an error: the app is public and anonymous editing is
+	// the normal state — this is the first sign-in touchpoint for an
+	// account-gated action. (AI is for existing early-access accounts;
+	// AiAccessNotice surfaces that inline before a call ever gets here.)
+	toast("Sign in to continue", {
 		description:
-			"Editing is free and stays on your device. Cloud generation needs an account — new accounts come with free credits.",
+			"Editing is free and stays on your device. Some features need an account.",
 	});
 	window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
 	return true;

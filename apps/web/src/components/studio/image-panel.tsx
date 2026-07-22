@@ -20,6 +20,9 @@ import { useEditor } from "@/hooks/use-editor";
 import { EnhancePromptButton } from "@/components/editor/ai/enhance-prompt-button";
 import { addItemsToProjectMedia } from "@/lib/studio/add-to-editor";
 import { gateOn402 } from "@/lib/credits/client-gate";
+import { gateOnAiAccess } from "@/lib/credits/ai-access-gate";
+import { useAiAccess } from "@/hooks/use-ai-access";
+import { AiAccessNotice } from "@/components/ai-access-notice";
 import { apiFetch } from "@/lib/auth/unauthorized";
 import { useCreditsStore } from "@/stores/credits-store";
 import { useBackends } from "@/hooks/use-backends";
@@ -79,6 +82,7 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 		set: setSettings,
 	} = useStudioSettingsStore();
 	const editor = useEditor();
+	const { signedIn, aiAccess, loading: aiAccessLoading } = useAiAccess();
 	const [presetId, setPresetId] = useState<ImagePresetId>("freeform");
 	const [prompt, setPrompt] = useState("");
 	const [n, setN] = useState(4);
@@ -239,7 +243,7 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 	}
 
 	async function handleGenerate() {
-		if (!prompt.trim() || refUploading) return;
+		if (!prompt.trim() || refUploading || !aiAccess) return;
 		setGenerating(true);
 		setError(null);
 
@@ -295,6 +299,12 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 							// Insufficient credits (402) → open the "Out of credits" modal.
 							if (await gateOn402(res)) {
 								setError("Out of credits");
+								return;
+							}
+							// Access revoked/expired mid-session (403) → friendly toast,
+							// not a raw error. UI gating (submitDisabled) is the primary
+							// defense; this is the backstop.
+							if (await gateOnAiAccess(res)) {
 								return;
 							}
 							const data = (await res.json()) as { error?: string };
@@ -498,6 +508,12 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 				</div>
 			)}
 
+			<AiAccessNotice
+				signedIn={signedIn}
+				aiAccess={aiAccess}
+				loading={aiAccessLoading}
+			/>
+
 			{/* One calm surface: Prompt, Variations, and the bottom bar share a
 			    single hairline-divided card. The placeholder carries the
 			    Prompt/Scene/Character meaning — no separate Label row. */}
@@ -564,7 +580,9 @@ export function ImagePanel({ onSelectImage, className }: ImagePanelProps) {
 					settingsContent={settingsContent}
 					cost={cost}
 					onSubmit={handleGenerate}
-					submitDisabled={!prompt.trim() || generating || refUploading}
+					submitDisabled={
+						!prompt.trim() || generating || refUploading || !aiAccess
+					}
 					busy={generating}
 					submitLabel={submitLabel}
 					testIdPrefix="image-gen"

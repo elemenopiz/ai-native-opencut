@@ -63,8 +63,17 @@ class FakeAnthropic {
 }
 
 /** Mutable session the auth mock returns — tests flip it per case. */
-let currentSession: { user: { id: string; name: string; email?: string } } = {
-	user: { id: "u1", name: "U" },
+let currentSession: {
+	user: { id: string; name: string; email?: string; createdAt?: Date };
+} = {
+	user: {
+		id: "u1",
+		name: "U",
+		// Well before the AI-access cutoff, so this default fixture represents a
+		// grandfathered existing user — the routes under test bill our provider
+		// key, so hasAiAccess must pass for the "signed-in user" happy paths below.
+		createdAt: new Date("2020-01-01T00:00:00.000Z"),
+	},
 };
 /** How many times the (mocked) enforceRateLimit was invoked this test — lets
  *  owner-exemption tests assert the check was SKIPPED, not just "not limited". */
@@ -127,7 +136,13 @@ const savedMoonshotKey = webEnv.MOONSHOT_API_KEY;
 beforeEach(() => {
 	state.streamSignal = null;
 	state.streamCreated = 0;
-	currentSession = { user: { id: "u1", name: "U" } };
+	currentSession = {
+		user: {
+			id: "u1",
+			name: "U",
+			createdAt: new Date("2020-01-01T00:00:00.000Z"),
+		},
+	};
 	enforceRateLimitCalls = 0;
 	webEnv.ANTHROPIC_API_KEY = "test-key";
 	webEnv.MOONSHOT_API_KEY = "";
@@ -165,7 +180,12 @@ test("aborting the client request aborts the upstream stream and tears it down",
 
 test("a regular signed-in user goes through the rate limiter", async () => {
 	currentSession = {
-		user: { id: "u1", name: "U", email: "not-owner@example.com" },
+		user: {
+			id: "u1",
+			name: "U",
+			email: "not-owner@example.com",
+			createdAt: new Date("2020-01-01T00:00:00.000Z"),
+		},
 	};
 	const req = makeReq(
 		{ messages: [{ role: "user", content: "hi" }] },
