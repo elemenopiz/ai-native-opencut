@@ -8,6 +8,7 @@ import type {
 } from "@/lib/studio/provider-adapter";
 import { waitForJobTerminal } from "@/stores/generation-status-store";
 import { gateOn402 } from "@/lib/credits/client-gate";
+import { gateOnAiAccess } from "@/lib/credits/ai-access-gate";
 import { useCreditsStore } from "@/stores/credits-store";
 import { usePersonaStore } from "@/stores/persona-store";
 import { apiFetch } from "@/lib/auth/unauthorized";
@@ -43,6 +44,16 @@ class InsufficientCreditsError extends Error {
 	constructor(message = "Insufficient credits") {
 		super(message);
 		this.name = "InsufficientCreditsError";
+	}
+}
+
+// Same idea as {@link InsufficientCreditsError}, for the 403 `ai_access_restricted`
+// gate: `gateOnAiAccess` already surfaces a friendly toast, so this sentinel lets
+// the outer catch skip the inline setError for this case too.
+class AiAccessRestrictedError extends Error {
+	constructor(message = "AI access restricted") {
+		super(message);
+		this.name = "AiAccessRestrictedError";
 	}
 }
 
@@ -318,6 +329,14 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 						setStatus("error");
 						throw new InsufficientCreditsError();
 					}
+					// Lacks AI access (403) — the Generate button is already disabled
+					// for this case; this is the backstop for a stale disabled-state
+					// race or access revoked mid-session. Same "already surfaced,
+					// don't double it up" sentinel pattern as the 402 case above.
+					if (await gateOnAiAccess(res)) {
+						setStatus("error");
+						throw new AiAccessRestrictedError();
+					}
 					const data = (await res.json()) as { error?: string };
 					throw new Error(data.error ?? "Submission failed");
 				}
@@ -394,11 +413,14 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 				}
 			} catch (err) {
 				setStatus("error");
-				// The 402 modal already surfaced this failure to the user —
-				// setError would double it up as an inline error too. Real
-				// failures (submission errors, Fix 2/3's save failures) are plain
-				// Error instances and still setError as before.
-				if (!(err instanceof InsufficientCreditsError)) {
+				// The 402 modal / ai-access toast already surfaced this failure to
+				// the user — setError would double it up as an inline error too.
+				// Real failures (submission errors, Fix 2/3's save failures) are
+				// plain Error instances and still setError as before.
+				if (
+					!(err instanceof InsufficientCreditsError) &&
+					!(err instanceof AiAccessRestrictedError)
+				) {
 					setError(err instanceof Error ? err.message : "Generation failed");
 				}
 				throw err instanceof Error ? err : new Error("Generation failed");

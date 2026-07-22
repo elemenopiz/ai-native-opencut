@@ -1,37 +1,30 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getSessionCookie } from "better-auth/cookies";
-import { BETA_COOKIE, betaAccessCode } from "@/lib/beta-gate";
 
 /**
- * Closed-beta double door, checked in order on every page request:
+ * Byorn is a public app. There is no access code and no forced sign-up wall:
+ * anonymous visitors can use the whole product — home, the editor, projects,
+ * marketing, and legal pages — with no account at all. Sign-in is OPTIONAL,
+ * offered where it's useful (saving/syncing a project), never required to
+ * try the app.
  *
- *  1. ACCESS GATE — the entire site sits behind a shared 4-digit code so
- *     strangers can't create accounts and drain the provider pools. Visitors
- *     without the access cookie go to /beta-gate, which checks the code
- *     server-side (POST /api/beta-gate) and mints the httpOnly cookie.
- *  2. AUTH WALL — once inside the gate, everything requires an account:
- *     no session cookie → /signup (sign-in is one click from there). Only the
- *     auth pages themselves and the legal pages (readable before consenting
- *     to an account) are exempt.
+ * The only pages that require an account are under `/account` — no session
+ * cookie there redirects to /login, with a `redirect` return-to param so the
+ * user lands back where they started once signed in.
  *
- * The session check is OPTIMISTIC (cookie presence, edge-safe, no DB hit) —
- * real validation stays where it always was: every paid/gated API route
- * verifies the session server-side and 401s. A forged cookie gets past the
- * redirect but can't reach data or paid actions.
+ * AI features (generate, chat, credits, ...) are NOT gated here — that
+ * happens separately, server-side, per API route. This check is OPTIMISTIC
+ * (cookie presence, edge-safe, no DB hit): a forged cookie can get past this
+ * redirect, but it still can't reach data or paid actions, because every
+ * gated API route independently verifies the session server-side and 401s
+ * on its own.
  *
- * /api/* is excluded by the matcher — API routes carry their own auth and
- * rate limits, and webhooks (Polar) + /api/health must stay reachable.
+ * /api/* is excluded by the matcher below — API routes carry their own auth
+ * and rate limits, and webhooks (Polar) + /api/health must stay reachable.
  */
 
-// Reachable inside the gate without a session: the auth flow itself + legal.
-const AUTH_EXEMPT_PREFIXES = [
-	"/login",
-	"/signup",
-	"/forgot-password",
-	"/reset-password",
-	"/terms",
-	"/privacy",
-];
+// Pages that require a signed-in account. Everything else is public.
+const ACCOUNT_ONLY_PREFIXES = ["/account"];
 
 // The e2e runner drives the app with no cookies; same flag that gates the
 // E2EBridge. Never set in real deployments.
@@ -42,30 +35,14 @@ export async function proxy(request: NextRequest) {
 
 	const { pathname } = request.nextUrl;
 
-	// The gate page itself, and any static asset (has a file extension —
-	// logos, og images, sitemap.xml, robots.txt), stay reachable.
-	if (pathname.startsWith("/beta-gate") || /\.[a-zA-Z0-9]+$/.test(pathname)) {
-		return NextResponse.next();
-	}
-
-	// Door 1: the shared beta code.
-	const beta = request.cookies.get(BETA_COOKIE)?.value;
-	if (beta !== betaAccessCode()) {
-		const gate = new URL("/beta-gate", request.url);
-		const returnTo = `${pathname}${request.nextUrl.search}`;
-		if (returnTo !== "/") gate.searchParams.set("next", returnTo);
-		return NextResponse.redirect(gate);
-	}
-
-	// Door 2: an account.
-	const authExempt = AUTH_EXEMPT_PREFIXES.some(
+	const accountOnly = ACCOUNT_ONLY_PREFIXES.some(
 		(p) => pathname === p || pathname.startsWith(`${p}/`),
 	);
-	if (!authExempt && !getSessionCookie(request)) {
-		const signup = new URL("/signup", request.url);
+	if (accountOnly && !getSessionCookie(request)) {
+		const login = new URL("/login", request.url);
 		const returnTo = `${pathname}${request.nextUrl.search}`;
-		if (returnTo !== "/") signup.searchParams.set("redirect", returnTo);
-		return NextResponse.redirect(signup);
+		if (returnTo !== "/") login.searchParams.set("redirect", returnTo);
+		return NextResponse.redirect(login);
 	}
 
 	return NextResponse.next();

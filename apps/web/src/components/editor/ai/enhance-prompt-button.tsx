@@ -9,6 +9,7 @@ import {
 import { toast } from "sonner";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/utils/ui";
+import { useAiAccess } from "@/hooks/use-ai-access";
 
 /** The three enhance modes, matching the endpoint's contract. */
 export type EnhanceMode = "image" | "video" | "director";
@@ -121,6 +122,7 @@ export function EnhancePromptButton({
 	className,
 }: EnhancePromptButtonProps) {
 	const hidden = useNotConfigured();
+	const { signedIn, aiAccess } = useAiAccess();
 	const [state, setState] = useState<EnhanceState>("idle");
 	// True once we've enhanced and not yet undone — Undo stays available even if
 	// the user hand-edits the enhanced text afterward.
@@ -129,7 +131,7 @@ export function EnhancePromptButton({
 	const originalRef = useRef("");
 
 	const enhance = useCallback(async () => {
-		if (state === "loading") return;
+		if (state === "loading" || !aiAccess) return;
 		const current = getPrompt().trim();
 		if (!current) return;
 
@@ -180,7 +182,7 @@ export function EnhancePromptButton({
 		} finally {
 			setState("idle");
 		}
-	}, [state, canUndo, getPrompt, setPrompt, mode, getContext]);
+	}, [state, aiAccess, canUndo, getPrompt, setPrompt, mode, getContext]);
 
 	const undo = useCallback(() => {
 		setPrompt(originalRef.current);
@@ -190,15 +192,21 @@ export function EnhancePromptButton({
 	if (hidden) return null;
 
 	const loading = state === "loading";
+	// Friendly, non-error copy matching <AiAccessNotice/> — no room for the
+	// full notice next to a compact icon button, so the disabled state's
+	// tooltip carries the explanation instead.
+	const aiAccessTitle = signedIn
+		? "AI features are available to early-access members."
+		: "Sign in to use AI features";
 
 	return (
 		<span className={cn("inline-flex items-center gap-1", className)}>
 			<button
 				type="button"
 				onClick={enhance}
-				disabled={loading}
-				title="Enhance prompt"
-				aria-label="Enhance prompt"
+				disabled={loading || !aiAccess}
+				title={aiAccess ? "Enhance prompt" : aiAccessTitle}
+				aria-label={aiAccess ? "Enhance prompt" : aiAccessTitle}
 				className={cn(
 					"inline-flex size-6 items-center justify-center rounded text-muted-foreground",
 					"transition-colors hover:text-foreground hover:bg-accent",

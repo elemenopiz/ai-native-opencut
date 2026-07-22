@@ -58,7 +58,7 @@ interface JobRow {
 }
 
 interface Fixtures {
-	session: { user: { id: string } } | null;
+	session: { user: { id: string; createdAt?: Date } } | null;
 	events: MeterEvent[];
 	spendable: number;
 	submitResult: {
@@ -82,7 +82,12 @@ interface Fixtures {
 }
 
 const state: Fixtures = {
-	session: { user: { id: "owner-1" } },
+	// createdAt is well before the AI-access cutoff — this fixture represents a
+	// grandfathered existing user, since this route bills our provider key and
+	// hasAiAccess must pass for the reserve/settle/release paths under test.
+	session: {
+		user: { id: "owner-1", createdAt: new Date("2020-01-01T00:00:00.000Z") },
+	},
 	events: [],
 	spendable: Number.POSITIVE_INFINITY,
 	submitResult: { jobId: "job-1", status: "processing" },
@@ -301,7 +306,9 @@ const eventsOf = (op: MeterEvent["op"]) =>
 const insertedJob = () => state.inserts[0]?.values as Record<string, unknown>;
 
 beforeEach(() => {
-	state.session = { user: { id: "owner-1" } };
+	state.session = {
+		user: { id: "owner-1", createdAt: new Date("2020-01-01T00:00:00.000Z") },
+	};
 	state.events = [];
 	state.spendable = Number.POSITIVE_INFINITY;
 	state.submitResult = { jobId: "job-1", status: "processing" };

@@ -20,6 +20,9 @@ import {
 	TextTabs,
 } from "@/components/studio/generation-bottom-bar";
 import { gateOn402 } from "@/lib/credits/client-gate";
+import { gateOnAiAccess } from "@/lib/credits/ai-access-gate";
+import { useAiAccess } from "@/hooks/use-ai-access";
+import { AiAccessNotice } from "@/components/ai-access-notice";
 import { useCreditsStore } from "@/stores/credits-store";
 import { apiFetch } from "@/lib/auth/unauthorized";
 import { useAssetsPanelStore } from "@/stores/assets-panel-store";
@@ -115,6 +118,7 @@ export function AudioPanel({ className }: { className?: string }) {
 // ─── Score (video-to-audio) ───────────────────────────────────────────────
 
 function ScoreMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
+	const { signedIn, aiAccess, loading: aiAccessLoading } = useAiAccess();
 	const { backends } = useBackends("audio");
 	const scoreBackend = useMemo(
 		() => backends.find((b) => b.id === "fal-mmaudio"),
@@ -236,7 +240,7 @@ function ScoreMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
 	);
 
 	async function handleGenerate() {
-		if (!source || source.status !== "ready") return;
+		if (!source || source.status !== "ready" || !aiAccess) return;
 		setBusy(true);
 		setLastResult(null);
 
@@ -286,6 +290,7 @@ function ScoreMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
 			});
 			if (!res.ok) {
 				if (await gateOn402(res)) return;
+				if (await gateOnAiAccess(res)) return;
 				const data = (await res.json().catch(() => ({}))) as {
 					error?: string;
 				};
@@ -438,6 +443,12 @@ function ScoreMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
 				</p>
 			)}
 
+			<AiAccessNotice
+				signedIn={signedIn}
+				aiAccess={aiAccess}
+				loading={aiAccessLoading}
+			/>
+
 			<GenerationCard>
 				<div className="space-y-1.5 p-4 pb-1">
 					<span className="text-[13px] font-semibold text-foreground/70">
@@ -475,7 +486,9 @@ function ScoreMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
 					settingsContent={settingsContent}
 					cost={cost}
 					onSubmit={handleGenerate}
-					submitDisabled={!source || source.status !== "ready" || busy}
+					submitDisabled={
+						!source || source.status !== "ready" || busy || !aiAccess
+					}
 					busy={busy}
 					submitLabel="Generate score"
 					testIdPrefix="audio-gen"
@@ -563,6 +576,7 @@ async function pollAudioJob(
 // ─── Music (text-to-music) ────────────────────────────────────────────────
 
 function MusicMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
+	const { signedIn, aiAccess, loading: aiAccessLoading } = useAiAccess();
 	const [prompt, setPrompt] = useState("");
 	const [instrumental, setInstrumental] = useState(false);
 	const [lyrics, setLyrics] = useState("");
@@ -582,7 +596,7 @@ function MusicMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
 	);
 
 	async function handleGenerate() {
-		if (!prompt.trim()) return;
+		if (!prompt.trim() || !aiAccess) return;
 		setBusy(true);
 		setLastResult(null);
 		try {
@@ -599,6 +613,7 @@ function MusicMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
 			});
 			if (!res.ok) {
 				if (await gateOn402(res)) return;
+				if (await gateOnAiAccess(res)) return;
 				const data = (await res.json().catch(() => ({}))) as {
 					error?: string;
 				};
@@ -703,6 +718,12 @@ function MusicMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
 
 	return (
 		<div className="flex flex-col gap-3">
+			<AiAccessNotice
+				signedIn={signedIn}
+				aiAccess={aiAccess}
+				loading={aiAccessLoading}
+			/>
+
 			<GenerationCard>
 				<div className="space-y-1.5 p-4 pb-1">
 					<span className="text-[13px] font-semibold text-foreground/70">
@@ -752,7 +773,7 @@ function MusicMode({ editor }: { editor: ReturnType<typeof useEditor> }) {
 					settingsContent={settingsContent}
 					cost={cost}
 					onSubmit={handleGenerate}
-					submitDisabled={!prompt.trim() || busy}
+					submitDisabled={!prompt.trim() || busy || !aiAccess}
 					busy={busy}
 					submitLabel="Generate music"
 					testIdPrefix="audio-gen"

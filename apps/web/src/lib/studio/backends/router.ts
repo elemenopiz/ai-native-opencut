@@ -30,10 +30,10 @@
  *
  * `REAL_FACE_VIDEO_BACKEND` is read directly off `process.env` (not through
  * the validated `@byorn/env/web` schema — see `rate-limit.ts`'s
- * `DIRECTOR_FREE_TURNS_PER_DAY` / `TRUSTED_PROXY_HOPS` and `beta-gate.ts`'s
- * `BETA_ACCESS_CODE` for the same pattern) so this seam ships without a
- * `packages/env` schema change. Unset ⇒ this branch never fires and
- * `routeSlot` behaves byte-for-byte as it did before this signal existed.
+ * `DIRECTOR_FREE_TURNS_PER_DAY` / `TRUSTED_PROXY_HOPS` for the same pattern)
+ * so this seam ships without a `packages/env` schema change. Unset ⇒ this
+ * branch never fires and `routeSlot` behaves byte-for-byte as it did before
+ * this signal existed.
  *
  * WAVE 2 (not this task): nothing currently sets `realFaceReference` — no
  * caller reads persona photo-provenance to populate it. That's the wiring

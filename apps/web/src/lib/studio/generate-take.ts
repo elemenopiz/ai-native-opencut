@@ -3,6 +3,7 @@ import { processMediaAssets } from "@/lib/media/processing";
 import { composePromptWithCamera } from "@/lib/studio/camera-presets";
 import { fetchWithTimeout, MEDIA_TIMEOUT_MS } from "@/lib/studio/fetch-timeout";
 import { gateOn402 } from "@/lib/credits/client-gate";
+import { gateOnAiAccess } from "@/lib/credits/ai-access-gate";
 import { useCreditsStore } from "@/stores/credits-store";
 import { waitForJobTerminal } from "@/stores/generation-status-store";
 import type { GenerationSpec, Provenance, TakeCost } from "@/types/timeline";
@@ -126,6 +127,18 @@ export async function generateTakeMedia({
 					status: "failed",
 					error: "Out of credits",
 					errorStatus: 402,
+				};
+			}
+			// Lacks AI access (403): friendly toast (not a raw error) and fail this
+			// take cleanly. No provider spend happened server-side. This is the
+			// slot/Director generation path's backstop — the UI surfaces should
+			// already prevent starting a run without access.
+			if (await gateOnAiAccess(res)) {
+				return {
+					status: "failed",
+					error: "Sign in to use AI features",
+					errorStatus: 403,
+					errorCode: "ai_access_restricted",
 				};
 			}
 			// Capture the reliable HTTP status (and any structured provider error

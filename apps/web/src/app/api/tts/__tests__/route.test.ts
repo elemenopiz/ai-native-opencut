@@ -24,7 +24,17 @@ import { webEnv } from "@byorn/env/web";
 // ── fakes ────────────────────────────────────────────────────────────────────
 
 // Toggleable session: null ⇒ unauthenticated (drives the 401 test).
-const authState: { user: { id: string } | null } = { user: { id: "u1" } };
+const authState: {
+	user: { id: string; createdAt?: Date } | null;
+} = {
+	user: {
+		id: "u1",
+		// Well before the AI-access cutoff — the default fixture represents a
+		// grandfathered existing user, since this route bills our provider key
+		// and hasAiAccess must pass for the "signed-in user" happy paths below.
+		createdAt: new Date("2020-01-01T00:00:00.000Z"),
+	},
+};
 mock.module("@/lib/auth/server", () => ({
 	auth: {
 		api: { getSession: async () => (authState.user ? authState : null) },
@@ -94,7 +104,10 @@ beforeEach(() => {
 			__byornRateLimiter?: InstanceType<typeof InMemoryRateLimiter>;
 		}
 	).__byornRateLimiter = new InMemoryRateLimiter();
-	authState.user = { id: "u1" };
+	authState.user = {
+		id: "u1",
+		createdAt: new Date("2020-01-01T00:00:00.000Z"),
+	};
 	webEnv.OPENAI_API_KEY = "test-openai-key";
 	lastFetch.url = null;
 	lastFetch.init = null;

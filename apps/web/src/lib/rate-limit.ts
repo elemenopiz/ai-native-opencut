@@ -121,9 +121,10 @@ export const RATE_LIMITS = {
 	// multi-turn Director session without being a useful abuse lever (it only
 	// writes a telemetry row, no provider spend).
 	"telemetry:verb": { perMinute: 60, perDay: 4000 },
-	// Closed-beta access-code check (POST /api/beta-gate). A 4-digit code has
-	// only 10k combinations — the tight per-IP caps are what make brute force
-	// impractical (~months of continuous guessing per IP).
+	// Legacy bucket for the since-removed closed-beta access-code route (the
+	// app no longer sits behind an access code — sign-in is optional). Left
+	// defined, unreferenced, in case a similar low-entropy-code check is ever
+	// reintroduced elsewhere.
 	"beta:gate": { perMinute: 5, perDay: 60 },
 	// Anonymous arrangement publish (no-login-to-try posture). Every call inserts
 	// a Postgres row, and publishing is a rare, deliberate human action — keep the
