@@ -1,0 +1,319 @@
+{
+  "id": "workspace-926603",
+  "name": "Byorn",
+  "description": "Workspace for Byorn",
+  "version": "4.0.0",
+  "templateVersion": 4,
+  "publicEntry": {
+    "mode": "space-email-gate",
+    "path": "/site/:configId",
+    "component": "components/EmailGate.tsx"
+  },
+  "apps": [
+    {
+      "id": "clip-sense",
+      "name": "Clip Sense",
+      "icon": "Bookmark",
+      "description": "AI-analyze raw footage into a sortable list of highlights, dead silences, and caption-ready cut points",
+      "dataFile": "data/clip-sense.json",
+      "component": "apps/ClipSense/App.tsx"
+    }
+  ],
+  "agent": {
+    "welcomeMessage": "Hi! I'm your assistant. Ask me anything, or pick one of the starters below to get going.",
+    "starterPrompts": [
+      "What can you help me with?",
+      "Show me what this space can do",
+      "Help me get started"
+    ]
+  },
+  "terminology": {
+    "reading": "loading",
+    "writing": "saving",
+    "creating": "adding",
+    "deleting": "removing",
+    "editing": "updating"
+  },
+  "desktop": {
+    "layout": {
+      "agentPosition": "center",
+      "dockPosition": "left",
+      "appWindowSize": "medium",
+      "customerLandsOnAgent": true
+    },
+    "theme": {
+      "accentColor": "#ff3d5c",
+      "dockStyle": "glass",
+      "gradient": "from-[#f2fcff] via-[#e7e7e7] to-[#fff1f4]"
+    },
+    "themeRecipe": "glass",
+    "themeTokens": {
+      "palette": {
+        "primary": "#00c2ff",
+        "highlight": "#ff3d5c",
+        "contrast": "#0b0b0b",
+        "secondary": "#ff3d5c",
+        "accent": "#0b0b0b",
+        "primaryScale": {
+          "50": "#ebfaff",
+          "100": "#d6f5ff",
+          "200": "#b8eeff",
+          "500": "#00b2eb",
+          "600": "#00c2ff",
+          "700": "#00a3d6",
+          "900": "#0080a8"
+        },
+        "highlightScale": {
+          "50": "#ffeff2",
+          "100": "#ffe0e5",
+          "200": "#ffc9d1",
+          "500": "#eb3855",
+          "600": "#ff3d5c",
+          "700": "#d6334d",
+          "900": "#a8283d"
+        },
+        "surfaces": {
+          "page": "#f2fcff",
+          "pageAlt": "#e7e7e7",
+          "gradientFrom": "#f2fcff",
+          "gradientVia": "#e7e7e7",
+          "gradientTo": "#fff1f4",
+          "card": "#ffffff",
+          "cardHover": "#f5fdff",
+          "panel": "#ffffff",
+          "panelStrong": "#ffffff",
+          "muted": "#fafeff",
+          "accentSoft": "#ffecef",
+          "border": "#c7f2ff",
+          "borderStrong": "#a8eaff"
+        },
+        "text": {
+          "primary": "#003647",
+          "secondary": "#00698a",
+          "brand": "#003647",
+          "accent": "#47111a",
+          "muted": "#6b7280",
+          "onPrimary": "#0b0b0b",
+          "onHighlight": "#0b0b0b",
+          "onContrast": "#00c2ff"
+        },
+        "semantic": {
+          "success": "#16a34a",
+          "warning": "#d97706",
+          "danger": "#dc2626"
+        },
+        "shell": {
+          "buttonText": "#0b0b0b",
+          "accentButtonText": "#0b0b0b",
+          "dockText": "#0b0b0b",
+          "icon": "#47111a",
+          "shadow": "#b3edff",
+          "shadowStrong": "#8fe4ff"
+        }
+      },
+      "typography": {
+        "headingFont": "Space Grotesk",
+        "bodyFont": "Space Grotesk",
+        "fontFamily": "\"Space Grotesk\", system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif"
+      },
+      "shell": {
+        "accentColor": "#ff3d5c",
+        "dockStyle": "glass",
+        "pageBackground": "#f2fcff",
+        "gateBackground": "linear-gradient(135deg, #f2fcff, #e7e7e7, #fff1f4)",
+        "panelBackground": "#ffffff",
+        "panelStrongBackground": "#ffffff"
+      },
+      "cssVariables": {
+        "--space-brand-primary": "#00c2ff",
+        "--space-brand-highlight": "#ff3d5c",
+        "--space-brand-contrast": "#0b0b0b",
+        "--space-brand-primary-50": "#ebfaff",
+        "--space-brand-primary-100": "#d6f5ff",
+        "--space-brand-primary-200": "#b8eeff",
+        "--space-brand-primary-500": "#00b2eb",
+        "--space-brand-primary-600": "#00c2ff",
+        "--space-brand-primary-700": "#00a3d6",
+        "--space-brand-primary-900": "#0080a8",
+        "--space-brand-highlight-50": "#ffeff2",
+        "--space-brand-highlight-100": "#ffe0e5",
+        "--space-brand-highlight-200": "#ffc9d1",
+        "--space-brand-highlight-500": "#eb3855",
+        "--space-brand-highlight-600": "#ff3d5c",
+        "--space-brand-highlight-700": "#d6334d",
+        "--space-brand-highlight-900": "#a8283d",
+        "--space-surface-page": "#f2fcff",
+        "--space-surface-page-alt": "#e7e7e7",
+        "--space-surface-gradient-from": "#f2fcff",
+        "--space-surface-gradient-via": "#e7e7e7",
+        "--space-surface-gradient-to": "#fff1f4",
+        "--space-surface-card": "#ffffff",
+        "--space-surface-card-hover": "#f5fdff",
+        "--space-surface-panel": "#ffffff",
+        "--space-surface-panel-strong": "#ffffff",
+        "--space-surface-muted": "#fafeff",
+        "--space-surface-accent-soft": "#ffecef",
+        "--space-border-default": "#c7f2ff",
+        "--space-border-strong": "#a8eaff",
+        "--space-text-primary": "#003647",
+        "--space-text-secondary": "#00698a",
+        "--space-text-brand": "#003647",
+        "--space-text-accent": "#47111a",
+        "--space-text-muted": "#6b7280",
+        "--space-text-on-primary": "#0b0b0b",
+        "--space-text-on-highlight": "#0b0b0b",
+        "--space-text-on-contrast": "#00c2ff",
+        "--space-semantic-success": "#16a34a",
+        "--space-semantic-warning": "#d97706",
+        "--space-semantic-danger": "#dc2626",
+        "--space-shell-button-text": "#0b0b0b",
+        "--space-shell-accent-button-text": "#0b0b0b",
+        "--space-shell-dock-text": "#0b0b0b",
+        "--space-shell-icon": "#47111a",
+        "--space-shell-shadow": "#b3edff",
+        "--space-shell-shadow-strong": "#8fe4ff"
+      }
+    },
+    "branding": {
+      "name": "Byorn",
+      "tagline": "Edit at the speed of thought.",
+      "headingFont": "Space Grotesk",
+      "bodyFont": "Space Grotesk",
+      "colors": {
+        "primary": "#00c2ff",
+        "highlight": "#ff3d5c",
+        "contrast": "#0b0b0b",
+        "secondary": "#ff3d5c",
+        "accent": "#0b0b0b",
+        "primaryScale": {
+          "50": "#ebfaff",
+          "100": "#d6f5ff",
+          "200": "#b8eeff",
+          "500": "#00b2eb",
+          "600": "#00c2ff",
+          "700": "#00a3d6",
+          "900": "#0080a8"
+        },
+        "highlightScale": {
+          "50": "#ffeff2",
+          "100": "#ffe0e5",
+          "200": "#ffc9d1",
+          "500": "#eb3855",
+          "600": "#ff3d5c",
+          "700": "#d6334d",
+          "900": "#a8283d"
+        },
+        "surfaces": {
+          "page": "#f2fcff",
+          "pageAlt": "#e7e7e7",
+          "gradientFrom": "#f2fcff",
+          "gradientVia": "#e7e7e7",
+          "gradientTo": "#fff1f4",
+          "card": "#ffffff",
+          "cardHover": "#f5fdff",
+          "panel": "#ffffff",
+          "panelStrong": "#ffffff",
+          "muted": "#fafeff",
+          "accentSoft": "#ffecef",
+          "border": "#c7f2ff",
+          "borderStrong": "#a8eaff"
+        },
+        "text": {
+          "primary": "#003647",
+          "secondary": "#00698a",
+          "brand": "#003647",
+          "accent": "#47111a",
+          "muted": "#6b7280",
+          "onPrimary": "#0b0b0b",
+          "onHighlight": "#0b0b0b",
+          "onContrast": "#00c2ff"
+        },
+        "semantic": {
+          "success": "#16a34a",
+          "warning": "#d97706",
+          "danger": "#dc2626"
+        },
+        "shell": {
+          "buttonText": "#0b0b0b",
+          "accentButtonText": "#0b0b0b",
+          "dockText": "#0b0b0b",
+          "icon": "#47111a",
+          "shadow": "#b3edff",
+          "shadowStrong": "#8fe4ff"
+        }
+      },
+      "palette": {
+        "primary": "#00c2ff",
+        "highlight": "#ff3d5c",
+        "contrast": "#0b0b0b",
+        "secondary": "#ff3d5c",
+        "accent": "#0b0b0b",
+        "primaryScale": {
+          "50": "#ebfaff",
+          "100": "#d6f5ff",
+          "200": "#b8eeff",
+          "500": "#00b2eb",
+          "600": "#00c2ff",
+          "700": "#00a3d6",
+          "900": "#0080a8"
+        },
+        "highlightScale": {
+          "50": "#ffeff2",
+          "100": "#ffe0e5",
+          "200": "#ffc9d1",
+          "500": "#eb3855",
+          "600": "#ff3d5c",
+          "700": "#d6334d",
+          "900": "#a8283d"
+        },
+        "surfaces": {
+          "page": "#f2fcff",
+          "pageAlt": "#e7e7e7",
+          "gradientFrom": "#f2fcff",
+          "gradientVia": "#e7e7e7",
+          "gradientTo": "#fff1f4",
+          "card": "#ffffff",
+          "cardHover": "#f5fdff",
+          "panel": "#ffffff",
+          "panelStrong": "#ffffff",
+          "muted": "#fafeff",
+          "accentSoft": "#ffecef",
+          "border": "#c7f2ff",
+          "borderStrong": "#a8eaff"
+        },
+        "text": {
+          "primary": "#003647",
+          "secondary": "#00698a",
+          "brand": "#003647",
+          "accent": "#47111a",
+          "muted": "#6b7280",
+          "onPrimary": "#0b0b0b",
+          "onHighlight": "#0b0b0b",
+          "onContrast": "#00c2ff"
+        },
+        "semantic": {
+          "success": "#16a34a",
+          "warning": "#d97706",
+          "danger": "#dc2626"
+        },
+        "shell": {
+          "buttonText": "#0b0b0b",
+          "accentButtonText": "#0b0b0b",
+          "dockText": "#0b0b0b",
+          "icon": "#47111a",
+          "shadow": "#b3edff",
+          "shadowStrong": "#8fe4ff"
+        }
+      },
+      "logoUrl": "https://storage.googleapis.com/audos-images/brand-icons/cc9f8960-4bfe-4631-9b2c-7191d25c8d22.mono.png",
+      "heroVideoUrl": "https://storage.googleapis.com/audos-images/videos/scene_group_1785890849982_stitched.mp4"
+    }
+  },
+  "cdnDependencies": {
+    "remark-gfm": {
+      "version": "4.0.0"
+    }
+  },
+  "iconUrl": "https://storage.googleapis.com/audos-images/brand-icons/cc9f8960-4bfe-4631-9b2c-7191d25c8d22.mono.png",
+  "updatedAt": "2026-08-05T00:51:10.654Z"
+}
