@@ -173,7 +173,35 @@ the arc after it. Do not start the sandbox mid-sprint.
 
 ---
 
-## 7. One-line answer
+## 7. Implementation findings (2026-09-18, after reading the code)
+
+Item 1 is **much closer than §4 implies**. The pieces exist; they have never been
+connected. Verified, not assumed:
+
+| Piece | State | Evidence |
+|---|---|---|
+| Model can receive images from a tool | **Already works** | `agent.ts:558` — a tool result's content is `string \| Array<TextBlockParam \| ImageBlockParam>`, and `:653` notes "the text summary rides alongside the images in the tool_result content array" |
+| Frames already get sent to a model | **Already works** | `agent.ts:1045` — `buildCriticUserBlocks(intent, frames, context)`; `edit-critic.ts` does this today |
+| Frame extraction | **Exists, wrong target** | `lib/media/frame-extraction.ts` + the `extractFrame` verb decode from the **SOURCE media file**, respecting trims. That looks at a clip, not at the cut. |
+| Rendering the composited timeline | **Exists, proven** | `use-editor-actions.ts:385–430` (freeze-frame): `buildScene(...)` → `new CanvasRenderer(...)` → `renderToCanvas({node, time, targetCanvas})` → blob |
+
+So the missing piece is narrow: **a verb that renders the composited timeline at time T
+and hands the result back as an image block.** Not new machinery — a composition of four
+things that already work. Revise the estimate down accordingly; this is closer to a day
+than a week.
+
+**Load-bearing gotcha, already documented in the freeze-frame path:** build the tree with
+`buildScene()` on demand — do **not** read `editor.renderer.getRenderTree()`. That stored
+tree is maintained by `RenderTreeController`, which is not mounted when the worker
+compositor is active (the scene tree lives in the worker instead), so it can be stale or
+null in that mode. Freeze-frame mirrors `buildScene()` exactly for this reason. Any
+watch-back verb must do the same or it will silently sample the wrong thing.
+
+**Naming.** `extractFrame` (source media) and the new verb (composited output) are
+different enough that reusing the name would be a trap. Call it `watchBack` — it says what
+it's for.
+
+## 8. One-line answer
 
 Don't give the Director more actions — give it **fewer, more primitive** actions, the
 **data** to reason over, the ability to **compose** them into programs, and above all the
