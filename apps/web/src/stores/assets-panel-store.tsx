@@ -20,8 +20,10 @@ import {
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 
 export const TAB_KEYS = [
-	"media",
+	// Byorn is an AI-native editor, so the Director is the primary surface,
+	// not a secondary one — it leads the rail, ahead of Media.
 	"director",
+	"media",
 	// Utility/operations panels relocated out of Director's chat surface
 	// (B-Roll, Reframe, Tracking, A/B Test, Shorts, Scenes, Thumbnail,
 	// Chapters, Dubbing, YouTube Reels, Script→Video, Templates, Ideas,
@@ -52,6 +54,14 @@ const createHugeiconsIcon =
 	);
 
 export const tabs = {
+	// Byorn is an AI-native editor, so the Director is the primary surface,
+	// not a secondary one — it leads the rail, ahead of Media.
+	director: {
+		// Matches the "Direct" chat chip's icon in director.tsx (same
+		// BubbleChatIcon) — rail tab and in-panel chip read as the same surface.
+		icon: createHugeiconsIcon({ icon: BubbleChatIcon }),
+		label: "Director",
+	},
 	media: {
 		icon: createHugeiconsIcon({ icon: Folder03Icon }),
 		label: "Media",
@@ -61,12 +71,6 @@ export const tabs = {
 	insights: {
 		icon: createHugeiconsIcon({ icon: AiViewIcon }),
 		label: "Insights",
-	},
-	director: {
-		// Matches the "Direct" chat chip's icon in director.tsx (same
-		// BubbleChatIcon) — rail tab and in-panel chip read as the same surface.
-		icon: createHugeiconsIcon({ icon: BubbleChatIcon }),
-		label: "Director",
 	},
 	// Operations-on-existing-media launcher — the utility panels relocated out
 	// of Director's chat surface (see director-revamp design doc, Item 4).

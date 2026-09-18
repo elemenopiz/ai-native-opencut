@@ -124,7 +124,6 @@ function ExportPopover({
 	// reach it from the UI, matching how the other preset-only fields
 	// (dimensions) work.
 	const [audioOnly, setAudioOnly] = useState<boolean>(false);
-	const [shouldIncludeWatermark, setShouldIncludeWatermark] = useState(true);
 	const [isExportingCapcutDraft, setIsExportingCapcutDraft] = useState(false);
 	const [isBatchOpen, setIsBatchOpen] = useState(false);
 	// Staged output dimensions from the selected preset. `null` means "use the
@@ -162,7 +161,10 @@ function ExportPopover({
 				quality,
 				fps: activeProject.settings.fps,
 				includeAudio: shouldIncludeAudio,
-				includeWatermark: shouldIncludeWatermark,
+				// The UI no longer offers a watermark toggle — exports never
+				// watermark. The renderer's watermark capability itself
+				// (services/renderer/nodes/watermark-node.ts) is untouched.
+				includeWatermark: false,
 				dimensions: dimensions ?? undefined,
 				audioOnly,
 			},
@@ -389,33 +391,6 @@ function ExportPopover({
 											</div>
 										</SectionContent>
 									</Section>
-
-									<Section showTopBorder>
-										<SectionHeader>
-											<SectionTitle>Watermark</SectionTitle>
-										</SectionHeader>
-										<SectionContent>
-											<div className="flex items-start space-x-2">
-												<Checkbox
-													id="include-watermark"
-													checked={shouldIncludeWatermark}
-													onCheckedChange={(checked) =>
-														setShouldIncludeWatermark(!!checked)
-													}
-												/>
-												<div className="flex flex-col gap-0.5">
-													<Label htmlFor="include-watermark">
-														Include Byorn watermark
-													</Label>
-													<p className="text-[10px] text-muted-foreground leading-relaxed">
-														This is open-source software. Including the
-														watermark helps spread the word and support the
-														project.
-													</p>
-												</div>
-											</div>
-										</SectionContent>
-									</Section>
 								</div>
 
 								<div className="flex flex-col gap-2 p-3 pt-0">
@@ -446,10 +421,6 @@ function ExportPopover({
 										<Layers className="size-4" />
 										Batch export (multi-platform)
 									</Button>
-									<p className="text-[10px] text-muted-foreground leading-relaxed">
-										CapCut draft keeps your clips editable in CapCut / JianYing.
-										Unsupported effects are skipped.
-									</p>
 									<Dialog open={isBatchOpen} onOpenChange={setIsBatchOpen}>
 										<DialogContent className="max-w-md p-0">
 											<DialogHeader className="sr-only">

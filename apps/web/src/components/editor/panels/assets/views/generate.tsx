@@ -7,14 +7,12 @@ import {
 	Video02Icon,
 	Image02Icon,
 	AudioWave01Icon,
-	UserMultiple02Icon,
 } from "@hugeicons/core-free-icons";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { PanelView } from "./base-view";
 import { GenerationForm } from "@/components/studio/generation-form";
 import { ImagePanel } from "@/components/studio/image-panel";
 import { AudioPanel } from "@/components/studio/audio-panel";
-import { PersonaManager } from "@/components/studio/persona-manager";
 import { SegmentedControl } from "@/components/studio/generation-bottom-bar";
 import { useStudioGeneration } from "@/hooks/use-studio-generation";
 import { useEditor } from "@/hooks/use-editor";
@@ -51,24 +49,18 @@ const MEDIA_SEGMENTS = [
 			</span>
 		),
 	},
-	{
-		value: "personas",
-		label: (
-			<span className="flex items-center gap-1.5">
-				<HugeiconsIcon icon={UserMultiple02Icon} className="size-[13.5px]" />
-				Personas
-			</span>
-		),
-	},
 ] satisfies { value: string; label: React.ReactNode }[];
 
 /**
  * The single, consolidated AI generation surface — lives inside the editor so
  * generation and the timeline share one screen (no `/studio` route, no alt-tab).
- * Reuses the feature-rich studio pipeline (personas, seed-lock, GPT Image,
- * camera presets, live cost estimate) and drops finished takes straight onto the
+ * Reuses the feature-rich studio pipeline (seed-lock, GPT Image, camera
+ * presets, live cost estimate) and drops finished takes straight onto the
  * current project's timeline. Batch/slot generation (storyboard "generate all")
  * lives with the Director now — this panel is single-shot generation only.
+ * Video/image/audio only — no Personas tab here. Persona management
+ * (`components/studio/persona-manager.tsx`) and the Director's persona verb
+ * are unaffected; they're just not surfaced as a tab in this panel.
  */
 export function GenerateView() {
 	const { status, error, generate, clearError, loadHistory } =
@@ -167,10 +159,6 @@ export function GenerateView() {
 
 				<TabsContent value="audio" className="mt-0">
 					<AudioPanel />
-				</TabsContent>
-
-				<TabsContent value="personas" className="mt-0">
-					<PersonaManager />
 				</TabsContent>
 			</Tabs>
 
