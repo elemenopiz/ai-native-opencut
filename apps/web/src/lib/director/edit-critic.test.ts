@@ -4,11 +4,14 @@ import { CommandManager } from "@/core/managers/commands";
 import { createDirectorApi } from "./director-api";
 import {
 	buildEditCritiqueUserBlocks,
+	type CutScoreInput,
 	DEFAULT_HOOK_WINDOW_SEC,
 	detectVisualGaps,
 	EDIT_CRITIQUE_AXES,
 	formatBeatGridSummary,
+	formatCutScoreSummary,
 	formatGapsNote,
+	formatMixReadSummary,
 	formatTranscriptExcerpt,
 	MAX_EDIT_CRITIC_FRAMES,
 	MAX_EDIT_CRITIQUE_ISSUES,
@@ -16,6 +19,7 @@ import {
 	planFrameSamples,
 	type SamplableElement,
 } from "./edit-critic";
+import type { MixRead } from "./mix-read";
 import { editCriticEnabled, toolCatalog } from "./tool-catalog";
 
 // ── planFrameSamples ─────────────────────────────────────────────────────────
@@ -263,6 +267,123 @@ describe("formatTranscriptExcerpt", () => {
 		}));
 		const out = formatTranscriptExcerpt(segments, { limit: 2 });
 		expect(out).toBe("TRANSCRIPT: 0:00 seg0 0:01 seg1 …");
+	});
+});
+
+// ── formatMixReadSummary ──────────────────────────────────────────────────────
+
+function makeMixRead(overrides: Partial<MixRead> = {}): MixRead {
+	return {
+		loudnessCurve: [],
+		loudnessSampleIntervalSec: 0.5,
+		integratedLoudness: {
+			integrated: -16,
+			shortTerm: -15,
+			momentary: -12,
+			truePeak: -1,
+			range: 6,
+		},
+		overlaps: [],
+		deadAir: [],
+		...overrides,
+	};
+}
+
+describe("formatMixReadSummary", () => {
+	it("renders nothing for undefined", () => {
+		expect(formatMixReadSummary(undefined)).toBe("");
+	});
+
+	it("always renders the integrated loudness headline", () => {
+		expect(formatMixReadSummary(makeMixRead())).toBe(
+			"MIX: integrated -16 LUFS-style (short-term -15, range 6LU).",
+		);
+	});
+
+	it("flags overlaps whose competingDb clears the threshold", () => {
+		const out = formatMixReadSummary(
+			makeMixRead({
+				overlaps: [
+					{
+						musicElementId: "m1",
+						startSec: 5,
+						endSec: 8,
+						durationSec: 3,
+						avgLevelDb: -10,
+						musicBaselineDb: -20,
+						competingDb: 8, // well above the default threshold
+					},
+					{
+						musicElementId: "m1",
+						startSec: 20,
+						endSec: 22,
+						durationSec: 2,
+						avgLevelDb: -18,
+						musicBaselineDb: -20,
+						competingDb: 0.5, // below the default threshold — not flagged
+					},
+				],
+			}),
+		);
+		expect(out).toContain("music competing with speech");
+		expect(out).toContain("0:05–0:08");
+		expect(out).toContain("+8.0dB over its own duck target");
+		expect(out).not.toContain("0:20–0:22");
+	});
+
+	it("renders dead-air stretches", () => {
+		const out = formatMixReadSummary(
+			makeMixRead({
+				deadAir: [{ startSec: 12, endSec: 14, durationSec: 2 }],
+			}),
+		);
+		expect(out).toContain("audio dead air: 0:12–0:14");
+	});
+});
+
+// ── formatCutScoreSummary ────────────────────────────────────────────────────
+
+describe("formatCutScoreSummary", () => {
+	it("renders nothing for undefined", () => {
+		expect(formatCutScoreSummary(undefined)).toBe("");
+	});
+
+	it("renders per-axis scores and an overall figure — Higgsfield brain_activity shape", () => {
+		const score: CutScoreInput = {
+			source: "higgsfield-brain-activity",
+			axes: {
+				hook: { composite: 82 },
+				attention: { composite: 71 },
+				retention: { composite: 65 },
+			},
+			overall: 74,
+		};
+		expect(formatCutScoreSummary(score)).toBe(
+			"CUT SCORE (higgsfield-brain-activity): hook 82, attention 71, retention 65 (overall 74).",
+		);
+	});
+
+	it("renders the local engagement scorer's shape, grade included", () => {
+		const score: CutScoreInput = {
+			source: "local-engagement-scorer",
+			axes: {
+				hook: { composite: 60 },
+				curiosity: { composite: 55 },
+				energy: { composite: 70 },
+			},
+			overall: 62,
+			grade: "B",
+		};
+		const out = formatCutScoreSummary(score);
+		expect(out).toContain("CUT SCORE (local-engagement-scorer):");
+		expect(out).toContain("hook 60, curiosity 55, energy 70");
+		expect(out).toContain("(overall 62, B)");
+	});
+
+	it("degrades gracefully with no per-axis scores", () => {
+		expect(formatCutScoreSummary({ source: "unknown", axes: {} })).toBe(
+			"CUT SCORE (unknown): no per-axis scores.",
+		);
 	});
 });
 

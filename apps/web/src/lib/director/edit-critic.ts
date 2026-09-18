@@ -21,6 +21,17 @@
  *    grounding line.
  *  - {@link formatTranscriptExcerpt} renders a capped, token-lean transcript
  *    excerpt from already-resolved segments.
+ *  - {@link formatMixReadSummary} folds a `mix-read.ts` {@link MixRead}
+ *    (loudness, speech/music ducking, dead air — the AUDIO half of "the
+ *    agent cannot see its own work", `docs/plans/2026-09-18-director-
+ *    autonomy-architecture.md` §4) into one grounding line, so the critic's
+ *    judgement accounts for the mix, not just the picture: music burying
+ *    dialogue, a hard cut landing in dead air, or mid-word.
+ *  - {@link CutScoreInput} / {@link formatCutScoreSummary} open the SEAM for
+ *    an external cut score (§4's `brain_activity` hook/attention/retention,
+ *    plugged in later — no client lives here) alongside the local
+ *    `aiClient.engagementScore` this repo already ships. Typed and
+ *    documented only; see {@link CutScoreInput}'s own doc comment.
  *  - {@link EDIT_CRITIC_SYSTEM_PROMPT} / {@link buildEditCritiqueUserBlocks}
  *    frame the ONE tool-less "judge this cut" model call, reusing
  *    `dataUrlToImageBlock` from `vision-critic.ts` so real pixels ride to the
@@ -508,17 +519,18 @@ export function formatCutScoreSummary(
  * never imply a fix already happened.
  */
 export const EDIT_CRITIC_SYSTEM_PROMPT = [
-	"You are a STRICT editorial critic for a short-form video reel/cut. You are shown a compact TIMELINE digest (tracks, elements, durations), optional BEAT GRID and TRANSCRIPT grounding, and up to 12 frames SAMPLED across the assembled cut in TIME ORDER, each labeled with its timeline position in seconds.",
+	"You are a STRICT editorial critic for a short-form video reel/cut. You are shown a compact TIMELINE digest (tracks, elements, durations), optional BEAT GRID, TRANSCRIPT, MIX (loudness/ducking/dead-air) and CUT SCORE grounding, and up to 12 frames SAMPLED across the assembled cut in TIME ORDER, each labeled with its timeline position in seconds.",
 	"Judge the cut as a WHOLE FILM, on these axes:",
 	'- "pacing": do shot durations match their energy? A slow shot that lingers past its welcome, or a fast cut that never lands, is a pacing issue.',
-	'- "hook": is the strongest, most attention-grabbing moment in the FIRST ~2 SECONDS? A cold viewer decides to keep watching (or scroll past) almost immediately — a buried hook is a high-severity issue.',
+	'- "hook": is the strongest, most attention-grabbing moment in the FIRST ~2 SECONDS? A cold viewer decides to keep watching (or scroll past) almost immediately — a buried hook is a high-severity issue. When a CUT SCORE is supplied, its "hook"/"attention" figures are another signal for this axis, not a replacement for your own read of the frames.',
 	'- "variety": do consecutive or nearby shots look near-identical (same framing/subject/angle, no visual change)? Judge this directly from the sampled frames.',
 	'- "rhythm": when a BEAT GRID is supplied, do cuts (element boundaries) land near the beat, or do they fight the music\'s tempo?',
-	'- "dead-air": any reported GAPS (no visual coverage) or, from the TRANSCRIPT, long silent/empty stretches?',
+	'- "dead-air": any reported GAPS (no visual coverage), any "audio dead air" reported in MIX, or long silent/empty stretches from the TRANSCRIPT?',
 	'- "continuity": do frames near a cut break continuity (lighting, wardrobe, palette, identity) with the shot before it?',
-	'- "arc": does the sequence of sampled frames read as a coherent emotional arc (build, peak, resolve), or does it feel flat/random?',
+	'- "arc": does the sequence of sampled frames read as a coherent emotional arc (build, peak, resolve), or does it feel flat/random? A CUT SCORE\'s "retention" figure, when supplied, is a signal here too.',
+	'A MIX line, when supplied, may report "music competing with speech" windows — a music bed still loud while someone is talking. Treat that as a "pacing" or "dead-air"-adjacent issue in its own right (propose a `duckMusicUnderSpeech`-shaped fix via `animateItem` on the music element, or an `applyTransition`/`trim`, whichever actually addresses it) even if nothing looks wrong in the frames — you cannot SEE a mix problem.',
 	"Reply with ONE minified JSON object and nothing else:",
-	'{"summary":"<1-2 sentence overall read>","issues":[{"axis":"pacing"|"hook"|"variety"|"rhythm"|"dead-air"|"continuity"|"arc","severity":"low"|"med"|"high","location":{"sec":<number>,"elementRef":"<element id, when you can name one>"},"note":"<one or two sentences, specific>","proposedFix":{"verb":"<a real editing verb: trim, move, split, reorder, remove, removeSilence, applyTransition>","args":{<args for that verb>}}}]}',
+	'{"summary":"<1-2 sentence overall read>","issues":[{"axis":"pacing"|"hook"|"variety"|"rhythm"|"dead-air"|"continuity"|"arc","severity":"low"|"med"|"high","location":{"sec":<number>,"elementRef":"<element id, when you can name one>"},"note":"<one or two sentences, specific>","proposedFix":{"verb":"<a real editing verb: trim, move, split, reorder, remove, removeSilence, applyTransition, animateItem>","args":{<args for that verb>}}}]}',
 	"Rules:",
 	'- An empty "issues" array is a GOOD, valid outcome — a well-paced cut with nothing to fix. Do not invent issues to fill the list.',
 	'- "proposedFix" is a SUGGESTION ONLY. It is NEVER executed automatically — a human must explicitly run it later. Never say or imply the fix already happened. Omit "proposedFix" when you don\'t have a concrete, actionable fix in mind.',
@@ -547,6 +559,10 @@ export function buildEditCritiqueUserBlocks(input: {
 	gapsNote?: string;
 	beatGridSummary?: string;
 	transcriptExcerpt?: string;
+	/** Pre-formatted line from {@link formatMixReadSummary} — additive, ADDED AFTER the existing grounding lines so an omitted/undefined value is a pure no-op for every existing caller. */
+	mixReadSummary?: string;
+	/** Pre-formatted line from {@link formatCutScoreSummary} — the external cut-score seam; additive, same no-op-when-absent contract as `mixReadSummary`. */
+	scoreSummary?: string;
 	frames: CritiqueFrame[];
 }): Anthropic.ContentBlockParam[] {
 	const introParts = [`TIMELINE:\n${input.digest || "(no digest)"}`];
@@ -555,6 +571,9 @@ export function buildEditCritiqueUserBlocks(input: {
 		introParts.push(input.beatGridSummary.trim());
 	if (input.transcriptExcerpt?.trim())
 		introParts.push(input.transcriptExcerpt.trim());
+	if (input.mixReadSummary?.trim())
+		introParts.push(input.mixReadSummary.trim());
+	if (input.scoreSummary?.trim()) introParts.push(input.scoreSummary.trim());
 	introParts.push(
 		`${input.frames.length} frame(s) sampled across the cut follow, in time order (each labeled with its timeline position). Judge the whole cut against the rubric and reply with the JSON critique.`,
 	);
