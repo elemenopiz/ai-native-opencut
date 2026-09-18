@@ -135,6 +135,19 @@ synthetic persona — the loop still works, we just lose "that's literally me."
 - [ ] **Read off the v2 endpoint path for `seedance_2_5`.** The CLI uses model ids
       (`seedance_2_5`); the SDK uses REST paths (`/v1/image2video/dop`,
       `/v1/text2image/soul`). The mapping is in neither open-source repo.
+      *(Partly resolved 09-18: the endpoint for text-to-video is
+      `bytedance/seedance-2.5/text-to-video`, i.e. `<vendor>/<model>/<task>`. The
+      `brain_activity` equivalent is still unknown.)*
+- [ ] **Run the CLI locally to dump the live schema — this resolves several unknowns
+      at once.** `MODELS.md` is generated from these, and the CLI authenticates with
+      `higgsfield auth login` rather than an API key, so it works from your machine:
+      ```bash
+      higgsfield model list --json
+      higgsfield model get seedance_2_5 --json
+      higgsfield model get brain_activity --json
+      ```
+      This settles the `mode` conflict (§3 note), confirms Seedance 2.5's real
+      parameter set, and gives `brain_activity`'s schema. Paste the output back.
 - [ ] Note live per-generation pricing
 - [ ] **Face test:** one photo of yourself → Seedance 2.5 `omni_reference`. Pass or fail,
       this decides the demo's persona (§2)
@@ -152,6 +165,15 @@ synthetic persona — the loop still works, we just lose "that's literally me."
 - [ ] `packages/env/src/web.ts` — `HIGGSFIELD_KEY_ID`, `HIGGSFIELD_KEY_SECRET`, `HIGGSFIELD_BASE_URL`
 - [ ] `lib/credits/cost-table.ts` — real rates from 1a
 - [ ] Unit tests mirroring `backends/video/__tests__/kling.test.ts`
+
+**Input fields — `mode` is a known conflict, so we omit it.** `prompt`, `duration`,
+`resolution` and `aspect_ratio` are confirmed against Higgsfield's own CLI `MODELS.md`
+for `seedance_2_0` (2.5 postdates that file) and assumed stable. But `mode` has two
+incompatible documented meanings: MODELS.md says Seedance 2.0's `mode` is a *speed
+tier* (`std` | `fast`), while the skills repo says Seedance 2.5's modes are
+`t2v` | `omni_reference` | `video_edit` | `video_extension`. Sending the wrong one
+risks a 422 or a silently wrong render, so the adapter omits `mode` and lets the
+server default stand until `higgsfield model get seedance_2_5 --json` settles it.
 
 ### 1c · Routing (~1h)
 - [ ] Wire the dead `realFaceReference` seam — `router.ts:160` routes real faces to
@@ -195,6 +217,16 @@ that QT thread can demo, because it needs a timeline.
 - [ ] `lib/studio/backends/analysis/higgsfield-virality.ts` — `brain_activity` takes a
       video, returns a score report. It does **not** fit `GenerationBackend` (no media
       out) — give it its own small module rather than bending the interface.
+
+      **Verified contract** (Higgsfield CLI `MODELS.md`, cloned at
+      `/home/user/higgsfield-ai/cli`):
+      > `brain_activity` — Virality Predictor
+      > `--video` (single) · **required** · UUID or path
+      > `--folder_id` · optional · string
+      > *"Analyzes a video and predicts audience engagement."*
+
+      No prompt. One video in, a score report out. The v2 REST endpoint path is still
+      unknown (the model id is the CLI's handle, not the REST path).
 - [ ] Director verb `scoreCut` — render current cut → submit → return hook/retention.
       Register in `phase-scope.ts` under **polish** (review verbs live there;
       production is at its enforced tool ceiling).
