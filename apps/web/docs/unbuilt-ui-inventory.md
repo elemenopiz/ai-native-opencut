@@ -84,7 +84,17 @@ importer, no client fetch, and nothing mounts or triggers it from a user-facing 
 ## Verified wired (NOT gaps) — recorded to prevent re-investigation
 
 - **Auth-adjacent:** none (see Category A).
-- **Studio/Director:** core generation (personas, takes, sets, board, image, backends, upload, generate, remix, reference intake); A/B thumbnail + hook + analytics testing (`ab-testing.tsx` in Director); Virality Score + Engagement Diagnostics (`virality-score-modal.tsx` from header).
+- **Studio/Director:** core generation (personas, takes, sets, board, image, backends, upload, generate, remix, reference intake); A/B thumbnail + hook + analytics testing (`ab-testing.tsx` in Director).
+  - ⚠️ **CORRECTED 2026-09-18.** This row previously claimed "Virality Score + Engagement
+    Diagnostics (`virality-score-modal.tsx` from header)" was verified wired. That is
+    **false**: `virality-score-modal.tsx` has never existed in this repo's git history,
+    and nothing is wired from the header. What actually exists is
+    `components/editor/youtube/engagement-panel.tsx` — fully built, and **orphaned**
+    (no importer). `score-breakdown.tsx`, `engagement-diagnostics.tsx`,
+    `lib/engagement-diagnostics.ts` and `stores/engagement-store.ts` are live, but only
+    reachable through `youtube-reels-panel` → `clip-grid`, which scores YouTube-ingested
+    clips rather than the current timeline. Treat standalone virality scoring as a
+    **Category B quick-wire**, not as done.
 - **Editor/timeline:** Transitions/Effects/Filters/Adjust (`visuals-combined.tsx`), Crop & Mask, Speed-curve editor, Ripple editing, LUFS loudness + auto-duck, Audio mixer, Smart reframe / motion tracking / ai-dubbing / auto-chapters, Bookmarks, version commit/branch/merge/diff drawer.
 - **Services:** face (`/detect`→podcast-clips), clip (`/embed`/`/zero-shot`→visual-search), speaker (`/diarize`/`/analyze-emotion`→captions), whisper + tts (voiceover/captions + service-health/setup guide), YouTube **ingest** (note: no upload/publish integration exists), Freesound/Pexels (settings + sounds), Marble CMS (public blog), denoise/beats-grid/visual-search.
 

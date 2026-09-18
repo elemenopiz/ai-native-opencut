@@ -169,6 +169,29 @@ and it lands on the timeline. Nothing else counts.
 **Goal: the editor grades its own cut and fixes it.** This is the beat nobody else in
 that QT thread can demo, because it needs a timeline.
 
+> **Discovery 09-18 — most of this UI already exists, orphaned.** Byorn shipped an
+> engagement/virality scorer on 2026-07-17 and then lost the entry point:
+>
+> | File | State |
+> |---|---|
+> | `components/editor/youtube/engagement-panel.tsx` | **Orphaned** — nothing imports it. Its docblock: *"check your video's engagement score at any time during editing or before export. Works with any video on the timeline."* |
+> | `components/editor/youtube/score-breakdown.tsx` | Live (used by `clip-grid`) |
+> | `components/editor/youtube/engagement-diagnostics.tsx` | Live |
+> | `lib/engagement-diagnostics.ts` (418 lines) | Live — derives HOOK / HOLD RATE / ATTENTION heatmap from 7 raw signals |
+> | `stores/engagement-store.ts` | Live |
+> | `services/ai-backend/.../engagement/scorer.py` | Live, but the Python backend is **not deployed** (ADR-004) |
+>
+> So Day 2 is **not** "build a scoring feature." It is: un-orphan the panel, and swap
+> its data source from the undeployed local transcript heuristic to Higgsfield's
+> model-based `brain_activity`, which scores an actual video. The signal shapes line
+> up — `brain_activity` returns hook / attention / retention, which is exactly what
+> `score-breakdown.tsx` already renders.
+>
+> Correction to the record: `docs/unbuilt-ui-inventory.md` line 87 claims
+> "Virality Score + Engagement Diagnostics (`virality-score-modal.tsx` from header)"
+> is **verified wired**. That file has never existed in git history and nothing was
+> wired from the header. Don't trust that line.
+
 - [ ] `lib/studio/backends/analysis/higgsfield-virality.ts` — `brain_activity` takes a
       video, returns a score report. It does **not** fit `GenerationBackend` (no media
       out) — give it its own small module rather than bending the interface.
