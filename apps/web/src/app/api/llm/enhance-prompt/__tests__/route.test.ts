@@ -19,6 +19,7 @@
  */
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 import { webEnv } from "@byorn/env/web";
+import { PROMPT_CRAFT_QUICKREF } from "@/lib/studio/playbooks";
 
 // ── fakes ────────────────────────────────────────────────────────────────────
 
@@ -255,6 +256,38 @@ test("system prompt instructs the model to preserve every user-specified detail"
 	expect(system).toContain(
 		"EVERY concrete element the user specified — subjects, actions, settings, styles, constraints, names, numbers, ordering — MUST survive into the rewrite",
 	);
+});
+
+// ── shot-craft playbook applied to the system prompt ────────────────────────
+
+test("image-mode system prompt applies camera/lighting and positive-phrasing craft", async () => {
+	await POST(makeReq({ prompt: "a cat on a couch", mode: "image" }));
+
+	const system = (lastCreate.params as { system?: string } | null)?.system;
+	expect(system).toContain(PROMPT_CRAFT_QUICKREF.cameraLighting);
+	expect(system).toContain(PROMPT_CRAFT_QUICKREF.positivePhrasing);
+	expect(system).toContain(PROMPT_CRAFT_QUICKREF.density);
+	// Video-only motion-verb craft must NOT bleed into image mode.
+	expect(system).not.toContain(PROMPT_CRAFT_QUICKREF.motionVerbs);
+});
+
+test("video-mode system prompt adds motion-verb and STYLE-token craft on top", async () => {
+	await POST(makeReq({ prompt: "a cat on a couch", mode: "video" }));
+
+	const system = (lastCreate.params as { system?: string } | null)?.system;
+	expect(system).toContain(PROMPT_CRAFT_QUICKREF.cameraLighting);
+	expect(system).toContain(PROMPT_CRAFT_QUICKREF.motionVerbs);
+	expect(system).toContain(PROMPT_CRAFT_QUICKREF.styleToken);
+	expect(system).toContain(PROMPT_CRAFT_QUICKREF.anchorFrameRule);
+});
+
+test("director-mode system prompt calls for a locked STYLE across multi-shot asks", async () => {
+	await POST(
+		makeReq({ prompt: "make a 3-shot ad for the serum", mode: "director" }),
+	);
+
+	const system = (lastCreate.params as { system?: string } | null)?.system;
+	expect(system).toContain(PROMPT_CRAFT_QUICKREF.styleToken);
 });
 
 // ── truncation guard ─────────────────────────────────────────────────────────

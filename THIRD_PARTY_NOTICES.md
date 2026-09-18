@@ -549,3 +549,58 @@ decode, `Float32Array` pipeline, and segment types are ours):
 
 The apply layer (`apps/web/src/lib/auto-cut/apply.ts`), dialog, and Director
 verb are original Byorn code.
+
+---
+
+## higgsfield-ai/skills — MIT
+
+Copyright (c) 2026 Higgsfield AI. Source: https://github.com/higgsfield-ai/skills
+
+```
+MIT License
+
+Copyright (c) 2026 Higgsfield AI
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+```
+
+**Prompt-engineering craft and shot-block template — adapted, not transcribed**
+(prose rewritten for Byorn's Director and multi-shot reels; no code copied,
+and the source's CLI mechanics (`--start-image`, `higgsfield generate create`,
+`higgsfield model get`, …) were dropped rather than ported):
+
+- `apps/web/src/lib/studio/playbooks/shot-craft.md` (mirrored as
+  `SHOT_CRAFT_PLAYBOOK` in `apps/web/src/lib/studio/playbooks/index.ts`) — the
+  core prompt-engineering guidance (subject+setting+style, concrete camera/lens/
+  angle/motion language, named-light-source lighting, the don't-redescribe-the-
+  anchor-frame rule for image-to-video and image-to-image, positive-phrasing
+  rewrites for models with no negative-prompt field, and the density-over-length
+  token-ceiling guidance), from `higgsfield-generate/references/
+  prompt-engineering.md`; and the structured multi-shot template (one reusable
+  STYLE descriptor string pasted verbatim into every shot, the SCENE/MOTION/
+  AUDIO/NEGATIVE per-shot block shape), from `higgsfield-video-explainer/
+  references/prompts.md`. Rewritten in Byorn's voice and cross-referenced to
+  Byorn's own `ConsistencyContext`/`StyleBible` consistency mechanism
+  (`apps/web/src/lib/director/consistency-prompt.ts`,
+  `apps/web/src/lib/director/storyboard-plan.ts`) and camera-preset vocabulary
+  (`apps/web/src/lib/studio/camera-presets.ts`) instead of the source's Palmier-
+  style narration-block/mascot conventions.
+- `apps/web/src/lib/studio/playbooks/index.ts`'s `PROMPT_CRAFT_QUICKREF` — a
+  hand-authored condensed form of the same craft, consumed by
+  `apps/web/src/app/api/llm/enhance-prompt/route.ts`'s system prompt.
