@@ -35,7 +35,7 @@ import type { GenerateExecutor } from "../types";
  * verb) has to go through `insertElement`, so this narrows back to the
  * stub's REAL runtime signature rather than fighting the wider real type.
  */
-function insertClip(
+export function insertClip(
 	fake: FakeEditor,
 	element: Partial<FakeElement> & { type: FakeElement["type"] },
 	placement:
@@ -63,8 +63,13 @@ function insertClip(
  * production command's defaulting logic (already covered there) — so this is
  * a lighter, self-contained patch: no global singleton touched, nothing to
  * restore across files.
+ *
+ * Exported: the craft-macro scenarios (`cutOnBeat`/`tightenToLength` both
+ * plan `trim` ops over real, hand-placed footage — see `craft/*.ts`) need
+ * the exact same capability this fixture already carries, so they reuse it
+ * rather than re-deriving it.
  */
-function patchTrim(fake: FakeEditor): void {
+export function patchTrim(fake: FakeEditor): void {
 	const timeline = fake.editor.timeline as unknown as {
 		updateElementTrim: (input: {
 			elementId: string;
@@ -96,6 +101,105 @@ function patchTrim(fake: FakeEditor): void {
 				this.execute();
 			},
 			getDescription: () => "Trim element",
+		};
+		fake.editor.command.execute({ command });
+	};
+}
+
+/**
+ * Sibling to {@link patchTrim}, same shape and same reason: `fake-editor.ts`
+ * has no `moveElement`, so `director-api.ts`'s `move` verb (and, more to the
+ * point for this directory, `tightenToLength`'s re-pack-after-trim `move`
+ * ops — see `craft/tighten-to-length.ts`'s header) 500s against a bare
+ * `makeFakeEditor()`. A direct element mutation wrapped in a real `Command`
+ * (undo/redo both real), no `EditorCore.getInstance()` singleton touched —
+ * `director-craft.test.ts` reaches for the production `MoveElementCommand`
+ * against a patched singleton because it is specifically pinning that
+ * command's own semantics; this harness only needs `move` to relocate the
+ * element, so the lighter local patch is the right tool (see this file's
+ * README section on the gap for the full reasoning).
+ */
+export function patchMove(fake: FakeEditor): void {
+	const timeline = fake.editor.timeline as unknown as {
+		moveElement: (input: {
+			sourceTrackId: string;
+			targetTrackId: string;
+			elementId: string;
+			newStartTime: number;
+		}) => void;
+	};
+	timeline.moveElement = (input) => {
+		const located = fake.find(input.elementId);
+		if (!located) return;
+		const { element } = located;
+		const prevStartTime = element.startTime;
+		const command: Command = {
+			execute: () => {
+				element.startTime = input.newStartTime;
+			},
+			undo: () => {
+				element.startTime = prevStartTime;
+			},
+			redo() {
+				this.execute();
+			},
+			getDescription: () => "Move element",
+		};
+		fake.editor.command.execute({ command });
+	};
+}
+
+/**
+ * `duckMusicUnderSpeech`'s whole output is `animateItem` calls with
+ * `keyframes` (never a static `value`) targeting `property: "volume"` — see
+ * `craft/duck-music-under-speech.ts`'s header. `director-api.ts`'s
+ * `animateItem` routes that through `editor.timeline.upsertKeyframes`,
+ * which — like `updateElementTrim`/`moveElement` above — `fake-editor.ts`
+ * does not implement. Rather than reconstruct the real animation-channel
+ * registry (`lib/animation/property-registry.ts`, well outside this
+ * directory's ownership), this patch records each upserted keyframe onto
+ * the element as a plain `volumeKeyframes: {time, value}[]` array — enough
+ * for a scenario to assert the RESULTING duck curve (duck depth, timing
+ * around a speech interval) without this harness reimplementing playback
+ * interpolation. No undo/redo tracking (the craft scenarios that use this
+ * don't currently exercise undo over a duck plan; add real undo here first
+ * if one ever needs to).
+ */
+export function patchKeyframes(fake: FakeEditor): void {
+	const timeline = fake.editor.timeline as unknown as {
+		upsertKeyframes: (input: {
+			keyframes: Array<{
+				elementId: string;
+				propertyPath: string;
+				time: number;
+				value: unknown;
+			}>;
+		}) => void;
+	};
+	timeline.upsertKeyframes = ({ keyframes }) => {
+		if (keyframes.length === 0) return;
+		const command: Command = {
+			execute: () => {
+				for (const kf of keyframes) {
+					if (kf.propertyPath !== "volume") continue;
+					const located = fake.find(kf.elementId);
+					if (!located) continue;
+					const el = located.element as FakeElement & {
+						volumeKeyframes?: Array<{ time: number; value: number }>;
+					};
+					el.volumeKeyframes = [
+						...(el.volumeKeyframes ?? []),
+						{ time: kf.time, value: kf.value as number },
+					];
+				}
+			},
+			undo: () => {
+				/* not tracked — see doc comment above. */
+			},
+			redo() {
+				this.execute();
+			},
+			getDescription: () => "Keyframe volume",
 		};
 		fake.editor.command.execute({ command });
 	};
@@ -167,8 +271,9 @@ export function closeTurn(text: string): () => Response {
 
 /** An executor that always succeeds synchronously — deterministic, no network,
  *  no retries. Every scenario that generates uses this (mirrors the
- *  `readyExecutor` pattern in `agent-undo.test.ts`/`agent-budget.test.ts`). */
-function readyExecutor(): GenerateExecutor {
+ *  `readyExecutor` pattern in `agent-undo.test.ts`/`agent-budget.test.ts`).
+ *  Exported so sibling scenario files share the one definition. */
+export function readyExecutor(): GenerateExecutor {
 	return {
 		run: async ({ takeId }) => ({
 			status: "ready",
@@ -177,8 +282,9 @@ function readyExecutor(): GenerateExecutor {
 	};
 }
 
-/** No sleeping in the generation-recovery loop during evals. */
-const fastRecovery = { sleep: async () => {} };
+/** No sleeping in the generation-recovery loop during evals. Exported for the
+ *  same reason as {@link readyExecutor}. */
+export const fastRecovery = { sleep: async () => {} };
 
 // ── scenario contract ────────────────────────────────────────────────────────
 

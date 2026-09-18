@@ -210,7 +210,7 @@ export function summarizeBrief(brief: DirectorBrief | undefined): string {
 		"call updateBrief when the user states a preference or you learn one):";
 
 	if (isBriefEmpty(brief)) {
-		return `${header}\n  (empty — capture the user's goal, audience, tone, and style with updateBrief as you learn them.)`;
+		return `${header}\n  (empty — infer goal/audience/tone/style from the footage, library, and project settings first; only what truly can't be inferred is worth a question, asked once, then call updateBrief and proceed.)`;
 	}
 
 	const b = brief as DirectorBrief;

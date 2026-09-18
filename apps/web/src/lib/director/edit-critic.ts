@@ -41,6 +41,7 @@
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
+import type { MixRead } from "./mix-read";
 import { dataUrlToImageBlock } from "./vision-critic";
 
 // ── EditCritique result shape ────────────────────────────────────────────────
@@ -372,6 +373,128 @@ export function formatTranscriptExcerpt(
 	const lines = capped.map((s) => `${formatSec(s.startSec)} ${s.text.trim()}`);
 	const truncNote = segments.length > capped.length ? " …" : "";
 	return `TRANSCRIPT: ${lines.join(" ")}${truncNote}`;
+}
+
+// ── mix read (audio grounding — the audio half of ADR-plan §4's "give it eyes") ──
+
+/** Cap on individual overlap/dead-air entries folded into the mix grounding line — token economy, same spirit as this file's other `MAX_*` caps. */
+export const MAX_MIX_READ_ITEMS = 8;
+
+/** An overlap is only worth calling out to the model above this `competingDb` — small positive/negative values are normal duck jitter, not a real issue. */
+export const MIX_READ_COMPETING_DB_THRESHOLD = 3;
+
+/**
+ * Render a `mix-read.ts` {@link MixRead} into one compact grounding line —
+ * same "already-summarized facts, never a raw data dump" discipline
+ * {@link formatBeatGridSummary} uses for the beat grid. Only the figures a
+ * critic call actually needs make it into the prompt: the integrated
+ * loudness headline, overlap windows whose `competingDb` clears
+ * {@link MIX_READ_COMPETING_DB_THRESHOLD} (i.e. music plausibly burying
+ * speech), and dead-air stretches — NOT the full per-point loudness curve
+ * (that's for a future numeric/graph consumer, not a token-budgeted prompt
+ * line). `undefined` (no mix read run for this call) ⇒ `""`, same
+ * degrade-to-nothing contract every other `format*` helper here uses.
+ */
+export function formatMixReadSummary(mixRead: MixRead | undefined): string {
+	if (!mixRead) return "";
+	const parts: string[] = [];
+
+	const loud = mixRead.integratedLoudness;
+	parts.push(
+		`integrated ${loud.integrated} LUFS-style (short-term ${loud.shortTerm}, range ${loud.range}LU)`,
+	);
+
+	const competing = mixRead.overlaps
+		.filter((o) => o.competingDb > MIX_READ_COMPETING_DB_THRESHOLD)
+		.slice(0, MAX_MIX_READ_ITEMS);
+	if (competing.length > 0) {
+		const items = competing.map(
+			(o) =>
+				`${formatSec(o.startSec)}–${formatSec(o.endSec)} (+${o.competingDb.toFixed(1)}dB over its own duck target)`,
+		);
+		parts.push(`music competing with speech: ${items.join(", ")}`);
+	}
+
+	const dead = mixRead.deadAir.slice(0, MAX_MIX_READ_ITEMS);
+	if (dead.length > 0) {
+		const items = dead.map(
+			(d) => `${formatSec(d.startSec)}–${formatSec(d.endSec)}`,
+		);
+		const truncNote = mixRead.deadAir.length > dead.length ? " …" : "";
+		parts.push(`audio dead air: ${items.join(", ")}${truncNote}`);
+	}
+
+	return `MIX: ${parts.join("; ")}.`;
+}
+
+// ── external cut-score seam (typed only — no client wired here) ────────────
+
+/**
+ * One named axis of a cut score — e.g. Higgsfield's "hook"/"attention"/
+ * "retention", or the local engagement scorer's "curiosity"/"energy"/etc.
+ * Deliberately mirrors `lib/ai-client.ts`'s `EngagementSubScore`
+ * (`{ composite: number; [key: string]: unknown }`) so either source's
+ * per-axis payload drops in without reshaping.
+ */
+export interface CutScoreAxis {
+	composite: number;
+	[key: string]: unknown;
+}
+
+/**
+ * SEAM ONLY — no client is wired here (ADR-plan §4: `brain_activity`
+ * hook/attention/retention "will be plugged in later"). This type is shaped
+ * to fit BOTH of the two engines named in that plan:
+ *  - Higgsfield's `brain_activity` (Virality Predictor) — a finished-clip
+ *    score returning hook/attention/retention. `api.higgsfield.ai` is
+ *    BLOCKED in this environment, so no client for it exists here; a later
+ *    change wires a real caller and produces this shape.
+ *  - The LOCAL engagement scorer already in this repo —
+ *    `aiClient.engagementScore` (`lib/ai-client.ts`'s `EngagementScoreResult`:
+ *    `hook`/`curiosity`/`energy`/`audio_sync`/`face_presence`/
+ *    `emotional_arc`/`virality`, each an `EngagementSubScore`, plus a
+ *    `composite`/`grade`) — see `components/editor/youtube/engagement-panel.tsx`
+ *    for its existing consumer, which already documents "a Higgsfield
+ *    model-based video scorer will plug in here later" as the same swap.
+ * A caller of EITHER shape maps its own named sub-scores into `axes` (e.g.
+ * `{ hook: result.hook, attention: ..., retention: ... }` for Higgsfield, or
+ * `{ hook: result.hook, curiosity: result.curiosity, ... }` for the local
+ * scorer) and sets `overall` from whichever single figure that source
+ * surfaces (`composite` for both).
+ */
+export interface CutScoreInput {
+	/** Which engine produced this score — free-form, but `"higgsfield-brain-activity"` and `"local-engagement-scorer"` are the two named sources this seam is shaped for. */
+	source: string;
+	/** Named per-axis scores — whichever axes this source supports. */
+	axes: Record<string, CutScoreAxis>;
+	/** A single overall figure, when the source has one (both named sources do, as `composite`). */
+	overall?: number;
+	/** A source-supplied letter/label grade, when it has one (the local scorer's `grade`/`grade_label`). */
+	grade?: string;
+	/** Freeform notes from the scoring engine, if any. */
+	notes?: string;
+}
+
+/**
+ * Render a {@link CutScoreInput} into one compact grounding line for the
+ * critic prompt — same "summarized facts, not raw payload" discipline every
+ * other `format*` helper in this file uses. `undefined` (no score for this
+ * call — the common case until a client is wired) ⇒ `""`.
+ */
+export function formatCutScoreSummary(
+	score: CutScoreInput | undefined,
+): string {
+	if (!score) return "";
+	const axisParts = Object.entries(score.axes).map(
+		([name, axis]) => `${name} ${axis.composite}`,
+	);
+	const overallPart =
+		score.overall != null
+			? ` (overall ${score.overall}${score.grade ? `, ${score.grade}` : ""})`
+			: "";
+	const body =
+		axisParts.length > 0 ? axisParts.join(", ") : "no per-axis scores";
+	return `CUT SCORE (${score.source}): ${body}${overallPart}.`;
 }
 
 // ── critic call framing ──────────────────────────────────────────────────────

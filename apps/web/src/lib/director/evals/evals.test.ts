@@ -20,6 +20,12 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
+import { useBeatGridStore } from "@/stores/beat-grid-store";
+import {
+	activeToolNamesForPhase,
+	deriveDirectorPhase,
+	RECENT_TAKE_WINDOW_MS,
+} from "../phase-scope";
 import {
 	brokenVerbScenario,
 	clarifyScenario,
@@ -32,6 +38,22 @@ import {
 	DRAFT_CUT_SCENARIO_EXPECTED_SUMMARY,
 	draftCutScenario,
 } from "./draft-cut-scenario";
+import { challengeDemoScenario } from "./challenge-demo-scenario";
+import {
+	CUT_ON_BEAT_FIXTURE_HISTORY_LENGTH,
+	cutOnBeatScenario,
+} from "./craft-cut-on-beat-scenario";
+import {
+	TIGHTEN_SCENARIO_EXPECTED_CLIP_DURATION_SEC,
+	TIGHTEN_SCENARIO_TARGET_SEC,
+	tightenToLengthScenario,
+} from "./craft-tighten-to-length-scenario";
+import {
+	EXPECTED_DUCK_KEYFRAMES,
+	duckMusicScenario,
+} from "./craft-duck-music-scenario";
+import { multiStepUndoScenario } from "./storyboard-undo-scenario";
+import { generationFailureScenario } from "./generation-failure-scenario";
 import { runScenario } from "./runner";
 import {
 	assertKnownVerbs,
@@ -43,14 +65,30 @@ const originalFetch = globalThis.fetch;
 
 afterEach(() => {
 	globalThis.fetch = originalFetch;
+	// The beat grid lives in a real, module-global zustand store
+	// (`stores/beat-grid-store.ts`) — `cutOnBeatScenario` seeds one directly
+	// (bypassing every Director verb, the same way `fixtures.ts`'s
+	// `insertClip` bypasses verbs for hand-placed footage); reset it after
+	// every test so a grid seeded here never leaks into another test file,
+	// mirroring `director-craft.test.ts`'s own `afterEach`.
+	useBeatGridStore.getState().reset();
 });
 
-// `draftCutScenario` lives in its own file (`draft-cut-scenario.ts`, SE-4) —
-// combined here rather than folded into `fixtures.ts`'s own `scenarios`
-// export to avoid a circular import (the scenario file imports
-// `toolTurn`/`closeTurn` FROM `fixtures.ts`; `fixtures.ts` would otherwise
-// need to import the scenario object back).
-const allScenarios = [...scenarios, draftCutScenario];
+// `draftCutScenario` and the newer scenarios below each live in their own
+// file — combined here rather than folded into `fixtures.ts`'s own
+// `scenarios` export to avoid a circular import (each scenario file imports
+// `toolTurn`/`closeTurn`/etc FROM `fixtures.ts`; `fixtures.ts` would
+// otherwise need to import the scenario objects back).
+const allScenarios = [
+	...scenarios,
+	draftCutScenario,
+	challengeDemoScenario,
+	cutOnBeatScenario,
+	tightenToLengthScenario,
+	duckMusicScenario,
+	multiStepUndoScenario,
+	generationFailureScenario,
+];
 
 describe("Director eval harness — deterministic tier", () => {
 	for (const scenario of allScenarios) {
@@ -136,6 +174,187 @@ describe("Director eval harness — deterministic tier", () => {
 		expect(
 			run.steps.some((s) => ["generate", "reroll", "remix"].includes(s.action)),
 		).toBe(false);
+	});
+
+	test("challenge-demo scenario assembles a real multi-track cut (video + text + music) and exports", async () => {
+		const run = await runScenario(challengeDemoScenario);
+
+		// END STATE: three real tracks, not just "3 slots in the reel" — the
+		// whole point of "assembles a real multi-track cut" (see the scenario's
+		// own header) is that `getTimeline` shows video+text+audio, each with the
+		// right element count.
+		const tracks = run.timelineAfter?.tracks ?? [];
+		const videoTrack = tracks.find((t) => t.kind === "video");
+		const textTrack = tracks.find((t) => t.kind === "text");
+		const audioTrack = tracks.find((t) => t.kind === "audio");
+		expect(videoTrack?.elementCount).toBe(3);
+		expect(textTrack?.elementCount).toBe(1);
+		expect(audioTrack?.elementCount).toBe(1);
+
+		// The export step's own result MESSAGE is the one place this scenario has
+		// to assert on a call's outcome rather than persisted state — there's no
+		// separate "exported files" store in `fake-editor.ts` for a render to
+		// land in (and `AgentToolStep` — what the agent LOOP records — carries
+		// only `ok`/`message`, not the verb's full `DirectorResult.data`), so the
+		// render outcome is only ever observable via `export`'s own reported
+		// text. This is a structural necessity (nothing else could observe it,
+		// and the loop itself doesn't retain more than this), not a
+		// route-preference assertion the future refactor would break.
+		const exportStep = run.steps.find((s) => s.action === "export");
+		expect(exportStep?.ok).toBe(true);
+		expect(exportStep?.message).toMatch(/Exported/);
+		expect(exportStep?.message).toMatch(/MP4/i);
+		expect(exportStep?.message).toMatch(/15\.0s/);
+
+		// PHASE-BOUNDARY GUARANTEE (item 3 of the task brief): the same phase
+		// gates `docs/plans/2026-09-18-director-autonomy-architecture.md` §5
+		// marks for removal ("Remove phase gating... safe only after [programs
+		// land]") currently promise something concrete about THIS exact run's
+		// trajectory. Folded into this scenario's own dedicated test (rather
+		// than a 7th top-level scenario) because it needs checkpoints along ONE
+		// run's real state, not a fresh script of its own — `phase-scope.ts`'s
+		// own unit coverage (`phase-scope.test.ts`) already pins the pure
+		// waterfall logic against synthetic stubs; this is the SAME logic
+		// applied to a real DirectorApi a real scripted run produced, which is
+		// what "what does the gate currently guarantee" (§6) actually means.
+		const freshProject = challengeDemoScenario.setup();
+		expect(deriveDirectorPhase(freshProject.director)).toBe("briefing");
+		expect(activeToolNamesForPhase("briefing")).toContain("storyboard");
+		expect(activeToolNamesForPhase("briefing")).not.toContain("export");
+
+		const newestTakeAt = Math.max(
+			0,
+			...run.reelAfter.slots.flatMap((s) =>
+				s.takes.map((t) => t.createdAt ?? 0),
+			),
+		);
+		expect(newestTakeAt).toBeGreaterThan(0);
+
+		// Immediately after generation, a freshly-rendered reel still counts as
+		// "production" (it's still being judged) — export/trim are NOT yet on
+		// the active menu even though every slot is technically "ready".
+		expect(deriveDirectorPhase(run.director, newestTakeAt + 1)).toBe(
+			"production",
+		);
+		expect(activeToolNamesForPhase("production")).not.toContain("export");
+		expect(activeToolNamesForPhase("production")).not.toContain("trim");
+		expect(activeToolNamesForPhase("production")).toContain("generate");
+
+		// Well past the "just rendered" window, the same state reads as
+		// "polish" — export/trim/cutOnBeat become reachable, storyboard/
+		// proposeReel (re-deciding scope) do not.
+		const wellAfter = newestTakeAt + RECENT_TAKE_WINDOW_MS + 1_000;
+		expect(deriveDirectorPhase(run.director, wellAfter)).toBe("polish");
+		const polishTools = activeToolNamesForPhase("polish");
+		expect(polishTools).toContain("export");
+		expect(polishTools).toContain("trim");
+		expect(polishTools).toContain("cutOnBeat");
+		expect(polishTools).not.toContain("storyboard");
+		expect(polishTools).not.toContain("proposeReel");
+	});
+
+	test("cutOnBeat scenario snaps the join exactly onto the beat, as one undo entry", async () => {
+		const run = await runScenario(cutOnBeatScenario);
+
+		// RESULTING TIMELINE STATE — cut positions/durations, not the verb call.
+		const clipOne = run.fake.find("el_clip_one")?.element;
+		const clipTwo = run.fake.find("el_clip_two")?.element;
+		expect(clipOne?.duration).toBeCloseTo(4.0, 5);
+		expect(clipTwo?.startTime).toBeCloseTo(4.0, 5);
+		expect(clipTwo?.trimStart).toBeCloseTo(0.1, 5);
+		expect(clipTwo?.duration).toBeCloseTo(4.9, 5);
+
+		// One undo entry for the whole snap (both touched elements merged into
+		// one op each — see `cutOnBeat`'s own doc comment on `mergeArgs`).
+		expect(run.fake.editor.command.getHistoryLength()).toBe(
+			CUT_ON_BEAT_FIXTURE_HISTORY_LENGTH + 1,
+		);
+		expect(run.fake.editor.command.peekUndoOrigin()).toBe("agent");
+
+		// And it genuinely undoes cleanly — the whole point of "one undo step".
+		const undoResult = run.director.undo();
+		expect(undoResult.ok).toBe(true);
+		expect(run.fake.find("el_clip_one")?.element.duration).toBeCloseTo(3.9, 5);
+		expect(run.fake.find("el_clip_two")?.element.startTime).toBeCloseTo(3.9, 5);
+	});
+
+	test("tightenToLength scenario shrinks both clips to the exact proportional split", async () => {
+		const run = await runScenario(tightenToLengthScenario);
+
+		const clipOne = run.fake.find("el_tighten_one")?.element;
+		const clipTwo = run.fake.find("el_tighten_two")?.element;
+		expect(clipOne?.duration).toBeCloseTo(
+			TIGHTEN_SCENARIO_EXPECTED_CLIP_DURATION_SEC,
+			5,
+		);
+		expect(clipOne?.startTime).toBeCloseTo(0, 5);
+		expect(clipTwo?.duration).toBeCloseTo(
+			TIGHTEN_SCENARIO_EXPECTED_CLIP_DURATION_SEC,
+			5,
+		);
+		// Re-packed contiguously right after clip one's new (shorter) end.
+		expect(clipTwo?.startTime).toBeCloseTo(
+			TIGHTEN_SCENARIO_EXPECTED_CLIP_DURATION_SEC,
+			5,
+		);
+		expect(run.timelineAfter?.totalDurationSec).toBe(
+			TIGHTEN_SCENARIO_TARGET_SEC,
+		);
+	});
+
+	test("duckMusicUnderSpeech scenario produces the exact keyframe curve and leaves the voiceover untouched", async () => {
+		const run = await runScenario(duckMusicScenario);
+
+		const music = run.fake.find("el_music_bed")?.element as unknown as {
+			volumeKeyframes?: Array<{ time: number; value: number }>;
+		};
+		expect(music.volumeKeyframes).toBeDefined();
+		expect(music.volumeKeyframes).toHaveLength(EXPECTED_DUCK_KEYFRAMES.length);
+		music.volumeKeyframes?.forEach((kf, i) => {
+			expect(kf.time).toBeCloseTo(EXPECTED_DUCK_KEYFRAMES[i].time, 4);
+			expect(kf.value).toBeCloseTo(EXPECTED_DUCK_KEYFRAMES[i].value, 4);
+		});
+
+		// duckMusicUnderSpeech targets MUSIC elements, never the speech source
+		// itself — the voiceover clip must carry no keyframes of its own.
+		const voiceover = run.fake.find("el_voiceover_line")
+			?.element as unknown as {
+			volumeKeyframes?: unknown;
+		};
+		expect(voiceover.volumeKeyframes).toBeUndefined();
+	});
+
+	test("multi-step undo scenario: one undo after a 3-shot storyboard reverts all three atomically", async () => {
+		const run = await runScenario(multiStepUndoScenario);
+
+		expect(run.reelAfter.slots).toHaveLength(0);
+		expect(run.timelineAfter?.totalDurationSec).toBe(0);
+		// Back to a clean slate: nothing left to undo from this run.
+		expect(run.fake.editor.command.canUndo()).toBe(false);
+	});
+
+	test("generation-failure scenario: one slot fails, the other is unaffected, no unhandled step error", async () => {
+		const run = await runScenario(generationFailureScenario);
+
+		// The generate STEP itself is `ok: true` (a partial failure is a
+		// designed, reported outcome, never a thrown/unhandled error) — this is
+		// the one call-result field this scenario leans on, because "did the
+		// verb itself blow up vs. degrade gracefully" can only be read off the
+		// step's own ok flag.
+		const generateStep = run.steps.find((s) => s.action === "generate");
+		expect(generateStep?.ok).toBe(true);
+
+		// The load-bearing assertions: each slot's OWN persisted status.
+		const [harborSlot, failingSlot] = run.reelAfter.slots;
+		expect(harborSlot?.status).toBe("ready");
+		expect(harborSlot?.takeCount).toBeGreaterThan(0);
+		expect(failingSlot?.status).toBe("failed");
+
+		// And the generic sweep (assertGenericInvariants, always run below) must
+		// NOT flag this as an unhandled error — proving the harness tells a
+		// reported failure apart from a crash.
+		const violations = assertScenario(run, generationFailureScenario.expect);
+		expect(violations).toEqual([]);
 	});
 
 	test("clarify scenario makes zero tool calls and stops in exactly one model round-trip", async () => {
