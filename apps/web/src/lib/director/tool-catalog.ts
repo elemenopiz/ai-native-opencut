@@ -42,6 +42,7 @@ import type {
 	ProposedShotInput,
 	ShotSource,
 } from "./reel-proposal";
+import { WATCH_BACK_MAX_FRAMES } from "./watch-back";
 
 // ── feature gate: critiqueEdit (Director-intelligence Bet 2 v1) ────────────
 //
@@ -1535,6 +1536,32 @@ export function toolCatalog(): ToolDescriptor[] {
 					slotId: str(a.slotId),
 					takeId: strOrUndefined(a.takeId),
 					frames: numOrUndefined(a.frames),
+				}),
+		},
+		{
+			name: "watchBack",
+			description:
+				"SEE the CUT — render the COMPOSITED TIMELINE (the actual assembled output: tracks, transitions, text, effects together) at the given SECONDS and look at the frames. Different from reviewTake, which looks at a single slot's SOURCE take before it's even placed. Use this after editing (trim/split/reorder/addText/applyTransition/…) to check what you actually made — e.g. watchBack({ times: [0, 5, 10] }) to check the opening, a cut point, and the ending. Times past the end are clamped, duplicates are merged, and at most a few frames are rendered per call — spend them on the moments you actually need to check.",
+			// Read-only: renders + decodes frames, changes nothing on the reel → reel:read.
+			mutating: false,
+			inputSchema: {
+				type: "object",
+				properties: {
+					times: {
+						type: "array",
+						items: { type: "number", "x-seconds": true },
+						minItems: 1,
+						maxItems: WATCH_BACK_MAX_FRAMES,
+						description: `Timestamps (SECONDS) into the composited timeline to sample, e.g. [0, 5, 10]. Up to ${WATCH_BACK_MAX_FRAMES} per call.`,
+					},
+				},
+				required: ["times"],
+			},
+			handler: (d, a) =>
+				d.watchBack({
+					times: Array.isArray(a.times)
+						? a.times.map((v) => Number(v)).filter((n) => Number.isFinite(n))
+						: [],
 				}),
 		},
 		// ── audio (VO + music bed) ──────────────────────────────────────────

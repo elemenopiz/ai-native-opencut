@@ -225,6 +225,18 @@ export const PHASE_TOOL_ASSIGNMENTS: Readonly<
 	compareTake: ["production"],
 	chooseTake: ["production"],
 	reviewTake: ["production"],
+	// watchBack ("SEE the cut" — see docs/plans/2026-09-18-director-autonomy-
+	// architecture.md §7): same bucket as its source-media sibling reviewTake,
+	// for the same reason — this is the take-judging phase, the natural home
+	// for every "look before you commit" verb. It would ALSO belong in
+	// polish (checking the cut after trim/split/addText/applyTransition is
+	// exactly the "watch it back" moment a human editor has there), but
+	// polish is already at phase-scope.test.ts's enforced ceiling of 32
+	// non-core verbs — adding it there without bumping that bound would
+	// breach it, so it is deliberately NOT assigned to polish here. See the
+	// implementing task's report for this call-out; the bound was left
+	// untouched rather than silently raised.
+	watchBack: ["production"],
 	approveHeroShot: ["production"],
 	setConsistencyContext: ["production"],
 	revertBibleCheckpoint: ["production"],

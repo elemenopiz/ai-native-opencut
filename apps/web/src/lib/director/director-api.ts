@@ -193,6 +193,7 @@ import {
 	type DurationProbe,
 	type FrameDecoder,
 } from "@/lib/media/frame-extraction";
+import { watchBackTimeline, type WatchBackRenderer } from "./watch-back";
 import {
 	buildEditCritiqueUserBlocks,
 	detectVisualGaps,
@@ -286,6 +287,7 @@ import type {
 	TimelineSnapshot,
 	TimelineTrackSnapshot,
 	UniformShift,
+	WatchBackData,
 } from "./types";
 
 export type {
@@ -489,6 +491,16 @@ export interface CreateDirectorApiOptions {
 		decode?: FrameDecoder;
 		upload?: (file: File) => Promise<string>;
 		probeDuration?: DurationProbe;
+	};
+	/**
+	 * Composited-timeline render seam for `watchBack` (see `watch-back.ts`).
+	 * `render` renders the ACTUAL rendered cut (fresh `buildScene()` + a canvas
+	 * renderer, mirroring the freeze-frame action) at the requested times and
+	 * returns decoded frames. BROWSER-BOUND by default, so headless tests
+	 * inject a stub — same pattern as `frames`/`audio`/`references`.
+	 */
+	watchBack?: {
+		render?: WatchBackRenderer;
 	};
 	/**
 	 * "Understanding Pass" seam (see `asset-manifest.ts`). A per-asset lookup that
@@ -1038,6 +1050,11 @@ export function createDirectorApi(
 	const probeDuration: DurationProbe =
 		options.frames?.probeDuration ??
 		((source) => resolveVideoDurationSec(source));
+
+	// watchBack's render seam — undefined here just means "use watch-back.ts's
+	// own browser-bound default" (resolved inside `watchBackTimeline`).
+	const watchBackRender: WatchBackRenderer | undefined =
+		options.watchBack?.render;
 
 	// Resolved self-correction config (defaults + injected overrides).
 	const recovery = {
@@ -4746,6 +4763,46 @@ export function createDirectorApi(
 		);
 	}
 
+	// ---- WATCH BACK (composited-timeline vision) ---------------------------
+	//
+	// reviewTake watches a SLOT's take — a single clip's SOURCE media. watchBack
+	// watches the COMPOSITED TIMELINE — the actual cut, tracks/transitions/text/
+	// effects composited together, as an audience would see it. This is the
+	// other half of "generate → SEE → fix" the agent had no access to before:
+	// it edited a timeline it had never looked at (see
+	// docs/plans/2026-09-18-director-autonomy-architecture.md §7). Read-only
+	// (no `withDelta`): nothing on the reel changes; the observation IS the
+	// pixels, decoded via `watch-back.ts` (fresh `buildScene()` + a canvas
+	// render, mirroring the freeze-frame action exactly).
+
+	/**
+	 * Render the composited timeline at up to a small handful of requested
+	 * times (see `WATCH_BACK_MAX_FRAMES` in `watch-back.ts`) and return the
+	 * decoded, downscaled frames so the model can SEE what it just assembled.
+	 * `times` are clamped into the timeline's actual span, de-duplicated, and
+	 * capped — a request past the end or with near-duplicate timestamps still
+	 * gets a sane, bounded result rather than an error.
+	 */
+	async function watchBack(input: {
+		times: number[];
+	}): Promise<DirectorResult<WatchBackData>> {
+		const outcome = await watchBackTimeline({
+			editor,
+			times: input.times,
+			render: watchBackRender,
+		});
+		if ("error" in outcome) return fail(outcome.error);
+
+		return ok(outcome.summary, {
+			times: outcome.frames.map((f) => f.time),
+			frames: outcome.frames.map((f) => f.dataUrl),
+			captions: outcome.frames.map(
+				(f) =>
+					`@${f.time.toFixed(1)}s${f.clip ? ` — ${f.clip}` : " — nothing on screen"}`,
+			),
+		});
+	}
+
 	// ---- AUDIO (voiceover + music bed) ------------------------------------
 	//
 	// The Director owns the whole soundtrack, not just silent video: `addVoiceover`
@@ -6635,6 +6692,7 @@ export function createDirectorApi(
 		chainFrom,
 		chooseTake,
 		reviewTake,
+		watchBack,
 		// budget (whole-reel spend planning)
 		getBudgetStatus,
 		setBudget,

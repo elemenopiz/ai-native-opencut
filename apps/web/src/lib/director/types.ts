@@ -456,6 +456,26 @@ export interface ReviewTakeData {
 }
 
 /**
+ * Result of {@link DirectorApi.watchBack} — frames of the COMPOSITED TIMELINE
+ * (the actual cut, not a single take's source media — see `reviewTake` /
+ * {@link ReviewTakeData} for that) decoded so the model can SEE what it just
+ * assembled. `times`/`frames`/`captions` are aligned 1:1, in ascending time
+ * order, after the requested times were clamped/de-duplicated/capped (see
+ * `lib/director/watch-back.ts`). `frames` are base64 `data:` image URLs, kept
+ * off the plain-text observation path (they're large) — surfaced only as
+ * images, same contract as `ReviewTakeData.frames`.
+ */
+export interface WatchBackData {
+	/** Timestamps actually rendered (seconds), ascending. */
+	times: number[];
+	/** Decoded frames as base64 `data:` image URLs, aligned to `times`. */
+	frames: string[];
+	/** One line per frame, e.g. "@2.0s — Intro shot" — its timestamp and, when
+	 * cheap to determine, the name of the clip on screen there. */
+	captions: string[];
+}
+
+/**
  * Result of {@link DirectorApi.intakeReferences} — the outcome of giving the
  * Director EYES ON INPUT. The model looked at the user's reference images and
  * derived a {@link DerivedReference} (a StyleBible + optional persona sketch);
