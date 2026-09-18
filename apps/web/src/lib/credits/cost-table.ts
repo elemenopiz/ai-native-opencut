@@ -78,6 +78,11 @@ const VIDEO_COGS_PER_SEC_FLAT: Record<string, number> = {
 	runway: 35,
 	"google-veo": 40,
 	"google-veo-fast": 12,
+	// Higgsfield (Seedance 2.5, 720p): published rate ~$0.495 / 5s → $0.099/sec
+	// → 9.9 credits/sec. UNVERIFIED — derived from Higgsfield's advertised
+	// per-5s price, not a fetched rate card (docs.higgsfield.ai is blocked by
+	// this environment's egress proxy); flag for a fresh pull once reachable.
+	higgsfield: 9.9,
 };
 /** @see VIDEO_COGS_PER_SEC_FLAT */
 const VIDEO_COGS_FLAT_LAST_VERIFIED = "2026-07-14";
@@ -147,6 +152,9 @@ const VIDEO_MARKUP_FLAT: Record<string, number> = {
 	runway: 80 / 35,
 	"google-veo": 1.6,
 	"google-veo-fast": 2.0,
+	// Higgsfield: same flat 2.2x as the other partner-API video backends above
+	// (kling/luma-ray/pika) — no founder-approved override for this backend yet.
+	higgsfield: 2.2,
 };
 
 /** Flat markup applied to every image backend's COGS. */

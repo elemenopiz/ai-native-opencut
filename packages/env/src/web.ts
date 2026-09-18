@@ -126,6 +126,18 @@ const webEnvSchema = z.object({
 	KLING_SECRET_KEY: z.string().default(""),
 	KLING_BASE_URL: z.string().default(""),
 	KLING_MODEL: z.string().default(""),
+	// Higgsfield AI — Seedance 2.5. ONE credential string in "key-id:key-secret"
+	// form (split on `:` by the adapter), sent as `Authorization: Key
+	// ${keyId}:${keySecret}`. Falls back to HF_CREDENTIALS (the name the smoke-
+	// test script uses) so a single env var works for both without duplicating
+	// it — the adapter itself always reads the namespaced HIGGSFIELD_CREDENTIALS
+	// through this validated schema.
+	HIGGSFIELD_CREDENTIALS: z
+		.string()
+		.default("")
+		.transform((v) => v || process.env.HF_CREDENTIALS || ""),
+	HIGGSFIELD_BASE_URL: z.string().default(""),
+	HIGGSFIELD_MODEL: z.string().default(""),
 	// Google Gemini — ONE key shared by Veo (video, Standard + Fast), Imagen
 	// (image), and Gemini Flash Image / "Nano Banana" (image).
 	GEMINI_API_KEY: z.string().default(""),
