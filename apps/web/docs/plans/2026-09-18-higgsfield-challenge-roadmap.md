@@ -3,6 +3,20 @@
 **Written:** 2026-09-18. **Deadline:** ~2026-09-23 (tweet posted Sep 16, "7 days").
 **Goal:** a 60–90s demo video, posted as a QT, that nobody else in that thread can make.
 
+> **Superseded in part.** The day-by-day plan in §2 is replaced by
+> `2026-09-18-challenge-execution-timeline.md`, which is written against a verified
+> audit of the codebase rather than the stale July docs. Two claims in §2 below were
+> **wrong** and are corrected there:
+> - *"Upgrade the Director brain, it runs Gemini 3.5 Flash"* — it does not. The
+>   Director runs `claude-opus-4-8` by default via `/api/llm/agent`. The Gemini relay
+>   is a separate path for asset understanding and podcast. **Non-task.**
+> - *"MCP server — real Tier-1 gap, wrong week"* — MCP is **already shipped**:
+>   `/api/mcp`, Streamable HTTP, bearer tokens, per-tool scopes, editor-bridge relay,
+>   serving the same tool catalog as the Director. **Also a non-task.**
+>
+> Sections 0, 1, and 4–6 (the two contests, the demo concept, replace-vs-augment, the
+> materials, the risks) stand as written.
+
 ---
 
 ## 0. The two contests — do not confuse them
