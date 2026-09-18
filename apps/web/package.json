@@ -33,6 +33,7 @@
 		"@ffmpeg/ffmpeg": "^0.12.15",
 		"@ffmpeg/util": "^0.12.2",
 		"@hello-pangea/dnd": "^18.0.1",
+		"@higgsfield/client": "^0.2.6",
 		"@hookform/resolvers": "^3.9.1",
 		"@hugeicons/core-free-icons": "^3.1.1",
 		"@hugeicons/react": "^1.1.4",
