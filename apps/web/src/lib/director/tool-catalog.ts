@@ -659,7 +659,7 @@ export function toolCatalog(): ToolDescriptor[] {
 		{
 			name: "getTranscript",
 			description:
-				"read the SPEECH TRANSCRIPT of a media asset: timestamped sentence segments in ASSET-RELATIVE seconds — the same timebase as trim's trimStart/trimEnd, so segment boundaries ARE valid cut points. Call this BEFORE trimming or splitting footage that contains speech, and align cuts to segment boundaries so a sentence is never cut mid-word. Takes a FULL mediaId (from searchMedia, the library manifest, or a slot's take). Optional startSec/endSec window the read for long sources.",
+				"read the SPEECH TRANSCRIPT of a media asset: timestamped sentence segments in ASSET-RELATIVE seconds — the same timebase as trim's trimStart/trimEnd, so these numbers go straight into trim. They do NOT go into atTime/startTime/newStartTime, which are timeline-absolute: to cut at a segment boundary use split's atSourceTime, which converts for you. Call this BEFORE trimming or splitting footage that contains speech, and align cuts to segment boundaries so a sentence is never cut mid-word. Takes a FULL mediaId (from searchMedia, the library manifest, or a slot's take). Optional startSec/endSec window the read for long sources.",
 			mutating: false,
 			inputSchema: {
 				type: "object",
@@ -1556,10 +1556,10 @@ export function toolCatalog(): ToolDescriptor[] {
 							"Short id of the shot to narrate — the VO is timed to it. Omit to place by startTime/duration instead.",
 					},
 					startTime: secs(
-						"VO start (seconds); defaults to the narrated shot's start, else end of timeline",
+						"VO start in TIMELINE-ABSOLUTE seconds; defaults to the narrated shot's start, else end of timeline",
 					),
 					duration: secs(
-						"VO duration (seconds); defaults to the shot's duration, else estimated from the script",
+						"VO LENGTH in seconds (not a position); defaults to the shot's duration, else estimated from the script",
 					),
 					voice: {
 						type: "string",
@@ -1607,9 +1607,11 @@ export function toolCatalog(): ToolDescriptor[] {
 						description:
 							"What music/ambience to search for (e.g. 'upbeat lofi').",
 					},
-					startTime: secs("bed start (seconds); defaults to 0"),
+					startTime: secs(
+						"bed start in TIMELINE-ABSOLUTE seconds; defaults to 0",
+					),
 					duration: secs(
-						"bed duration (seconds); defaults to the whole timeline",
+						"bed LENGTH in seconds (not a position); defaults to the whole timeline",
 					),
 					volume: {
 						type: "number",
@@ -1818,16 +1820,23 @@ export function toolCatalog(): ToolDescriptor[] {
 		// ── edit (all time fields SECONDS) ──────────────────────────────────
 		{
 			name: "trim",
-			description: "adjust a slot's in/out points. All time fields SECONDS.",
+			description:
+				"adjust a slot's in/out points. All time fields SECONDS. TIMEBASE: trimStart/trimEnd are ASSET-RELATIVE (measured into the source media — the same timebase as getTranscript); startTime is TIMELINE-ABSOLUTE; duration is a length, not a position.",
 			mutating: true,
 			inputSchema: {
 				type: "object",
 				properties: {
 					slotId: slotIdProp,
-					trimStart: secs("in-point offset (seconds)"),
-					trimEnd: secs("out-point offset (seconds)"),
-					startTime: secs("new timeline start (seconds)"),
-					duration: secs("new duration (seconds)"),
+					trimStart: secs(
+						"in-point, in ASSET-RELATIVE seconds measured from the start of the source media (same timebase as getTranscript's segment times).",
+					),
+					trimEnd: secs(
+						"out-point, in ASSET-RELATIVE seconds measured from the END of the source media.",
+					),
+					startTime: secs(
+						"new TIMELINE-ABSOLUTE start (seconds from the start of the project).",
+					),
+					duration: secs("new visible LENGTH in seconds (not a position)."),
 				},
 				required: ["slotId"],
 			},
@@ -1849,7 +1858,9 @@ export function toolCatalog(): ToolDescriptor[] {
 				type: "object",
 				properties: {
 					slotId: slotIdProp,
-					newStartTime: secs("new start time (seconds)"),
+					newStartTime: secs(
+						"new TIMELINE-ABSOLUTE start (seconds from the start of the project).",
+					),
 					targetTrackId: {
 						type: "string",
 						description: "full track id (optional).",
@@ -1866,18 +1877,28 @@ export function toolCatalog(): ToolDescriptor[] {
 		},
 		{
 			name: "split",
-			description: "cut a slot into two at a point in time (SECONDS).",
+			description:
+				"cut a slot into two. TIMEBASE: atTime is TIMELINE-ABSOLUTE seconds (measured from the start of the project) — NOT the asset-relative timebase getTranscript and trim use. Cutting on speech? Pass the transcript timestamp as atSourceTime and this converts it for you; do not put it in atTime.",
 			mutating: true,
 			inputSchema: {
 				type: "object",
 				properties: {
 					slotId: slotIdProp,
-					atTime: secs("split point (seconds)"),
+					atTime: secs(
+						"split point in TIMELINE-ABSOLUTE seconds (from the start of the project, the same timebase as move's newStartTime). Must fall inside the slot's own timeline span or the call is refused.",
+					),
+					atSourceTime: secs(
+						"split point in ASSET-RELATIVE seconds (from the start of the source media — the same timebase as getTranscript's segments and trim's trimStart). Converted to timeline time through this slot's placement. Use this for transcript-driven cuts instead of doing the arithmetic yourself.",
+					),
 				},
-				required: ["slotId", "atTime"],
+				required: ["slotId"],
 			},
 			handler: (d, a) =>
-				d.split({ slotId: str(a.slotId), atTime: numOrZeroTime(a.atTime) }),
+				d.split({
+					slotId: str(a.slotId),
+					atTime: numOrUndefined(a.atTime),
+					atSourceTime: numOrUndefined(a.atSourceTime),
+				}),
 		},
 		{
 			name: "reorder",
@@ -1918,6 +1939,7 @@ export function toolCatalog(): ToolDescriptor[] {
 						description:
 							"loudness threshold in 0–1; audio below this counts as silence (default 0.04).",
 					},
+					// LENGTH, not a timeline position.
 					marginBefore: secs(
 						"kept padding before each loud region — protects speech onsets (default 0.2).",
 					),
@@ -1958,6 +1980,7 @@ export function toolCatalog(): ToolDescriptor[] {
 						description:
 							"FULL track id to snap cuts on. Omit to use the main video track.",
 					},
+					// LENGTH/tolerance, not a timeline position.
 					toleranceSec: secs(
 						"a cut within this many seconds of a beat gets pulled onto it (default 0.15).",
 					),
@@ -2058,8 +2081,10 @@ export function toolCatalog(): ToolDescriptor[] {
 				type: "object",
 				properties: {
 					content: { type: "string" },
-					startTime: secs("overlay start (seconds)"),
-					duration: secs("overlay duration (seconds)"),
+					startTime: secs(
+						"overlay start in TIMELINE-ABSOLUTE seconds (from the start of the project).",
+					),
+					duration: secs("overlay LENGTH in seconds (not a position)."),
 					trackId: { type: "string", description: "full track id (optional)." },
 					fontSize: { type: "number" },
 					fontFamily: { type: "string" },
@@ -2093,8 +2118,10 @@ export function toolCatalog(): ToolDescriptor[] {
 						description: "full element id from addText.",
 					},
 					content: { type: "string" },
-					startTime: secs("overlay start (seconds)"),
-					duration: secs("overlay duration (seconds)"),
+					startTime: secs(
+						"overlay start in TIMELINE-ABSOLUTE seconds (from the start of the project).",
+					),
+					duration: secs("overlay LENGTH in seconds (not a position)."),
 					fontSize: { type: "number" },
 					fontFamily: { type: "string" },
 					color: { type: "string" },
@@ -2131,7 +2158,7 @@ export function toolCatalog(): ToolDescriptor[] {
 							"Transition type to apply to the slot's outgoing edge.",
 					},
 					duration: secs(
-						"transition duration; omit for the transition's own default",
+						"transition LENGTH in seconds (not a position); omit for the transition's own default",
 					),
 				},
 				required: ["slotId", "transitionType"],
@@ -2316,6 +2343,7 @@ export function toolCatalog(): ToolDescriptor[] {
 						description:
 							'The user\'s own words for what to cut, verbatim — e.g. "make a 45s recap leading with the demo". Folds into the brief the story model reads.',
 					},
+					// LENGTH, not a timeline position.
 					targetSec: secs(
 						"explicit target length IF the user stated one THIS turn. Omit to fall back to the project's standing brief target, then a learned default, then a natural length.",
 					),
@@ -2594,10 +2622,10 @@ const GEMINI_DESCRIPTION_OVERRIDES: Record<string, string> = {
 		"Call this to make a specific take the slot's active take (e.g. after reviewing alternates). This COMMITS the choice. Do NOT use it to evaluate or rank takes you have not seen — use reviewTake (paid vision critique) or compareTake (A/B rank) first.",
 	compareTake:
 		"A/B one slot across TWO backends: render the same shot on each and auto-pick the better take if a vision critic is available, else add both as takes for you to choose. Costs 2x a single generate — subject to the cost gate. Use for hero/final shots worth the extra spend. This RANKS candidates — it does NOT commit your final choice; use chooseTake to commit.",
-	trim: "Use for changing how much of a clip's SOURCE plays — its in/out points and duration (all time fields in SECONDS). Do NOT use this to reposition the clip on the timeline — use move — and do NOT use it to cut a clip into two pieces — use split.",
+	trim: "Use for changing how much of a clip's SOURCE plays — its in/out points and duration (all time fields in SECONDS; trimStart/trimEnd are ASSET-RELATIVE, the same timebase getTranscript reports, while startTime is timeline-absolute). Do NOT use this to reposition the clip on the timeline — use move — and do NOT use it to cut a clip into two pieces — use split.",
 	move: "Use for repositioning a clip in TIME on the timeline (and optionally onto another track — targetTrackId is a full TRACK id, not a short slot id; omit to stay on the current track). Do NOT use this to change which part of the source plays — use trim — and do NOT use it to cut the clip — use split.",
 	split:
-		"Use for cutting ONE clip into TWO separate clips at a point in time (SECONDS). Do NOT use this to shorten a clip — use trim — and do NOT use it to change when a clip plays — use move.",
+		"Use for cutting ONE clip into TWO separate clips at a point in time (SECONDS). atTime is TIMELINE-ABSOLUTE — it is NOT the asset-relative timebase getTranscript and trim use; for a cut on a transcript timestamp pass atSourceTime and it is converted for you. Do NOT use this to shorten a clip — use trim — and do NOT use it to change when a clip plays — use move.",
 	setPrompt:
 		"Call this to rewrite a slot's generation prompt (and optionally its per-shot spec) BEFORE rerolling it.",
 	getReel:

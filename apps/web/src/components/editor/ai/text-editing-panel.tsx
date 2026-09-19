@@ -11,6 +11,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { aiClient } from "@/lib/ai-client";
 import { isFeatureAvailable } from "@/lib/local-ai/retired-features";
 import { hasMediaId } from "@/lib/timeline";
+import { friendlyTranscriptionError } from "@/lib/transcription/friendly-errors";
 import type { TimelineElement } from "@/types/timeline";
 import {
 	TranscriptionPanel,
@@ -160,25 +161,14 @@ export function TextEditingPanel({ className }: { className?: string }) {
 		} catch (err) {
 			const message =
 				err instanceof Error ? err.message : "Speaker detection failed";
-			let detail = message;
-			if (
-				message.includes("Cannot connect") ||
-				message.includes("connection_refused")
-			) {
-				detail =
-					"AI backend not reachable. Start with: docker compose up -d ai-backend";
-			} else if (message.includes("404")) {
-				detail =
-					"Speaker endpoint not found. Restart the AI backend to load the new route: docker compose restart ai-backend";
-			} else if (message.includes("503")) {
-				detail =
-					"Speaker service is not running. Start with: docker compose up -d speaker-service";
-			}
+			// Friendly line only — the raw cause (unreachable backend, missing
+			// route, container names) never reaches this customer-facing task row.
 			bgTasks.updateTask(taskId, {
 				status: "error",
-				error: detail,
+				error: friendlyTranscriptionError(message, "speakers"),
 				completedAt: Date.now(),
 			});
+			console.error("Speaker detection failed:", message);
 		} finally {
 			setIsDetectingSpeakers(false);
 		}

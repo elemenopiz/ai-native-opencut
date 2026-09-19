@@ -187,16 +187,93 @@ test("confusable-cluster members carry explicit contrast lines naming their sibl
 
 test("contrast tuning lives in the Gemini overrides ONLY — catalog descriptions stay untouched", () => {
 	// The shared (Anthropic/MCP-facing) catalog text must not grow the Gemini
-	// contrast phrasing: spot-check the timeline cluster, which had terse
-	// catalog descriptions before this tuning.
+	// contrast phrasing ("Do NOT use this ... — use <sibling>"), which is what
+	// this guard is actually for. It used to pin the timeline cluster's exact
+	// strings as a proxy; those strings now also carry timebase wording (see
+	// the timebase test below), so assert the property instead of the literal.
 	const catalog = new Map(toolCatalog().map((t) => [t.name, t.description]));
-	expect(catalog.get("trim")).toBe(
-		"adjust a slot's in/out points. All time fields SECONDS.",
-	);
-	expect(catalog.get("split")).toBe(
-		"cut a slot into two at a point in time (SECONDS).",
-	);
 	for (const name of ["trim", "move", "split"]) {
-		expect(catalog.get(name) ?? "").not.toContain("Do NOT");
+		const description = catalog.get(name) ?? "";
+		expect(description.length, `${name}: missing catalog entry`).toBeGreaterThan(
+			0,
+		);
+		expect(description).not.toContain("Do NOT");
+		// The Gemini contrast lines redirect between siblings by name; the shared
+		// catalog text must not.
+		for (const sibling of ["trim", "move", "split"].filter((n) => n !== name)) {
+			expect(
+				description.includes(`use ${sibling}`),
+				`${name}: catalog text must not carry Gemini's redirect to "${sibling}"`,
+			).toBe(false);
+		}
 	}
+});
+
+test("every verb taking a time POSITION states its timebase explicitly", () => {
+	// The silent-wrongness class this pins: a time argument whose description
+	// doesn't say whether it is TIMELINE-ABSOLUTE (from the start of the
+	// project) or ASSET-RELATIVE (into the source media, what getTranscript
+	// reports). An agent that guesses wrong cuts in the wrong place and nothing
+	// warns it. Durations/tolerances are lengths, not positions, so they're out
+	// of scope here.
+	const TIMELINE_POSITION_ARGS: Record<string, string[]> = {
+		trim: ["startTime"],
+		move: ["newStartTime"],
+		split: ["atTime"],
+		addText: ["startTime"],
+		updateText: ["startTime"],
+		addVoiceover: ["startTime"],
+		addMusicBed: ["startTime"],
+		addClip: ["startTime"],
+	};
+	const ASSET_RELATIVE_ARGS: Record<string, string[]> = {
+		trim: ["trimStart", "trimEnd"],
+		split: ["atSourceTime"],
+		getTranscript: ["startSec", "endSec"],
+	};
+
+	const byName = new Map(toolCatalog().map((t) => [t.name, t]));
+	const describe = (verb: string, arg: string): string => {
+		const tool = byName.get(verb);
+		expect(tool, `${verb}: missing from the catalog`).toBeDefined();
+		const prop = (
+			tool?.inputSchema?.properties as
+				| Record<string, { description?: string }>
+				| undefined
+		)?.[arg];
+		expect(prop, `${verb}.${arg}: missing from the schema`).toBeDefined();
+		return prop?.description ?? "";
+	};
+
+	for (const [verb, args] of Object.entries(TIMELINE_POSITION_ARGS)) {
+		for (const arg of args) {
+			const description = describe(verb, arg);
+			expect(
+				/timeline[- ]absolute|timeline start/i.test(description),
+				`${verb}.${arg}: must say it is TIMELINE-absolute — got: ${description}`,
+			).toBe(true);
+		}
+	}
+	for (const [verb, args] of Object.entries(ASSET_RELATIVE_ARGS)) {
+		for (const arg of args) {
+			const description = describe(verb, arg);
+			expect(
+				/asset[- ]relative/i.test(description),
+				`${verb}.${arg}: must say it is ASSET-relative — got: ${description}`,
+			).toBe(true);
+		}
+	}
+});
+
+test("split warns, in both dialects, that atTime is not the transcript timebase", () => {
+	const catalog = new Map(toolCatalog().map((t) => [t.name, t.description]));
+	const gemini = new Map(
+		toGeminiDeclarations().map((d) => [d.name, d.description]),
+	);
+	for (const description of [catalog.get("split"), gemini.get("split")]) {
+		expect(description ?? "").toMatch(/timeline[- ]absolute/i);
+		expect(description ?? "").toContain("atSourceTime");
+	}
+	// getTranscript must stop steering its asset-relative numbers at atTime.
+	expect(catalog.get("getTranscript") ?? "").toContain("atSourceTime");
 });
