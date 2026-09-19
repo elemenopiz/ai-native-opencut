@@ -54,6 +54,10 @@ import {
 } from "./craft-duck-music-scenario";
 import { multiStepUndoScenario } from "./storyboard-undo-scenario";
 import { generationFailureScenario } from "./generation-failure-scenario";
+import {
+	APPLY_EDIT_FIXTURE_HISTORY_LENGTH,
+	applyEditScenario,
+} from "./apply-edit-scenario";
 import { runScenario } from "./runner";
 import {
 	assertKnownVerbs,
@@ -88,6 +92,7 @@ const allScenarios = [
 	duckMusicScenario,
 	multiStepUndoScenario,
 	generationFailureScenario,
+	applyEditScenario,
 ];
 
 describe("Director eval harness — deterministic tier", () => {
@@ -276,6 +281,48 @@ describe("Director eval harness — deterministic tier", () => {
 		expect(undoResult.ok).toBe(true);
 		expect(run.fake.find("el_clip_one")?.element.duration).toBeCloseTo(3.9, 5);
 		expect(run.fake.find("el_clip_two")?.element.startTime).toBeCloseTo(3.9, 5);
+	});
+
+	test("applyEdit scenario: dry-run changes nothing, apply lands both trims as one undo entry, widened targeting reaches plain footage", async () => {
+		const run = await runScenario(applyEditScenario);
+
+		// The one reel slot `setupApplyEditProject` reserved, captured BEFORE the
+		// run mutated anything (same pattern `tightenScenario`'s own test uses).
+		const slotId = run.reelBefore.slots[0]?.id as string;
+		expect(slotId).toBeDefined();
+
+		// RESULTING TIMELINE STATE, not the verb call: the plain (non-slot) clip
+		// trimmed by 1s — proof `findSlotOrElement`'s widening actually reached
+		// plain placed footage, which `findSlot` alone could never resolve.
+		const plainClip = run.fake.find("el_plain_clip")?.element;
+		expect(plainClip?.trimStart).toBeCloseTo(1, 5);
+		expect(plainClip?.duration).toBeCloseTo(7, 5);
+
+		// The generative slot ALSO trimmed, by the SAME program, in the SAME
+		// run — proof the widening is additive: the pre-existing slot path
+		// still resolves exactly as it did before `findSlotOrElement` existed.
+		const slotEl = run.fake.find(slotId)?.element;
+		expect(slotEl?.duration).toBeCloseTo(8, 5);
+		expect(slotEl?.trimStart).toBeCloseTo(0, 5); // untouched — trim omitted it
+
+		// ONE new undo entry total across BOTH applyEdit calls: the dry-run call
+		// must have contributed zero (it never opens a transaction — see
+		// `program/executor.ts`'s `runProgram`, which only takes `undo` in
+		// `"apply"` mode), and the apply call's two `trim()` primitive calls
+		// must have collapsed into exactly one entry, not two.
+		expect(run.fake.editor.command.getHistoryLength()).toBe(
+			APPLY_EDIT_FIXTURE_HISTORY_LENGTH + 1,
+		);
+		expect(run.fake.editor.command.peekUndoOrigin()).toBe("agent");
+		expect(run.fake.editor.command.peekUndoName()).toBe("applyEdit");
+
+		// And it genuinely undoes cleanly, both elements at once — the whole
+		// point of "one undo step".
+		const undoResult = run.director.undo();
+		expect(undoResult.ok).toBe(true);
+		expect(run.fake.find("el_plain_clip")?.element.trimStart).toBe(0);
+		expect(run.fake.find("el_plain_clip")?.element.duration).toBe(8);
+		expect(run.fake.find(slotId)?.element.duration).toBe(10);
 	});
 
 	test("tightenToLength scenario shrinks both clips to the exact proportional split", async () => {

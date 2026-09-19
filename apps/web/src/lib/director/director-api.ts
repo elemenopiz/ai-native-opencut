@@ -63,6 +63,13 @@ import {
 	type TimeRangeSec,
 } from "./craft";
 import {
+	runProgram,
+	type ProgramOp,
+	type ProgramPrimitiveApi,
+	type ProgramRunMode,
+	type ProgramRunResult,
+} from "./program";
+import {
 	removeImageBackground,
 	type BackgroundRemovalResult,
 } from "@/lib/studio/background-removal";
@@ -5290,7 +5297,7 @@ export function createDirectorApi(
 		duration?: number;
 	}): DirectorResult {
 		const before = captureReel();
-		const located = findSlot(input.slotId);
+		const located = findSlotOrElement(input.slotId);
 		if (!located) return failSlotNotFound(input.slotId);
 		const el = located.element;
 		editor.timeline.updateElementTrim({
@@ -5300,7 +5307,7 @@ export function createDirectorApi(
 			startTime: input.startTime,
 			duration: input.duration,
 		});
-		return withDelta(before, ok(`Trimmed slot "${input.slotId}".`));
+		return withDelta(before, ok(`Trimmed "${input.slotId}".`));
 	}
 
 	/** `newStartTime` is in SECONDS. */
@@ -5310,7 +5317,7 @@ export function createDirectorApi(
 		targetTrackId?: string;
 	}): DirectorResult {
 		const before = captureReel();
-		const located = findSlot(input.slotId);
+		const located = findSlotOrElement(input.slotId);
 		if (!located) return failSlotNotFound(input.slotId);
 		editor.timeline.moveElement({
 			sourceTrackId: located.track.id,
@@ -5320,7 +5327,7 @@ export function createDirectorApi(
 		});
 		return withDelta(
 			before,
-			ok(`Moved slot "${input.slotId}" to ${input.newStartTime}s.`),
+			ok(`Moved "${input.slotId}" to ${input.newStartTime}s.`),
 		);
 	}
 
@@ -5330,7 +5337,7 @@ export function createDirectorApi(
 		atTime: number;
 	}): DirectorResult<{ newSlotIds: string[] }> {
 		const before = captureReel();
-		const located = findSlot(input.slotId);
+		const located = findSlotOrElement(input.slotId);
 		if (!located) return failSlotNotFound(input.slotId);
 		const right = editor.timeline.splitElements({
 			elements: [{ trackId: located.track.id, elementId: located.element.id }],
@@ -5338,7 +5345,7 @@ export function createDirectorApi(
 		});
 		return withDelta(
 			before,
-			ok(`Split slot "${input.slotId}" at ${input.atTime}s.`, {
+			ok(`Split "${input.slotId}" at ${input.atTime}s.`, {
 				newSlotIds: right.map((r) => r.elementId),
 			}),
 		);
@@ -5390,12 +5397,12 @@ export function createDirectorApi(
 
 	function remove(input: { slotId: string }): DirectorResult {
 		const before = captureReel();
-		const located = findSlot(input.slotId);
+		const located = findSlotOrElement(input.slotId);
 		if (!located) return failSlotNotFound(input.slotId);
 		editor.timeline.deleteElements({
 			elements: [{ trackId: located.track.id, elementId: located.element.id }],
 		});
-		return withDelta(before, ok(`Removed slot "${input.slotId}".`));
+		return withDelta(before, ok(`Removed "${input.slotId}".`));
 	}
 
 	/**
@@ -5498,6 +5505,15 @@ export function createDirectorApi(
 	 * Apply a transition to a slot's outgoing edge. Delegates to
 	 * `AddTransitionCommand` (mirrors the Transitions panel UI). `duration` is
 	 * SECONDS; omit it to use the transition's own default duration.
+	 *
+	 * TARGET-TYPE CHECK, new with the `findSlotOrElement` widening below:
+	 * `AddTransitionCommand` itself silently no-ops on a non-visual element
+	 * (`updateElementInTracks`'s `elementPredicate: isVisualElement` just
+	 * skips the update — no error, no effect) — fine when the target could
+	 * only ever be a generative slot (always video/image, always visual), but
+	 * a plain AUDIO element is now reachable too, and letting that through
+	 * would report `ok: true` for an edit that silently did nothing. Checked
+	 * explicitly here so that failure is loud instead of a no-op success.
 	 */
 	function applyTransition(input: {
 		slotId: string;
@@ -5505,8 +5521,13 @@ export function createDirectorApi(
 		duration?: number;
 	}): DirectorResult {
 		const before = captureReel();
-		const located = findSlot(input.slotId);
+		const located = findSlotOrElement(input.slotId);
 		if (!located) return failSlotNotFound(input.slotId);
+		if (!isVisualElement(located.element)) {
+			return fail(
+				`"${input.slotId}" is a "${located.element.type}" element — transitions only apply to visual elements (video/image/text/sticker).`,
+			);
+		}
 
 		const validTypes = getAllTransitions().map((t) => t.type);
 		if (!validTypes.includes(input.transitionType)) {
@@ -5526,9 +5547,7 @@ export function createDirectorApi(
 
 		return withDelta(
 			before,
-			ok(
-				`Applied "${input.transitionType}" transition to slot "${input.slotId}".`,
-			),
+			ok(`Applied "${input.transitionType}" transition to "${input.slotId}".`),
 		);
 	}
 
@@ -5536,8 +5555,11 @@ export function createDirectorApi(
 	 * Apply a visual effect to a slot. Delegates to
 	 * `editor.timeline.addClipEffect`, then optionally overrides params via
 	 * `updateClipEffectParams`. Generative slots are always video/image
-	 * elements, which are within `EFFECT_TARGET_ELEMENT_TYPES` — no extra
-	 * target-type check needed here.
+	 * elements, which are within `EFFECT_TARGET_ELEMENT_TYPES` — but see the
+	 * explicit `isVisualElement` check below, added for the SAME reason
+	 * `applyTransition` just above needed one: `findSlotOrElement` now also
+	 * resolves plain, non-visual (audio) elements, and `AddClipEffectCommand`
+	 * silently no-ops on those rather than failing.
 	 */
 	function applyEffect(input: {
 		slotId: string;
@@ -5545,8 +5567,13 @@ export function createDirectorApi(
 		params?: Partial<EffectParamValues>;
 	}): DirectorResult<{ effectId: string }> {
 		const before = captureReel();
-		const located = findSlot(input.slotId);
+		const located = findSlotOrElement(input.slotId);
 		if (!located) return failSlotNotFound(input.slotId);
+		if (!isVisualElement(located.element)) {
+			return fail(
+				`"${input.slotId}" is a "${located.element.type}" element — effects only apply to visual elements (video/image/text/sticker).`,
+			);
+		}
 
 		const validTypes = getAllEffects().map((e) => e.type);
 		if (!validTypes.includes(input.effectType)) {
@@ -5570,7 +5597,7 @@ export function createDirectorApi(
 
 		return withDelta(
 			before,
-			ok(`Applied "${input.effectType}" effect to slot "${input.slotId}".`, {
+			ok(`Applied "${input.effectType}" effect to "${input.slotId}".`, {
 				effectId,
 			}),
 		);
@@ -5594,6 +5621,34 @@ export function createDirectorApi(
 			if (element) return { track, element };
 		}
 		return null;
+	}
+
+	/**
+	 * Target resolution for `trim`/`move`/`split`/`remove`/`applyTransition`/
+	 * `applyEffect` (Wave 2A — closes `program/executor.ts`'s "KNOWN GAPS"
+	 * slot-only-targeting note and `program/primitives.ts`'s TARGETING
+	 * CAVEAT). Those six verbs used to resolve ONLY via `findSlot` —
+	 * generative reel slots — which is exactly why `executeCraftPlan` above
+	 * re-implements trim/move against `findElement` instead of reusing them: a
+	 * program (or any editing-first caller) could not trim plain, already-cut
+	 * footage through the public verb at all.
+	 *
+	 * SLOT-FIRST, NOT SLOT-ONLY: try `findSlot`, then fall back to
+	 * `findElement`. This is deliberately NOT a straight swap to `findElement`
+	 * alone, for the not-found case specifically —
+	 * `director-lookup-errors.test.ts`'s "applyEffect on a missing slot
+	 * returns SLOT_NOT_FOUND (not EFFECT_NOT_FOUND) — slot resolves first"
+	 * pins that an id matching NEITHER a slot NOR any element still reports
+	 * `SLOT_NOT_FOUND` (via `failSlotNotFound`, unchanged at every call site
+	 * below) — the exact code/message contract these verbs had before this
+	 * widening. Only the FOUND case grows: an id that is a plain placed
+	 * element (video/image/audio/text — anything `findElement` sees) now
+	 * resolves instead of failing, which is the whole point.
+	 */
+	function findSlotOrElement(
+		id: string,
+	): { track: TimelineTrack; element: TimelineElement } | null {
+		return findSlot(id) ?? findElement(id);
 	}
 
 	/**
@@ -6787,6 +6842,125 @@ export function createDirectorApi(
 		);
 	}
 
+	// ---- PROGRAM ENGINE (lib/director/program/*) ---------------------------
+	//
+	// `applyEdit` is the ONE verb over the sandboxed program engine (Layer 2 of
+	// docs/plans/2026-09-18-director-autonomy-architecture.md §2): a short,
+	// whitelisted-AST script written over the same ten primitives (trim/move/
+	// split/reorder/remove/addClip/addText/applyTransition/applyEffect/
+	// animateItem) the catalog already exposes one call at a time, plus
+	// read-only derived-data reads (clips/tracks/scenes/beats/speech) so a
+	// plan can be COMPUTED from the timeline's actual state instead of the
+	// model doing that arithmetic in prose and hoping the ids/times line up.
+	// See `program/executor.ts`'s module docblock for the full threat model —
+	// this verb changes composition, not authority: every primitive it can
+	// reach is a primitive the catalog already grants one call at a time.
+
+	/**
+	 * `programApi` binds the RAW local closures (`trim`, `move`, …) below, NOT
+	 * the `withAgentOrigin`-wrapped verbs `d.trim` etc. resolve to on the
+	 * returned `DirectorApi` — calling through the wrapped versions here would
+	 * open one redundant nested transaction per primitive call for no benefit
+	 * (harmless either way, since nested transactions merge upward per
+	 * `CommandManager.beginTransaction`'s own doc, but there is no reason to
+	 * pay for it). Assignable with NO CAST because `ProgramPrimitiveApi`
+	 * declares its methods with METHOD SYNTAX specifically so parameter
+	 * bivariance accepts the real (more specific) verb signatures — see
+	 * `program/primitives.ts`'s header.
+	 */
+	const programApi: ProgramPrimitiveApi = {
+		trim,
+		move,
+		split,
+		reorder,
+		remove,
+		addClip,
+		addText,
+		applyTransition,
+		applyEffect,
+		animateItem,
+	};
+
+	/**
+	 * Run a program over the primitive surface (`runProgram`, `program/
+	 * executor.ts`). `mode` defaults to `"dry-run"` — see this section's header
+	 * and the tool-catalog description: the intended loop is INSPECT (read
+	 * `data.ops`/`data.logs` from a dry run) THEN APPLY (re-call with the
+	 * IDENTICAL program text and `mode: "apply"`). This verb does not enforce
+	 * that ordering — nothing stops a model calling `"apply"` first — it is a
+	 * policy the description leads with, not a mechanism.
+	 *
+	 * ATOMICITY: `editor.command` is always passed as the run's undo scope,
+	 * but `runProgram` only actually opens a transaction with it in `"apply"`
+	 * mode (`program/executor.ts`), so a dry run never touches undo history at
+	 * all — nested inside THIS verb's own choke-point transaction
+	 * (`withAgentOrigin`, near the bottom of this file), an applied run's
+	 * transaction merges upward into it, which is what collapses N primitive
+	 * calls into exactly ONE undo entry tagged `{ origin: "agent", name:
+	 * "applyEdit" }` (see executor.ts's "ATOMICITY / UNDO" section).
+	 *
+	 * DATA WIRING: `tracks`/`beatGrid` mirror `cutOnBeat`'s own sources exactly
+	 * (same `useBeatGridStore` read); `transcripts` forwards `options.
+	 * transcripts` when the host supplied one, same source
+	 * `gatherSpeechIntervals` reads. `words`/`pcm` are deliberately NOT wired —
+	 * nothing in this api keeps a synchronous per-asset word-timing or
+	 * decoded-PCM cache (`readMix`'s PCM path is a one-shot async mixdown, not
+	 * a reusable per-asset cache) — so `words()`/`loudness()` correctly REFUSE
+	 * inside a program run here (a named "unavailable" error) rather than
+	 * silently answering wrong.
+	 */
+	function applyEdit(input: {
+		program: string;
+		mode?: ProgramRunMode;
+	}): DirectorResult<{
+		mode: ProgramRunMode;
+		ops: ProgramOp[];
+		logs: string[];
+		usage: ProgramRunResult["usage"];
+	}> {
+		if (!input.program || !input.program.trim()) {
+			return fail("applyEdit requires a non-empty program.");
+		}
+		const mode: ProgramRunMode = input.mode ?? "dry-run";
+		const before = mode === "apply" ? captureReel() : undefined;
+
+		const result = runProgram({
+			source: input.program,
+			mode,
+			api: programApi,
+			data: {
+				tracks: () => editor.timeline.getTracks(),
+				beatGrid: () => useBeatGridStore.getState().grid,
+				...(options.transcripts ? { transcripts: options.transcripts } : {}),
+			},
+			undo: editor.command,
+		});
+
+		const payload = {
+			mode,
+			ops: result.ops,
+			logs: result.logs,
+			usage: result.usage,
+		};
+
+		if (!result.ok) {
+			// Structured failure detail (parse line/col, which cap tripped, which
+			// op index/verb failed) lives in `result.failure`; `message` already
+			// renders it in prose (see `executor.ts`'s `toFailure`/`describeError`).
+			// `data.ops` is still the partial op log up to the failure point — "what
+			// was it doing when it broke" per `ProgramOp`'s own doc comment.
+			return { ok: false, message: result.message, data: payload };
+		}
+
+		const message =
+			mode === "dry-run"
+				? `${result.message} Inspect data.ops, then re-call applyEdit with the SAME program and mode: "apply" to execute it.`
+				: result.message;
+
+		const applied = ok(message, payload);
+		return before ? withDelta(before, applied) : applied;
+	}
+
 	// ---- AI CLEANUP -------------------------------------------------------
 	//
 	// Wires the EXISTING AI matting pipeline (`lib/studio/background-removal.ts`,
@@ -7221,6 +7395,11 @@ export function createDirectorApi(
 		// audio perception (lib/director/mix-read.ts) — the read the craft
 		// macros above should be chosen from, rather than guessed at.
 		readMix,
+		// program engine (lib/director/program/*) — the composition verb that
+		// subsumes cutOnBeat and the rest of the craft trio (see phase-scope.ts's
+		// PHASE_TOOL_ASSIGNMENTS comment on applyEdit for the deletion-candidate
+		// reasoning).
+		applyEdit,
 		// AI cleanup
 		removeBackground,
 		// lifecycle

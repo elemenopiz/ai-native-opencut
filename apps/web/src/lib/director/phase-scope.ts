@@ -301,6 +301,20 @@ export const PHASE_TOOL_ASSIGNMENTS: Readonly<
 	// being assembled, and none of the verbs that would act on a bad reading
 	// are on the menu there.
 	readMix: ["polish"],
+	// applyEdit (Wave 2A — the program-engine composition verb, lib/director/
+	// program/*): polish ONLY, for the same reason its own primitives
+	// (trim/move/split/reorder/remove/addClip/addText/applyTransition/
+	// applyEffect/animateItem) all live there — a program can only ever call
+	// primitives this bucket already grants one at a time, so bucketing it
+	// anywhere else would let it reach ops its OWN phase can't reach
+	// individually. See `phase-scope.test.ts`'s count-bounds comment for why
+	// this pushed the shared ceiling 34 → 35, and for the macro-verb
+	// deletion-candidate list that is this increment's written justification
+	// (cutOnBeat proven, tightenToLength/duckMusicUnderSpeech plausible) —
+	// applyEdit is explicitly a COMPOSITION verb that SUBSUMES those macros,
+	// so the honest expectation is that a LATER pass deletes them and this
+	// bucket eventually SHRINKS below 34, not that it keeps growing.
+	applyEdit: ["polish"],
 };
 
 /**

@@ -2107,6 +2107,38 @@ export function toolCatalog(): ToolDescriptor[] {
 					),
 				}),
 		},
+		// ── program engine (lib/director/program/*) — ONE composition verb over
+		// the primitive editing surface. See `director-api.ts`'s `applyEdit` doc
+		// comment for the atomicity/data-wiring contract this handler relies on.
+		{
+			name: "applyEdit",
+			description:
+				'Run a short PROGRAM — a tiny deterministic script, not prose — over the timeline-editing primitives (trim, move, split, reorder, remove, addClip, addText, applyTransition, applyEffect, animateItem) plus read-only data reads (clips(), tracks(), scenes(), beats(), speech()). Use this instead of a long chain of individual verb calls when the edit is COMPOSED or CONDITIONAL — e.g. "trim every clip under 1s", "shift every clip after this join by 2s", or a bespoke cut rule a single macro does not cover. ALWAYS CALL WITH mode: "dry-run" FIRST (the default, even if omitted) — it returns the COMPLETE ORDERED LIST of operations the program WOULD perform (in `data.ops`) plus its own log() lines (`data.logs`) and changes NOTHING on the timeline. Read that op list; only once it looks right, call AGAIN with the IDENTICAL program text and mode: "apply" to actually run it. An applied run lands as exactly ONE undo step, so a mistake is one undo() away. This grants no new capability — every primitive it can call is one this catalog already exposes as its own verb, one call at a time — it only lets you COMPOSE them instead of guessing ids/times in prose across many round-trips.',
+			mutating: true,
+			inputSchema: {
+				type: "object",
+				properties: {
+					program: {
+						type: "string",
+						description:
+							'The program source: a small whitelisted script (let/if/for + calls into the primitives and data reads named above — no while, no methods, no eval, no closures). Call with mode "dry-run" to see exactly what it would do before trusting it with mode "apply".',
+					},
+					mode: {
+						type: "string",
+						enum: ["dry-run", "apply"],
+						description:
+							'"dry-run" (the default — use this first): plans only, returns data.ops/data.logs, applies nothing. "apply": actually execute the SAME program text, as one undo step.',
+					},
+				},
+				required: ["program"],
+				additionalProperties: false,
+			},
+			handler: (d, a) =>
+				d.applyEdit({
+					program: str(a.program),
+					mode: a.mode === "apply" ? "apply" : undefined,
+				}),
+		},
 		// ── text (elementId is a FULL id, never a reel short id) ─────────────
 		{
 			name: "addText",
