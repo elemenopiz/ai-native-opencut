@@ -148,8 +148,11 @@ describe("buildFootageInventory", () => {
 			{ id: "deep", kind: "video", durationSec: 1 },
 		];
 		const understandingLookup: AssetUnderstandingCanonicalLookup = lookupFrom({
-			shallow: understanding(), // no motion/shotType ⇒ shallow
-			deep: understanding({ motion: "handheld", shotType: "medium" }),
+			shallow: understanding(), // no shotType ⇒ shallow
+			// `shotType` alone is the deep signal — `motion` is measured outside the
+			// model call now and is legitimately absent on stills, so requiring it
+			// would mark those permanently shallow. See `isDeepUnderstanding`.
+			deep: understanding({ shotType: "medium" }),
 		});
 		const inv = buildFootageInventory({
 			assets,

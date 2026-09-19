@@ -72,8 +72,14 @@ export interface ManifestStyleProbe {
  * Camera-motion energy class (mirrors `MotionClass` in
  * `@/lib/search/asset-understanding` — own-copy discipline, see
  * {@link AssetUnderstanding}).
+ *
+ * Three classes, matching the sibling's narrowing: motion is now MEASURED from
+ * luma fingerprints rather than reported by the model, and a fingerprint at the
+ * pass's sampling cadence cannot separate a pan from a handheld wobble. Legacy
+ * records carrying the old `pan`/`handheld` are collapsed to `moving` by
+ * `normalizeMotion` at the adapter boundary (`understanding-lookup.ts`).
  */
-export type ManifestMotionClass = "static" | "pan" | "handheld" | "fast-cut";
+export type ManifestMotionClass = "static" | "moving" | "fast-cut";
 
 /** Framing distance (mirrors `ShotType`). */
 export type ManifestShotType =
@@ -99,7 +105,11 @@ export interface ManifestComposition {
 	ruleOfThirds?: boolean;
 }
 
-/** MINIMAL LOCAL MIRROR of `AudioProbe`. */
+/**
+ * MINIMAL LOCAL MIRROR of `AudioProbe`. Both fields are MEASURED from the
+ * asset's real audio (transcript for speech, a loudness curve for energy) —
+ * absent means the measuring pass hasn't run, never "no".
+ */
 export interface ManifestAudioProbe {
 	hasSpeech?: boolean;
 	energy?: "low" | "medium" | "high";
@@ -785,7 +795,7 @@ function formatRoleSegments(
  * `styleProbe`/`composition`/`audio`/`continuityFingerprint`, which ride the
  * structured {@link ManifestHero} only). Only `shotType`/`motion`/`emotion`
  * are cheap+legible enough for the always-injected prompt line; e.g.
- * `[CU·handheld·tense]`. Returns `""` (zero bytes) when the hero has none —
+ * `[CU·moving·tense]`. Returns `""` (zero bytes) when the hero has none —
  * the silent-degrade contract every other facet in this module follows.
  */
 function formatHeroFacets(h: ManifestHero): string {
@@ -799,7 +809,7 @@ function formatHeroFacets(h: ManifestHero): string {
 /**
  * The grounded digest, e.g.:
  * `LIBRARY (31 assets): 4 hero · 1 logo · 3 face-anchor (Mara ×2) · 23 b-roll.
- *  Heroes: #4 "product on marble, backlit" [CU·handheld·tense], #7 "founder
+ *  Heroes: #4 "product on marble, backlit" [CU·moving·tense], #7 "founder
  *  to-camera". 23 more b-roll — searchable via searchMedia.`
  */
 function formatGroundedDigest(m: {

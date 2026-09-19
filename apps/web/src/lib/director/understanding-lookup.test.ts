@@ -71,7 +71,7 @@ describe("adaptUnderstandingForManifest", () => {
 
 	it("carries the DEEPENED perception fields through when present (Bet 1)", () => {
 		const u = canonical({
-			motion: "handheld",
+			motion: "moving",
 			shotType: "close-up",
 			composition: { subjectPosition: "center", ruleOfThirds: true },
 			emotion: "tense",
@@ -84,7 +84,7 @@ describe("adaptUnderstandingForManifest", () => {
 			},
 		});
 		const m = adaptUnderstandingForManifest(u);
-		expect(m.motion).toBe("handheld");
+		expect(m.motion).toBe("moving");
 		expect(m.shotType).toBe("close-up");
 		expect(m.composition).toEqual({
 			subjectPosition: "center",
@@ -98,6 +98,21 @@ describe("adaptUnderstandingForManifest", () => {
 			wardrobe: "navy blazer",
 			colorSignature: "warm amber",
 		});
+	});
+
+	it("collapses a LEGACY four-class motion value on read (the store has no migration)", () => {
+		// A record persisted before motion was narrowed — `pan`/`handheld` were the
+		// pair the sampled frames could never actually distinguish. The adapter is
+		// the read boundary where they become `moving`.
+		const legacy = { ...canonical(), motion: "handheld" as never };
+		expect(adaptUnderstandingForManifest(legacy).motion).toBe("moving");
+		const legacyPan = { ...canonical(), motion: "pan" as never };
+		expect(adaptUnderstandingForManifest(legacyPan).motion).toBe("moving");
+	});
+
+	it("drops an unrecognizable stored motion value rather than passing junk to the Director", () => {
+		const junk = { ...canonical(), motion: "wobbly-ish" as never };
+		expect(adaptUnderstandingForManifest(junk).motion).toBeUndefined();
 	});
 
 	it("degrades silently: a SHALLOW canonical record (no deepened fields) omits them all from the manifest shape", () => {

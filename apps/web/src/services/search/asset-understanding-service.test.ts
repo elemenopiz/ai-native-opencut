@@ -5,10 +5,12 @@ import {
 	UnderstandingRelayError,
 } from "@/lib/search/asset-understanding";
 import {
+	probeAssetAudio,
 	resolveUnderstandingModelName,
 	UNDERSTANDING_MODEL,
 	understandAssetBatch,
 } from "./asset-understanding-service";
+import type { AssetTranscript } from "@/lib/search/asset-transcript";
 
 /** A minimal visual asset; override per test. */
 function asset(id: string): MediaAsset {
@@ -144,8 +146,7 @@ describe("resolveUnderstandingModelName — where a record's modelName originate
 	/** Run `fn` with the env config set/cleared, restoring it afterwards (per-call read, no module reload). */
 	function withEnvModel<T>(value: string | undefined, fn: () => T): T {
 		const prev = process.env.NEXT_PUBLIC_UNDERSTANDING_MODEL;
-		if (value === undefined)
-			delete process.env.NEXT_PUBLIC_UNDERSTANDING_MODEL;
+		if (value === undefined) delete process.env.NEXT_PUBLIC_UNDERSTANDING_MODEL;
 		else process.env.NEXT_PUBLIC_UNDERSTANDING_MODEL = value;
 		try {
 			return fn();
@@ -156,10 +157,12 @@ describe("resolveUnderstandingModelName — where a record's modelName originate
 		}
 	}
 
-	it("defaults to the vlm-v1 pipeline tag (today's behavior)", () => {
+	it("defaults to the current pipeline tag", () => {
 		withEnvModel(undefined, () => {
 			expect(resolveUnderstandingModelName()).toBe(UNDERSTANDING_MODEL);
-			expect(resolveUnderstandingModelName()).toBe("vlm-v1");
+			// `vlm-v2` retires the `vlm-v1` corpus: those records carry a `motion`
+			// and an `audio` the model invented, and there is nothing to repair.
+			expect(resolveUnderstandingModelName()).toBe("vlm-v2");
 		});
 	});
 
@@ -177,5 +180,139 @@ describe("resolveUnderstandingModelName — where a record's modelName originate
 		withEnvModel("gemini-3.5-flash", () => {
 			expect(resolveUnderstandingModelName("vlm-test")).toBe("vlm-test");
 		});
+	});
+});
+
+describe("probeAssetAudio — the MEASURED replacement for asking a blind model", () => {
+	/** An asset carrying real bytes, so the energy half has something to decode. */
+	function audioAsset(over: Partial<MediaAsset> = {}): MediaAsset {
+		return {
+			id: "m1",
+			name: "clip.mp4",
+			type: "video",
+			url: "blob:m1",
+			file: new File([new Uint8Array([1, 2, 3])], "clip.mp4", {
+				type: "video/mp4",
+			}),
+			...over,
+		} as MediaAsset;
+	}
+
+	function transcript(segments: AssetTranscript["segments"]): AssetTranscript {
+		return {
+			mediaId: "m1",
+			segments,
+			language: "en",
+			createdAt: 1,
+		} as AssetTranscript;
+	}
+
+	/** A decode stub returning a constant-amplitude signal at `level`. */
+	const decodeAt = (level: number) => async () =>
+		new Float32Array(16000).fill(level);
+
+	it("takes hasSpeech from the TRANSCRIPT, which actually answers it", async () => {
+		const probe = await probeAssetAudio(audioAsset(), {
+			transcript: async () =>
+				transcript([{ start: 0, end: 1, text: "hello there" }]),
+			decode: decodeAt(0.5),
+		});
+		expect(probe?.hasSpeech).toBe(true);
+	});
+
+	it("distinguishes 'transcribed, silent' (false) from 'not transcribed yet' (absent)", async () => {
+		const transcribedSilent = await probeAssetAudio(audioAsset(), {
+			transcript: async () => transcript([]),
+			decode: decodeAt(0.5),
+		});
+		expect(transcribedSilent?.hasSpeech).toBe(false);
+
+		const notTranscribed = await probeAssetAudio(audioAsset(), {
+			transcript: async () => undefined,
+			decode: decodeAt(0.5),
+		});
+		expect(notTranscribed).toBeDefined();
+		expect(notTranscribed?.hasSpeech).toBeUndefined();
+	});
+
+	it("bands energy off the real decoded signal", async () => {
+		const hot = await probeAssetAudio(audioAsset(), {
+			transcript: async () => undefined,
+			decode: decodeAt(0.9),
+		});
+		expect(hot?.energy).toBe("high");
+
+		const quiet = await probeAssetAudio(audioAsset(), {
+			transcript: async () => undefined,
+			decode: decodeAt(0.004),
+		});
+		expect(quiet?.energy).toBe("low");
+	});
+
+	it("returns undefined when NEITHER source has anything — never an empty shell", async () => {
+		const probe = await probeAssetAudio(audioAsset(), {
+			transcript: async () => undefined,
+			decode: async () => {
+				throw new Error("no decodable audio track");
+			},
+		});
+		expect(probe).toBeUndefined();
+	});
+
+	it("keeps the speech half when the decode fails", async () => {
+		const probe = await probeAssetAudio(audioAsset(), {
+			transcript: async () =>
+				transcript([{ start: 0, end: 1, text: "hello there" }]),
+			decode: async () => {
+				throw new Error("no decodable audio track");
+			},
+		});
+		expect(probe).toEqual({ hasSpeech: true });
+	});
+
+	it("skips the decode for an image, and for an asset with no bytes", async () => {
+		let decoded = 0;
+		const countingDecode = async () => {
+			decoded += 1;
+			return new Float32Array(16000).fill(0.9);
+		};
+		const image = await probeAssetAudio(
+			audioAsset({ type: "image", name: "still.jpg" }),
+			{ transcript: async () => undefined, decode: countingDecode },
+		);
+		expect(image).toBeUndefined();
+
+		const urlOnly = await probeAssetAudio(
+			audioAsset({ file: undefined as unknown as File }),
+			{ transcript: async () => undefined, decode: countingDecode },
+		);
+		expect(urlOnly).toBeUndefined();
+		expect(decoded).toBe(0);
+	});
+
+	it("skips the decode for an over-long asset rather than chewing through it", async () => {
+		let decoded = 0;
+		const probe = await probeAssetAudio(
+			audioAsset({ duration: 60 * 60 } as Partial<MediaAsset>),
+			{
+				transcript: async () => undefined,
+				decode: async () => {
+					decoded += 1;
+					return new Float32Array(16000).fill(0.9);
+				},
+			},
+		);
+		expect(decoded).toBe(0);
+		expect(probe).toBeUndefined();
+	});
+
+	it("a transcript-store failure degrades to absent instead of throwing", async () => {
+		const probe = await probeAssetAudio(audioAsset(), {
+			transcript: async () => {
+				throw new Error("IndexedDB unavailable");
+			},
+			decode: decodeAt(0.9),
+		});
+		expect(probe).toEqual({ energy: "high" });
 	});
 });

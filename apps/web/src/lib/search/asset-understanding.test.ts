@@ -3,7 +3,9 @@ import {
 	type AssetUnderstanding,
 	ASSET_ROLES,
 	ASSET_UNDERSTANDING_RESPONSE_SCHEMA,
+	ASSET_UNDERSTANDING_SYSTEM_PROMPT,
 	applyRoleSignal,
+	classifyAudioEnergy,
 	buildUnderstandingGeminiParts,
 	buildUnderstandingUserBlocks,
 	computeLumaGrid,
@@ -11,6 +13,7 @@ import {
 	dataUrlToInlineDataPart,
 	degradedUnderstanding,
 	effectiveRole,
+	estimateMotion,
 	geminiUnderstandAsset,
 	gridDiff,
 	isCreditGateError,
@@ -18,6 +21,7 @@ import {
 	isGeminiModel,
 	type LumaGrid,
 	MOTION_CLASSES,
+	type MotionSample,
 	normalizeMotion,
 	normalizeRole,
 	normalizeShotType,
@@ -25,6 +29,7 @@ import {
 	type PersonaRef,
 	pickShotRepresentatives,
 	relayUnderstandAsset,
+	SHOT_DIFF_THRESHOLD,
 	renderPersonaRoster,
 	segmentShots,
 	selectUnderstandAssetFn,
@@ -113,14 +118,13 @@ describe("parseAssetUnderstanding — happy path", () => {
 });
 
 describe("parseAssetUnderstanding — deepened perception (Bet 1)", () => {
-	it("parses motion/shotType/composition/emotion/audio/continuity when present", () => {
+	it("parses shotType/composition/emotion/continuity when present", () => {
 		const u = parseAssetUnderstanding(
 			JSON.stringify({
-				caption: "founder pacing while talking, handheld",
+				caption: "founder pacing while talking",
 				role: "face-anchor",
 				roleConfidence: 0.7,
 				tags: ["founder"],
-				motion: "handheld",
 				shotType: "medium",
 				composition: {
 					subjectPosition: "center",
@@ -128,7 +132,6 @@ describe("parseAssetUnderstanding — deepened perception (Bet 1)", () => {
 					ruleOfThirds: true,
 				},
 				emotion: "energetic",
-				audio: { hasSpeech: true, energy: "high" },
 				continuity: {
 					lighting: "soft key, warm backlight",
 					whiteBalance: "warm/tungsten",
@@ -138,7 +141,6 @@ describe("parseAssetUnderstanding — deepened perception (Bet 1)", () => {
 			}),
 			CTX(),
 		);
-		expect(u.motion).toBe("handheld");
 		expect(u.shotType).toBe("medium");
 		expect(u.composition).toEqual({
 			subjectPosition: "center",
@@ -146,7 +148,6 @@ describe("parseAssetUnderstanding — deepened perception (Bet 1)", () => {
 			ruleOfThirds: true,
 		});
 		expect(u.emotion).toBe("energetic");
-		expect(u.audio).toEqual({ hasSpeech: true, energy: "high" });
 		expect(u.continuityFingerprint).toEqual({
 			lighting: "soft key, warm backlight",
 			whiteBalance: "warm/tungsten",
@@ -154,6 +155,39 @@ describe("parseAssetUnderstanding — deepened perception (Bet 1)", () => {
 			colorSignature: "warm amber grade",
 		});
 		expect(isDeepUnderstanding(u)).toBe(true);
+	});
+
+	it("DROPS motion/audio even when the model volunteers them — it has no evidence for either", () => {
+		const u = parseAssetUnderstanding(
+			JSON.stringify({
+				caption: "founder pacing while talking",
+				role: "face-anchor",
+				roleConfidence: 0.7,
+				tags: ["founder"],
+				shotType: "medium",
+				// A model that ignores the prompt and emits these anyway: the frames
+				// are stills seconds apart and carry no audio, so both are invention.
+				// The parser is the gate that keeps them out of the record.
+				motion: "handheld",
+				audio: { hasSpeech: true, energy: "high" },
+			}),
+			CTX(),
+		);
+		expect(u.motion).toBeUndefined();
+		expect(u.audio).toBeUndefined();
+		// The facets it CAN see still land.
+		expect(u.shotType).toBe("medium");
+		expect(u.caption).toBe("founder pacing while talking");
+	});
+
+	it("neither motion nor audio appears in the extraction prompt", () => {
+		const prompt = ASSET_UNDERSTANDING_SYSTEM_PROMPT;
+		expect(prompt).not.toContain('"motion"');
+		expect(prompt).not.toContain('"audio"');
+		expect(prompt).not.toContain("hasSpeech");
+		// And the forcing instruction that caused the fabrication is gone.
+		expect(prompt).not.toContain("never omit these two");
+		expect(prompt).toContain("Do NOT report camera motion");
 	});
 
 	it("degrades silently: a reply with none of the deep fields omits them all, isDeepUnderstanding false", () => {
@@ -188,12 +222,17 @@ describe("parseAssetUnderstanding — deepened perception (Bet 1)", () => {
 		expect(isDeepUnderstanding(roundTripped)).toBe(false);
 	});
 
-	it("normalizes motion synonyms (handheld/shaky, static/tripod, pan/dolly/gimbal, fast/whip)", () => {
-		expect(normalizeMotion("shaky cam")).toBe("handheld");
+	it("normalizeMotion collapses the legacy four-class vocabulary onto the measured three", () => {
+		// The READ-path migration for records already in the schema-less store:
+		// `pan` and `handheld` were the pair the frames could never distinguish.
+		expect(normalizeMotion("pan")).toBe("moving");
+		expect(normalizeMotion("handheld")).toBe("moving");
+		expect(normalizeMotion("shaky cam")).toBe("moving");
+		expect(normalizeMotion("slow dolly")).toBe("moving");
 		expect(normalizeMotion("locked off tripod")).toBe("static");
-		expect(normalizeMotion("slow dolly")).toBe("pan");
 		expect(normalizeMotion("whip pan cuts")).toBe("fast-cut");
 		expect(normalizeMotion("nonsense")).toBeNull();
+		expect(normalizeMotion(undefined)).toBeNull();
 		for (const m of MOTION_CLASSES) expect(normalizeMotion(m)).toBe(m);
 	});
 
@@ -209,15 +248,97 @@ describe("parseAssetUnderstanding — deepened perception (Bet 1)", () => {
 		for (const s of SHOT_TYPES) expect(normalizeShotType(s)).toBe(s);
 	});
 
-	it("motion/shotType are REQUIRED in the Gemini response schema (the isDeepUnderstanding signal)", () => {
-		expect(ASSET_UNDERSTANDING_RESPONSE_SCHEMA.required).toContain("motion");
+	it("shotType is REQUIRED in the Gemini response schema (the isDeepUnderstanding signal)", () => {
 		expect(ASSET_UNDERSTANDING_RESPONSE_SCHEMA.required).toContain("shotType");
-		expect(ASSET_UNDERSTANDING_RESPONSE_SCHEMA.properties.motion.enum).toEqual([
-			...MOTION_CLASSES,
-		]);
 		expect(
 			ASSET_UNDERSTANDING_RESPONSE_SCHEMA.properties.shotType.enum,
 		).toEqual([...SHOT_TYPES]);
+	});
+
+	it("motion/audio are absent from the Gemini schema ENTIRELY, not merely optional", () => {
+		// A structured-output schema is an instruction: listing a field the model
+		// has no evidence for is how the fabrication started, so neither key
+		// appears as a property, in `required`, or in `propertyOrdering`.
+		const schema = ASSET_UNDERSTANDING_RESPONSE_SCHEMA;
+		const props = Object.keys(schema.properties);
+		expect(props).not.toContain("motion");
+		expect(props).not.toContain("audio");
+		expect([...schema.required]).not.toContain("motion");
+		expect([...schema.required]).not.toContain("audio");
+		expect([...schema.propertyOrdering]).not.toContain("motion");
+		expect([...schema.propertyOrdering]).not.toContain("audio");
+	});
+});
+
+describe("estimateMotion — measured from the luma fingerprints", () => {
+	/** A flat grid at a uniform luma, so diffs between two are exactly predictable. */
+	const flat = (luma: number): LumaGrid => new Array(64).fill(luma);
+
+	const samples = (lumas: number[], intervalSec = 2): MotionSample[] =>
+		lumas.map((luma, i) => ({
+			grid: flat(luma),
+			timestampSec: i * intervalSec,
+		}));
+
+	it("returns null for fewer than two frames — a still image has no motion to measure", () => {
+		expect(estimateMotion([])).toBeNull();
+		expect(estimateMotion(samples([0.5]))).toBeNull();
+	});
+
+	it("a locked-off framing reads static", () => {
+		// Consecutive fingerprints barely move: below MOTION_STATIC_DIFF.
+		expect(estimateMotion(samples([0.5, 0.505, 0.5, 0.503, 0.5]))).toBe(
+			"static",
+		);
+	});
+
+	it("a framing that drifts between samples reads moving", () => {
+		// Well above the static line, well below the cut line.
+		expect(estimateMotion(samples([0.5, 0.55, 0.6, 0.65, 0.7]))).toBe("moving");
+	});
+
+	it("cut after cut at a dense cadence reads fast-cut", () => {
+		// Each step exceeds SHOT_DIFF_THRESHOLD, so every pair is a cut.
+		const step = SHOT_DIFF_THRESHOLD + 0.1;
+		const lumas = [0, step, 0, step, 0, step];
+		expect(estimateMotion(samples(lumas, 2))).toBe("fast-cut");
+	});
+
+	it("does NOT call fast-cut when the sampler was too sparse to tell a fast edit from a slow one", () => {
+		// The same all-cuts pattern, but sampled 12 s apart (what a long video
+		// gets): ordinary footage looks like this, so the honest answer is null.
+		const step = SHOT_DIFF_THRESHOLD + 0.1;
+		expect(estimateMotion(samples([0, step, 0, step, 0, step], 12))).toBeNull();
+	});
+
+	it("one stray cut does not make a clip fast-cut", () => {
+		const lumas = [0.5, 0.5, 0.5, 0.5, SHOT_DIFF_THRESHOLD + 0.7];
+		expect(estimateMotion(samples(lumas))).toBe("static");
+	});
+});
+
+describe("classifyAudioEnergy — banded from a real loudness curve", () => {
+	it("returns null for an empty curve (absent, never a default)", () => {
+		expect(classifyAudioEnergy([])).toBeNull();
+		expect(classifyAudioEnergy(new Float32Array(0))).toBeNull();
+	});
+
+	it("digital silence is a real measurement: low", () => {
+		expect(classifyAudioEnergy(new Float32Array(100))).toBe("low");
+	});
+
+	it("bands a hot, a conversational and a near-silent curve", () => {
+		// ~-1.9 dBFS, ~-20 dBFS, ~-46 dBFS.
+		expect(classifyAudioEnergy(new Array(50).fill(0.8))).toBe("high");
+		expect(classifyAudioEnergy(new Array(50).fill(0.1))).toBe("medium");
+		expect(classifyAudioEnergy(new Array(50).fill(0.005))).toBe("low");
+	});
+
+	it("ignores non-finite samples instead of poisoning the RMS", () => {
+		expect(
+			classifyAudioEnergy([0.8, Number.NaN, 0.8, Number.POSITIVE_INFINITY]),
+		).toBe("high");
+		expect(classifyAudioEnergy([Number.NaN])).toBeNull();
 	});
 });
 
