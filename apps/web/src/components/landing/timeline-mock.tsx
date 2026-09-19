@@ -241,7 +241,7 @@ export function TimelineMock() {
 						<TrackLabel name="A1" kind="audio" />
 						<div className="relative flex-1">
 							<Clip left="1.5%" width="91%" className="gap-2 pr-3">
-								<span className="shrink-0 truncate">VO — Whisper captions</span>
+								<span className="shrink-0 truncate">VO — auto captions</span>
 								<span className="h-[70%] min-w-0 flex-1">
 									<Waveform />
 								</span>

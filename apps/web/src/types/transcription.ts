@@ -2,8 +2,15 @@ import type { LanguageCode } from "./language";
 
 export type TranscriptionLanguage = LanguageCode | "auto";
 
-/** Engine used for transcription: local Whisper, cloud Sarvam AI, or cloud Smallest AI */
-export type TranscriptionEngine = "whisper" | "sarvam" | "smallest";
+/**
+ * Engine used for transcription.
+ *
+ * "mai" (MAI-Transcribe-2 via Microsoft Foundry) is the default and the only
+ * one reachable in cloud deploys. "sarvam" and "smallest" still route through
+ * the external Python backend at NEXT_PUBLIC_AI_BACKEND_URL, so they only work
+ * against a locally-running backend. On-device Whisper was removed.
+ */
+export type TranscriptionEngine = "mai" | "sarvam" | "smallest";
 
 /** Sarvam STT modes */
 export type SarvamSTTMode = "transcribe" | "translate";
@@ -35,10 +42,7 @@ export interface TranscriptionProgress {
 }
 
 export type TranscriptionModelId =
-	| "whisper-tiny"
-	| "whisper-small"
-	| "whisper-medium"
-	| "whisper-large-v3-turbo"
+	| "mai-transcribe-2"
 	| "saaras-v3"
 	| "pulse-v1";
 

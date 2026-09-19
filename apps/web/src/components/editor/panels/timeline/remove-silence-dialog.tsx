@@ -33,6 +33,7 @@ import {
 // (see lib/director/transcript-lookup.ts's file doc). Not a Director-internals
 // edit: this dialog only ever reads it.
 import { assetTranscriptLookup } from "@/lib/director/transcript-lookup";
+import { supportsFillerRemoval } from "@/lib/search/asset-transcript";
 import type { TimelineElement } from "@/types/timeline";
 
 /**
@@ -97,6 +98,14 @@ export function RemoveSilenceDialog({
 
 	const transcript = mediaId ? assetTranscriptLookup(mediaId) : undefined;
 	const hasTranscriptSegments = !!transcript && transcript.segments.length > 0;
+	// Filler removal needs MORE than "has a transcript": it needs per-word
+	// timing to localize the cut, and a verbatim transcript to have any filler
+	// left in it at all. Transcripts stored before both landed satisfy neither,
+	// and would silently report "no fillers found" — which reads as a clean
+	// speaker rather than a stale record. False-start detection is unaffected:
+	// it works off sentence text and timings, which every record has.
+	const canRemoveFillers =
+		hasTranscriptSegments && !!transcript && supportsFillerRemoval(transcript);
 
 	const handleOpenChange = (open: boolean) => {
 		if (open) {
@@ -129,14 +138,15 @@ export function RemoveSilenceDialog({
 			let falseStartCount = 0;
 			let undetectableFillerCount = 0;
 
-			if ((removeFillers || removeFalseStarts) && hasTranscriptSegments) {
+			const wantsFillers = removeFillers && canRemoveFillers;
+			if ((wantsFillers || removeFalseStarts) && hasTranscriptSegments) {
 				// biome-ignore lint/style/noNonNullAssertion: guarded by hasTranscriptSegments above.
 				const transcriptSegments = transcript!.segments;
 				const wordList = includeLike
 					? [...DEFAULT_FILLER_WORDS, ...OPTIONAL_FILLER_WORDS]
 					: [...DEFAULT_FILLER_WORDS];
 
-				const fillerResult = removeFillers
+				const fillerResult = wantsFillers
 					? detectFillers(transcriptSegments, { wordList })
 					: { ranges: [], undetectableFillerCount: 0 };
 				const falseStartRanges = removeFalseStarts
@@ -291,10 +301,10 @@ export function RemoveSilenceDialog({
 								id="rs-fillers"
 								checked={removeFillers}
 								onCheckedChange={setRemoveFillers}
-								disabled={!hasTranscriptSegments}
+								disabled={!canRemoveFillers}
 							/>
 						</div>
-						{removeFillers && hasTranscriptSegments && (
+						{removeFillers && canRemoveFillers && (
 							<div className="flex items-center justify-between gap-2 pl-1">
 								<Label
 									htmlFor="rs-like"
@@ -324,6 +334,13 @@ export function RemoveSilenceDialog({
 							<div className="text-xs text-muted-foreground">
 								Transcribe this clip to enable filler-word / false-start
 								cleanup.
+							</div>
+						)}
+						{hasTranscriptSegments && !canRemoveFillers && (
+							<div className="text-xs text-muted-foreground">
+								This clip's transcript was made before word-level timing, so
+								filler words can't be pinpointed in it. Re-transcribe the clip
+								to cut them. False starts still work.
 							</div>
 						)}
 					</div>

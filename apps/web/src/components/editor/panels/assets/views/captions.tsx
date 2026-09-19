@@ -13,13 +13,12 @@ import { Switch } from "@/components/ui/switch";
 import { useState, useRef } from "react";
 import { useEditor } from "@/hooks/use-editor";
 import { DEFAULT_TEXT_ELEMENT } from "@/constants/text-constants";
-import { WHISPER_LANGUAGES } from "@/constants/transcription-constants";
+import { TRANSCRIPTION_LANGUAGES } from "@/constants/transcription-constants";
 import { LANGUAGES } from "@/constants/language-constants";
 import {
 	SARVAM_STT_LANGUAGES,
 	SARVAM_LANGUAGE_MAP,
 	SARVAM_SUPPORTED_CODES,
-	isSarvamSTTSupported,
 } from "@/constants/sarvam-constants";
 import { SMALLEST_STT_LANGUAGES } from "@/constants/smallest-constants";
 import type {
@@ -64,7 +63,7 @@ interface SubtitleTrackInfo {
 
 export function Captions() {
 	const [selectedEngine, setSelectedEngine] =
-		useState<TranscriptionEngine>("whisper");
+		useState<TranscriptionEngine>("mai");
 	const [selectedLanguage, setSelectedLanguage] =
 		useState<TranscriptionLanguage>("auto");
 	const [isProcessing, setIsProcessing] = useState(false);
@@ -99,7 +98,7 @@ export function Captions() {
 			? SARVAM_STT_LANGUAGES
 			: selectedEngine === "smallest"
 				? SMALLEST_STT_LANGUAGES
-				: WHISPER_LANGUAGES;
+				: TRANSCRIPTION_LANGUAGES;
 
 	// Filter out tracks that no longer exist on the timeline (user may have deleted them)
 	const timelineTracks = editor.timeline.getTracks();
@@ -114,19 +113,17 @@ export function Captions() {
 		queueMicrotask(() => setSubtitleTracks(activeSubtitleTracks));
 	}
 
-	/** Determine the effective engine for a given language code */
-	const getEffectiveEngine = (langCode: string): TranscriptionEngine => {
+	/**
+	 * Determine the effective engine for a given language code.
+	 *
+	 * This used to silently redirect Indian languages from Whisper to Sarvam,
+	 * because Whisper's local models didn't cover them. MAI-Transcribe-2 covers
+	 * all 22 natively, so the redirect is gone and the user's choice stands.
+	 */
+	const getEffectiveEngine = (_langCode: string): TranscriptionEngine => {
 		if (selectedEngine === "sarvam") return "sarvam";
 		if (selectedEngine === "smallest") return "smallest";
-		// Auto-switch to Sarvam if an Indian language is explicitly selected with Whisper
-		if (
-			langCode !== "auto" &&
-			isSarvamSTTSupported(langCode) &&
-			!WHISPER_LANGUAGES.some((l) => l.code === langCode)
-		) {
-			return "sarvam";
-		}
-		return "whisper";
+		return "mai";
 	};
 
 	const handleGenerateTranscript = async () => {
@@ -144,7 +141,7 @@ export function Captions() {
 					? "Sarvam AI"
 					: engine === "smallest"
 						? "Smallest AI"
-						: "Whisper";
+						: "MAI-Transcribe-2";
 
 			bgTasks.addTask({
 				id: taskId,
@@ -321,7 +318,7 @@ export function Captions() {
 			let primarySourceFile: File | null = null;
 			const skippedSources: string[] = [];
 			// The first real per-source error, kept so that if EVERY source fails we
-			// can surface the actual cause (e.g. on-device Whisper unavailable)
+			// can surface the actual cause (e.g. transcription unavailable)
 			// instead of the generic "no usable audio" — the latter is only right
 			// when some sources genuinely lack an audio stream.
 			let firstSourceError: Error | null = null;
@@ -424,7 +421,7 @@ export function Captions() {
 
 			if (validSegments.length === 0) {
 				// Every source failed the SAME way → almost always systemic (e.g.
-				// on-device Whisper couldn't initialize), not literally "no audio".
+				// transcription is unavailable), not literally "no audio".
 				// Rethrow the real error so the outer handler surfaces it (and logs
 				// it via console.error, which survives the prod console strip)
 				// instead of hiding it behind a friendly-but-wrong message.
@@ -1110,7 +1107,7 @@ export function Captions() {
 							<SelectValue />
 						</SelectTrigger>
 						<SelectContent>
-							<SelectItem value="whisper">Whisper (Local)</SelectItem>
+							<SelectItem value="mai">MAI-Transcribe-2</SelectItem>
 							<SelectItem value="sarvam">
 								Sarvam AI (Indian Languages)
 							</SelectItem>
@@ -1124,7 +1121,7 @@ export function Captions() {
 							? "Cloud-based, optimized for 22 Indian regional languages"
 							: selectedEngine === "smallest"
 								? "Cloud-based, 39 languages with speaker diarization & emotion detection"
-								: "On-device, best for global languages (English, Spanish, French, etc.)"}
+								: "60 languages, word-level timestamps and speaker labels"}
 					</p>
 				</div>
 

@@ -41,7 +41,7 @@ const FEATURES = [
 	{
 		category: "AI Features",
 		rows: [
-			{ feature: "AI transcription", byorn: "Whisper (local)", capcut: "Cloud-based" },
+			{ feature: "AI transcription", byorn: "MAI-Transcribe-2", capcut: "Cloud-based" },
 			{ feature: "Filler word removal", byorn: "One-click Smart Cut", capcut: "No" },
 			{ feature: "Silence detection & removal", byorn: "Yes", capcut: "No" },
 			{ feature: "AI voice cloning", byorn: "XTTS v2 (local)", capcut: "No" },

@@ -51,8 +51,9 @@ export default function PrivacyPage() {
 								so your work persists
 							</li>
 							<li>
-								Transcription runs on-device by default (Whisper in your
-								browser); a server fallback is used only if you choose it
+								Transcription sends your audio to our speech-to-text provider;
+								audio is uploaded automatically when you add a video or audio
+								file
 							</li>
 							<li>
 								We collect error reports to keep the product working — no ad
@@ -99,10 +100,12 @@ export default function PrivacyPage() {
 					</li>
 				</ul>
 				<p>
-					Transcription is the exception: Whisper runs inside your browser on
-					WebGPU by default, so caption audio can stay on your machine. If you
-					switch to the server transcription fallback, that audio is processed
-					by our server for the duration of the request.
+					Transcription works the same way. When you add a video or audio file,
+					we extract its audio in your browser and send that audio — not the
+					video — to our speech-to-text provider, which returns the transcript.
+					This happens automatically at upload so captions and transcript search
+					are ready when you need them. The provider processes the audio under
+					its own terms; we keep the resulting transcript with your project.
 				</p>
 			</section>
 
@@ -154,7 +157,8 @@ export default function PrivacyPage() {
 				<ul className="list-disc space-y-2 pl-6">
 					<li>You can delete your account from the account page</li>
 					<li>
-						You can use on-device transcription instead of the server fallback
+						You can edit footage without transcribing it — transcription only
+						runs on audio and video files you add to a project
 					</li>
 					<li>
 						You can edit imported footage without generating — nothing is sent

@@ -41,8 +41,8 @@ const CAPABILITIES = [
 		body: "Transitions, speed control, detach and extract audio, subtitle import, preview guides, brandable text and captions.",
 	},
 	{
-		name: "On-device captions",
-		body: "Whisper transcription runs in your browser on WebGPU, with a server fallback. Word-level captions from the transcript panel.",
+		name: "Automatic captions",
+		body: "MAI-Transcribe-2 transcribes every clip you add, across 60 languages. Word-level captions and speaker labels from the transcript panel.",
 	},
 	{
 		name: "Library Insights",
