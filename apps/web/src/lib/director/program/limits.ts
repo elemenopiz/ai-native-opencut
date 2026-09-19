@@ -57,11 +57,17 @@ export function resolveProgramLimits(
 	overrides?: Partial<ProgramLimits>,
 ): ProgramLimits {
 	const resolved: ProgramLimits = { ...DEFAULT_PROGRAM_LIMITS };
-	if (overrides) {
-		for (const [key, value] of Object.entries(overrides)) {
-			if (value !== undefined) {
-				(resolved as Record<string, unknown>)[key] = value;
-			}
+	if (!overrides) return resolved;
+	// Walk the DEFAULTS' keys rather than the overrides' own: every key is then
+	// statically a `keyof ProgramLimits`, so the assignment needs no cast, and a
+	// stray key on an untyped `overrides` (one parsed from JSON, say) can't be
+	// copied onto the limits at all.
+	for (const key of Object.keys(
+		DEFAULT_PROGRAM_LIMITS,
+	) as (keyof ProgramLimits)[]) {
+		const value = overrides[key];
+		if (value !== undefined) {
+			resolved[key] = value;
 		}
 	}
 	return resolved;

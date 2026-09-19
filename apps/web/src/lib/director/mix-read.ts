@@ -69,6 +69,7 @@ import type { AutoCutOptions } from "@/lib/auto-cut/types";
 import {
 	CRAFT_EPSILON,
 	DEFAULT_DUCK_AMOUNT_DB,
+	DEFAULT_MERGE_GAP_SEC,
 	roundSec,
 	type DuckMusicElement,
 	type SpeechInterval,
@@ -89,14 +90,24 @@ function clamp(value: number, lo: number, hi: number): number {
 }
 
 /** Sort + merge touching/overlapping ranges. Assumes nothing about input order. */
-function mergeRanges(ranges: RangeSec[]): RangeSec[] {
+/**
+ * Sort and merge ranges, bridging any gap of `maxGapSec` or less.
+ *
+ * The gap is a PARAMETER rather than `CRAFT_EPSILON` because the two are
+ * different ideas: `CRAFT_EPSILON` (1e-4) answers "are these two floats the
+ * same number?", while bridging asks "are these two speech bursts one
+ * passage?". Callers measuring against a duck pass that verb's own
+ * `DEFAULT_MERGE_GAP_SEC` so both segment the timeline identically; see the
+ * call site in `computeSpeechMusicOverlaps`.
+ */
+function mergeRanges(ranges: RangeSec[], maxGapSec: number): RangeSec[] {
 	if (ranges.length === 0) return [];
 	const sorted = [...ranges].sort((a, b) => a.startSec - b.startSec);
 	const merged: RangeSec[] = [{ ...sorted[0] }];
 	for (let i = 1; i < sorted.length; i++) {
 		const last = merged[merged.length - 1];
 		const cur = sorted[i];
-		if (cur.startSec - last.endSec <= CRAFT_EPSILON) {
+		if (cur.startSec - last.endSec <= maxGapSec) {
 			last.endSec = Math.max(last.endSec, cur.endSec);
 		} else {
 			merged.push({ ...cur });
@@ -421,7 +432,13 @@ export function computeSpeechMusicOverlaps(input: {
 				rawOverlaps.push({ startSec: os, endSec: oe });
 		}
 		if (rawOverlaps.length === 0) continue;
-		const merged = mergeRanges(rawOverlaps);
+		// Merge with the DUCK VERB's gap, not a float epsilon: this function
+		// reports how far the mix sits from what `duckMusicUnderSpeech` would
+		// produce, so it has to group speech into the same windows that verb
+		// would duck. Two bursts a breath apart are one duck — releasing and
+		// re-ducking across a 50ms gap is the pumping artifact `mergeGapSec`
+		// exists to prevent.
+		const merged = mergeRanges(rawOverlaps, DEFAULT_MERGE_GAP_SEC);
 
 		const nonOverlap = subtractRanges(
 			{ startSec: elStart, endSec: elEnd },

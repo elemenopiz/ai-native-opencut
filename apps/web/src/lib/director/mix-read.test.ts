@@ -130,8 +130,14 @@ describe("computeDeadAirStretches", () => {
 		]);
 		const dead = computeDeadAirStretches(samples, SAMPLE_RATE, 3);
 		expect(dead.length).toBe(1);
-		expect(dead[0].startSec).toBeCloseTo(1, 1);
-		expect(dead[0].endSec).toBeCloseTo(2, 1);
+		// Reported bounds are the CUTTABLE span, not the raw acoustic silence:
+		// auto-cut's margins (marginAfter 0.3 / marginBefore 0.2) hold the keep
+		// open past the speech tail and ahead of the next head, so the 1s of
+		// silence at [1, 2) yields [1.3, 1.8]. That is the honest answer — a
+		// Director acting on [1, 2] would clip 0.3s of tail and 0.2s of head.
+		expect(dead[0].startSec).toBeCloseTo(1.3, 1);
+		expect(dead[0].endSec).toBeCloseTo(1.8, 1);
+		expect(dead[0].durationSec).toBeCloseTo(0.5, 1);
 	});
 
 	it("reports a trailing silent stretch to the very end of the duration", () => {
