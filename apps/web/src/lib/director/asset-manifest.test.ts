@@ -395,7 +395,7 @@ describe("buildLibraryManifest — dims, provenance, and style facets", () => {
 			mediaId: "m1",
 			role: "hero",
 			caption: "founder to-camera",
-			motion: "handheld",
+			motion: "moving",
 			shotType: "close-up",
 			emotion: "tense",
 			composition: { subjectPosition: "center", ruleOfThirds: true },
@@ -410,7 +410,7 @@ describe("buildLibraryManifest — dims, provenance, and style facets", () => {
 		const m = buildLibraryManifest({ assets: list, understanding });
 
 		// Structural: every deepened facet is carried on the hero, re-queryable.
-		expect(m.heroes[0]?.motion).toBe("handheld");
+		expect(m.heroes[0]?.motion).toBe("moving");
 		expect(m.heroes[0]?.shotType).toBe("close-up");
 		expect(m.heroes[0]?.emotion).toBe("tense");
 		expect(m.heroes[0]?.composition).toEqual({
@@ -426,7 +426,7 @@ describe("buildLibraryManifest — dims, provenance, and style facets", () => {
 		});
 
 		// A FEW TOKENS in the flowing digest string: shotType label + motion + emotion.
-		expect(m.digest).toContain('"founder to-camera" [CU·handheld·tense]');
+		expect(m.digest).toContain('"founder to-camera" [CU·moving·tense]');
 		// The richer structural-only facets never bloat the always-on line.
 		expect(m.digest).not.toContain("navy blazer");
 		expect(m.digest).not.toContain("warm amber grade");
