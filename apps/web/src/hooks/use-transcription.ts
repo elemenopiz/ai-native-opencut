@@ -7,23 +7,33 @@ import {
 import { useTranscriptStore } from "@/stores/transcript-store";
 import type { TranscriptionEngine } from "@/types/transcription";
 import type { TranscriptionResult } from "@/types/ai";
+import { friendlyTranscriptionError } from "@/lib/transcription/friendly-errors";
 
+/**
+ * Customer-facing line for a failed transcription. Per the standing copy rule
+ * this never names a backend, service, env var, or path — the technical cause
+ * goes to the console and, where a surface offers one, a collapsed details
+ * channel (see `lib/transcription/friendly-errors.ts`).
+ */
 function formatTranscriptionError(error: unknown): string {
 	if (error instanceof AIClientError) {
 		switch (error.errorType) {
 			case "connection_refused":
-				return "Cannot connect to AI backend. Start the backend server first (see AI Setup Guide).";
+				return friendlyTranscriptionError("connection_refused", "transcribe");
 			case "timeout":
-				return "Transcription request timed out. The model may still be loading — try again in a moment.";
+				return "Transcription is taking longer than expected. Please try again in a moment.";
 			case "backend_error":
 				return error.statusCode === 400
-					? "Invalid file format. Supported: mp4, mkv, avi, mov, webm, wav, mp3, m4a, ogg, flac, aac."
-					: `Backend error: ${error.message}`;
+					? "That file type isn't supported. Try an MP4, MOV, WebM, MP3, or WAV."
+					: friendlyTranscriptionError(error.message, "transcribe");
 			default:
-				return error.message;
+				return friendlyTranscriptionError(error.message, "transcribe");
 		}
 	}
-	return error instanceof Error ? error.message : "Transcription failed";
+	return friendlyTranscriptionError(
+		error instanceof Error ? error.message : "",
+		"transcribe",
+	);
 }
 
 export function useTranscription() {

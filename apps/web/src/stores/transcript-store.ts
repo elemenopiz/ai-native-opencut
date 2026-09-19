@@ -14,6 +14,15 @@ export interface TranslatedTranscript {
 }
 
 interface TranscriptState {
+	/**
+	 * Segments in TIMELINE-ABSOLUTE seconds. Transcription backends emit
+	 * ASSET-RELATIVE times; ingest paths must convert with
+	 * `lib/timeline/transcript-timebase.ts`'s `toTimelineSegments` before
+	 * calling `setSegments`, and that also stamps the `mediaId`/`sourceStart`
+	 * provenance later timeline operations need. Writing raw backend output
+	 * here is the bug class that made trimmed or repositioned clips cut in the
+	 * wrong place.
+	 */
 	segments: TranscriptionSegment[];
 	isTranscribing: boolean;
 	progress: number;
@@ -33,10 +42,7 @@ interface TranscriptState {
 
 	setSegments: (segments: TranscriptionSegment[]) => void;
 	addSegment: (segment: TranscriptionSegment) => void;
-	updateSegment: (
-		id: number,
-		updates: Partial<TranscriptionSegment>,
-	) => void;
+	updateSegment: (id: number, updates: Partial<TranscriptionSegment>) => void;
 	setTranscribing: (isTranscribing: boolean) => void;
 	setProgress: (progress: number) => void;
 	setLanguage: (language: string) => void;
@@ -55,7 +61,10 @@ interface TranscriptState {
 	removeTranslation: (languageCode: string) => void;
 	setSpeakerName: (speakerId: string, name: string) => void;
 	setSpeakerNames: (names: Record<string, string>) => void;
-	setSpeakerPosition: (speakerId: string, position: "left" | "right" | "center") => void;
+	setSpeakerPosition: (
+		speakerId: string,
+		position: "left" | "right" | "center",
+	) => void;
 	setEmotions: (emotions: EmotionSegment[]) => void;
 	/** Assign speaker IDs to segments by matching diarization time ranges */
 	applySpeakerDiarization: (
@@ -179,8 +188,7 @@ export const useTranscriptStore = create<TranscriptState>()((set, get) => ({
 			speakerNames: { ...state.speakerNames, [speakerId]: name },
 		})),
 
-	setSpeakerNames: (names) =>
-		set({ speakerNames: names }),
+	setSpeakerNames: (names) => set({ speakerNames: names }),
 
 	setSpeakerPosition: (speakerId, position) =>
 		set((state) => ({
@@ -214,12 +222,18 @@ export const useTranscriptStore = create<TranscriptState>()((set, get) => ({
 			const speakerIds = new Set(speakerSegments.map((s) => s.speaker));
 			const defaultNames: Record<string, string> = {};
 			const defaultPositions: Record<string, "left" | "right" | "center"> = {};
-			const positionOrder: ("left" | "right" | "center")[] = ["left", "right", "center"];
+			const positionOrder: ("left" | "right" | "center")[] = [
+				"left",
+				"right",
+				"center",
+			];
 			const sortedIds = [...speakerIds].sort();
 			for (let i = 0; i < sortedIds.length; i++) {
 				const id = sortedIds[i];
-				defaultNames[id] = state.speakerNames[id] || `Speaker ${String.fromCharCode(65 + i)}`;
-				defaultPositions[id] = state.speakerPositions[id] || positionOrder[Math.min(i, 2)];
+				defaultNames[id] =
+					state.speakerNames[id] || `Speaker ${String.fromCharCode(65 + i)}`;
+				defaultPositions[id] =
+					state.speakerPositions[id] || positionOrder[Math.min(i, 2)];
 			}
 
 			return {

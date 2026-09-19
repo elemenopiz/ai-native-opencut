@@ -84,7 +84,10 @@ describe("getTranscript verb", () => {
 		// The message IS the observation: it carries the rendered lines + the
 		// trim-timebase guidance, so the agent needs no DATA echo.
 		expect(res.message).toContain("[3.4–8.9] Today we are testing");
-		expect(res.message).toContain("asset-relative seconds");
+		expect(res.message).toContain("ASSET-RELATIVE seconds");
+		// ...and must point transcript timestamps at the arguments that share
+		// their timebase, never at split's timeline-absolute atTime.
+		expect(res.message).toContain("atSourceTime");
 		expect(res.message).toContain("never cut mid-sentence");
 	});
 
