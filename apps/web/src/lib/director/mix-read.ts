@@ -7,9 +7,12 @@
  * doc) — this module feeds `edit-critic.ts`'s judgement so it accounts for
  * the mix, not just the picture.
  *
- * NOT WIRED TO A VERB HERE. Same "library-only" discipline `craft/index.ts`
- * uses for its macros — turning this into a Director/MCP verb is a separate,
- * later change (explicitly out of scope for this pass).
+ * WIRED AS THE `readMix` VERB (polish phase). This module stays pure — it
+ * takes already-decoded PCM and returns a reading — and `director-api.ts`
+ * owns the decode seam (`mixAudio.decode`) that feeds it. Polish is where it
+ * lives because every remedy a reading can point at (`duckMusicUnderSpeech`,
+ * `removeSilence`, `tightenToLength`) is polish-only; diagnosis and remedy
+ * have to be reachable in the same bucket or the read is a dead end.
  *
  * REUSE, NOT REIMPLEMENT — every figure here composes an existing module:
  *  - The loudness curve reuses `lib/auto-cut/engine.ts`'s `computeLoudness`

@@ -71,6 +71,7 @@ import type {
 	AnimationInterpolation,
 	AnimationPropertyPath,
 	AnimationValue,
+	ElementAnimations,
 } from "@/types/animation";
 import {
 	buildConsistencyContext,
@@ -210,6 +211,14 @@ import {
 	type TranscriptExcerptSegment,
 } from "./edit-critic";
 import { dataUrlToFile } from "@/lib/media/data-url";
+import {
+	readMix as analyzeMix,
+	DEFAULT_LOUDNESS_SAMPLE_INTERVAL_SEC,
+	type DeadAirStretch,
+	type MusicSpeechOverlap,
+} from "./mix-read";
+import { DECODE_SAMPLE_RATE, decodeToMono16k } from "@/lib/media/decode-audio";
+import { resolveVolumeAtTime } from "@/lib/animation";
 import { analyzeMediaSilence } from "@/lib/auto-cut";
 import { applyAutoCut, type AutoCutApplySummary } from "@/lib/auto-cut/apply";
 import type { DerivedFrameLabel } from "@/services/storage/types";
@@ -274,6 +283,7 @@ import type {
 	GenerationFailure,
 	IntakeReferencesData,
 	MediaSearchHit,
+	MixReadData,
 	MutationDelta,
 	ProjectInfo,
 	ReelSnapshot,
@@ -306,6 +316,7 @@ export type {
 	GenerationSpec,
 	GenerativeFields,
 	MediaSearchHit,
+	MixReadData,
 	ProjectInfo,
 	ReelSnapshot,
 	SlotGenerationOutcome,
@@ -424,6 +435,185 @@ export interface RecoveryOptions {
 	rephrase?: (prompt: string, failure: GenerationFailure) => string;
 }
 
+/**
+ * One decoded, TIMELINE-ABSOLUTE mono mixdown of the project's audio — the
+ * input `lib/director/mix-read.ts` analyzes (that module is deliberately pure:
+ * "caller supplies already-decoded PCM", decode is the call site's problem).
+ * `samples[i]` is the mix at `i / sampleRate` seconds from timeline zero, so
+ * every figure `readMix` reports shares a timebase with `gatherSpeechIntervals`
+ * / `gatherMusicElements` and therefore with `duckMusicUnderSpeech`'s plan.
+ *
+ * `sourcesMixed`/`sourcesSkipped` are provenance, not decoration: a mixdown is
+ * an approximation of what the user will hear, and the verb refuses to report
+ * confident-looking numbers over a mix nothing was summed into.
+ */
+export interface DecodedTimelineMix {
+	samples: Float32Array;
+	sampleRate: number;
+	/** Timeline elements decoded and summed into `samples`. */
+	sourcesMixed: number;
+	/** Elements passed over — no resolvable file, no decodable audio track, or muted. */
+	sourcesSkipped: number;
+}
+
+/**
+ * Mixdown seam for `readMix` — BROWSER-BOUND by default (`decodeAudioData` +
+ * `OfflineAudioContext`, via the shared `decodeToMono16k`), so headless tests
+ * inject a stub that returns synthetic PCM. Same pattern as
+ * `watchBack.render` / `frames.decode`. Returning `null` means "there is
+ * nothing here to measure" (empty timeline) rather than an error.
+ */
+export type TimelineMixDecoder = () => Promise<DecodedTimelineMix | null>;
+
+// ── readMix tunables ───────────────────────────────────────────────────────
+// Three caps, all for the same reason `watch-back.ts` caps frames at 4: a read
+// verb's output is context the model pays for on every subsequent turn, and a
+// mixdown is memory the browser pays for while it runs.
+
+/**
+ * Longest timeline `readMix`'s default mixdown will attempt, seconds.
+ * The buffer is `durationSec * DECODE_SAMPLE_RATE` 32-bit floats held at once
+ * (10 minutes ≈ 38 MB) ON TOP of each source asset's own decode, so this is a
+ * memory bound, not a taste one. Comfortably past any reel this app makes;
+ * past it the verb says so rather than quietly allocating hundreds of MB.
+ */
+const MIX_READ_MAX_DURATION_SEC = 600;
+
+/**
+ * Most loudness-curve points `readMix` will return. `mix-read.ts`'s own
+ * default interval (0.5s) is the right RESOLUTION but not a bound — a 5-minute
+ * cut would return 600 points. Past this count the interval widens instead
+ * (see `resolveCurveIntervalSec`), which keeps the shape of the curve while
+ * keeping the payload roughly constant: the model wants the trend, not a
+ * transcript of every half-second.
+ */
+const MIX_READ_MAX_CURVE_POINTS = 120;
+
+/**
+ * Most overlap / dead-air entries returned. Both lists are truncated by
+ * SIGNIFICANCE (worst-competing overlaps, longest dead air) and then re-sorted
+ * into time order, so a truncated list is still the part worth acting on. The
+ * headline counts/totals on {@link MixReadData} are always computed over the
+ * FULL analysis, never over the truncated arrays.
+ */
+const MIX_READ_MAX_LIST_ITEMS = 20;
+
+/**
+ * How far above a proper duck an overlap must measure before `readMix` counts
+ * it as "music competing with speech", in dB. Not zero: `competingDb` is a
+ * heuristic built on a mixed-down buffer with no stem separation (see
+ * `computeSpeechMusicOverlaps`'s own doc), so a fraction of a dB either side of
+ * the target is measurement noise, not a note to give the user. 1 dB is below
+ * the ~3 dB most listeners can reliably hear on program material, so nothing
+ * audible is filtered out.
+ */
+const MIX_READ_COMPETING_DB = 1;
+
+/**
+ * Resolution the element volume ENVELOPE is sampled at while mixing, seconds.
+ * Evaluating `resolveVolumeAtTime` per PCM sample would be ~16k calls per
+ * second of timeline for no benefit: the ramps this has to reproduce are
+ * `duckMusicUnderSpeech`'s own attack/release (0.15s / 0.4s), so a 10ms grid
+ * resolves them ~15× over.
+ */
+const MIX_READ_GAIN_BLOCK_SEC = 0.01;
+
+/** The element fields {@link mixElementInto} reads — a structural subset of
+ *  `VideoElement | AudioElement` so the placement math can be exercised with
+ *  synthetic PCM and a plain object, no editor. */
+export interface MixSourcePlacement {
+	/** TIMELINE seconds this element starts at. */
+	startTime: number;
+	/** VISIBLE duration, seconds (timeline span). */
+	duration: number;
+	/** Seconds into the SOURCE media the visible span begins. */
+	trimStart: number;
+	playbackRate?: number;
+	reversed?: boolean;
+	/** The element's own static volume (audio elements); 1 when it has none. */
+	volume?: number;
+	/** Volume keyframes, element-start-relative — e.g. what `duckMusicUnderSpeech` writes. */
+	animations?: ElementAnimations;
+}
+
+/**
+ * Write ONE element's decoded source into the shared timeline-absolute
+ * mixdown buffer — the whole of `readMix`'s placement math, kept module-scope
+ * and pure (same reasoning as `resolvePendingRefsInArgs`: it closes over
+ * nothing, so it is directly unit-testable without building a DirectorApi or
+ * touching a browser decode). `decodeTimelineMixdown` is then only the
+ * walk-the-tracks-and-decode loop around it.
+ *
+ * Source index stepping (rather than resampling) is how `playbackRate` and
+ * `reversed` are honored: nearest-neighbour, so PITCH is wrong but timing and
+ * envelope — the only things `mix-read.ts` measures — are right.
+ *
+ * Gain is `trackGain × the element's volume ENVELOPE`, re-evaluated every
+ * {@link MIX_READ_GAIN_BLOCK_SEC} when the element has animations and held
+ * constant when it doesn't. That is what makes a duck visible to a re-read:
+ * `duckMusicUnderSpeech` expresses its work purely as volume keyframes, so a
+ * mixdown that ignored them would report the pre-duck mix forever.
+ *
+ * Sums are NOT clamped — see `decodeTimelineMixdown`'s doc for why an
+ * above-0-dBFS true peak is a useful reading rather than a bug.
+ */
+export function mixElementInto(input: {
+	mix: Float32Array;
+	source: Float32Array;
+	element: MixSourcePlacement;
+	sampleRate: number;
+	trackGain: number;
+}): void {
+	const { mix, source, element, sampleRate, trackGain } = input;
+	if (source.length === 0 || sampleRate <= 0) return;
+
+	const outStart = Math.round(element.startTime * sampleRate);
+	if (outStart >= mix.length) return;
+	const outLength = Math.min(
+		Math.round(element.duration * sampleRate),
+		mix.length - Math.max(0, outStart),
+	);
+	if (outLength <= 0) return;
+
+	const rate =
+		typeof element.playbackRate === "number" && element.playbackRate > 0
+			? element.playbackRate
+			: 1;
+	const srcStart = element.trimStart * sampleRate;
+	const srcSpan = element.duration * rate * sampleRate;
+	const baseVolume = typeof element.volume === "number" ? element.volume : 1;
+	// Only walk the envelope when there is a VOLUME channel: most animated
+	// elements carry position/opacity keyframes and nothing else, and for those
+	// the static gain is already the right answer for every sample.
+	const animations = element.animations?.channels?.volume
+		? element.animations
+		: undefined;
+	const gainBlockFrames = Math.max(
+		1,
+		Math.round(sampleRate * MIX_READ_GAIN_BLOCK_SEC),
+	);
+
+	let gain = trackGain * baseVolume;
+	for (let i = 0; i < outLength; i++) {
+		const outIndex = outStart + i;
+		if (outIndex < 0) continue;
+		if (animations && i % gainBlockFrames === 0) {
+			gain =
+				trackGain *
+				resolveVolumeAtTime({
+					baseVolume,
+					animations,
+					localTime: i / sampleRate,
+				});
+		}
+		const srcIndex = Math.round(
+			srcStart + (element.reversed ? srcSpan - 1 - i * rate : i * rate),
+		);
+		if (srcIndex < 0 || srcIndex >= source.length) continue;
+		mix[outIndex] += source[srcIndex] * gain;
+	}
+}
+
 export interface CreateDirectorApiOptions {
 	/**
 	 * Injectable boundary for real provider/network generation. If omitted,
@@ -501,6 +691,18 @@ export interface CreateDirectorApiOptions {
 	 */
 	watchBack?: {
 		render?: WatchBackRenderer;
+	};
+	/**
+	 * Mixdown seam for `readMix` (see {@link TimelineMixDecoder} and
+	 * `mix-read.ts`) — the AUDIO sibling of `watchBack`'s render seam. `decode`
+	 * sums every audible element's decoded PCM into one timeline-absolute mono
+	 * buffer; the default does that with the SAME `decodeToMono16k` path
+	 * transcription and auto-cut already share, so nothing new decodes audio in
+	 * this app. BROWSER-BOUND, so headless tests inject a stub — same pattern
+	 * as `watchBack`/`frames`/`references`.
+	 */
+	mixAudio?: {
+		decode?: TimelineMixDecoder;
 	};
 	/**
 	 * "Understanding Pass" seam (see `asset-manifest.ts`). A per-asset lookup that
@@ -1055,6 +1257,13 @@ export function createDirectorApi(
 	// own browser-bound default" (resolved inside `watchBackTimeline`).
 	const watchBackRender: WatchBackRenderer | undefined =
 		options.watchBack?.render;
+
+	// readMix's mixdown seam. Unlike watchBack's, the default lives in THIS file
+	// (`decodeTimelineMixdown` below) rather than in the analysis module, because
+	// `mix-read.ts` is deliberately editor-free and pure — walking tracks and
+	// resolving assets is director-api's job, not the analyzer's.
+	const decodeMix: TimelineMixDecoder =
+		options.mixAudio?.decode ?? (() => decodeTimelineMixdown());
 
 	// Resolved self-correction config (defaults + injected overrides).
 	const recovery = {
@@ -6310,6 +6519,274 @@ export function createDirectorApi(
 		);
 	}
 
+	// ---- READ MIX (audio perception) ---------------------------------------
+	//
+	// `watchBack` lets the agent SEE the composited cut. `readMix` lets it HEAR
+	// one — as numbers, not audio: loudness curve, integrated loudness, dead
+	// air, and where a music bed is competing with speech (see
+	// docs/plans/2026-09-18-director-autonomy-architecture.md §4, "Read the mix
+	// ... rather than assuming"). Read-only (no `withDelta`): nothing changes;
+	// the measurement IS the observation.
+	//
+	// The ANALYSIS is entirely `mix-read.ts`, which is pure by design and takes
+	// already-decoded PCM. Everything below is the wiring that module left to
+	// its caller, and nothing more:
+	//  - mix the timeline down to one timeline-absolute mono buffer
+	//    (`decodeTimelineMixdown`),
+	//  - hand it the SAME speech intervals and music elements
+	//    `duckMusicUnderSpeech` plans against (`gatherSpeechIntervals` /
+	//    `gatherMusicElements` — the shared gatherers, exactly as that module's
+	//    own header anticipated: "a future verb wiring can share one gather
+	//    pass"),
+	//  - reduce the report to something an agent can act on in one read.
+
+	/**
+	 * Sum every AUDIBLE timeline element into ONE timeline-absolute mono buffer
+	 * at {@link DECODE_SAMPLE_RATE} — the `readMix` mixdown.
+	 *
+	 * Reuses the shared `decodeToMono16k` (the same decode path transcription
+	 * and auto-cut's `analyzeMediaSilence` already run through), so this adds no
+	 * new way to decode audio in the app; what it adds is the PLACEMENT — each
+	 * element's decoded source is read through its trim window and written at
+	 * its `startTime`, so the resulting buffer shares a timebase with
+	 * `gatherSpeechIntervals`/`gatherMusicElements` and therefore with anything
+	 * `duckMusicUnderSpeech` would plan.
+	 *
+	 * Audibility is decided the same way playback decides it: a muted track or
+	 * element contributes nothing, and a video whose source audio was detached
+	 * onto its own audio element (`isSourceAudioEnabled === false`, see
+	 * `lib/timeline/audio-separation.ts`) is skipped so its audio isn't counted
+	 * twice. Gain is track volume × the element's own volume ENVELOPE — the
+	 * static `volume` when it has no keyframes, and `resolveVolumeAtTime`
+	 * otherwise, which is what makes the read→duck→re-read loop honest: after
+	 * `duckMusicUnderSpeech` keyframes a bed down, this mixdown reflects the
+	 * duck rather than the pre-duck level.
+	 *
+	 * KNOWN APPROXIMATIONS, stated because the numbers are only as good as
+	 * these:
+	 *  - 16 kHz mono, like every other loudness path here. Fine for the
+	 *    max-abs / mean-square figures `mix-read.ts` computes; it is not a
+	 *    mastering-grade meter.
+	 *  - `playbackRate`/`reversed` are honored by index stepping (nearest
+	 *    neighbour), not by a resampler — pitch is wrong, envelope and timing
+	 *    are right, which is all the analysis reads.
+	 *  - No pans, effects, transitions or track solo. The sum can exceed ±1
+	 *    where clips overlap; that is deliberately NOT clamped, so a
+	 *    `truePeak` above 0 dBFS reads as "this mix would clip".
+	 */
+	async function decodeTimelineMixdown(): Promise<DecodedTimelineMix | null> {
+		const durationSec = editor.timeline.getTotalDuration();
+		if (!(durationSec > 0)) return null;
+		if (durationSec > MIX_READ_MAX_DURATION_SEC) {
+			throw new Error(
+				`this timeline is ${Math.round(durationSec)}s long and readMix mixes down at most ${MIX_READ_MAX_DURATION_SEC}s at a time`,
+			);
+		}
+
+		const sampleRate = DECODE_SAMPLE_RATE;
+		const totalFrames = Math.max(1, Math.ceil(durationSec * sampleRate));
+		const mix = new Float32Array(totalFrames);
+		// One decode per MEDIA ASSET, not per element: a clip used twice — or a
+		// split clip, which is two elements over one asset — must not pay twice.
+		// A cached `null` is a remembered "this has no decodable audio".
+		const decodedByMedia = new Map<string, Float32Array | null>();
+		let sourcesMixed = 0;
+		let sourcesSkipped = 0;
+
+		for (const track of editor.timeline.getTracks()) {
+			if (track.type !== "video" && track.type !== "audio") continue;
+			if (track.muted) continue;
+			const trackGain = typeof track.volume === "number" ? track.volume : 1;
+
+			for (const element of track.elements) {
+				if (element.type !== "video" && element.type !== "audio") continue;
+				if (element.muted) continue;
+				if (element.type === "video" && element.isSourceAudioEnabled === false)
+					continue;
+
+				const mediaId = (element as { mediaId?: string }).mediaId;
+				if (!mediaId) {
+					sourcesSkipped++; // e.g. a library audio element (sourceUrl, no asset)
+					continue;
+				}
+
+				let source = decodedByMedia.get(mediaId);
+				if (source === undefined) {
+					const file = editor.media.getAssetById(mediaId)?.file;
+					try {
+						source = file ? await decodeToMono16k(file) : null;
+					} catch {
+						source = null; // no decodable audio track (an image, a silent render)
+					}
+					decodedByMedia.set(mediaId, source);
+				}
+				if (!source || source.length === 0) {
+					sourcesSkipped++;
+					continue;
+				}
+
+				mixElementInto({
+					mix,
+					source,
+					element: {
+						startTime: element.startTime,
+						duration: element.duration,
+						trimStart: element.trimStart,
+						playbackRate: element.playbackRate,
+						reversed: element.type === "video" && element.reversed === true,
+						volume: element.type === "audio" ? element.volume : 1,
+						animations: element.animations,
+					},
+					sampleRate,
+					trackGain,
+				});
+				sourcesMixed++;
+			}
+		}
+
+		return { samples: mix, sampleRate, sourcesMixed, sourcesSkipped };
+	}
+
+	/**
+	 * Widen `mix-read.ts`'s curve interval just enough to keep the returned
+	 * point count under {@link MIX_READ_MAX_CURVE_POINTS}. Never NARROWS below
+	 * that module's own default (or an explicit caller override): a short reel
+	 * keeps full 0.5s resolution, a long one trades resolution for a payload
+	 * that doesn't grow without bound.
+	 */
+	function resolveCurveIntervalSec(
+		durationSec: number,
+		requestedSec?: number,
+	): number {
+		const floor =
+			requestedSec && requestedSec > 0
+				? requestedSec
+				: DEFAULT_LOUDNESS_SAMPLE_INTERVAL_SEC;
+		return Math.max(floor, durationSec / MIX_READ_MAX_CURVE_POINTS);
+	}
+
+	/** Keep the `by`-largest entries, then restore time order — see {@link MIX_READ_MAX_LIST_ITEMS}. */
+	function topByThenChronological<T extends { startSec: number }>(
+		items: T[],
+		by: (item: T) => number,
+	): T[] {
+		if (items.length <= MIX_READ_MAX_LIST_ITEMS) return items;
+		return [...items]
+			.sort((a, b) => by(b) - by(a))
+			.slice(0, MIX_READ_MAX_LIST_ITEMS)
+			.sort((a, b) => a.startSec - b.startSec);
+	}
+
+	/**
+	 * Measure the assembled mix: loudness curve, integrated (LUFS-style)
+	 * loudness, dead air, and every window where a music bed is competing with
+	 * speech instead of ducking under it.
+	 *
+	 * ADVISORY: this changes nothing. It exists so the agent can decide from
+	 * MEASUREMENT rather than assumption which of its own audio verbs to reach
+	 * for — `duckMusicUnderSpeech` when music is competing, `removeSilence` /
+	 * `tightenToLength` when dead air is eating the runtime — and so it can
+	 * re-read afterwards and see whether the fix landed. The `competingDb`
+	 * figures are stated against `duckMusicUnderSpeech`'s OWN definition of a
+	 * proper duck, and the overlap windows are merged with that verb's own
+	 * `DEFAULT_MERGE_GAP_SEC`, so "what readMix flagged" and "what the duck
+	 * would do" describe the same windows.
+	 */
+	async function readMix(
+		input: { loudnessSampleIntervalSec?: number } = {},
+	): Promise<DirectorResult<MixReadData>> {
+		const durationSec = editor.timeline.getTotalDuration();
+		if (!(durationSec > 0)) {
+			return fail(
+				"Nothing on the timeline to listen to yet — readMix measures an assembled cut.",
+			);
+		}
+
+		let decoded: DecodedTimelineMix | null;
+		try {
+			decoded = await decodeMix();
+		} catch (err) {
+			return fail(
+				`Couldn't mix the timeline down to measure it: ${
+					err instanceof Error ? err.message : String(err)
+				}`,
+			);
+		}
+		if (!decoded || decoded.sourcesMixed === 0) {
+			return fail(
+				"No decodable audio on the timeline yet — readMix measures the assembled mix, so it needs at least one clip, voiceover or music bed with real audio in it.",
+			);
+		}
+
+		const loudnessSampleIntervalSec = resolveCurveIntervalSec(
+			durationSec,
+			input.loudnessSampleIntervalSec,
+		);
+		const analysis = analyzeMix({
+			samples: decoded.samples,
+			sampleRate: decoded.sampleRate,
+			durationSec,
+			speechIntervals: gatherSpeechIntervals(),
+			musicElements: gatherMusicElements(),
+			loudnessSampleIntervalSec,
+		});
+
+		const competing = analysis.overlaps.filter(
+			(o) => o.competingDb > MIX_READ_COMPETING_DB,
+		);
+		const deadAirTotalSec =
+			Math.round(
+				analysis.deadAir.reduce((sum, d) => sum + d.durationSec, 0) * 100,
+			) / 100;
+
+		const data: MixReadData = {
+			durationSec: Math.round(durationSec * 100) / 100,
+			sourcesMixed: decoded.sourcesMixed,
+			sourcesSkipped: decoded.sourcesSkipped,
+			loudnessSampleIntervalSec: analysis.loudnessSampleIntervalSec,
+			loudnessCurve: analysis.loudnessCurve,
+			integratedLoudness: analysis.integratedLoudness,
+			overlaps: topByThenChronological<MusicSpeechOverlap>(
+				analysis.overlaps,
+				(o) => o.competingDb,
+			),
+			competingOverlapCount: competing.length,
+			deadAir: topByThenChronological<DeadAirStretch>(
+				analysis.deadAir,
+				(d) => d.durationSec,
+			),
+			deadAirTotalSec,
+		};
+
+		// The message carries the verdict and NAMES the remedy verb — the same
+		// coaching shape the structured lookup failures use. The arrays are for
+		// when the agent wants to know exactly where.
+		const notes: string[] = [
+			`integrated ${analysis.integratedLoudness.integrated} LUFS, true peak ${analysis.integratedLoudness.truePeak} dBFS`,
+		];
+		notes.push(
+			analysis.deadAir.length === 0
+				? "no dead air"
+				: `${analysis.deadAir.length} dead-air stretch(es) totalling ${deadAirTotalSec}s (removeSilence / tightenToLength)`,
+		);
+		if (analysis.overlaps.length === 0) {
+			notes.push("no music playing under speech");
+		} else if (competing.length === 0) {
+			notes.push(
+				`${analysis.overlaps.length} music/speech overlap(s), all already ducked`,
+			);
+		} else {
+			notes.push(
+				`${competing.length} of ${analysis.overlaps.length} music/speech overlap(s) measure louder than a proper duck (duckMusicUnderSpeech)`,
+			);
+		}
+
+		return ok(
+			`Mix read across ${data.durationSec}s from ${decoded.sourcesMixed} audible source(s): ${notes.join("; ")}.`,
+			data,
+		);
+	}
+
 	// ---- AI CLEANUP -------------------------------------------------------
 	//
 	// Wires the EXISTING AI matting pipeline (`lib/studio/background-removal.ts`,
@@ -6741,6 +7218,9 @@ export function createDirectorApi(
 		cutOnBeat,
 		tightenToLength,
 		duckMusicUnderSpeech,
+		// audio perception (lib/director/mix-read.ts) — the read the craft
+		// macros above should be chosen from, rather than guessed at.
+		readMix,
 		// AI cleanup
 		removeBackground,
 		// lifecycle

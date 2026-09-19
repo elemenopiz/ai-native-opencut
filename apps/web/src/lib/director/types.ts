@@ -33,6 +33,12 @@ import type { StoryboardPlan, StyleBible } from "./storyboard-plan";
 import type { DerivedReference } from "./reference-intake";
 import type { ReelSpend, ShotAllocation } from "./budget";
 import type { LibraryManifest } from "./asset-manifest";
+import type { LUFSMeasurement } from "@/lib/audio/loudness-types";
+import type {
+	DeadAirStretch,
+	LoudnessSamplePoint,
+	MusicSpeechOverlap,
+} from "./mix-read";
 
 // Re-export the canonical generative types so Director consumers have a single
 // import site. These are NOT redefined — they live in `@/types/timeline`.
@@ -473,6 +479,57 @@ export interface WatchBackData {
 	/** One line per frame, e.g. "@2.0s — Intro shot" — its timestamp and, when
 	 * cheap to determine, the name of the clip on screen there. */
 	captions: string[];
+}
+
+/**
+ * Result of {@link DirectorApi.readMix} — the AUDIO counterpart of
+ * {@link WatchBackData}. `watchBack` shows the model what the cut LOOKS like;
+ * `readMix` tells it what the cut SOUNDS like, as numbers rather than pixels
+ * (`docs/plans/2026-09-18-director-autonomy-architecture.md` §4: "Read the mix
+ * — loudness curve, speech/music overlap — rather than assuming").
+ *
+ * Every figure is computed by the pure `lib/director/mix-read.ts` module; this
+ * shape is that module's `MixRead` plus the counts/totals an agent actually
+ * steers on (so the model never has to reduce the arrays itself) and the
+ * mixdown provenance it needs to trust the numbers at all.
+ *
+ * UNITS — inherited from `mix-read.ts`, restated here because two different
+ * scales coexist in one payload: `loudnessCurve[].levelDb` and every `*Db`
+ * field on an overlap are dBFS PEAK-per-chunk ratios, while
+ * `integratedLoudness` is LUFS-STYLE (gated mean-square ENERGY). Never compare
+ * a figure from one against a figure from the other.
+ */
+export interface MixReadData {
+	/** Timeline duration the mix was measured across (seconds). */
+	durationSec: number;
+	/**
+	 * How many timeline elements were decoded and summed into the analyzed
+	 * mixdown, and how many were passed over (no resolvable media file, or no
+	 * decodable audio track — an image, or a clip whose audio is off). A
+	 * reading over `sourcesMixed: 0` is not a reading at all, so the verb fails
+	 * rather than handing back a confident-looking floor of silence.
+	 */
+	sourcesMixed: number;
+	sourcesSkipped: number;
+	/** Interval `loudnessCurve` is sampled at (seconds) — RESOLVED, not requested: it widens automatically on a long timeline to keep the point count bounded. */
+	loudnessSampleIntervalSec: number;
+	/** The sampled loudness curve, dBFS. */
+	loudnessCurve: LoudnessSamplePoint[];
+	/** Headline LUFS-style figure (see the UNITS note above). */
+	integratedLoudness: LUFSMeasurement;
+	/** Music-bed/speech overlap windows, each with how far it sits from a proper duck. Truncated to the worst-competing few on a busy mix (`competingOverlapCount` always counts them all). */
+	overlaps: MusicSpeechOverlap[];
+	/**
+	 * Overlaps whose `competingDb` is meaningfully above 0 — where the music
+	 * measures LOUDER than `duckMusicUnderSpeech`'s own definition of "properly
+	 * ducked". This is the actionable count: 0 means the mix already behaves,
+	 * anything higher is a `duckMusicUnderSpeech` call waiting to happen.
+	 */
+	competingOverlapCount: number;
+	/** Stretches with no meaningful audio content. Truncated to the longest few on a very gappy cut (`deadAirTotalSec` always sums them all). */
+	deadAir: DeadAirStretch[];
+	/** Total dead air (seconds) — what `removeSilence`/`tightenToLength` would reclaim. */
+	deadAirTotalSec: number;
 }
 
 /**

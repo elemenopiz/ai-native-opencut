@@ -759,7 +759,7 @@ export function toolCatalog(): ToolDescriptor[] {
 		{
 			name: "readPlaybook",
 			description:
-				"read the full body of a named UGC prompt playbook (title/description already ride the system-prompt pointer).",
+				"read the full body of a named prompt playbook (title/description already ride the system-prompt pointer). The registry is no longer UGC-only — `shot-craft` is the general camera/motion/style-lock craft under any multi-shot generation.",
 			mutating: false,
 			// Self-contained lookup against the static PLAYBOOKS registry; ignores
 			// the director arg entirely (no reel/timeline state involved).
@@ -768,7 +768,17 @@ export function toolCatalog(): ToolDescriptor[] {
 				properties: {
 					id: {
 						type: "string",
-						enum: ["ugc-photo-prompts", "ugc-video-prompts"],
+						// DERIVED from the registry, never hand-listed. This enum drifted
+						// once already: `shot-craft` landed in PLAYBOOKS (and in the
+						// system-prompt pointer, `agent.ts`'s PLAYBOOK_POINTER, which
+						// enumerates the registry) while the enum still named only the
+						// two UGC ids — so the schema advertised a narrower menu than the
+						// handler below actually resolves. Advisory-only drift (the
+						// handler reads `PLAYBOOKS[id]` and never consulted this list),
+						// but it told the model a real playbook did not exist. Reading
+						// both from the same object makes "ids we advertise" and "ids we
+						// can resolve" ONE fact instead of two that must be kept in sync.
+						enum: Object.keys(PLAYBOOKS),
 						description: "Playbook id.",
 					},
 				},
@@ -2073,6 +2083,28 @@ export function toolCatalog(): ToolDescriptor[] {
 					releaseSec: numOrUndefined(a.releaseSec),
 					mergeGapSec: numOrUndefined(a.mergeGapSec),
 					trackId: strOrUndefined(a.trackId),
+				}),
+		},
+		{
+			name: "readMix",
+			description:
+				"HEAR the mix — MEASURE the assembled audio instead of guessing at it: overall loudness (LUFS + true peak), a sampled loudness curve, every stretch of dead air, and every window where a music bed is playing LOUDER than a proper duck under speech. Free, instant, no generation and no model call. The audio counterpart of watchBack (which shows you the picture). Use it before reaching for an audio verb — duckMusicUnderSpeech when overlaps are competing, removeSilence/tightenToLength when dead air is eating the runtime — and again after, to confirm the fix landed. Read-only: it measures, it never changes the timeline.",
+			// Read-only: decodes + measures, changes nothing on the reel → reel:read.
+			mutating: false,
+			inputSchema: {
+				type: "object",
+				properties: {
+					loudnessSampleIntervalSec: secs(
+						"how finely to sample the loudness curve (default 0.5). Widened automatically on a long timeline to keep the point count sane, so this is a floor, not an exact spacing.",
+					),
+				},
+				additionalProperties: false,
+			},
+			handler: (d, a) =>
+				d.readMix({
+					loudnessSampleIntervalSec: numOrUndefined(
+						a.loudnessSampleIntervalSec,
+					),
 				}),
 		},
 		// ── text (elementId is a FULL id, never a reel short id) ─────────────

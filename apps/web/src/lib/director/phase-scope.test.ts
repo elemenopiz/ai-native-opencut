@@ -204,7 +204,7 @@ test("every phase includes the always-on core", () => {
 	}
 });
 
-test("per-phase active counts stay generous but bounded (15–32)", () => {
+test("per-phase active counts stay generous but bounded (15–34)", () => {
 	// Target is 15–22 (Google's 10–20 guidance, buckets deliberately generous).
 	// Polish is REQUIRED to carry the full timeline/text/audio surface plus
 	// export/approveFinalCut/voice verbs plus generate+reroll on top of the
@@ -220,15 +220,38 @@ test("per-phase active counts stay generous but bounded (15–32)", () => {
 	// (cutOnBeat/tightenToLength/duckMusicUnderSpeech — free, instant edits on
 	// existing footage, same "editing on an already-cut reel" bucket as
 	// trim/removeSilence) landed polish-only too, pushing the shared ceiling
-	// to 32. Still a bit over half the catalog and in the same spirit as
-	// guidance.
+	// to 32.
+	//
+	// The bound then moved 32 → 33 → 34, both times for a verb that lets the
+	// model PERCEIVE the thing polish edits — a class the bucket had been
+	// silently starving because it was the cheapest thing to cut against a
+	// count:
+	//  - 32 → 33, watchBack. Polish owns every verb that changes the
+	//    COMPOSITED timeline (trim/split/reorder/addText/applyTransition/
+	//    applyEffect) and watchBack is the only verb that RENDERS it. Two
+	//    earlier passes deliberately left it production-only to avoid touching
+	//    this bound, which meant the polish surface could edit a cut it was
+	//    structurally unable to look at — the exact failure
+	//    docs/plans/2026-09-18-director-autonomy-architecture.md §7 exists to
+	//    close. The bound was the wrong thing to protect; it moved.
+	//  - 33 → 34, readMix. Same argument on the audio half (§4 of that doc):
+	//    polish owns duckMusicUnderSpeech/removeSilence/tightenToLength/
+	//    addMusicBed, and readMix is the only verb that MEASURES the mix those
+	//    act on (its overlap windows are merged with duckMusicUnderSpeech's own
+	//    DEFAULT_MERGE_GAP_SEC precisely so a read lines up with what a duck
+	//    would produce). A remedy on the menu with no way to diagnose what it
+	//    should remedy is the same gap as an edit with no way to see it.
+	// Both are READS: they add no new mutation surface, only sight. Polish is
+	// now clearly past Google's 10–20 guidance and should be REBALANCED (some
+	// rarely-used polish verbs moved or consolidated) rather than nudged again
+	// — treat the next +1 as a prompt to do that work, not to edit this number.
 	for (const phase of PHASES) {
 		const count = activeToolNamesForPhase(phase).length;
 		expect(
 			count,
 			`${phase} bucket too small (${count})`,
 		).toBeGreaterThanOrEqual(15);
-		expect(count, `${phase} bucket too fat (${count})`).toBeLessThanOrEqual(32);
+		expect(count, `${phase} bucket too fat (${count})`).toBeLessThanOrEqual(34);
 	}
 });
 
@@ -271,8 +294,13 @@ test("adjacent-phase jumps stay possible (pinned memberships)", () => {
 		);
 	}
 	// Polish: all timeline/text/audio verbs + export/final approval + voice
-	// consent + generate/reroll for "redo shot 3" asks.
+	// consent + generate/reroll for "redo shot 3" asks + the two PERCEPTION
+	// verbs (watchBack sees the cut, readMix measures the mix) — pinned here
+	// so a future count squeeze can't quietly make the polish surface blind
+	// again; see the count-bounds comment above for why the ceiling moved.
 	for (const name of [
+		"watchBack",
+		"readMix",
 		"trim",
 		"move",
 		"split",

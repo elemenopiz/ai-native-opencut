@@ -226,17 +226,22 @@ export const PHASE_TOOL_ASSIGNMENTS: Readonly<
 	chooseTake: ["production"],
 	reviewTake: ["production"],
 	// watchBack ("SEE the cut" — see docs/plans/2026-09-18-director-autonomy-
-	// architecture.md §7): same bucket as its source-media sibling reviewTake,
-	// for the same reason — this is the take-judging phase, the natural home
-	// for every "look before you commit" verb. It would ALSO belong in
-	// polish (checking the cut after trim/split/addText/applyTransition is
-	// exactly the "watch it back" moment a human editor has there), but
-	// polish is already at phase-scope.test.ts's enforced ceiling of 32
-	// non-core verbs — adding it there without bumping that bound would
-	// breach it, so it is deliberately NOT assigned to polish here. See the
-	// implementing task's report for this call-out; the bound was left
-	// untouched rather than silently raised.
-	watchBack: ["production"],
+	// architecture.md §7): production + polish.
+	//  - production, because this is the take-judging phase — the natural home
+	//    for every "look before you commit" verb, alongside its source-media
+	//    sibling reviewTake.
+	//  - polish, because that is where the verb's actual subject EXISTS.
+	//    watchBack renders the COMPOSITED timeline (tracks, transitions, text,
+	//    effects together), and polish is the only bucket carrying the verbs
+	//    that change it — trim/split/reorder/addText/applyTransition/
+	//    applyEffect. Scoping it to production alone let the model make those
+	//    edits and then be unable to look at what it made: the exact "edits a
+	//    timeline it has never seen" failure §7 exists to close, reintroduced
+	//    by the phase filter. Two earlier passes deferred this because polish
+	//    sat on phase-scope.test.ts's enforced count ceiling; the ceiling was
+	//    raised 32 → 33 for this verb specifically (see the bound's comment
+	//    there) rather than leaving the polish surface eyeless.
+	watchBack: ["production", "polish"],
 	approveHeroShot: ["production"],
 	setConsistencyContext: ["production"],
 	revertBibleCheckpoint: ["production"],
@@ -275,6 +280,27 @@ export const PHASE_TOOL_ASSIGNMENTS: Readonly<
 	cutOnBeat: ["polish"],
 	tightenToLength: ["polish"],
 	duckMusicUnderSpeech: ["polish"],
+	// readMix (the AUDIO half of "give it eyes" — docs/plans/2026-09-18-
+	// director-autonomy-architecture.md §4): polish ONLY, for two reasons that
+	// point the same way.
+	//  - PRECONDITION. It measures the MIX — dead air, integrated loudness,
+	//    where music is competing with speech. That only means something once
+	//    footage, voiceover and a music bed are actually assembled together,
+	//    the same "needs a real cut-together sequence" precondition
+	//    trim/removeSilence/the craft trio share. Reading the mix of a
+	//    half-generated reel measures nothing but the gaps.
+	//  - REMEDY ADJACENCY. Every fix it can point at — duckMusicUnderSpeech
+	//    (competing music), removeSilence/tightenToLength (dead air) — is
+	//    polish-only. Diagnosis and remedy have to be reachable in the same
+	//    bucket or the read is a dead end. This pairing is not incidental:
+	//    readMix merges its overlap windows with duckMusicUnderSpeech's own
+	//    DEFAULT_MERGE_GAP_SEC so a `competingDb` figure describes exactly the
+	//    window that verb would duck.
+	// Deliberately NOT in production, even though addVoiceover/addMusicBed are
+	// (audio is part of BUILDING the reel): during production the mix is still
+	// being assembled, and none of the verbs that would act on a bad reading
+	// are on the menu there.
+	readMix: ["polish"],
 };
 
 /**
