@@ -138,6 +138,37 @@ const webEnvSchema = z.object({
 		.transform((v) => v || process.env.HF_CREDENTIALS || ""),
 	HIGGSFIELD_BASE_URL: z.string().default(""),
 	HIGGSFIELD_MODEL: z.string().default(""),
+	// Higgsfield's other modalities — image (GPT Image 2.5, Nano Banana 2, Soul
+	// Cinematic) and audio (Seed Audio 1.0, text-to-speech). They share the one
+	// HIGGSFIELD_CREDENTIALS above, but each also needs its own REST ENDPOINT
+	// PATH here before its adapter reports available, and that is deliberate.
+	//
+	// Higgsfield's public repos document the CLI surface (flat model ids like
+	// `gpt_image_2_5`); the adapters post to REST endpoint paths shaped
+	// `<vendor>/<model>/<task>`. Nothing first-party maps one to the other, so
+	// each adapter carries an UNVERIFIED best guess as documentation only. If
+	// the shared credential alone switched them on, configuring Higgsfield VIDEO
+	// would silently enlist three image backends with guessed URLs into the
+	// router — 404s in front of a customer. So an operator pastes the path they
+	// confirmed in the Higgsfield console into the matching var below, and the
+	// adapter stays inert until they do. Blank (the default) = that model off.
+	//
+	// Expected shapes (UNCONFIRMED — confirm in the console before setting):
+	//   openai/gpt-image-2.5/text-to-image
+	//   google/nano-banana-2/text-to-image
+	//   higgsfield/soul-cinematic/text-to-image
+	//   bytedance/seed-audio/text-to-speech
+	HIGGSFIELD_GPT_IMAGE_ENDPOINT: z.string().default(""),
+	HIGGSFIELD_NANO_BANANA_ENDPOINT: z.string().default(""),
+	HIGGSFIELD_SOUL_ENDPOINT: z.string().default(""),
+	HIGGSFIELD_SEED_AUDIO_ENDPOINT: z.string().default(""),
+	// Optional project-default narrator voice for Seed Audio. MUST be set as a
+	// PAIR — the provider rejects one without the other — so the adapter sends
+	// them only when both are non-empty. `voice_type` is "preset" (a catalog
+	// voice) or "element" (a cloned voice); get real values from
+	// `higgsfield voices list`. Unset = the model's own default voice.
+	HIGGSFIELD_SEED_AUDIO_VOICE_TYPE: z.string().default(""),
+	HIGGSFIELD_SEED_AUDIO_VOICE_ID: z.string().default(""),
 	// Google Gemini — ONE key shared by Veo (video, Standard + Fast), Imagen
 	// (image), and Gemini Flash Image / "Nano Banana" (image).
 	GEMINI_API_KEY: z.string().default(""),
