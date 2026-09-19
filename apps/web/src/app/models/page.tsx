@@ -139,12 +139,12 @@ export default function ModelsPage() {
 				/>
 
 				<section className="flex flex-col gap-4">
-					<h2 className="text-2xl font-semibold">On your device</h2>
+					<h2 className="text-2xl font-semibold">Transcription</h2>
 					<p className="text-muted-foreground max-w-2xl leading-relaxed">
-						Transcription is different: Whisper runs in your browser on WebGPU,
-						so audio for captions never has to leave your machine (a server
-						fallback is available). Word-level captions come straight from the
-						transcript panel.
+						Speech-to-text runs on MAI-Transcribe-2, which leads the FLEURS
+						benchmark across 60 languages. Audio is extracted in your browser
+						and transcribed automatically when you add a file, so word-level
+						captions and transcript search are ready in the transcript panel.
 					</p>
 				</section>
 

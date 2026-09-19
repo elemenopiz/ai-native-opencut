@@ -88,6 +88,17 @@ const webEnvSchema = z.object({
 	// default Seedance 2.0 model (dreamina-seedance-2-0-260128 on BytePlus).
 	BYTEPLUS_SEEDANCE_ENDPOINT_ID: z.string().default(""),
 
+	// ── Speech-to-text: MAI-Transcribe-2 via Microsoft Foundry (Azure Speech) ──
+	// The ONLY transcription backend. With no key set, /api/transcribe returns a
+	// machine-readable 503 ("transcription_not_configured") and the client hides
+	// captions/transcripts rather than surfacing a technical error. There is no
+	// on-device fallback any more — on-device Whisper was removed deliberately
+	// (see apps/web/src/lib/transcription/mai-transcribe.ts).
+	AZURE_SPEECH_KEY: z.string().default(""),
+	// Full resource host, e.g. "https://byorn-speech.cognitiveservices.azure.com".
+	// No trailing slash; the route appends the speechtotext path itself.
+	AZURE_SPEECH_ENDPOINT: z.string().default(""),
+
 	// OpenAI — for GPT Image reference frame generation
 	OPENAI_API_KEY: z.string().default(""),
 	// Model name — defaults to gpt-image-2 (current GPT Image model id)

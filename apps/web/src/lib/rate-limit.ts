@@ -138,6 +138,13 @@ export const RATE_LIMITS = {
 	// 200 req/hr upstream quota shared by ALL users, so the per-IP caps stay
 	// tight — one abusive IP must not burn the whole shared budget.
 	"images:search": { perMinute: 10, perDay: 200 },
+	// Speech-to-text (MAI-Transcribe-2). Billed per hour of audio at the
+	// provider, and every ingested asset auto-transcribes on upload, so a bulk
+	// drag-and-drop legitimately fires many calls in a burst — hence the roomy
+	// per-minute window. The per-day cap is the real spend bound: 500 chunks is
+	// well past any honest editing session but stops a runaway loop or a scripted
+	// client from grinding through the Azure budget unattended.
+	"transcribe:audio": { perMinute: 60, perDay: 500 },
 	// Version-control WRITE paths (all keyed on the signed-in user).
 	// Commit pushes can arrive in bursts from auto-commit while editing — keep
 	// them generous; each push is also batch-capped in the route itself.

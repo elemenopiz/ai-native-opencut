@@ -23,7 +23,7 @@ export const baseMetaData: Metadata = {
 		"AI storyboard to video",
 		"agent-driven video editing",
 		"MCP video editor",
-		"Whisper captions",
+		"automatic captions",
 		"text based video editing",
 		"video masks and keyframes",
 		"professional timeline editor",

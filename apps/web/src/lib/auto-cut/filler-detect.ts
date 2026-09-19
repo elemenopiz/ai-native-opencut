@@ -1,26 +1,38 @@
 /**
  * Transcript-aware smart-cleanup detectors — filler words and false starts.
  *
- * GRANULARITY (verified against the shipped transcript pipeline before writing
- * this): the persisted per-asset transcript (`AssetTranscript`, see
- * `lib/search/asset-transcript.ts`) carries SENTENCE/PHRASE-level segments
- * ONLY. `fromTranscriptionResult` deliberately drops word-level timings before
- * storage — and even the in-memory `TranscriptionWord[]` the local Whisper path
- * produces (`lib/transcription/local-whisper.ts`) is *synthetic*: phrase text
- * split evenly across the phrase's span, not real per-word ASR alignment
- * (`onnx-community/whisper-*` exports don't carry the cross-attentions word
- * alignment needs). So in practice this module runs in SEGMENT MODE: it can
- * confidently cut a segment whose ENTIRE text is filler ("Um." / "You know,
- * uh...") because its start/end are real timestamps, but it will NOT invent a
- * word boundary inside a longer sentence that isn't backed by real alignment.
- * Mid-sentence filler matches are counted in `undetectableFillerCount`
- * (diagnostic only, never a cut) so the UI can be honest about the limit
- * instead of silently doing nothing.
+ * GRANULARITY: a segment that carries real per-word timings (`words` on the
+ * `DetectableSegment`) runs in WORD MODE — individual filler words are cut out
+ * of the middle of a sentence, never crossing into a neighbouring word (see
+ * the `prePad`/`postPad` clamping below). A segment WITHOUT word timings
+ * degrades to SEGMENT MODE: it can still confidently cut a segment whose
+ * ENTIRE text is filler ("Um." / "You know, uh...") because its start/end are
+ * real timestamps, but it will NOT invent a word boundary inside a longer
+ * sentence. Those mid-sentence matches are counted in
+ * `undetectableFillerCount` (diagnostic only, never a cut) so the UI can be
+ * honest about the limit instead of silently doing nothing.
  *
- * If a caller DOES have real per-word timing for a segment (`words` on the
- * `DetectableSegment`), detection upgrades to WORD MODE for that segment and
- * cuts individual filler words precisely, still never crossing into a
- * neighboring word (see `prePad`/`postPad` clamping below).
+ * WORD MODE IS NOW REACHED IN PRODUCTION. It spent a while written-but-dead,
+ * for two separate reasons that both had to be cleared:
+ *
+ *  1. ALIGNMENT. The old on-device Whisper path emitted *synthetic* word
+ *     timings (phrase text split evenly across the phrase span, because the
+ *     `onnx-community/whisper-*` exports don't carry the cross-attentions real
+ *     alignment needs), so passing them in would have cut on invented
+ *     boundaries. MAI-Transcribe-2 returns genuine per-word alignment
+ *     (`modelOptions.timestamps: "word"`).
+ *  2. STORAGE + STYLE. `fromTranscriptionResult` used to drop `words` on the
+ *     way to disk, AND the ingest pass asked the provider for the "clean"
+ *     transcription style, which deletes fillers before we ever see them.
+ *     Word timings are now persisted on `TranscriptSegmentLite`, and
+ *     `services/search/asset-transcript-service.ts` asks for "verbatim".
+ *
+ * So the live caller — the Remove-Silence / smart-cleanup dialog — reads a
+ * persisted `AssetTranscript` through `assetTranscriptLookup` and its segments
+ * satisfy `DetectableSegment` directly, words included. Records written before
+ * that change have no `words` and a "clean" style; they degrade to SEGMENT
+ * MODE, and `AssetTranscript#supportsFillerRemoval` is how a caller tells that
+ * apart from "this speaker just has no fillers".
  *
  * TIMEBASE: both `AssetTranscript` segments and this module's output ranges
  * are ASSET-RELATIVE seconds — the SAME timebase as a clip's
@@ -206,9 +218,20 @@ function detectFillerWordsInSegment(
 		}
 		const firstWord = words[i];
 		const lastWord = words[i + phrase.length - 1];
-		const floor = i > 0 ? words[i - 1].end : segment.start;
+		// The pad floor/ceil are the neighbouring words' edges — but they are
+		// only usable as CLAMPS if they sit outside the filler span itself.
+		// Real alignment data is not always monotonic (a provider can report a
+		// word ending a few ms after the next one starts, or a phrase whose
+		// span is tighter than the words inside it). Taking such a value
+		// literally would push the clamp INSIDE the filler and leave part of
+		// the "um" on the timeline. Bound each side by the filler's own edge so
+		// the clamp can only ever restrict the PADDING, never the word.
+		const rawFloor = i > 0 ? words[i - 1].end : segment.start;
+		const floor = Math.min(rawFloor, firstWord.start);
 		const ceilIdx = i + phrase.length;
-		const ceil = ceilIdx < words.length ? words[ceilIdx].start : segment.end;
+		const rawCeil =
+			ceilIdx < words.length ? words[ceilIdx].start : segment.end;
+		const ceil = Math.max(rawCeil, lastWord.end);
 		const { start, end } = clampPad(
 			firstWord.start,
 			lastWord.end,

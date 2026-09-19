@@ -41,7 +41,7 @@ const FEATURES = [
 	{
 		category: "AI Features",
 		rows: [
-			{ feature: "AI transcription", byorn: "Whisper (local)", descript: "Cloud-based" },
+			{ feature: "AI transcription", byorn: "MAI-Transcribe-2", descript: "Cloud-based" },
 			{ feature: "Filler word removal", byorn: "Yes", descript: "Yes" },
 			{ feature: "Silence detection", byorn: "Yes", descript: "Yes" },
 			{ feature: "Smart Cut (one-click)", byorn: "Yes", descript: "No" },
@@ -201,7 +201,7 @@ export default function VsDescriptPage() {
 						/>
 						<FAQ
 							question="Is the AI transcription as accurate as Descript?"
-							answer="Byorn uses Faster Whisper (CTranslate2), which provides state-of-the-art accuracy matching or exceeding cloud-based services. It runs locally on your hardware."
+							answer="Byorn uses MAI-Transcribe-2, which ranks first on the FLEURS benchmark across 60 languages at a 5.2% average word-error rate, with word-level timestamps and speaker labels."
 						/>
 						<FAQ
 							question="Can my team collaborate like we do in Descript?"
