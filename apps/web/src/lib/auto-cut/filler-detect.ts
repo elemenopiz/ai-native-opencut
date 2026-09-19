@@ -229,8 +229,7 @@ function detectFillerWordsInSegment(
 		const rawFloor = i > 0 ? words[i - 1].end : segment.start;
 		const floor = Math.min(rawFloor, firstWord.start);
 		const ceilIdx = i + phrase.length;
-		const rawCeil =
-			ceilIdx < words.length ? words[ceilIdx].start : segment.end;
+		const rawCeil = ceilIdx < words.length ? words[ceilIdx].start : segment.end;
 		const ceil = Math.max(rawCeil, lastWord.end);
 		const { start, end } = clampPad(
 			firstWord.start,

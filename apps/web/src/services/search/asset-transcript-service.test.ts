@@ -64,6 +64,42 @@ describe("transcribeAsset", () => {
 		expect(assetHasSpeech("m1")).toBe(true);
 	});
 
+	it("stamps the verbatim style and persists word timings end to end", async () => {
+		saved.clear();
+		clearTranscriptCache();
+		const record = await transcribeAsset(mediaAsset("m-words"), {
+			transcribe: async () => ({
+				segments: [
+					{
+						id: 0,
+						text: "So um yes.",
+						start: 0,
+						end: 1.2,
+						words: [
+							{ word: "So", start: 0, end: 0.28, confidence: 0.9 },
+							{ word: "um", start: 0.32, end: 0.56, confidence: 0.9 },
+							{ word: "yes", start: 0.6, end: 1.2, confidence: 0.9 },
+						],
+					},
+				],
+				language: "en",
+				duration: 2,
+				engine: "stub",
+			}),
+		});
+		// Style is stamped by the SERVICE (it owns the request), not the stub —
+		// this is what lets a reader tell "no fillers" from "fillers stripped".
+		expect(record?.style).toBe("verbatim");
+		// Words survive the trip to storage, which is what makes WORD MODE
+		// filler detection reachable from the persisted record.
+		expect(record?.segments[0].words).toEqual([
+			{ word: "So", start: 0, end: 0.28 },
+			{ word: "um", start: 0.32, end: 0.56 },
+			{ word: "yes", start: 0.6, end: 1.2 },
+		]);
+		expect(saved.get("m-words")?.segments[0].words).toHaveLength(3);
+	});
+
 	it("short-circuits on an existing record instead of re-transcribing", async () => {
 		saved.clear();
 		clearTranscriptCache();

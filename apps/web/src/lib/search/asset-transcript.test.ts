@@ -5,8 +5,10 @@ import {
 	DIGEST_SEGMENT_CAP,
 	fromTranscriptionResult,
 	hasSpeech,
+	isWordTimed,
 	renderTranscriptDigest,
 	selectTranscriptionCandidates,
+	supportsFillerRemoval,
 	windowSegments,
 	type TranscriptSegmentLite,
 } from "./asset-transcript";
@@ -26,7 +28,7 @@ function asset(over: Partial<MediaAsset> = {}): MediaAsset {
 }
 
 describe("fromTranscriptionResult", () => {
-	it("keeps segment timings + text and drops word-level data", () => {
+	it("keeps segment timings + text AND per-word timings, minus confidence", () => {
 		const t = fromTranscriptionResult(
 			"m1",
 			{
@@ -36,23 +38,135 @@ describe("fromTranscriptionResult", () => {
 						text: " Hello there. ",
 						start: 0.5,
 						end: 2.4,
-						words: [{ word: "Hello", start: 0.5, end: 1.2, confidence: 0.9 }],
+						words: [
+							{ word: "Hello", start: 0.5, end: 1.2, confidence: 0.9 },
+							{ word: "there", start: 1.3, end: 2.4, confidence: 0.9 },
+						],
 					},
 				],
 				language: "en",
 				duration: 10,
-				engine: "whisper-local",
+				engine: "mai-transcribe-2",
+				style: "verbatim",
 			},
 			123,
 		);
 		expect(t).toEqual({
 			mediaId: "m1",
-			segments: [seg(0.5, 2.4, "Hello there.")],
+			segments: [
+				{
+					start: 0.5,
+					end: 2.4,
+					text: "Hello there.",
+					// `confidence` is dropped: the route copies ONE phrase-level
+					// value onto every word, so it carries no per-word information.
+					words: [
+						{ word: "Hello", start: 0.5, end: 1.2 },
+						{ word: "there", start: 1.3, end: 2.4 },
+					],
+				},
+			],
 			language: "en",
 			durationSec: 10,
-			engine: "whisper-local",
+			engine: "mai-transcribe-2",
+			style: "verbatim",
 			createdAt: 123,
 		});
+	});
+
+	it("omits `words` entirely when the engine supplied none", () => {
+		const t = fromTranscriptionResult("m1", {
+			segments: [{ id: 0, text: "hi", start: 0, end: 1, words: [] }],
+			language: "en",
+			duration: 1,
+		});
+		expect(t.segments[0]).not.toHaveProperty("words");
+		expect(t).not.toHaveProperty("style");
+	});
+
+	it("clamps a word that overruns its phrase INWARD, never outward", () => {
+		// Bad provider data: the word claims to end past the phrase. Widening
+		// the stored span would let a later cut eat the next phrase's audio.
+		const t = fromTranscriptionResult("m1", {
+			segments: [
+				{
+					id: 0,
+					text: "um yes",
+					start: 1,
+					end: 2,
+					words: [
+						{ word: "um", start: 0.2, end: 1.4, confidence: 0 },
+						{ word: "yes", start: 1.5, end: 9, confidence: 0 },
+					],
+				},
+			],
+			language: "en",
+			duration: 5,
+		});
+		expect(t.segments[0].words).toEqual([
+			{ word: "um", start: 1, end: 1.4 },
+			{ word: "yes", start: 1.5, end: 2 },
+		]);
+	});
+
+	it("drops empty word tokens", () => {
+		const t = fromTranscriptionResult("m1", {
+			segments: [
+				{
+					id: 0,
+					text: "hi",
+					start: 0,
+					end: 1,
+					words: [
+						{ word: "  ", start: 0, end: 0.1, confidence: 0 },
+						{ word: "hi", start: 0.2, end: 0.9, confidence: 0 },
+					],
+				},
+			],
+			language: "en",
+			duration: 1,
+		});
+		expect(t.segments[0].words).toEqual([{ word: "hi", start: 0.2, end: 0.9 }]);
+	});
+});
+
+describe("isWordTimed / supportsFillerRemoval", () => {
+	const make = (
+		segments: TranscriptSegmentLite[],
+		style?: "clean" | "verbatim",
+	) => ({
+		mediaId: "m1",
+		segments,
+		language: "en",
+		durationSec: 5,
+		engine: "mai-transcribe-2",
+		createdAt: 0,
+		...(style ? { style } : {}),
+	});
+
+	const worded: TranscriptSegmentLite = {
+		start: 0,
+		end: 1,
+		text: "um yes",
+		words: [
+			{ word: "um", start: 0, end: 0.3 },
+			{ word: "yes", start: 0.4, end: 1 },
+		],
+	};
+
+	it("isWordTimed needs EVERY speech segment to carry words", () => {
+		expect(isWordTimed(make([worded]))).toBe(true);
+		expect(isWordTimed(make([worded, seg(2, 3, "no words here")]))).toBe(false);
+		expect(isWordTimed(make([]))).toBe(false);
+	});
+
+	it("supportsFillerRemoval also requires a VERBATIM style", () => {
+		// The decisive case: a fully word-timed transcript is still useless for
+		// filler removal if the provider was asked to strip fillers first.
+		expect(supportsFillerRemoval(make([worded], "clean"))).toBe(false);
+		// Legacy record: no style stamped at all.
+		expect(supportsFillerRemoval(make([worded]))).toBe(false);
+		expect(supportsFillerRemoval(make([worded], "verbatim"))).toBe(true);
 	});
 
 	it("drops empty segments and clamps negative/inverted spans", () => {
