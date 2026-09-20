@@ -17,8 +17,11 @@ import {
 	MAX_EDIT_CRITIQUE_ISSUES,
 	parseEditCritique,
 	planFrameSamples,
+	suggestFixesForCutScore,
+	type CutScoreFixSuggestion,
 	type SamplableElement,
 } from "./edit-critic";
+import type { EngagementDiagnostics } from "@/lib/engagement-diagnostics";
 import type { MixRead } from "./mix-read";
 import { editCriticEnabled, toolCatalog } from "./tool-catalog";
 
@@ -384,6 +387,124 @@ describe("formatCutScoreSummary", () => {
 		expect(formatCutScoreSummary({ source: "unknown", axes: {} })).toBe(
 			"CUT SCORE (unknown): no per-axis scores.",
 		);
+	});
+});
+
+// ── suggestFixesForCutScore ──────────────────────────────────────────────────
+
+/** Minimal `EngagementDiagnostics`-shaped fixture — only `hook`/`holdRate` matter to this function. */
+function diagnosticsFixture(over: {
+	hookRating?: "strong" | "ok" | "weak";
+	hookScore?: number;
+	holdRating?: "strong" | "ok" | "weak";
+	holdScore?: number;
+}): Pick<EngagementDiagnostics, "hook" | "holdRate"> {
+	return {
+		hook: {
+			score: over.hookScore ?? 80,
+			rating: over.hookRating ?? "strong",
+			verdict: "",
+			issues: [],
+			openingText: "",
+		},
+		holdRate: {
+			score: over.holdScore ?? 80,
+			rating: over.holdRating ?? "strong",
+			verdict: "",
+			estimatedEndRetention: 70,
+			curve: [],
+			dropoffs: [],
+		},
+	};
+}
+
+describe("suggestFixesForCutScore", () => {
+	it("suggests nothing for a strong cut on both axes", () => {
+		const out = suggestFixesForCutScore(diagnosticsFixture({}), {
+			totalDurationSec: 30,
+			hasBeatGrid: false,
+		});
+		expect(out).toEqual([]);
+	});
+
+	it("routes a weak hook to a tighten-to-length applyEdit fix", () => {
+		const out = suggestFixesForCutScore(
+			diagnosticsFixture({ hookRating: "weak", hookScore: 30 }),
+			{ totalDurationSec: 20, hasBeatGrid: false },
+		);
+		expect(out.length).toBe(1);
+		const s = out[0] as CutScoreFixSuggestion;
+		expect(s.axis).toBe("hook");
+		expect(s.fix.verb).toBe("applyEdit");
+		expect(s.fix.args.mode).toBe("dry-run");
+		expect(String(s.fix.args.program)).toContain("targetDurationSec");
+		expect(s.reason).toContain("Hook scored weak");
+	});
+
+	it("routes a weak hold-rate to the same tighten-to-length shape, distinct reason", () => {
+		const out = suggestFixesForCutScore(
+			diagnosticsFixture({ holdRating: "weak", holdScore: 25 }),
+			{ totalDurationSec: 20, hasBeatGrid: false },
+		);
+		expect(out.length).toBe(1);
+		expect(out[0].axis).toBe("holdRate");
+		expect(out[0].reason).toContain("Hold rate scored weak");
+	});
+
+	it("also suggests cutOnBeat when a weak hook coincides with an analyzed beat grid", () => {
+		const out = suggestFixesForCutScore(
+			diagnosticsFixture({ hookRating: "weak", hookScore: 20 }),
+			{ totalDurationSec: 20, hasBeatGrid: true },
+		);
+		expect(out.length).toBe(2);
+		expect(out.map((s) => s.fix.verb)).toEqual(["applyEdit", "applyEdit"]);
+		const beatFix = out.find((s) =>
+			String(s.fix.args.program).includes("cutOnBeat as a program"),
+		);
+		expect(beatFix).toBeDefined();
+	});
+
+	it("never suggests cutOnBeat without a beat grid, even with a weak hook", () => {
+		const out = suggestFixesForCutScore(
+			diagnosticsFixture({ hookRating: "weak" }),
+			{ totalDurationSec: 20, hasBeatGrid: false },
+		);
+		expect(
+			out.some((s) => String(s.fix.args.program).includes("cutOnBeat")),
+		).toBe(false);
+	});
+
+	it("targets a shorter duration than the current runtime", () => {
+		const out = suggestFixesForCutScore(
+			diagnosticsFixture({ hookRating: "weak" }),
+			{ totalDurationSec: 40, hasBeatGrid: false },
+		);
+		const match = String(out[0].fix.args.program).match(
+			/targetDurationSec = ([\d.]+)/,
+		);
+		expect(match).not.toBeNull();
+		const target = Number(match?.[1]);
+		expect(target).toBeLessThan(40);
+		expect(target).toBeGreaterThan(0);
+	});
+
+	it("respects a custom tightenRatio", () => {
+		const out = suggestFixesForCutScore(
+			diagnosticsFixture({ hookRating: "weak" }),
+			{ totalDurationSec: 40, hasBeatGrid: false, tightenRatio: 0.5 },
+		);
+		const match = String(out[0].fix.args.program).match(
+			/targetDurationSec = ([\d.]+)/,
+		);
+		expect(Number(match?.[1])).toBeCloseTo(20, 1);
+	});
+
+	it("does nothing on a zero-duration timeline (nothing to tighten)", () => {
+		const out = suggestFixesForCutScore(
+			diagnosticsFixture({ hookRating: "weak" }),
+			{ totalDurationSec: 0, hasBeatGrid: false },
+		);
+		expect(out).toEqual([]);
 	});
 });
 

@@ -61,11 +61,13 @@ import {
 	type TimeRangeSec,
 } from "./craft";
 import {
+	createDerivedDataFunctions,
 	runProgram,
 	type ProgramOp,
 	type ProgramPrimitiveApi,
 	type ProgramRunMode,
 	type ProgramRunResult,
+	type ProgramValue,
 } from "./program";
 import {
 	removeImageBackground,
@@ -209,12 +211,22 @@ import {
 	formatTranscriptExcerpt,
 	parseEditCritique,
 	planFrameSamples,
+	suggestFixesForCutScore,
 	type CritiqueFrame,
+	type CutScoreFixSuggestion,
 	type EditCritique,
 	type EditCriticRelay,
 	type SamplableElement,
 	type TranscriptExcerptSegment,
 } from "./edit-critic";
+import {
+	scoreCut as computeCutScore,
+	type ScoreCutBeat,
+	type ScoreCutClip,
+	type ScoreCutLoudnessPoint,
+	type ScoreCutResult,
+	type ScoreCutSpeechSpan,
+} from "./scoring/score-cut";
 import { dataUrlToFile } from "@/lib/media/data-url";
 import {
 	readMix as analyzeMix,
@@ -6769,6 +6781,130 @@ export function createDirectorApi(
 		);
 	}
 
+	// ---- ENGAGEMENT SCORE (lib/director/scoring/score-cut.ts) --------------
+	//
+	// `scoreCut` grades the self-graded-edit demo loop: score the timeline,
+	// let the Director recut the weak part, score again. No external scorer is
+	// reachable (Higgsfield's `brain_activity` 404s on every spelling; the
+	// Python ai-backend `aiClient.engagementScore` calls isn't deployed — see
+	// `scoring/score-cut.ts`'s header), so this verb synthesizes the score
+	// LOCALLY from data the Director already reads for `applyEdit`
+	// (`clips()`/`speech()`/`beats()`, the same `createDerivedDataFunctions`
+	// bag `applyEdit` below builds) plus `readMix()`'s measured loudness curve
+	// when a mixdown decodes.
+
+	function toScoreCutClip(v: ProgramValue): ScoreCutClip {
+		const o = (
+			v && typeof v === "object" && !Array.isArray(v) ? v : {}
+		) as Record<string, ProgramValue>;
+		return {
+			id: typeof o.id === "string" ? o.id : "",
+			kind: typeof o.kind === "string" ? o.kind : "",
+			startSec: typeof o.startSec === "number" ? o.startSec : 0,
+			durationSec: typeof o.durationSec === "number" ? o.durationSec : 0,
+		};
+	}
+
+	function toScoreCutSpeechSpan(v: ProgramValue): ScoreCutSpeechSpan {
+		const o = (
+			v && typeof v === "object" && !Array.isArray(v) ? v : {}
+		) as Record<string, ProgramValue>;
+		return {
+			startSec: typeof o.startSec === "number" ? o.startSec : 0,
+			endSec: typeof o.endSec === "number" ? o.endSec : 0,
+			text: typeof o.text === "string" ? o.text : "",
+		};
+	}
+
+	function toScoreCutBeat(v: ProgramValue): ScoreCutBeat {
+		const o = (
+			v && typeof v === "object" && !Array.isArray(v) ? v : {}
+		) as Record<string, ProgramValue>;
+		return {
+			time: typeof o.time === "number" ? o.time : 0,
+			isDownbeat: o.isDownbeat === true,
+		};
+	}
+
+	/** Everything `scoreCut` returns to the model: the synthesized score, its diagnostics breakdown, honestly-flagged unmeasured signals, and any advisory fixes a weak hook/hold-rate routes to. */
+	interface ScoreCutVerbData extends ScoreCutResult {
+		suggestedFixes: CutScoreFixSuggestion[];
+	}
+
+	/**
+	 * Score the assembled cut — read-only, nothing mutates, no `delta`. Reuses
+	 * the SAME derived-data bag `applyEdit` wires (tracks/beatGrid/transcripts)
+	 * so `scoreCut`'s idea of the timeline structure never diverges from what a
+	 * program can already see, and calls `readMix()` (this same file, above)
+	 * for a real loudness curve when one is decodable — never re-decodes audio
+	 * itself. `beats()` throws when no beat grid has been analyzed; that is
+	 * treated as "not analyzed" (not a failure) — `scoring/score-cut.ts`
+	 * degrades that signal to a neutral, HONESTLY-labeled fallback rather than
+	 * refusing the whole score over one missing analysis pass.
+	 *
+	 * When the hook or hold-rate diagnostic reads weak, `suggestedFixes` names
+	 * concrete `applyEdit`-shaped remedies (`edit-critic.ts`'s
+	 * `suggestFixesForCutScore`) built from the SAME craft programs `applyEdit`
+	 * already exposes — ADVISORY ONLY (ADR-006): never auto-executed here or
+	 * anywhere in this call chain.
+	 */
+	async function scoreCut(): Promise<DirectorResult<ScoreCutVerbData>> {
+		const totalDurationSec = editor.timeline.getTotalDuration();
+		if (!(totalDurationSec > 0)) {
+			return fail(
+				"Nothing on the timeline to score yet — scoreCut measures an assembled cut.",
+			);
+		}
+
+		const derived = createDerivedDataFunctions({
+			tracks: () => editor.timeline.getTracks(),
+			beatGrid: () => useBeatGridStore.getState().grid,
+			...(options.transcripts ? { transcripts: options.transcripts } : {}),
+		});
+
+		const clips = (derived.clips([]) as ProgramValue[]).map(toScoreCutClip);
+		const speech = (derived.speech([]) as ProgramValue[]).map(
+			toScoreCutSpeechSpan,
+		);
+
+		let beats: ScoreCutBeat[] | undefined;
+		try {
+			beats = (derived.beats([]) as ProgramValue[]).map(toScoreCutBeat);
+		} catch {
+			beats = undefined; // no beat grid analyzed — score-cut.ts degrades this signal gracefully
+		}
+
+		let loudnessCurveDb: ScoreCutLoudnessPoint[] | undefined;
+		try {
+			const mix = await readMix();
+			if (mix.ok && mix.data) loudnessCurveDb = mix.data.loudnessCurve;
+		} catch {
+			loudnessCurveDb = undefined; // readMix already fails safe; this is belt-and-suspenders
+		}
+
+		const result = computeCutScore({
+			clips,
+			speech,
+			beats,
+			totalDurationSec,
+			loudnessCurveDb,
+		});
+
+		const suggestedFixes = suggestFixesForCutScore(result.diagnostics, {
+			totalDurationSec,
+			hasBeatGrid: Boolean(beats && beats.length > 0),
+		});
+
+		const fixNote =
+			suggestedFixes.length > 0
+				? ` ${suggestedFixes.length} suggested fix(es) available (advisory only — call applyEdit yourself, mode: "dry-run" first, to try one).`
+				: "";
+		return ok(
+			`Engagement Score: ${result.score.grade} (${result.score.composite}/100) — hook ${result.diagnostics.hook.rating}, hold rate ${result.diagnostics.holdRate.rating}.${fixNote}`,
+			{ ...result, suggestedFixes },
+		);
+	}
+
 	// ---- PROGRAM ENGINE (lib/director/program/*) ---------------------------
 	//
 	// `applyEdit` is the ONE verb over the sandboxed program engine (Layer 2 of
@@ -7318,6 +7454,10 @@ export function createDirectorApi(
 		// audio perception (lib/director/mix-read.ts) — the read to plan an
 		// applyEdit program from, rather than guessing.
 		readMix,
+		// engagement score (lib/director/scoring/score-cut.ts) — score the
+		// assembled cut, no external backend; weak hook/hold-rate routes to a
+		// suggested applyEdit fix (edit-critic.ts's suggestFixesForCutScore).
+		scoreCut,
 		// program engine (lib/director/program/*) — the composition verb that
 		// SUBSUMED cutOnBeat/tightenToLength/duckMusicUnderSpeech (each proven
 		// op-for-op equivalent to a program over the ten primitives — see

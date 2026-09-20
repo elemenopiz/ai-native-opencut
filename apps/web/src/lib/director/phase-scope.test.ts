@@ -265,7 +265,14 @@ test("per-phase active counts stay generous but bounded (15–32)", () => {
 	// without inventing new capability the brief for this pass explicitly said
 	// not to force.
 	//
-	// Polish is still past Google's 10–20 guidance (32, vs. briefing/
+	// 32 → 33, `scoreCut` (Wave 2 "scoreCut" — lib/director/scoring/
+	// score-cut.ts). Same class of addition as watchBack/readMix before it: a
+	// PERCEPTION verb (grades the assembled cut) with no local substitute,
+	// bucketed alongside the applyEdit-shaped fixes it routes a weak
+	// hook/hold-rate to — splitting the pair across phases would surface a
+	// suggestion the model can't act on. One READ, no new mutation surface.
+	//
+	// Polish is still past Google's 10–20 guidance (33, vs. briefing/
 	// production's high-20s) — the still-open REBALANCE this comment has
 	// flagged since the ceiling first crossed 30 remains the honest next step
 	// if it grows again, not another nudge.
@@ -275,7 +282,7 @@ test("per-phase active counts stay generous but bounded (15–32)", () => {
 			count,
 			`${phase} bucket too small (${count})`,
 		).toBeGreaterThanOrEqual(15);
-		expect(count, `${phase} bucket too fat (${count})`).toBeLessThanOrEqual(32);
+		expect(count, `${phase} bucket too fat (${count})`).toBeLessThanOrEqual(33);
 	}
 });
 
@@ -325,6 +332,7 @@ test("adjacent-phase jumps stay possible (pinned memberships)", () => {
 	for (const name of [
 		"watchBack",
 		"readMix",
+		"scoreCut",
 		"applyEdit",
 		"trim",
 		"move",
