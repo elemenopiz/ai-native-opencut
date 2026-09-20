@@ -569,6 +569,157 @@ describe("buildLibraryManifest — dims, provenance, and style facets", () => {
 });
 
 /**
+ * THE FIX: `buildLibraryManifest` computes duration/resolution/fps for every
+ * asset for free (see `ManifestAsset`), but both digest serializers used to
+ * throw them away — the Director cut a timeline without knowing how long any
+ * clip was. Both branches must now carry a duration + resolution-or-aspect +
+ * fps + orientation for every asset they NAME (heroes in the grounded digest,
+ * recent names in the fallback digest) — the fallback branch matters most,
+ * since the understanding-pass flag is OFF in production today, so it's the
+ * ONLY digest most users' Director calls ever see.
+ */
+describe("buildLibraryManifest — duration/resolution/fps ride the digest string", () => {
+	it("fallback digest: names each recent asset with its facts tag (duration, resolution+orientation, fps)", () => {
+		const list: ManifestAsset[] = [
+			{
+				id: "m1",
+				name: "IMG_4821.mov",
+				type: "video",
+				width: 1920,
+				height: 1080,
+				durationSec: 4.2,
+				fps: 30,
+			},
+			{
+				id: "m2",
+				name: "IMG_4822.mov",
+				type: "video",
+				width: 1080,
+				height: 1920,
+				durationSec: 12.75,
+				fps: 24,
+			},
+		];
+		const m = buildLibraryManifest({ assets: list });
+
+		expect(m.grounded).toBe(false);
+		expect(m.digest).toBe(
+			"LIBRARY (2 assets): 2 video. searchMedia finds footage semantically; addClip places a hit. Recent: IMG_4821.mov (4.2s, 1920x1080 (landscape), 30fps), IMG_4822.mov (12.8s, 1080x1920 (portrait), 24fps).",
+		);
+		// Every named asset carries BOTH a duration and an orientation-bearing
+		// resolution — never just one or the other.
+		expect(m.digest).toContain("4.2s");
+		expect(m.digest).toContain("(landscape)");
+		expect(m.digest).toContain("12.8s");
+		expect(m.digest).toContain("(portrait)");
+	});
+
+	it("fallback digest: never drops duration even when width/height/fps are unknown", () => {
+		const list: ManifestAsset[] = [
+			{ id: "m1", name: "clip.mp4", type: "video", durationSec: 4.2 },
+		];
+		const m = buildLibraryManifest({ assets: list });
+		expect(m.digest).toContain("Recent: clip.mp4 (4.2s).");
+	});
+
+	it("fallback digest: omits the facts parenthetical entirely when an asset has none (unchanged from before)", () => {
+		const list: ManifestAsset[] = [
+			{ id: "m1", name: "clip.mp4", type: "video" },
+		];
+		const m = buildLibraryManifest({ assets: list });
+		expect(m.digest).toContain("Recent: clip.mp4.");
+		expect(m.digest).not.toContain("clip.mp4 (");
+	});
+
+	it("grounded digest: names each hero with its facts tag ahead of the perception-facet bracket", () => {
+		const list: ManifestAsset[] = [
+			{
+				id: "m1",
+				name: "hero.mp4",
+				type: "video",
+				width: 1920,
+				height: 1080,
+				durationSec: 4.2,
+				fps: 30,
+			},
+		];
+		const understanding: AssetUnderstandingLookup = () => ({
+			mediaId: "m1",
+			role: "hero",
+			caption: "product on marble, backlit",
+			shotType: "close-up",
+			motion: "moving",
+			emotion: "tense",
+		});
+		const m = buildLibraryManifest({ assets: list, understanding });
+
+		expect(m.digest).toBe(
+			'LIBRARY (1 asset): 1 hero. Heroes: #1 "product on marble, backlit" 4.2s, 1920x1080 (landscape), 30fps [CU·moving·tense]. searchMedia finds any shot semantically.',
+		);
+	});
+
+	it("grounded digest: still names a hero's duration when it has no deepened perception facets (no bracket)", () => {
+		const list: ManifestAsset[] = [
+			{
+				id: "m1",
+				name: "hero.mp4",
+				type: "video",
+				width: 1080,
+				height: 1920,
+				durationSec: 9.6,
+			},
+		];
+		const understanding: AssetUnderstandingLookup = () => ({
+			mediaId: "m1",
+			role: "hero",
+			caption: "plain hero",
+		});
+		const m = buildLibraryManifest({ assets: list, understanding });
+
+		expect(m.digest).toContain('"plain hero" 9.6s, 1080x1920 (portrait)');
+		expect(m.digest).not.toContain("[");
+	});
+
+	it("grounded digest: a hero with only duration known (no dims/fps) still carries it", () => {
+		const list: ManifestAsset[] = [
+			{ id: "m1", name: "hero.mp4", type: "video", durationSec: 2.5 },
+		];
+		const understanding: AssetUnderstandingLookup = () => ({
+			mediaId: "m1",
+			role: "hero",
+			caption: "quick hero",
+		});
+		const m = buildLibraryManifest({ assets: list, understanding });
+		expect(m.digest).toContain('"quick hero" 2.5s.');
+	});
+
+	it("the per-asset facts tag stays flat as the library grows — only capped named assets (heroes/recent) carry it, never the tail count", () => {
+		const dims = { width: 1920, height: 1080, durationSec: 4.2, fps: 30 };
+		const small = buildLibraryManifest({
+			assets: Array.from({ length: 12 }, (_, i) => ({
+				id: `m${i + 1}`,
+				name: `clip${i + 1}.mp4`,
+				type: "video" as const,
+				...dims,
+			})),
+		});
+		const large = buildLibraryManifest({
+			assets: Array.from({ length: 60 }, (_, i) => ({
+				id: `m${i + 1}`,
+				name: `clip${i + 1}.mp4`,
+				type: "video" as const,
+				...dims,
+			})),
+		});
+		// The digest grows only by the role/type-count digits (e.g. "12" → "60"),
+		// never by re-listing more per-asset facts — heroes/recent stay capped at 3.
+		expect(large.digest.length - small.digest.length).toBeLessThanOrEqual(4);
+		expect(large.digest).toContain("landscape");
+		expect(small.digest).toContain("landscape");
+	});
+});
+
+/**
  * BEAT-GRID facet: grounds pacing decisions (cut-on-beat, matching a shot's
  * length to a bar) on the beat-snap grid's REAL analyzed tempo/beat-density/
  * energy for a matching library asset — see `stores/beat-grid-store.ts`'s
