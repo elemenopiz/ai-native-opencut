@@ -204,11 +204,22 @@ export async function POST(req: Request) {
 	const style = form.get("style") === "clean" ? "clean" : "verbatim";
 
 	const definition = {
-		enhancedMode: { enabled: true, model: MAI_TRANSCRIBE_MODEL },
-		// Word timestamps are not optional for us — captions are built by
-		// splitting on word boundaries, so a segment-only response would
-		// silently degrade every caption preset to phrase-length blocks.
-		modelOptions: { timestamps: "word", transcribeStyle: style },
+		// `timestamps` MUST sit INSIDE `enhancedMode`. The enhanced path
+		// ignores `modelOptions.timestamps` and says nothing about it —
+		// measured 2026-09-20 against api-version 2025-10-15, same audio, same
+		// everything else: nested returned 15 words, `modelOptions` returned
+		// ZERO, both HTTP 200. Word timestamps are not optional for us —
+		// captions split on word boundaries and the filler-word cut reads word
+		// timings, so a segment-only response silently degrades both.
+		enhancedMode: {
+			enabled: true,
+			model: MAI_TRANSCRIBE_MODEL,
+			timestamps: "word",
+		},
+		// `transcribeStyle` produced no measurable difference in either
+		// position on the sample used above, so its placement is UNVERIFIED —
+		// left where it was rather than moved on a guess.
+		modelOptions: { transcribeStyle: style },
 		// Omitting `locales` entirely selects the multilingual model, which is
 		// what "auto" means here. Passing a single locale is both more accurate
 		// and lower-latency, so send one whenever the user picked a language.
