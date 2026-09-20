@@ -203,6 +203,63 @@ export function asSpecOverride(v: unknown): SpecOverride | undefined {
 }
 
 /**
+ * Coerce a loose `transform` patch arg for `addText`/`updateText` — only the
+ * present leaf fields survive (`position.x`, `position.y`, `scale`, `rotate`);
+ * anything unparsable is dropped, letting `director-api.ts` merge the surviving
+ * fields onto the current (update) or default (create) transform field-by-field.
+ * Returns `undefined` when nothing usable is present so callers omit `transform`.
+ */
+export function asTextTransformPatch(
+	v: unknown,
+):
+	| { position?: { x?: number; y?: number }; scale?: number; rotate?: number }
+	| undefined {
+	if (!v || typeof v !== "object" || Array.isArray(v)) return undefined;
+	const o = v as Record<string, unknown>;
+	const out: {
+		position?: { x?: number; y?: number };
+		scale?: number;
+		rotate?: number;
+	} = {};
+	if (
+		o.position &&
+		typeof o.position === "object" &&
+		!Array.isArray(o.position)
+	) {
+		const p = o.position as Record<string, unknown>;
+		const x = numOrUndefined(p.x);
+		const y = numOrUndefined(p.y);
+		if (x !== undefined || y !== undefined) {
+			out.position = {
+				...(x !== undefined ? { x } : {}),
+				...(y !== undefined ? { y } : {}),
+			};
+		}
+	}
+	const scale = numOrUndefined(o.scale);
+	if (scale !== undefined) out.scale = scale;
+	const rotate = numOrUndefined(o.rotate);
+	if (rotate !== undefined) out.rotate = rotate;
+	return Object.keys(out).length ? out : undefined;
+}
+
+/**
+ * Coerce a loose `background` patch arg for `addText`/`updateText` — only
+ * `enabled`/`color` are Director-tunable (padding/corner radius/offset keep
+ * their current/default values); anything else is dropped.
+ */
+export function asTextBackgroundPatch(
+	v: unknown,
+): { enabled?: boolean; color?: string } | undefined {
+	if (!v || typeof v !== "object" || Array.isArray(v)) return undefined;
+	const o = v as Record<string, unknown>;
+	const out: { enabled?: boolean; color?: string } = {};
+	if (typeof o.enabled === "boolean") out.enabled = o.enabled;
+	if (o.color != null) out.color = String(o.color);
+	return Object.keys(out).length ? out : undefined;
+}
+
+/**
  * Coerce a loose `shots` arg into the storyboard shape: the generation `prompt`
  * + `duration` + optional per-shot `spec`, PLUS the planning notes
  * (`intent`/`camera`/`subject`) that make the shot list a real storyboard rather
@@ -558,6 +615,62 @@ const slotSpecSchema: JSONSchema = {
 				"Persona consistency tier: high = per-shot reference still (default), fast = anchor image directly.",
 		},
 		backendId: backendIdProp,
+	},
+	additionalProperties: false,
+};
+
+/**
+ * `addText`/`updateText` placement — the SAME `Transform` the renderer already
+ * uses for every visual element (`lib/preview/element-bounds.ts`), not a second
+ * coordinate system: only the given leaf field(s) change, the rest keep their
+ * current (update) or default (create) value.
+ *
+ * THE ONE SENTENCE THAT MAKES THIS USABLE: `position` is in PIXELS at the
+ * project's render resolution (see `getProjectInfo`'s canvasWidth/canvasHeight),
+ * measured from the CANVAS CENTER — not the top-left — with +x pointing right
+ * and +y pointing down, so `{x: 0, y: 0}` is dead center and e.g. `{x: 0, y:
+ * canvasHeight * 0.35}` sits in the lower third.
+ */
+const textTransformProp: JSONSchema = {
+	type: "object",
+	description:
+		"Where to place the overlay. `position` is in PIXELS at the project's render resolution (see getProjectInfo's canvasWidth/canvasHeight), measured from the CANVAS CENTER (not the top-left): +x = right, +y = down, {x:0,y:0} = dead center — e.g. {x:0, y: canvasHeight*0.35} lands in the lower third. `scale`: 1 = the text's natural size (default). `rotate`: degrees clockwise. Omit any field to leave it unchanged.",
+	properties: {
+		position: {
+			type: "object",
+			description: "Pixel offset from canvas center; +x right, +y down.",
+			properties: {
+				x: {
+					type: "number",
+					description: "Pixels right of canvas center (negative = left).",
+				},
+				y: {
+					type: "number",
+					description: "Pixels down from canvas center (negative = up).",
+				},
+			},
+		},
+		scale: {
+			type: "number",
+			description: "Uniform scale multiplier; 1 = natural size.",
+		},
+		rotate: { type: "number", description: "Rotation in degrees, clockwise." },
+	},
+	additionalProperties: false,
+};
+
+/**
+ * `addText`/`updateText` legibility box — only `enabled`/`color` are exposed
+ * (padding/corner-radius/offset keep their current/default values); enough to
+ * put a solid backing plate behind text over moving footage.
+ */
+const textBackgroundProp: JSONSchema = {
+	type: "object",
+	description:
+		'Solid backing box behind the text, for legibility over moving footage. enabled: turn the box on/off. color: box fill (any CSS color, e.g. "#000000" or "rgba(0,0,0,0.6)" for translucent).',
+	properties: {
+		enabled: { type: "boolean" },
+		color: { type: "string" },
 	},
 	additionalProperties: false,
 };
@@ -2072,7 +2185,7 @@ export function toolCatalog(): ToolDescriptor[] {
 		{
 			name: "addText",
 			description:
-				"add a text overlay. Returns a FULL elementId (not a reel slot id) — pass it back verbatim to updateText.",
+				'add a text overlay — a caption, title, or lower third. Returns a FULL elementId (not a reel slot id) — pass it back verbatim to updateText. Use `transform` to place it (see that field\'s description for the coordinate system) and `background`/`strokeColor`/`strokeWidth`/`opacity` to keep it legible over moving footage — a lower third IS text placed in the lower third via `transform`, there is no separate "lower third" mode.',
 			mutating: true,
 			inputSchema: {
 				type: "object",
@@ -2087,6 +2200,22 @@ export function toolCatalog(): ToolDescriptor[] {
 					fontFamily: { type: "string" },
 					color: { type: "string" },
 					textAlign: { type: "string", enum: ["left", "center", "right"] },
+					transform: textTransformProp,
+					background: textBackgroundProp,
+					strokeColor: {
+						type: "string",
+						description:
+							"Outline color drawn around the glyphs (any CSS color).",
+					},
+					strokeWidth: {
+						type: "number",
+						description:
+							"Outline width as a ratio of fontSize (0 = none, ~0.08 = a bold outline).",
+					},
+					opacity: {
+						type: "number",
+						description: "Overlay opacity, 0 (invisible) to 1 (fully opaque).",
+					},
 				},
 				required: ["content", "startTime"],
 			},
@@ -2100,12 +2229,17 @@ export function toolCatalog(): ToolDescriptor[] {
 					fontFamily: strOrUndefined(a.fontFamily),
 					color: strOrUndefined(a.color),
 					textAlign: textAlignOf(a.textAlign),
+					transform: asTextTransformPatch(a.transform),
+					background: asTextBackgroundPatch(a.background),
+					strokeColor: strOrUndefined(a.strokeColor),
+					strokeWidth: numOrUndefined(a.strokeWidth),
+					opacity: numOrUndefined(a.opacity),
 				}),
 		},
 		{
 			name: "updateText",
 			description:
-				"edit an existing text overlay by its FULL elementId (from addText, never a short slot id).",
+				"edit an existing text overlay by its FULL elementId (from addText, never a short slot id) — including moving/restyling it via `transform`/`background`/`strokeColor`/`strokeWidth`/`opacity` (same fields and coordinate system as addText).",
 			mutating: true,
 			inputSchema: {
 				type: "object",
@@ -2123,6 +2257,22 @@ export function toolCatalog(): ToolDescriptor[] {
 					fontFamily: { type: "string" },
 					color: { type: "string" },
 					textAlign: { type: "string", enum: ["left", "center", "right"] },
+					transform: textTransformProp,
+					background: textBackgroundProp,
+					strokeColor: {
+						type: "string",
+						description:
+							"Outline color drawn around the glyphs (any CSS color).",
+					},
+					strokeWidth: {
+						type: "number",
+						description:
+							"Outline width as a ratio of fontSize (0 = none, ~0.08 = a bold outline).",
+					},
+					opacity: {
+						type: "number",
+						description: "Overlay opacity, 0 (invisible) to 1 (fully opaque).",
+					},
 				},
 				required: ["elementId"],
 			},
@@ -2136,6 +2286,11 @@ export function toolCatalog(): ToolDescriptor[] {
 					fontFamily: strOrUndefined(a.fontFamily),
 					color: strOrUndefined(a.color),
 					textAlign: textAlignOf(a.textAlign),
+					transform: asTextTransformPatch(a.transform),
+					background: asTextBackgroundPatch(a.background),
+					strokeColor: strOrUndefined(a.strokeColor),
+					strokeWidth: numOrUndefined(a.strokeWidth),
+					opacity: numOrUndefined(a.opacity),
 				}),
 		},
 		// ── polish (transitions / effects) ──────────────────────────────────

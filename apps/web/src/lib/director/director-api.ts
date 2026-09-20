@@ -5713,9 +5713,70 @@ export function createDirectorApi(
 	}
 
 	/**
+	 * Partial `transform` patch accepted by `addText`/`updateText`. Only the
+	 * given leaf fields change — an unset `position` axis, or an omitted
+	 * `scale`/`rotate`, keeps its current (update) or default (create) value.
+	 * Matches `TextElement["transform"]`'s own shape/units exactly — this is
+	 * the SAME coordinate system `animateItem`'s "position" property and the
+	 * renderer (`lib/preview/element-bounds.ts`) already use, not a new one.
+	 */
+	interface TextTransformPatch {
+		position?: { x?: number; y?: number };
+		scale?: number;
+		rotate?: number;
+	}
+
+	/**
+	 * Partial `background` patch — only `enabled`/`color` are Director-tunable;
+	 * every other `TextBackground` field (padding/corner radius/offset) keeps
+	 * its current (update) or default (create) value.
+	 */
+	interface TextBackgroundPatch {
+		enabled?: boolean;
+		color?: string;
+	}
+
+	/** Merge a `TextTransformPatch` onto a base `Transform`, leaf-field-wise. */
+	function mergeTransformPatch(
+		base: TextElement["transform"],
+		patch: TextTransformPatch | undefined,
+	): TextElement["transform"] {
+		if (!patch) return base;
+		return {
+			...base,
+			...(patch.scale != null ? { scale: patch.scale } : {}),
+			...(patch.rotate != null ? { rotate: patch.rotate } : {}),
+			...(patch.position
+				? {
+						position: {
+							x: patch.position.x ?? base.position.x,
+							y: patch.position.y ?? base.position.y,
+						},
+					}
+				: {}),
+		};
+	}
+
+	/** Merge a `TextBackgroundPatch` onto a base `TextBackground`, field-wise. */
+	function mergeBackgroundPatch(
+		base: TextElement["background"],
+		patch: TextBackgroundPatch | undefined,
+	): TextElement["background"] {
+		if (!patch) return base;
+		return {
+			...base,
+			...(patch.enabled != null ? { enabled: patch.enabled } : {}),
+			...(patch.color != null ? { color: patch.color } : {}),
+		};
+	}
+
+	/**
 	 * Add a text overlay. `startTime`/`duration` are SECONDS; unset optional
 	 * style fields fall back to `DEFAULT_TEXT_ELEMENT`. Auto-places onto (or
-	 * creates) a text track unless `trackId` is given.
+	 * creates) a text track unless `trackId` is given. `transform`/`background`/
+	 * `strokeColor`/`strokeWidth`/`opacity` are the same fields a lower third or
+	 * a legible title-over-footage needs — see the verb's tool-catalog
+	 * description for the coordinate system.
 	 *
 	 * Not wrapped in `withDelta`: text elements aren't generative slots, so
 	 * `captureReel()` can't see this insert either way — the returned FULL
@@ -5730,6 +5791,11 @@ export function createDirectorApi(
 		fontFamily?: string;
 		color?: string;
 		textAlign?: TextElement["textAlign"];
+		transform?: TextTransformPatch;
+		background?: TextBackgroundPatch;
+		strokeColor?: string;
+		strokeWidth?: number;
+		opacity?: number;
 	}): DirectorResult<{ elementId: string }> {
 		if (!input.content.trim())
 			return fail("addText requires non-empty content.");
@@ -5744,6 +5810,25 @@ export function createDirectorApi(
 			...(input.fontFamily != null ? { fontFamily: input.fontFamily } : {}),
 			...(input.color != null ? { color: input.color } : {}),
 			...(input.textAlign != null ? { textAlign: input.textAlign } : {}),
+			...(input.transform != null
+				? {
+						transform: mergeTransformPatch(
+							DEFAULT_TEXT_ELEMENT.transform,
+							input.transform,
+						),
+					}
+				: {}),
+			...(input.background != null
+				? {
+						background: mergeBackgroundPatch(
+							DEFAULT_TEXT_ELEMENT.background,
+							input.background,
+						),
+					}
+				: {}),
+			...(input.strokeColor != null ? { strokeColor: input.strokeColor } : {}),
+			...(input.strokeWidth != null ? { strokeWidth: input.strokeWidth } : {}),
+			...(input.opacity != null ? { opacity: input.opacity } : {}),
 		};
 
 		const elementId = editor.timeline.insertElement({
@@ -5775,6 +5860,11 @@ export function createDirectorApi(
 		fontFamily?: string;
 		color?: string;
 		textAlign?: TextElement["textAlign"];
+		transform?: TextTransformPatch;
+		background?: TextBackgroundPatch;
+		strokeColor?: string;
+		strokeWidth?: number;
+		opacity?: number;
 	}): DirectorResult {
 		const located = findElement(input.elementId);
 		if (!located) return failItemNotFound(input.elementId);
@@ -5783,6 +5873,7 @@ export function createDirectorApi(
 				`Element "${input.elementId}" is a "${located.element.type}", not a text element.`,
 			);
 		}
+		const current = located.element as TextElement;
 
 		const updates: Partial<TextElement> = {};
 		if (input.content != null) updates.content = input.content;
@@ -5792,6 +5883,21 @@ export function createDirectorApi(
 		if (input.fontFamily != null) updates.fontFamily = input.fontFamily;
 		if (input.color != null) updates.color = input.color;
 		if (input.textAlign != null) updates.textAlign = input.textAlign;
+		if (input.strokeColor != null) updates.strokeColor = input.strokeColor;
+		if (input.strokeWidth != null) updates.strokeWidth = input.strokeWidth;
+		if (input.opacity != null) updates.opacity = input.opacity;
+		if (input.transform != null) {
+			updates.transform = mergeTransformPatch(
+				current.transform,
+				input.transform,
+			);
+		}
+		if (input.background != null) {
+			updates.background = mergeBackgroundPatch(
+				current.background,
+				input.background,
+			);
+		}
 
 		if (Object.keys(updates).length === 0) {
 			return fail("updateText requires at least one field to change.");
