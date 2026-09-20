@@ -1,37 +1,64 @@
 /**
- * IMAGE adapter — Higgsfield AI, Soul Cinematic (`soul_cinematic`).
+ * IMAGE adapter — Higgsfield AI, Soul (`higgsfield-ai/soul/v2/standard`).
  *
  * Cinematic stills: the look Higgsfield's Soul family is actually known for,
  * and the reason it is worth having alongside the two general-purpose image
  * models in this directory.
  *
- * NAMING: the model id is `soul_cinematic`. An earlier brief for this work
- * called it `soul_cinema`; no such model exists. The real Soul ids are
- * `soul_cast`, `soul_cinematic`, `soul_location`, and `text2image_soul_v2`
- * (first-party list, Higgsfield CLI repo MODELS.md).
+ * REQUEST BODY IS NOW VERIFIED, NOT GUESSED. Earlier revisions of this file
+ * carried the CLI's `soul_cinematic` flag table (`quality`, `image_references`,
+ * `soul-id`) on the ASSUMPTION that CLI flags pass through as REST body keys.
+ * A live oracle probe against `https://api.higgsfield.ai` (unfunded key,
+ * `POST higgsfield-ai/soul/v2/standard` with a body containing one
+ * guaranteed-invalid field so validation always rejects before any job is
+ * created) proved that assumption wrong. Full write-up, including the raw
+ * 422 error body: `apps/web/docs/higgsfield/REST-CATALOG.md` §1. The real
+ * schema:
+ *
+ *   prompt               string, REQUIRED, no minimum length
+ *   aspect_ratio         enum: 9:16, 16:9, 4:3, 3:4, 1:1, 2:3, 3:2
+ *   resolution           enum: 720p, 1080p (NOT the CLI's 1.5k/2k, NOT the
+ *                         video family's 480p/720p)
+ *   style_id             UUID — a style-preset id; no minting endpoint found
+ *   custom_reference_id  UUID — the Soul ID / persona-reference id; no
+ *                         minting endpoint found (see below)
+ *   seed                 integer, 1..1,000,000
+ *   batch_size           literal 1 or 4 (not a general integer)
+ *   enhance_prompt       boolean
+ *
+ * `quality` and `image_references` — this adapter's OLD field names — are
+ * CONFIRMED ABSENT from the schema: the live probe sent both, with 9 other
+ * fields deliberately wrong, and neither ever produced a validation error,
+ * meaning the server silently drops unrecognized keys rather than rejecting
+ * them (REST-CATALOG.md §1.4). That is the dangerous case, not the safe one:
+ * the old body would have gone through, an image would have rendered, and
+ * the caller-supplied reference image would have had ZERO effect on it,
+ * with no error anywhere to say so. This revision sends only fields that are
+ * confirmed real.
+ *
+ * WHY THERE IS NO REFERENCE IMAGE IN THE BODY ANYMORE
+ * Soul's identity mechanism is `custom_reference_id` — a UUID, not an inline
+ * image URL. `BackendRequest.referenceImageUrl` / `referenceImages` are plain
+ * URLs, so there is nothing in today's request shape to put in that field;
+ * sending a URL under `image_references` (the old guess) is confirmed to do
+ * nothing (see above), so this adapter no longer pretends to carry a
+ * reference at all — `supportsReferenceEdits` is `false` below, honestly.
+ * Whatever endpoint mints a `custom_reference_id` from an uploaded image was
+ * searched for and not found in this session (REST-CATALOG.md §5) — that is
+ * the actual gap standing between this adapter and a real Soul ID / seed-lock
+ * peer, not a `BackendRequest` field the way an earlier revision of this file
+ * assumed.
  *
  * ASYNC, UNLIKE ITS NEIGHBOURS — see the same note in `higgsfield-gpt-image.ts`
  * for the full explanation and the two callers that assume a synchronous image
  * backend.
  *
  * WHY THIS ONE DOES NOT CLAIM `character-still`
- * Soul's identity mechanism is a SOUL ID (`--soul-id` / `--custom-reference-id`,
- * a trained-persona UUID) — that is the whole point of the Soul family, and it
- * is the closest thing in the Higgsfield catalog to Byorn's seed-lock. We
- * cannot send it: `BackendRequest` has no field that carries a provider-side
- * persona id, and `backends/types.ts` is outside this change's scope. Without
- * it, identity here rests on a SINGLE reference image, which is weaker than
- * what the two sibling adapters offer (16 and 14 blended refs). Claiming
- * `character-still` would let the router pick the weakest identity carrier for
- * the slot that needs it most, so this adapter stays on `broll-still` until
- * Soul ID is plumbed. That plumbing is the highest-value follow-up on this
- * adapter — it would make Soul a real seed-lock peer.
- *
- * Flags below come from the first-party flag table for `soul_cinematic`
- * (github.com/higgsfield-ai/cli, MODELS.md): `prompt` (required),
- * `aspect_ratio`, `image_references` (single), `quality` (1.5k|2k, default 2k),
- * `soul-id`. Note `quality` here is a RESOLUTION-shaped enum, not the
- * low/medium/high enum the other two models use.
+ * With no working reference-carrying field (see above), Soul today carries no
+ * identity signal at all beyond the prompt text. Claiming `character-still`
+ * would let the router pick the weakest (in fact, nonexistent) identity
+ * carrier for the slot that needs it most, so this adapter stays on
+ * `broll-still`.
  */
 
 import { costFor } from "@/lib/credits/cost-table";
@@ -51,7 +78,11 @@ import type {
 import type { ImageQuality } from "@/lib/studio/image-generator";
 import { webEnv } from "@byorn/env/web";
 
-const LABEL = "Higgsfield Soul Cinematic";
+// "Soul Cinematic" (`soul_cinematic`) was the earlier, wrong CLI-model-id
+// guess that produced the 404s this file's header describes — the verified
+// live endpoint is Soul's `v2/standard` tier, not that model, so the label
+// says just "Soul" now.
+const LABEL = "Higgsfield Soul";
 const ENDPOINT_ENV = "HIGGSFIELD_SOUL_ENDPOINT";
 
 /**
@@ -71,12 +102,11 @@ const ENDPOINT_ENV = "HIGGSFIELD_SOUL_ENDPOINT";
  * not a task verb — see e.g. `kling-video/v2.5-turbo/pro/image-to-video`),
  * which is why every `.../text-to-image` guess for Soul was wrong.
  *
- * STILL UNVERIFIED: the REQUEST BODY beyond `prompt` being required — nothing
- * first-party confirms `aspect_ratio` / `quality` / `image_references` /
- * `soul-id` as REST body keys for this endpoint specifically (they're carried
- * over from the CLI flag table for `soul_cinematic`, a different model). See
- * `requiredEnv` below for why that gap still gates this adapter off even
- * though the path itself is now confirmed live.
+ * REQUEST BODY: now VERIFIED (this file's header, REST-CATALOG.md §1) — every
+ * field this adapter sends (`prompt`, `aspect_ratio`, `resolution`, `seed`) is
+ * confirmed real, and the two fields it used to send (`quality`,
+ * `image_references`) are confirmed to not exist. See `requiredEnv` below for
+ * why the endpoint still stays behind an explicit operator gate even so.
  */
 const VERIFIED_ENDPOINT = "higgsfield-ai/soul/v2/standard";
 
@@ -85,46 +115,36 @@ function configuredEndpoint(): string {
 }
 
 /**
- * Soul's `quality` enum is `1.5k` | `2k` — a resolution tier wearing the name
- * "quality", NOT the low/medium/high scale the other Higgsfield image models
- * use. Byorn's `ImageQuality` maps onto it as a two-step: only `high` buys the
- * 2k tier. Sent explicitly on every request (rather than letting the provider's
- * 2k default stand) so the flat per-image price in `cost-table.ts` always
- * matches the tier actually rendered.
+ * Soul's REAL `resolution` enum is `720p` | `1080p` — VERIFIED live (this
+ * file's header). Byorn's `ImageQuality` maps onto it as a two-step: only
+ * `high` buys the 1080p tier. Sent explicitly on every request (rather than
+ * letting the provider's `720p` default stand) so the flat per-image price in
+ * `cost-table.ts` always matches the tier actually rendered.
  */
-function qualityTier(quality: ImageQuality | undefined): "1.5k" | "2k" {
-	return quality === "high" ? "2k" : "1.5k";
+function resolutionTier(quality: ImageQuality | undefined): "720p" | "1080p" {
+	return quality === "high" ? "1080p" : "720p";
 }
 
 /**
- * Builds the raw submit body. Isolated to one function so these field names can
- * be corrected in one place once a live account confirms the REST input schema.
+ * Builds the raw submit body. Isolated to one function so it stays the single
+ * place these field names live.
  *
- * UNVERIFIED as REST body keys: `prompt`, `aspect_ratio`, `quality`,
- * `image_references`. Names taken from the first-party CLI flag table on the
- * assumption flags pass through as snake_case body keys.
+ * VERIFIED as REST body keys (REST-CATALOG.md §1): `prompt`, `aspect_ratio`,
+ * `resolution`, `seed`. `style_id`/`custom_reference_id`/`batch_size`/
+ * `enhance_prompt` are also real but have no `BackendRequest` field to source
+ * them from today, so they're left unset rather than guessed.
  *
- * `soul_id` is DELIBERATELY OMITTED — see this file's header. Unlike the
- * omitted `background`/`variant` on GPT Image, this one is a capability gap
- * worth closing, not a knob we have no opinion on.
+ * NO REFERENCE IMAGE IS SENT — see this file's header ("why there is no
+ * reference image in the body anymore"). `image_references` is CONFIRMED
+ * ABSENT from this schema; sending it did nothing except look like it worked.
  */
 function buildSubmitBody(req: BackendRequest): Record<string, unknown> {
 	const body: Record<string, unknown> = {
 		prompt: req.prompt,
 		aspect_ratio: higgsfieldAspectRatio(req.size),
-		quality: qualityTier(req.quality),
+		resolution: resolutionTier(req.quality),
 	};
-
-	// Documented constraint: AT MOST ONE image reference. Sending an array of
-	// two is a 422, so take the first and drop the rest rather than fail the
-	// render — `supportsOmniReference: false` below is the honest advertisement
-	// of that limit, so a caller that needs multi-ref blending is routed to a
-	// sibling adapter in the first place.
-	const firstRef = [req.referenceImageUrl, ...(req.referenceImages ?? [])].find(
-		(url): url is string => Boolean(url),
-	);
-	if (firstRef) body.image_references = [firstRef];
-
+	if (req.seed !== undefined) body.seed = req.seed;
 	return body;
 }
 
@@ -134,33 +154,38 @@ export const higgsfieldSoulBackend: GenerationBackend = {
 	vendor: "Higgsfield AI",
 	modality: "image",
 	safetyTier: "partner",
-	// JUDGMENT CALL: the endpoint path is now VERIFIED to exist (422, not 404 —
-	// see VERIFIED_ENDPOINT above), which could argue for dropping ENDPOINT_ENV
-	// from the gate and defaulting straight to it. Deliberately NOT doing that.
-	// A confirmed path with an UNCONFIRMED body schema is still a live endpoint
-	// we'd be POSTing guessed field names to — if Higgsfield's validation is
-	// lenient (extra/misnamed keys silently ignored rather than 422'd), that
-	// guess could be accepted and BILL A REAL CREDIT for a render built from the
-	// wrong parameters (wrong aspect ratio, wrong quality tier, dropped
-	// reference image). A 404 fails safe with no charge; a 200 on a wrong body
-	// does not. So the gate stays: an operator must still confirm the body shape
-	// (e.g. via the console or a support answer) and paste the endpoint into
-	// HIGGSFIELD_SOUL_ENDPOINT themselves before this adapter goes live. Revisit
-	// once the body schema is confirmed — at that point defaulting to
-	// VERIFIED_ENDPOINT and dropping this gate becomes the reasonable move.
+	// JUDGMENT CALL: both the path AND the body fields this adapter sends are
+	// now VERIFIED (422, not 404, plus a field-by-field probe — see this file's
+	// header and REST-CATALOG.md §1). Still not dropping ENDPOINT_ENV. What's
+	// left unconfirmed is behavioral, not schema-level: no live account has
+	// actually rendered an image here, so submit-then-poll's real timing,
+	// pricing, and non-nsfw success rate are unknown. An operator must still
+	// paste the endpoint into HIGGSFIELD_SOUL_ENDPOINT themselves before this
+	// goes live — that's a much smaller remaining gap than "the field names may
+	// be wrong," but it's still a gap.
 	requiredEnv: ["HIGGSFIELD_CREDENTIALS", ENDPOINT_ENV],
 	capabilities: {
 		sizes: ["1024x1024", "1536x1024", "1024x1536"],
 		qualities: ["low", "medium", "high"],
-		// A Soul ID would be the seed-lock equivalent, but we can't send one yet.
+		// `seed` IS a real, verified field (1..1,000,000) and is now sent when
+		// present (see `buildSubmitBody`) — but `supportsSeedLock` stays false
+		// because `seed-lock.ts`'s shared `clampSeed` ceiling is 2^31-1 (the
+		// "most providers" default), which would hand Soul out-of-range seeds
+		// on almost every randomly-generated draft and turn every one of them
+		// into a real 422. Flipping this on needs a per-backend max-seed range
+		// in `seed-lock.ts`, which is outside this fix's scope.
 		supportsSeedLock: false,
-		// Single reference only — not omni-reference in any meaningful sense.
+		// No REST field carries a reference image into this render (see the
+		// header) — Soul's only image-reference mechanism, `custom_reference_id`,
+		// wants a UUID this codebase has no way to mint.
 		supportsOmniReference: false,
 		supportsLastFrame: false,
-		// One reference image does carry look/identity into the render, so this
-		// is true — but see the header for why `character-still` is still
-		// withheld from `intents`.
-		supportsReferenceEdits: true,
+		// FLIPPED from true: the old `image_references` body key does nothing
+		// (confirmed — see header), so no reference actually reaches the model
+		// today. Advertising `true` would let the router/seed-lock pick Soul for
+		// a slot that needs reference-carried identity and get a prompt-only
+		// render with no error to explain why identity didn't hold.
+		supportsReferenceEdits: false,
 		intents: ["broll-still"],
 	},
 
@@ -170,7 +195,7 @@ export const higgsfieldSoulBackend: GenerationBackend = {
 
 	estimateCost(req: BackendRequest): CostEstimate {
 		const credits = costFor("higgsfield-soul", "image", { count: 1 });
-		return { credits, basis: `${LABEL} (${qualityTier(req.quality)})` };
+		return { credits, basis: `${LABEL} (${resolutionTier(req.quality)})` };
 	},
 
 	submit(req: BackendRequest): Promise<SubmitResult> {

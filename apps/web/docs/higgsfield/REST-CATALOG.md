@@ -120,6 +120,37 @@ guesses (`width`, `height`), `image_reference`, `image_references`,
 `buildSubmitBody`**, which sends `quality` and `image_references` — neither
 exists on this endpoint. See §6 recommendations.
 
+### 1.5 Independent re-confirmation (Agent 1C, same day)
+
+Before editing `higgsfield-soul.ts` off this document's findings, the fields
+above were re-verified with a fresh probe in this session rather than taken
+on faith: `POST higgsfield-ai/soul/v2/standard` with
+`{"prompt":123,"aspect_ratio":"bogus_ratio","resolution":"999p","quality":"legacy_guess","image_references":123,"custom_reference_id":"not-a-uuid","style_id":"not-a-uuid","seed":99999999,"batch_size":7,"enhance_prompt":"not-a-bool","__nonexistent__":true}`
+(guaranteed-invalid via `prompt: 123`, a wrong type) returned `422` with:
+
+```json
+[{"type":"string_type","loc":["body","prompt"],"msg":"Input should be a valid string","input":123},
+ {"type":"literal_error","loc":["body","aspect_ratio"],"msg":"Input should be '9:16', '16:9', '4:3', '3:4', '1:1', '2:3' or '3:2'","input":"bogus_ratio"},
+ {"type":"literal_error","loc":["body","resolution"],"msg":"Input should be '720p' or '1080p'","input":"999p"},
+ {"type":"bool_parsing","loc":["body","enhance_prompt"],"msg":"Input should be a valid boolean, unable to interpret input","input":"not-a-bool"},
+ {"type":"uuid_parsing","loc":["body","custom_reference_id"],"msg":"Input should be a valid UUID, invalid character…","input":"not-a-uuid"},
+ {"type":"uuid_parsing","loc":["body","style_id"],"msg":"Input should be a valid UUID, invalid character…","input":"not-a-uuid"},
+ {"type":"less_than_equal","loc":["body","seed"],"msg":"Input should be less than or equal to 1000000","input":99999999},
+ {"type":"literal_error","loc":["body","batch_size"],"msg":"Input should be 1 or 4","input":7}]
+```
+
+This matches §1.2 exactly, and reconfirms `quality`, `image_references`, and
+`__nonexistent__` produce **no error each**, despite 8 other fields in the
+same request all correctly erroring — i.e. they're silently dropped, not
+validated. `higgsfield-soul.ts` has been corrected accordingly: it now sends
+`prompt` / `aspect_ratio` / `resolution` / `seed` only, `supportsReferenceEdits`
+is `false` (an image reference has zero effect through this endpoint today),
+and `supportsSeedLock` stays `false` (the shared seed-lock clamp's ceiling is
+2^31-1, well above Soul's real 1,000,000 max — wiring that safely needs a
+per-backend seed range, out of scope here). See the adapter's header for the
+full explanation and `image/__tests__/higgsfield-image.test.ts`'s
+`"higgsfield-soul — submit body"` block for the tests.
+
 ### 1.4 Unknown-field handling — the question that determines adapter safety
 
 **Unknown fields are silently ignored, not rejected.** `__nonexistent__` (an
@@ -348,6 +379,74 @@ primary, required input.
 
 ---
 
+## 4A. `brain_activity` (Virality Predictor) — searched for, NOT found
+
+**Verdict: no open REST endpoint for `brain_activity` was found. This is a
+negative result, not an inconclusive one** — every plausible vendor/model
+spelling 404'd with the same `model_not_found` shape every other confirmed-
+absent path in this catalog produces, and a control probe ruled out the one
+alternative explanation (a GET-only or differently-routed endpoint).
+
+The CLI's own `MODELS.md` (github.com/higgsfield-ai/cli, fetched fresh this
+session) documents the model plainly:
+
+> **Model ID:** `brain_activity` — "Virality Predictor". "Analyzes a video and
+> predicts audience engagement." Flags: `--video` (required, UUID or path,
+> single) and `--folder_id` (optional, string). No prompt, no vendor/tier
+> hint of any kind — the CLI id is flat, same as every other model in that
+> doc, and (as established in §1.1/§3) the CLI id does **not** predict the
+> REST path shape.
+
+19 paths were probed (all `POST … {}`, the same existence-only technique as
+§3 — guaranteed-invalid since `{}` fails validation before any job exists on
+every endpoint in this catalog):
+
+| path | status | body |
+|---|---|---|
+| `higgsfield-ai/brain-activity/standard` | 404 | `{"detail":"model_not_found"}` |
+| `higgsfield-ai/brain_activity/standard` | 404 | `{"detail":"model_not_found"}` |
+| `higgsfield-ai/brain-activity` (no tier) | 404 | `{"detail":"model_not_found"}` |
+| `higgsfield-ai/virality-predictor/standard` | 404 | `{"detail":"model_not_found"}` |
+| `higgsfield-ai/virality/standard` | 404 | `{"detail":"model_not_found"}` |
+| `higgsfield-ai/virality-score/standard` | 404 | `{"detail":"model_not_found"}` |
+| `higgsfield-ai/engagement/standard` | 404 | `{"detail":"model_not_found"}` |
+| `higgsfield-ai/engagement-predictor/standard` | 404 | `{"detail":"model_not_found"}` |
+| `higgsfield-ai/hook-predictor/standard` | 404 | `{"detail":"model_not_found"}` |
+| `higgsfield-ai/video-analysis/standard` | 404 | `{"detail":"model_not_found"}` |
+| `higgsfield-ai/analyze-video/standard` | 404 | `{"detail":"model_not_found"}` |
+| `higgsfield-ai/predict-engagement/standard` | 404 | `{"detail":"model_not_found"}` |
+| `higgsfield/brain-activity/standard` (vendor w/o `-ai`) | 404 | `{"detail":"model_not_found"}` |
+| `higgsfield-ai/brain-activity/analyze` | 404 | `{"detail":"model_not_found"}` |
+| `higgsfield-ai/brain-activity/v1` | 404 | `{"detail":"model_not_found"}` |
+| `higgsfield-ai/brain-activity/v2` | 404 | `{"detail":"model_not_found"}` |
+| `higgsfield-ai/analytics/standard` | 404 | `{"detail":"model_not_found"}` |
+| `higgsfield-ai/video-score/standard` | 404 | `{"detail":"model_not_found"}` |
+| `higgsfield-ai/attention-score/standard` | 404 | `{"detail":"model_not_found"}` |
+
+**Control probe — ruling out "maybe it's GET, not POST":** analysis-style
+endpoints (video in, report out, no media rendered) could plausibly be routed
+differently from every generation endpoint in this catalog, all of which are
+POST. `GET brain-activity`, `GET brain_activity`, and
+`GET higgsfield-ai/brain-activity/standard` all returned `405 Method Not
+Allowed` — the exact same generic "this API is POST-oriented, any depth-1 or
+deeper path answers 405 to GET" behavior already established in §5's balance-
+endpoint control probe (`GET totally-bogus-single-segment` also 405s). That
+rules out a GET route hiding behind these same path guesses; it is not
+evidence of existence.
+
+**What this means for the sprint:** the Virality Predictor cannot be reached
+by REST today under any spelling tried. Wave 2 should treat `brain_activity`
+as CLI/console-only, same status as `gpt_image_2_5` / `nano_banana_2` /
+`seed_audio` (§5) — a real Higgsfield capability, but not one this codebase
+can call without either (a) Higgsfield adding a REST route in the future, or
+(b) driving the CLI itself (a different integration shape — subprocess +
+`higgsfield auth login`, not an HTTP adapter — and outside this task's scope
+to design). No `lib/studio/backends/analysis/` module was added, because
+there is nothing live to point it at; inventing a path here would be exactly
+the fabrication this task was warned against.
+
+---
+
 ## 5. Explicitly still unknown
 
 - **No image-generation endpoint beyond the Soul family was found reachable
@@ -362,6 +461,8 @@ primary, required input.
   8 vendor/naming guesses for `seed_audio`, `inworld_text_to_speech`,
   `mirelo_text_to_audio`, `sonilo_music`, `text2speech_v2` all 404'd. Same
   caveat: not exhaustive.
+- **`brain_activity` (Virality Predictor) has no open REST endpoint** — see
+  §4A for the full 19-path probe log and the GET-method control check.
 - **No dedicated balance/credits/account endpoint was found.** `GET` on
   `account`, `account/balance`, `balance`, `credits`, `me`, `user`,
   `account/credits`, `v1/account` all returned `405 Method Not Allowed` —
@@ -390,24 +491,34 @@ primary, required input.
 
 ---
 
-## 6. Recommendations (not acted on — scope boundary; `src/` untouched)
+## 6. Recommendations
 
-1. `src/lib/studio/backends/image/higgsfield-soul.ts`'s `buildSubmitBody`
-   currently sends `quality` and `image_references` — **neither field exists**
-   on the live Soul schema (§1.3). Both are silently dropped by the server
-   (§1.4), so today this adapter is paying for the request-building code to
-   run and getting zero effect from those two knobs. `aspect_ratio` is
-   correct. `custom_reference_id` (§1.2) is real and UUID-typed — this is
-   likely the exact Soul ID mechanism the file's header says can't be sent
-   yet; closing that gap needs (a) plumbing a persona-id field through
-   `BackendRequest`, and (b) finding the endpoint that mints a
-   `custom_reference_id` from an uploaded image (§5, not found here).
-2. `resolution` on Soul should map to `720p`/`1080p` only (no `480p`) —
-   opposite of the video family. If any shared `higgsfieldResolution()` helper
-   exists, confirm it isn't reusing the video enum for image requests.
+1. ~~`src/lib/studio/backends/image/higgsfield-soul.ts`'s `buildSubmitBody`
+   currently sends `quality` and `image_references` — neither field exists~~
+   **DONE (Agent 1C, this session).** `buildSubmitBody` now sends `prompt` /
+   `aspect_ratio` / `resolution` / `seed` only; `quality` and
+   `image_references` are gone. `supportsReferenceEdits` flipped to `false`
+   (a reference image had zero effect through this endpoint) and
+   `supportsSeedLock` stays `false` pending a per-backend seed-range fix in
+   `seed-lock.ts` (Soul's real ceiling is 1,000,000; the shared clamp's is
+   2^31-1). `custom_reference_id` (§1.2) is real and UUID-typed and remains
+   the exact Soul ID mechanism the adapter still can't send — closing that
+   gap still needs (a) plumbing a persona-id field through `BackendRequest`,
+   and (b) finding the endpoint that mints a `custom_reference_id` from an
+   uploaded image (§5, not found in this session either — out of scope to
+   hunt for without a steer on where to look).
+2. ~~`resolution` on Soul should map to `720p`/`1080p` only~~ **DONE** — see
+   `resolutionTier()` in the adapter; it was already using a private
+   `qualityTier()`/`resolution`-shaped helper scoped to this file, not a
+   shared cross-vendor one, so there was no other call site to check.
 3. Given unknown fields are silently ignored (§1.4) server-side, any future
    adapter work against this API should treat a `200`/`202` as **weak**
    evidence the body was interpreted as intended — a typo'd field name will
    never surface as an error. Snapshot-testing the exact outgoing body against
    this document's field tables is cheaper than trusting the API to catch
    adapter bugs.
+4. **`brain_activity` (§4A) has no REST route to point an adapter at.** If a
+   future session drives it via the CLI instead of REST, that is a materially
+   different integration (subprocess + `higgsfield auth login`, not
+   `fetch()`) and deserves its own design pass rather than being bolted onto
+   `higgsfield-client.ts`'s HTTP-only plumbing.

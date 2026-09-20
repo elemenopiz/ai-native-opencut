@@ -180,6 +180,16 @@ CANDIDATE_PATHS=(
 	"higgsfield/soul-cinematic/text-to-image"
 	"inworld/text-to-speech/standard"
 	"elevenlabs/text-to-speech/standard"
+	# brain_activity / Virality Predictor — hunted for and NOT found (19
+	# spellings tried, all 404 model_not_found; see REST-CATALOG.md §4A). Kept
+	# here so a re-run loudly flags it if Higgsfield ever adds a route.
+	"higgsfield-ai/brain-activity/standard"
+	"higgsfield-ai/brain_activity/standard"
+	"higgsfield-ai/virality-predictor/standard"
+	"higgsfield-ai/virality/standard"
+	"higgsfield-ai/engagement/standard"
+	"higgsfield-ai/hook-predictor/standard"
+	"higgsfield/brain-activity/standard"
 )
 
 for path in "${CANDIDATE_PATHS[@]}"; do
