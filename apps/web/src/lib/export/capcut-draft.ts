@@ -756,6 +756,14 @@ function serializeTrack({
 		}
 		return null;
 	}
+	if (track.type === "shape") {
+		if (track.elements.length > 0) {
+			context.warnings.push(
+				`Shape track "${track.name}" was skipped (CapCut has no parametric shape equivalent).`,
+			);
+		}
+		return null;
+	}
 
 	const segments: Record<string, unknown>[] = [];
 	let previousEnd = Number.NEGATIVE_INFINITY;

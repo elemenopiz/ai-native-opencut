@@ -11,6 +11,7 @@ import type {
 	CreateVideoElement,
 	CreateImageElement,
 	CreateStickerElement,
+	CreateShapeElement,
 	CreateUploadAudioElement,
 	CreateLibraryAudioElement,
 	TextBackground,
@@ -22,6 +23,8 @@ import type {
 	ImageElement,
 	VisualElement,
 	UploadAudioElement,
+	ShapeKind,
+	ShapeFill,
 } from "@/types/timeline";
 import type { MediaType } from "@/types/assets";
 import { buildDefaultEffectInstance } from "@/lib/effects";
@@ -223,6 +226,42 @@ export function buildStickerElement({
 		type: "sticker",
 		name: name ?? stickerNameFromId,
 		stickerId,
+		duration: TIMELINE_CONSTANTS.DEFAULT_ELEMENT_DURATION,
+		startTime,
+		trimStart: 0,
+		trimEnd: 0,
+		transform: { ...DEFAULT_TRANSFORM },
+		opacity: DEFAULT_OPACITY,
+		blendMode: DEFAULT_BLEND_MODE,
+	};
+}
+
+const DEFAULT_SHAPE_FILL: ShapeFill = { type: "solid", color: "#ffffff" };
+const DEFAULT_SHAPE_WIDTH = 400;
+const DEFAULT_SHAPE_HEIGHT = 200;
+
+export function buildShapeElement({
+	shapeKind,
+	name,
+	startTime,
+	width,
+	height,
+	fill,
+}: {
+	shapeKind: ShapeKind;
+	name?: string;
+	startTime: number;
+	width?: number;
+	height?: number;
+	fill?: ShapeFill;
+}): CreateShapeElement {
+	return {
+		type: "shape",
+		name: name ?? capitalizeFirstLetter({ string: shapeKind }),
+		shapeKind,
+		width: width ?? DEFAULT_SHAPE_WIDTH,
+		height: height ?? DEFAULT_SHAPE_HEIGHT,
+		fill: fill ?? DEFAULT_SHAPE_FILL,
 		duration: TIMELINE_CONSTANTS.DEFAULT_ELEMENT_DURATION,
 		startTime,
 		trimStart: 0,

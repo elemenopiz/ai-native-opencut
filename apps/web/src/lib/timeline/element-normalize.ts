@@ -27,7 +27,8 @@ export function isVisualElement(
 		element.type === "video" ||
 		element.type === "image" ||
 		element.type === "text" ||
-		element.type === "sticker"
+		element.type === "sticker" ||
+		element.type === "shape"
 	);
 }
 
@@ -37,6 +38,7 @@ const KNOWN_ELEMENT_TYPES: ReadonlySet<TimelineElement["type"]> = new Set([
 	"text",
 	"audio",
 	"sticker",
+	"shape",
 	"effect",
 ]);
 

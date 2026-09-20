@@ -1239,6 +1239,34 @@ const ELEMENT_CONTENT_RENDERERS: Record<
 			</div>
 		);
 	},
+	shape: ({ element }) => {
+		const shapeElement = element as Extract<
+			TimelineElementType,
+			{ type: "shape" }
+		>;
+		// A shape has no thumbnail to show, so the swatch stands in for one:
+		// solid fills paint directly, gradients show their first stop.
+		const swatch =
+			shapeElement.fill.type === "solid"
+				? shapeElement.fill.color
+				: shapeElement.fill.stops[0]?.color;
+		return (
+			<div className="flex size-full items-center gap-2 pl-2">
+				<span
+					aria-hidden
+					className={cn(
+						"size-4 shrink-0 border border-white/40",
+						shapeElement.shapeKind === "ellipse" && "rounded-full",
+						shapeElement.shapeKind === "line" && "h-0.5 self-center",
+					)}
+					style={{ background: swatch ?? "transparent" }}
+				/>
+				<span className="truncate text-xs text-white">
+					{shapeElement.name}
+				</span>
+			</div>
+		);
+	},
 	audio: ({ element, track, mediaAssets, editor }) => {
 		const audioElement = element as Extract<
 			TimelineElementType,

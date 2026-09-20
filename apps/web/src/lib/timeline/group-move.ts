@@ -299,6 +299,7 @@ function inferTrackTypeForElement(elementType: ElementType): TrackType {
 	if (elementType === "audio") return "audio";
 	if (elementType === "text") return "text";
 	if (elementType === "sticker") return "sticker";
+	if (elementType === "shape") return "shape";
 	return "effect";
 }
 
