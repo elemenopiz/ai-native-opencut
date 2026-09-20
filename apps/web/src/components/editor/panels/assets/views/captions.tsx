@@ -40,7 +40,11 @@ import {
 } from "@/lib/transcription/friendly-errors";
 import { toast } from "sonner";
 import { aiClient } from "@/lib/ai-client";
-import { transcribeFileWithEngine } from "@/hooks/use-transcription";
+import {
+	transcribeFileWithEngine,
+	useTranscriptionNotConfigured,
+	TRANSCRIPTION_UNAVAILABLE_MESSAGE,
+} from "@/hooks/use-transcription";
 import type { TimelineElement } from "@/types/timeline";
 import type { TranscriptionSegment } from "@/types/ai";
 import { useBackgroundTasksStore } from "@/stores/background-tasks-store";
@@ -91,6 +95,11 @@ export function Captions() {
 	const subtitleFileInputRef = useRef<HTMLInputElement>(null);
 	const segments = useTranscriptStore((s) => s.segments);
 	const editor = useEditor();
+	// MAI-Transcribe-2 needs a server-side key; once any attempt this session
+	// has learned it's absent, disable the button for that engine instead of
+	// re-running a guaranteed-503 round trip on every click. Sarvam/Smallest
+	// go through a different backend entirely and aren't affected.
+	const transcriptionNotConfigured = useTranscriptionNotConfigured();
 
 	// Determine which languages to show based on engine
 	const availableLanguages =
@@ -99,6 +108,10 @@ export function Captions() {
 			: selectedEngine === "smallest"
 				? SMALLEST_STT_LANGUAGES
 				: TRANSCRIPTION_LANGUAGES;
+
+	// Only the "mai" engine is gated by the server-side key — sarvam/smallest
+	// hit a different backend and are unaffected by this flag.
+	const maiUnavailable = selectedEngine === "mai" && transcriptionNotConfigured;
 
 	// Filter out tracks that no longer exist on the timeline (user may have deleted them)
 	const timelineTracks = editor.timeline.getTracks();
@@ -127,6 +140,14 @@ export function Captions() {
 	};
 
 	const handleGenerateTranscript = async () => {
+		// Belt-and-suspenders: the button is disabled for this state, but guard
+		// the handler itself too so nothing (keyboard activation, a stale
+		// re-render) can still fire a guaranteed-503 round trip.
+		if (maiUnavailable) {
+			setError(TRANSCRIPTION_UNAVAILABLE_MESSAGE);
+			return;
+		}
+
 		const taskId = `transcription-${Date.now()}`;
 		const bgTasks = useBackgroundTasksStore.getState();
 
@@ -1228,15 +1249,27 @@ export function Captions() {
 					className="w-full"
 					variant={segments.length > 0 ? "outline" : "default"}
 					onClick={handleGenerateTranscript}
-					disabled={isProcessing}
+					disabled={isProcessing || maiUnavailable}
+					title={maiUnavailable ? TRANSCRIPTION_UNAVAILABLE_MESSAGE : undefined}
 				>
 					{isProcessing && <Spinner className="mr-1" />}
 					{isProcessing
 						? processingStep
-						: segments.length > 0
-							? "Re-transcribe"
-							: "Generate transcript"}
+						: maiUnavailable
+							? "Transcription unavailable"
+							: segments.length > 0
+								? "Re-transcribe"
+								: "Generate transcript"}
 				</Button>
+				{/* Explains the disabled state without needing hover — the button's
+				    own `disabled:pointer-events-none` styling can suppress the
+				    native title tooltip, so this is the primary explanation. */}
+				{maiUnavailable && !isProcessing && (
+					<p className="text-[10px] text-muted-foreground leading-relaxed">
+						{TRANSCRIPTION_UNAVAILABLE_MESSAGE} Try the Sarvam or Smallest
+						engine above instead.
+					</p>
+				)}
 
 				{/* ── Import subtitle file ── */}
 				<div className="flex flex-col gap-2">

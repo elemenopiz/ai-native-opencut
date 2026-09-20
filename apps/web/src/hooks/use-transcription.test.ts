@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { aiClient } from "@/lib/ai-client";
-import { transcribeFileWithEngine } from "@/hooks/use-transcription";
+import * as maiTranscribeModule from "@/lib/transcription/mai-transcribe";
+import { MaiTranscribeError } from "@/lib/transcription/mai-transcribe";
+import {
+	transcribeFileWithEngine,
+	isTranscriptionNotConfigured,
+	TRANSCRIPTION_UNAVAILABLE_MESSAGE,
+	__resetTranscriptionAvailabilityForTests,
+} from "@/hooks/use-transcription";
 import type { TranscriptionResult } from "@/types/ai";
 
 /**
@@ -94,5 +101,73 @@ describe("transcribeFileWithEngine", () => {
 
 		expect(sarvam).not.toHaveBeenCalled();
 		expect(smallest).not.toHaveBeenCalled();
+	});
+});
+
+/**
+ * Regression guard for the "Transcribe still fires when it's known to be
+ * off" bug: once a "mai" attempt learns the server has no key configured
+ * (`MaiTranscribeError` with `code: "not_configured"`), the session-sticky
+ * flag the Captions panel disables its button on must flip — and must NOT
+ * flip for an unrelated failure, which would incorrectly disable a feature
+ * that might work again on retry.
+ */
+describe("transcription availability flag", () => {
+	afterEach(() => {
+		__resetTranscriptionAvailabilityForTests();
+		while (spies.length) spies.pop()?.mockRestore();
+	});
+
+	it("starts available", () => {
+		expect(isTranscriptionNotConfigured()).toBe(false);
+	});
+
+	it("marks not-configured after a mai 'not_configured' failure", async () => {
+		const mai = spyOn(
+			maiTranscribeModule,
+			"transcribeWithMai",
+		).mockRejectedValue(
+			new MaiTranscribeError(
+				"Transcription isn't available right now.",
+				"not_configured",
+			),
+		);
+		spies.push(mai);
+
+		await transcribeFileWithEngine({ file: file(), engine: "mai" }).catch(
+			() => undefined,
+		);
+
+		expect(mai).toHaveBeenCalledTimes(1);
+		expect(isTranscriptionNotConfigured()).toBe(true);
+	});
+
+	it("does not mark not-configured for an unrelated mai failure", async () => {
+		const mai = spyOn(
+			maiTranscribeModule,
+			"transcribeWithMai",
+		).mockRejectedValue(
+			new MaiTranscribeError(
+				"Couldn't reach transcription just now. Check your connection and try again.",
+				"provider_error",
+			),
+		);
+		spies.push(mai);
+
+		await transcribeFileWithEngine({ file: file(), engine: "mai" }).catch(
+			() => undefined,
+		);
+
+		expect(mai).toHaveBeenCalledTimes(1);
+		expect(isTranscriptionNotConfigured()).toBe(false);
+	});
+
+	it("never names a provider, key, or env var in the disabled-button copy", () => {
+		expect(TRANSCRIPTION_UNAVAILABLE_MESSAGE).not.toMatch(
+			/azure|env|AZURE_SPEECH|key/i,
+		);
+		expect(TRANSCRIPTION_UNAVAILABLE_MESSAGE).toBe(
+			"Transcription isn't available on this account yet.",
+		);
 	});
 });
