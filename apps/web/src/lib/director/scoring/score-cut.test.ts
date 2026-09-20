@@ -254,7 +254,7 @@ describe("scoreCut — overall composite, grade, and the diagnostics/cutScore sh
 				"energy",
 				"face_presence",
 				"hook",
-				"virality",
+				"reach",
 			].sort(),
 		);
 	});

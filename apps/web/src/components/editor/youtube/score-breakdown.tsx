@@ -22,7 +22,7 @@ const SCORE_LABELS: Record<string, string> = {
 	audio_sync: "Beat Sync",
 	face_presence: "Face Presence",
 	emotional_arc: "Emotional Arc",
-	virality: "Reach",
+	reach: "Reach",
 };
 
 export function ScoreBreakdown({

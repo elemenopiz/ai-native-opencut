@@ -15,7 +15,7 @@ const SCORE: EngagementScoreResult = {
 	audio_sync: { composite: 90 },
 	face_presence: { composite: 50 },
 	emotional_arc: { composite: 65 },
-	virality: { composite: 75 },
+	reach: { composite: 75 },
 	suggestions: [],
 	composite: 72,
 	grade: "B",

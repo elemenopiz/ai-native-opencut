@@ -24,7 +24,7 @@ const SUB_SCORES = [
 	"audio_sync",
 	"face_presence",
 	"emotional_arc",
-	"virality",
+	"reach",
 ] as const;
 
 const LABELS: Record<string, string> = {
@@ -34,7 +34,7 @@ const LABELS: Record<string, string> = {
 	audio_sync: "Beat Sync",
 	face_presence: "Face",
 	emotional_arc: "Arc",
-	virality: "Reach",
+	reach: "Reach",
 };
 
 export function BeforeAfterComparison({ before, after }: BeforeAfterProps) {
