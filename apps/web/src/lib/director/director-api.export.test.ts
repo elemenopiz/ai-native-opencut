@@ -132,7 +132,15 @@ describe("director exportReel", () => {
 		const result = await director.export({ download: false });
 
 		expect(result.ok).toBe(false);
-		expect(result.message).toMatch(/codec unavailable/);
+		// UPDATED (demo-day fix): this used to pin `result.message` matching
+		// the raw renderer error verbatim ("codec unavailable") — that was
+		// the actual defect: a raw codec/DOMException string flowing straight
+		// into chat on the last beat of the export flow. `commitExport` now
+		// sanitises `message` before `exportReel` ever sees it (see
+		// lib/export.ts), so the raw detail must NOT reach the user-facing
+		// message, only a human sentence should.
+		expect(result.message).not.toMatch(/codec unavailable/);
+		expect(result.message).toMatch(/export failed/i);
 		// A job WAS attempted (editor.project.export was called), so it gets
 		// a jobId — a future manage_exports {list} could still find it.
 		expect(result.data).toEqual({

@@ -7,45 +7,39 @@
  * (`docs/plans/2026-09-18-challenge-execution-timeline.md` §2) — both
  * "prompt/content filters returning 'rephrase'", i.e. the SAME recovery
  * shape: auto-rephrase once, then give up. `nsfw` gets that treatment today
- * (`generation-nsfw-scenario.ts` proves it, 2 attempts). This scenario proves
- * `ip_detected` does NOT.
+ * (`generation-nsfw-scenario.ts` proves it, 2 attempts). This scenario now
+ * proves `ip_detected` does too.
  *
  * ──────────────────────────────────────────────────────────────────────────
- * THIS IS A FINDING, NOT A REGRESSION GUARD YET — see the report for detail.
+ * FIXED — this started life as a `test.failing` FINDING, now a real guard.
  * ──────────────────────────────────────────────────────────────────────────
- * `failure-classification.ts`'s `SAFETY_RE` lists `nsfw` (and `flagged`,
- * `moderation`, `explicit`, `sexual`, `blocked`, `prohibit*`, `disallow*`,
- * `violat*`, `sensitive`, `graphic content`, `policy violation`, `rejected
- * by`, …) but has NO pattern for `ip_detected`, "public figure", "trademark",
- * or "recognizable likeness". A raw `ip_detected` error therefore falls all
- * the way through `classifyFailure` to the `"unknown"` fallback —
- * `retryable: true` — which `runTakeWithRecovery` treats exactly like a
- * transient provider hiccup: it burns `recovery.maxRetries` (default 2) real
- * retries against a request that is GUARANTEED to fail again with the exact
- * same content (a public figure's face doesn't stop being in the prompt on
- * retry #2), instead of taking the one-rephrase-then-escalate path a
- * genuinely terminal content-policy rejection deserves. On camera, that is
- * the difference between "fails fast, Director asks for a different shot"
- * and "visibly stalls for two extra round-trips before failing anyway."
+ * `failure-classification.ts`'s `SAFETY_RE` used to list `nsfw` (and
+ * `flagged`, `moderation`, `explicit`, `sexual`, `blocked`, `prohibit*`,
+ * `disallow*`, `violat*`, `sensitive`, `graphic content`, `policy violation`,
+ * `rejected by`, …) but had NO pattern for `ip_detected`, "public figure",
+ * "trademark", or "recognizable likeness". A raw `ip_detected` error
+ * therefore fell all the way through `classifyFailure` to the `"unknown"`
+ * fallback — `retryable: true` — which `runTakeWithRecovery` treated exactly
+ * like a transient provider hiccup: it burned `recovery.maxRetries` (default
+ * 2) real retries against a request that is GUARANTEED to fail again with
+ * the exact same content (a public figure's face doesn't stop being in the
+ * prompt on retry #2), instead of taking the one-rephrase-then-escalate path
+ * a genuinely terminal content-policy rejection deserves. On camera, that
+ * was the difference between "fails fast, Director asks for a different
+ * shot" and "visibly stalls for two extra round-trips before failing
+ * anyway."
  *
- * This does NOT leak a raw provider string to the user (`FAILURE_LABEL`'s
- * `"unknown error"` is just as generic as `"content-safety rejection"` would
- * be) — it is a MISCLASSIFICATION, not a leak: wrong recovery strategy, not
- * wrong secrecy. `failure-classification.ts` is outside `evals/`'s ownership
- * (this directory owns fixtures and assertions, not the classifier), so per
- * this task's brief this is reported, not fixed here.
- *
- * `test.failing` (Bun's `it()`/`test()` modifier — inverts pass/fail) is used
- * in `evals.test.ts` for the dedicated assertion on this scenario, so the
- * suite stays green today AND flips to a loud failure the moment someone
- * fixes `classifyFailure` and forgets to un-mark it — the intended signal to
- * finish the fix (delete `.failing`, confirm 2 attempts) rather than leaving
- * a silently-passing test that no longer means anything.
+ * `SAFETY_RE` now also matches `ip_detected`, "public figure", "trademark",
+ * "branded character", and "recognizable likeness" (see
+ * `failure-classification.ts`), so this takes the same 2-attempt
+ * one-rephrase-then-escalate path `nsfw` already gets. The dedicated
+ * assertion in `evals.test.ts` was un-marked from `test.failing` to `test`
+ * in the same change — it is a regression guard now, not a pinned bug.
  *
  * TWO shots (one healthy) for the same structural reason
  * `generation-nsfw-scenario.ts`'s header explains — a single always-failing
  * shot would make `generate()`'s own step `ok: false`, unrelated to the
- * misclassification finding this scenario exists to pin.
+ * classification behavior this scenario exists to guard.
  */
 
 import { createDirectorApi } from "../director-api";
