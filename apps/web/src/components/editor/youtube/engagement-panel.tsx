@@ -12,6 +12,7 @@ import {
 import { useEngagementStore } from "@/stores/engagement-store";
 import { useTranscriptStore } from "@/stores/transcript-store";
 import { ScoreBreakdown } from "./score-breakdown";
+import { EngagementScoreHeadline } from "./engagement-score-headline";
 import { toast } from "sonner";
 
 /**
@@ -63,9 +64,11 @@ export function EngagementPanel({
 	scoreFn?: EngagementScoreFn;
 }) {
 	const score = useEngagementStore((s) => s.currentScore);
+	const previousScore = useEngagementStore((s) => s.previousScore);
 	const isAnalyzing = useEngagementStore((s) => s.isAnalyzing);
 	const error = useEngagementStore((s) => s.error);
 	const errorKind = useEngagementStore((s) => s.errorKind);
+	const errorDetail = useEngagementStore((s) => s.errorDetail);
 	const setScore = useEngagementStore((s) => s.setScore);
 	const setAnalyzing = useEngagementStore((s) => s.setAnalyzing);
 	const setError = useEngagementStore((s) => s.setError);
@@ -109,8 +112,14 @@ export function EngagementPanel({
 					"backend_unavailable",
 				);
 			} else {
-				const msg = e instanceof Error ? e.message : "Scoring failed";
-				setError(msg);
+				// Never surface the raw exception text as primary copy — collapse
+				// it behind "Technical details" and lead with a calm, generic line.
+				const detail = e instanceof Error ? e.message : String(e);
+				setError(
+					"Couldn't score this cut right now. Try again in a moment.",
+					"generic",
+					detail,
+				);
 			}
 			toast.error("Failed to check engagement score");
 		} finally {
@@ -140,25 +149,38 @@ export function EngagementPanel({
 					actionable suggestions.
 				</p>
 
-				{/* Idle state */}
+				{/* Nothing scored yet */}
 				{!score && !isAnalyzing && !error && (
 					<Button className="w-full" onClick={handleCheck}>
 						Check Engagement Score
 					</Button>
 				)}
 
-				{/* Analyzing */}
-				{isAnalyzing && (
+				{/* Scoring in progress, first-ever check — nothing to hold on
+				    screen yet, so a plain spinner line is the honest state. */}
+				{isAnalyzing && !score && (
 					<div className="flex items-center gap-2 text-sm text-muted-foreground">
 						<Spinner className="h-4 w-4" />
 						<span>Analyzing engagement...</span>
 					</div>
 				)}
 
+				{/* Scoring in progress, re-check — hold the previous headline
+				    number on screen (dimmed) right up to the reveal, instead of
+				    replacing it with a bare spinner. That hold-then-reveal beat
+				    is the whole point: the number visibly changes, not just
+				    appears. */}
+				{isAnalyzing && score && (
+					<EngagementScoreHeadline current={score} analyzing />
+				)}
+
 				{/* Error — backend_unavailable is an expected, calm state (the
 				    local ai-backend just isn't running), so it gets the same
 				    yellow "heads up" treatment used elsewhere in the editor
-				    instead of alarming red. */}
+				    instead of alarming red. Any other failure gets a friendly,
+				    non-technical line up front; the raw detail (never a
+				    provider/env/path name) is collapsed behind "Technical
+				    details" rather than shown by default. */}
 				{error && (
 					<div className="space-y-2">
 						<div
@@ -179,6 +201,16 @@ export function EngagementPanel({
 							>
 								{error}
 							</p>
+							{errorKind === "generic" && errorDetail && (
+								<details className="mt-1.5">
+									<summary className="cursor-pointer select-none text-[10px] text-muted-foreground/60">
+										Technical details
+									</summary>
+									<p className="mt-1 break-words text-[10px] text-muted-foreground/60">
+										{errorDetail}
+									</p>
+								</details>
+							)}
 						</div>
 						<Button variant="outline" size="sm" onClick={handleCheck}>
 							Retry
@@ -186,9 +218,12 @@ export function EngagementPanel({
 					</div>
 				)}
 
-				{/* Score result */}
-				{score && (
+				{/* Scored — the headline number leads (this is what the eye
+				    should land on first), the breakdown stays one glance away. */}
+				{score && !isAnalyzing && (
 					<>
+						<EngagementScoreHeadline current={score} previous={previousScore} />
+
 						{/* Verdict banner */}
 						<div className="rounded-lg border p-3 text-center space-y-1">
 							{score.composite >= 70 ? (
