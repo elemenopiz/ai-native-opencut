@@ -1,10 +1,10 @@
 /**
- * Engagement diagnostics — reframe the blended engagement/virality score into
+ * Engagement diagnostics — reframe the blended engagement/reach score into
  * three independently-actionable dimensions plus a per-moment attention heatmap.
  *
- * A single "virality score" tells a creator *whether* a clip is good, not *what*
+ * A single "reach score" tells a creator *whether* a clip is good, not *what*
  * to fix. This module maps the backend's seven raw signals (hook, curiosity,
- * energy, audio_sync, face_presence, emotional_arc, virality) — combined with
+ * energy, audio_sync, face_presence, emotional_arc, reach) — combined with
  * the transcript's per-segment text — into:
  *
  *   1. HOOK        — do the first ~3s grab attention?
@@ -156,15 +156,15 @@ function deriveHook(
 ): HookDiagnostic {
 	const hookSignal = comp(result.hook, 50);
 	const curiosity = comp(result.curiosity, 50);
-	// virality carries a 0-25 hook_strength sub-signal — scale to 0-100.
-	const viralHook = clamp(num(result.virality, "hook_strength", 12) * 4);
+	// reach carries a 0-25 hook_strength sub-signal — scale to 0-100.
+	const reachHook = clamp(num(result.reach, "hook_strength", 12) * 4);
 	const earlyFace = boolField(result.hook, "early_face_present");
 
 	const openingText = openingSegments.map((s) => s.text).join(" ").trim();
 	const sig = textSignals(openingText);
 
 	// Blend the three hook-relevant signals; nudge on opening text cues.
-	let score = hookSignal * 0.55 + curiosity * 0.2 + viralHook * 0.25;
+	let score = hookSignal * 0.55 + curiosity * 0.2 + reachHook * 0.25;
 	if (openingText) {
 		if (sig.question) score += 6;
 		if (sig.openLoop) score += 6;

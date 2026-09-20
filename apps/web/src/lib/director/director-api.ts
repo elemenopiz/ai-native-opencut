@@ -7457,10 +7457,17 @@ export function createDirectorApi(
 		});
 
 		if (outcome.status === "failed") {
+			// `commitExport` already sanitises its failure copy into a whole,
+			// punctuated sentence (the raw codec/DOMException text lives on
+			// `outcome.detail`, dev-logging only). Appending our own period
+			// produced "…Please try again.." on a surface the user reads, so
+			// only punctuate a message that does not already end in one.
 			const message =
 				outcome.reason === "cancelled"
 					? outcome.message
-					: `Export failed: ${outcome.message}.`;
+					: `Export failed: ${outcome.message}${
+							/[.!?]$/.test(outcome.message.trim()) ? "" : "."
+						}`;
 			return {
 				ok: false,
 				message,
