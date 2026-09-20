@@ -31,6 +31,8 @@ import {
 	type ExportQuality,
 } from "@/types/export";
 import { PLAYBOOKS, type PlaybookId } from "@/lib/studio/playbooks";
+import { DEFAULT_WORDS_PER_CAPTION } from "@/constants/transcription-constants";
+import type { SubtitleStyleOverrides } from "@/lib/subtitles/types";
 import type { DirectorApi, SpecOverride } from "./director-api";
 import type { DirectorResult } from "./types";
 import type { ConsistencyCharacter } from "./consistency-prompt";
@@ -256,6 +258,61 @@ export function asTextBackgroundPatch(
 	const out: { enabled?: boolean; color?: string } = {};
 	if (typeof o.enabled === "boolean") out.enabled = o.enabled;
 	if (o.color != null) out.color = String(o.color);
+	return Object.keys(out).length ? out : undefined;
+}
+
+/**
+ * Coerce a loose `style` patch arg for `addCaptions` into the reused
+ * `SubtitleStyleOverrides` shape (the SAME type `lib/subtitles/insert.ts`'s
+ * cue builder already accepts) — font/color/alignment/background only;
+ * `placement` and `fontSizeRatioOfPlayHeight` are parser-internal fields not
+ * exposed here (position goes through `transform` instead, same as
+ * `addText`/`updateText`). Unknown/ill-typed fields are dropped.
+ */
+export function asCaptionStyleOverride(
+	v: unknown,
+): SubtitleStyleOverrides | undefined {
+	if (!v || typeof v !== "object" || Array.isArray(v)) return undefined;
+	const o = v as Record<string, unknown>;
+	const out: SubtitleStyleOverrides = {};
+	const fontSize = numOrUndefined(o.fontSize);
+	if (fontSize !== undefined) out.fontSize = fontSize;
+	if (o.fontFamily != null) out.fontFamily = String(o.fontFamily);
+	if (o.color != null) out.color = String(o.color);
+	if (
+		o.textAlign === "left" ||
+		o.textAlign === "center" ||
+		o.textAlign === "right"
+	) {
+		out.textAlign = o.textAlign;
+	}
+	if (o.fontWeight === "normal" || o.fontWeight === "bold") {
+		out.fontWeight = o.fontWeight;
+	}
+	if (o.fontStyle === "normal" || o.fontStyle === "italic") {
+		out.fontStyle = o.fontStyle;
+	}
+	if (
+		o.textDecoration === "none" ||
+		o.textDecoration === "underline" ||
+		o.textDecoration === "line-through"
+	) {
+		out.textDecoration = o.textDecoration;
+	}
+	const letterSpacing = numOrUndefined(o.letterSpacing);
+	if (letterSpacing !== undefined) out.letterSpacing = letterSpacing;
+	const lineHeight = numOrUndefined(o.lineHeight);
+	if (lineHeight !== undefined) out.lineHeight = lineHeight;
+	if (
+		o.background &&
+		typeof o.background === "object" &&
+		!Array.isArray(o.background)
+	) {
+		const bg = o.background as Record<string, unknown>;
+		if (typeof bg.enabled === "boolean" && bg.color != null) {
+			out.background = { enabled: bg.enabled, color: String(bg.color) };
+		}
+	}
 	return Object.keys(out).length ? out : undefined;
 }
 
@@ -671,6 +728,41 @@ const textBackgroundProp: JSONSchema = {
 	properties: {
 		enabled: { type: "boolean" },
 		color: { type: "string" },
+	},
+	additionalProperties: false,
+};
+
+/**
+ * `addCaptions` style override — font/color/alignment/background applied to
+ * EVERY caption card. Position is NOT here — use `transform` (same coordinate
+ * system as `addText`/`updateText`) to move the whole caption track.
+ */
+const captionStyleProp: JSONSchema = {
+	type: "object",
+	description:
+		"Optional style applied to every caption card (font/color/alignment/background). Omit any field to keep the app's default caption look.",
+	properties: {
+		fontSize: { type: "number", description: "Font size in app units." },
+		fontFamily: { type: "string" },
+		color: { type: "string", description: "Text color (any CSS color)." },
+		textAlign: { type: "string", enum: ["left", "center", "right"] },
+		fontWeight: { type: "string", enum: ["normal", "bold"] },
+		fontStyle: { type: "string", enum: ["normal", "italic"] },
+		textDecoration: {
+			type: "string",
+			enum: ["none", "underline", "line-through"],
+		},
+		letterSpacing: { type: "number" },
+		lineHeight: { type: "number" },
+		background: {
+			type: "object",
+			description: "Solid backing box behind each card.",
+			properties: {
+				enabled: { type: "boolean" },
+				color: { type: "string" },
+			},
+			additionalProperties: false,
+		},
 	},
 	additionalProperties: false,
 };
@@ -2304,6 +2396,58 @@ export function toolCatalog(): ToolDescriptor[] {
 					strokeColor: strOrUndefined(a.strokeColor),
 					strokeWidth: numOrUndefined(a.strokeWidth),
 					opacity: numOrUndefined(a.opacity),
+				}),
+		},
+		{
+			name: "addCaptions",
+			description:
+				"caption a media asset's speech in ONE call instead of issuing an addText call per caption card. Groups the transcript into wordsPerCaption-word cards (default matches the app's own caption preset) and converts each card's ASSET-RELATIVE transcript timing into TIMELINE-ABSOLUTE placement — correct even on a trimmed, moved, or split clip — then creates ONE text track holding every card as a SINGLE undo step. Requires mediaId to already be TRANSCRIBED (getTranscript) and PLACED on the timeline. Default placement is low-in-frame; pass transform (same pixel/canvas-center coordinate system as addText — see that field's description) to move the whole caption track, and style for font/color/alignment/background. Do NOT use addText in a loop for this — use addCaptions.",
+			mutating: true,
+			inputSchema: {
+				type: "object",
+				properties: {
+					mediaId: {
+						type: "string",
+						description:
+							"FULL media id (not a reel slot id) — must already be transcribed (getTranscript) and placed on the timeline.",
+					},
+					wordsPerCaption: {
+						type: "integer",
+						minimum: 1,
+						default: DEFAULT_WORDS_PER_CAPTION,
+						description: `Words per caption card. Defaults to the app's own preset (${DEFAULT_WORDS_PER_CAPTION}).`,
+					},
+					startSec: {
+						type: "number",
+						minimum: 0,
+						description:
+							"Only caption from this ASSET-RELATIVE second onward (same timebase as getTranscript). Omit to caption the whole transcript.",
+					},
+					endSec: {
+						type: "number",
+						minimum: 0,
+						description:
+							"Only caption up to this ASSET-RELATIVE second (same timebase as getTranscript). Omit to caption through the end.",
+					},
+					trackName: {
+						type: "string",
+						description:
+							"Optional caption-track name. Defaults to a name derived from the transcript's language.",
+					},
+					transform: textTransformProp,
+					style: captionStyleProp,
+				},
+				required: ["mediaId"],
+			},
+			handler: (d, a) =>
+				d.addCaptions({
+					mediaId: str(a.mediaId),
+					wordsPerCaption: numOrUndefined(a.wordsPerCaption),
+					startSec: numOrUndefined(a.startSec),
+					endSec: numOrUndefined(a.endSec),
+					trackName: strOrUndefined(a.trackName),
+					transform: asTextTransformPatch(a.transform),
+					style: asCaptionStyleOverride(a.style),
 				}),
 		},
 		// ── polish (transitions / effects) ──────────────────────────────────

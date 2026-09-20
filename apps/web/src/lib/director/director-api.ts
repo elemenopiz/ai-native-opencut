@@ -159,6 +159,17 @@ import {
 import type { AssetUnderstanding } from "@/lib/search/asset-understanding";
 import { getAllUnderstandings } from "@/services/search/asset-understanding-store";
 import {
+	elementsForMedia,
+	resolveAssetRangeToTimelineRanges,
+} from "@/lib/timeline/transcript-timebase";
+import { buildCaptionChunks } from "@/lib/transcription/caption";
+import { DEFAULT_WORDS_PER_CAPTION } from "@/constants/transcription-constants";
+import { insertSubtitleCuesAsTextTrack } from "@/lib/subtitles/insert";
+import type {
+	SubtitleCue,
+	SubtitleStyleOverrides,
+} from "@/lib/subtitles/types";
+import {
 	runStoryEngine,
 	type RunStoryEngineDeps,
 	type StoryEngineRelay,
@@ -5923,6 +5934,207 @@ export function createDirectorApi(
 		return ok(`Updated text element "${input.elementId}".`);
 	}
 
+	/**
+	 * Caption ONE media asset's speech in a single call — the answer to needing
+	 * ~N `addText` calls (one per `DEFAULT_WORDS_PER_CAPTION`-word card) to
+	 * caption a transcript by hand. This is a DOOR into work the app already
+	 * knows how to do, not a second caption engine: every piece below is the
+	 * app's own reused machinery, unmodified.
+	 *  - `buildCaptionChunks` (lib/transcription/caption.ts) groups transcript
+	 *    text into `wordsPerCaption`-word cards (default
+	 *    `DEFAULT_WORDS_PER_CAPTION`) — the same words-per-caption convention
+	 *    the rest of the app uses.
+	 *  - `resolveAssetRangeToTimelineRanges` (lib/timeline/transcript-timebase.ts)
+	 *    projects each card's ASSET-RELATIVE window onto wherever `mediaId`
+	 *    actually sits on the TIMELINE right now — correct on a trimmed, moved,
+	 *    or split clip, and correct for an asset placed more than once (one
+	 *    card can become several timeline cues, or zero if that stretch of
+	 *    footage isn't on the timeline at all).
+	 *  - `insertSubtitleCuesAsTextTrack` (lib/subtitles/insert.ts) creates the
+	 *    text track and every card in ONE transaction — the exact machinery
+	 *    subtitle FILE IMPORT already uses, so this produces a single undo step
+	 *    for the whole operation, not one per card.
+	 *
+	 * Default placement is low-in-frame — the reused builder's own default
+	 * (bottom-aligned, ~10% margin) — so the common case needs no positioning
+	 * args at all. `transform` overrides where the whole track sits, in the
+	 * SAME pixel/canvas-center coordinate system `addText`/`updateText` use
+	 * (applied as a post-pass batch update after insertion, since the reused
+	 * subtitle builder's own placement vocabulary is ratio-based, not pixel
+	 * transform — this is the one seam where this verb adds its OWN glue
+	 * rather than a plain call-through). `style` overrides font/color/
+	 * alignment/background per the reused `SubtitleStyleOverrides` shape.
+	 *
+	 * ATOMICITY: `insertSubtitleCuesAsTextTrack`'s own rollback only discards
+	 * UNDO bookkeeping on a mid-loop failure — the cards it already inserted
+	 * before throwing are already applied to the live document (see that
+	 * function's own header). A caption verb that could leave a half-built
+	 * track live on the timeline would be worse than doing nothing, so on any
+	 * error here every track this call itself created is explicitly removed
+	 * before returning a failure — this file cannot fix that gap in
+	 * `lib/subtitles/insert.ts` directly (out of ownership), so it compensates
+	 * at the call site instead.
+	 */
+	function addCaptions(input: {
+		mediaId: string;
+		wordsPerCaption?: number;
+		startSec?: number;
+		endSec?: number;
+		trackName?: string;
+		transform?: TextTransformPatch;
+		style?: SubtitleStyleOverrides;
+	}): DirectorResult<{
+		trackId: string;
+		captionCount: number;
+		droppedCards: number;
+	}> {
+		if (!options.transcripts) {
+			return fail(
+				"No transcript pass is wired in this context — captioning is unavailable.",
+			);
+		}
+		const t = options.transcripts(input.mediaId);
+		if (!t) {
+			return fail(
+				`No transcript for media "${input.mediaId}" — it may still be transcribing, or transcription is unavailable here.`,
+			);
+		}
+		if (t.segments.length === 0) {
+			return fail(
+				`Media "${input.mediaId}" was transcribed: no speech found — nothing to caption.`,
+			);
+		}
+
+		const tracks = editor.timeline.getTracks();
+		if (elementsForMedia({ tracks, mediaId: input.mediaId }).length === 0) {
+			return fail(
+				`Media "${input.mediaId}" isn't currently on the timeline — place it before captioning.`,
+			);
+		}
+
+		const windowed = windowSegments(t.segments, input.startSec, input.endSec);
+		if (windowed.length === 0) {
+			return fail(`No speech in the requested window for "${input.mediaId}".`);
+		}
+
+		const wordsPerChunk =
+			input.wordsPerCaption != null && input.wordsPerCaption > 0
+				? Math.floor(input.wordsPerCaption)
+				: DEFAULT_WORDS_PER_CAPTION;
+
+		const chunks = buildCaptionChunks({ segments: windowed, wordsPerChunk });
+		if (chunks.length === 0) {
+			return fail(`Nothing to caption for "${input.mediaId}" in that window.`);
+		}
+
+		// Convert every card from ASSET-RELATIVE (buildCaptionChunks' input
+		// timebase) to TIMELINE-ABSOLUTE (what a text element's startTime/
+		// duration actually mean) — the exact conversion transcript-timebase.ts
+		// exists for. One card can resolve to several timeline cues (the asset
+		// appears more than once) or none (that stretch is trimmed away); the
+		// latter is a real, counted answer, not a silent drop.
+		const cues: SubtitleCue[] = [];
+		let droppedCards = 0;
+		for (const chunk of chunks) {
+			const assetRange = {
+				start: chunk.startTime,
+				end: chunk.startTime + chunk.duration,
+			};
+			if (!(assetRange.end > assetRange.start)) continue;
+			const timelineRanges = resolveAssetRangeToTimelineRanges({
+				tracks,
+				mediaId: input.mediaId,
+				range: assetRange,
+			});
+			if (timelineRanges.length === 0) {
+				droppedCards++;
+				continue;
+			}
+			for (const r of timelineRanges) {
+				cues.push({
+					text: chunk.text,
+					startTime: r.start,
+					duration: r.end - r.start,
+					...(input.style ? { style: input.style } : {}),
+				});
+			}
+		}
+
+		if (cues.length === 0) {
+			return fail(
+				`None of "${input.mediaId}"'s transcript is currently on the timeline — it may be fully trimmed away.`,
+			);
+		}
+		cues.sort((a, b) => a.startTime - b.startTime);
+
+		const trackName = input.trackName ?? `Captions: ${t.language || "auto"}`;
+		const tracksBefore = new Set(tracks.map((tr) => tr.id));
+
+		let inserted: { trackId: string; count: number } | null;
+		try {
+			inserted = insertSubtitleCuesAsTextTrack({ editor, cues, trackName });
+		} catch (error) {
+			// See ATOMICITY above: insertSubtitleCuesAsTextTrack's rollback only
+			// clears undo bookkeeping, so a half-built track can still be live —
+			// remove anything this call created before reporting failure. The
+			// cleanup itself runs inside its OWN begin/rollback pair (nested
+			// inside the choke-point transaction `withAgentOrigin` already has
+			// open) so the compensating `removeTrack` never lands in undo
+			// history either — net effect on the document AND on history is
+			// zero, matching "never happened", not a stray "removed a track you
+			// never saw added" entry.
+			editor.command.beginTransaction();
+			for (const tr of editor.timeline.getTracks()) {
+				if (!tracksBefore.has(tr.id)) {
+					try {
+						editor.timeline.removeTrack({ trackId: tr.id });
+					} catch {
+						/* best effort cleanup */
+					}
+				}
+			}
+			editor.command.rollbackTransaction();
+			return fail(
+				`Captioning failed partway through and was rolled back: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+			);
+		}
+
+		if (!inserted) {
+			return fail(`Captioning produced no cards for "${input.mediaId}".`);
+		}
+
+		if (input.transform) {
+			const track = editor.timeline
+				.getTracks()
+				.find((tr) => tr.id === inserted.trackId);
+			if (track) {
+				const updates = track.elements
+					.filter((el): el is TextElement => el.type === "text")
+					.map((el) => ({
+						trackId: inserted.trackId,
+						elementId: el.id,
+						updates: {
+							transform: mergeTransformPatch(el.transform, input.transform),
+						},
+					}));
+				if (updates.length > 0) {
+					editor.timeline.updateElements({ updates });
+				}
+			}
+		}
+
+		const droppedNote =
+			droppedCards > 0
+				? ` (${droppedCards} card(s) dropped — that stretch of the transcript isn't on the timeline)`
+				: "";
+		return ok(
+			`Captioned "${input.mediaId}": ${cues.length} card(s) on track "${inserted.trackId}"${droppedNote}.`,
+			{ trackId: inserted.trackId, captionCount: cues.length, droppedCards },
+		);
+	}
+
 	// ---- MOTION ---------------------------------------------------------
 	//
 	// Exposes the EXISTING animation/keyframe system (`@/types/animation`,
@@ -7449,6 +7661,7 @@ export function createDirectorApi(
 		// text
 		addText,
 		updateText,
+		addCaptions,
 		// motion
 		animateItem,
 		// audio perception (lib/director/mix-read.ts) — the read to plan an

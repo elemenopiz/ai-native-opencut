@@ -260,6 +260,12 @@ export const PHASE_TOOL_ASSIGNMENTS: Readonly<
 	removeSilence: ["polish"],
 	addText: ["polish"],
 	updateText: ["polish"],
+	// addCaptions: polish — same "dress up an already-cut reel" bucket as
+	// addText/updateText (it IS an addText batch, just collapsed to one call
+	// and one undo step for a whole transcript's worth of cards). Captioning
+	// is timeline surgery on footage that is already placed and already
+	// transcribed, the same precondition trim/split/addText share.
+	addCaptions: ["polish"],
 	applyTransition: ["polish"],
 	applyEffect: ["polish"],
 	// animateItem/removeBackground: polish — motion + AI matting cleanup on
