@@ -31,6 +31,8 @@ const FORBIDDEN = [
 	"ECONNREFUSED",
 	"503",
 	"404",
+	"AZURE_SPEECH_KEY",
+	"AZURE_SPEECH_ENDPOINT",
 ];
 
 const RAW_DETAILS = [
@@ -43,6 +45,13 @@ const RAW_DETAILS = [
 	"fetch failed: ECONNREFUSED 127.0.0.1:8420",
 	"Backend error: 500 Internal Server Error",
 	"TypeError: something.exploded is not a function",
+	// The raw `/api/transcribe` 503 body (see route.ts) — reachable here only if
+	// some caller ever forwards `message` unfiltered instead of branching on
+	// `error: "transcription_not_configured"` the way the client is supposed to.
+	"No transcription key configured. Set AZURE_SPEECH_KEY and AZURE_SPEECH_ENDPOINT in apps/web/.env.local.",
+	// `MaiTranscribeError`'s own already-friendly text for that same 503 — what
+	// the Captions panel actually re-classifies today via `err.message`.
+	"Transcription isn't available right now.",
 	"",
 ];
 
@@ -96,6 +105,30 @@ describe("friendlyTranscriptionError — visible copy", () => {
 		);
 		expect(line).toMatch(/isn't supported/i);
 		expect(line).toContain("MP4");
+	});
+
+	it("classifies a missing AZURE_SPEECH_KEY as 'off', not 'try again'", () => {
+		// The raw /api/transcribe 503 body — a permanent-until-configured state.
+		const rawServerDetail =
+			"No transcription key configured. Set AZURE_SPEECH_KEY and AZURE_SPEECH_ENDPOINT in apps/web/.env.local.";
+		expect(friendlyTranscriptionError(rawServerDetail)).toBe(
+			"Transcription isn't available on this account yet.",
+		);
+		expect(friendlyTranscriptionError(rawServerDetail)).not.toMatch(
+			/try again/i,
+		);
+	});
+
+	it("re-classifies MaiTranscribeError's own 'not_configured' message as 'off' instead of flattening it to the generic retry line", () => {
+		// This is exactly the string the Captions panel passes through
+		// friendlyTranscriptionError via `err.message` when transcribeWithMai
+		// throws MaiTranscribeError("…", "not_configured"). Before this string was
+		// recognized, it fell through to the generic "didn't work, try again"
+		// line — telling the user to retry a feature that is simply off.
+		const alreadyFriendly = "Transcription isn't available right now.";
+		const line = friendlyTranscriptionError(alreadyFriendly);
+		expect(line).toBe("Transcription isn't available on this account yet.");
+		expect(line).not.toMatch(/try again/i);
 	});
 
 	it("falls back to a generic line for anything unrecognized", () => {

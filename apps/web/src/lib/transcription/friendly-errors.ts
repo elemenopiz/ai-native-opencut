@@ -19,9 +19,24 @@ const TASK_NOUN: Record<TranscriptionTask, string> = {
 	speakers: "Speaker detection",
 };
 
-/** Raw-detail shapes that mean "the thing this needs isn't set up here". */
+/**
+ * Raw-detail shapes that mean "the thing this needs isn't set up here" — a
+ * permanent-until-an-operator-acts state, not a transient failure worth
+ * retrying. Covers both wordings this app actually produces for the missing
+ * `AZURE_SPEECH_KEY` / `AZURE_SPEECH_ENDPOINT` case:
+ *  - the raw `/api/transcribe` 503 body ("No transcription key configured…"),
+ *    which reaches here only if some caller ever forwards it unfiltered; and
+ *  - `MaiTranscribeError`'s own already-friendly "isn't available right now"
+ *    text, which some callers (e.g. the Captions panel) re-run through this
+ *    classifier. Without matching that second shape, an already-correct "off"
+ *    message would get re-flattened into the generic "didn't work, try again"
+ *    line below — telling the user to retry a state that won't change until
+ *    the key is set.
+ */
 function isNotConfigured(detail: string): boolean {
-	return /api key|not configured|no .*backend|not found|404|501/i.test(detail);
+	return /api key|not configured|key configured|isn't available|not available|no .*backend|not found|404|501/i.test(
+		detail,
+	);
 }
 
 /** Raw-detail shapes that mean "couldn't reach it — might work next time". */
