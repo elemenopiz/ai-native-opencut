@@ -49,7 +49,11 @@ import {
 	canElementHaveAudio,
 	isVisualElement,
 } from "@/lib/timeline/element-utils";
-import { sourceRangeToTimelineRange } from "@/lib/timeline/audio-sync-utils";
+import { getMainTrack } from "@/lib/timeline/track-utils";
+import {
+	sourceRangeToTimelineRange,
+	sourceTimeToTimeline,
+} from "@/lib/timeline/audio-sync-utils";
 import {
 	type CraftBeatMarker,
 	type CraftOp,
@@ -2090,7 +2094,7 @@ export function createDirectorApi(
 			? ` (showing first ${digest.included} — re-query with startSec/endSec for the rest)`
 			: "";
 		return ok(
-			`Transcript of "${input.mediaId}"${windowNote}: ${digest.included} segment(s)${truncNote}. Timestamps are asset-relative seconds — align trim/split points to segment boundaries so speech is never cut mid-sentence.\n${digest.lines.join("\n")}`,
+			`Transcript of "${input.mediaId}"${windowNote}: ${digest.included} segment(s)${truncNote}. Timestamps are ASSET-RELATIVE seconds: they go straight into trim's trimStart/trimEnd, and into split's atSourceTime — never into split's atTime or any startTime, which are timeline-absolute. Align cut points to segment boundaries so speech is never cut mid-sentence.\n${digest.lines.join("\n")}`,
 			{
 				mediaId: t.mediaId,
 				language: t.language,
@@ -5326,23 +5330,85 @@ export function createDirectorApi(
 		);
 	}
 
-	/** `atTime` is in SECONDS. */
+	/**
+	 * Cut a slot in two.
+	 *
+	 * TIMEBASE — the trap this guards against: `atTime` is TIMELINE-ABSOLUTE
+	 * seconds (measured from the start of the project), while `getTranscript`
+	 * returns ASSET-RELATIVE seconds (measured from the start of the media
+	 * file, the same timebase as `trim`'s trimStart/trimEnd). Feeding a
+	 * transcript timestamp straight into `atTime` cuts in the wrong place on any
+	 * clip that isn't sitting untrimmed at timeline 0, and used to do so
+	 * silently. Two defences:
+	 *
+	 *  1. `atSourceTime` — pass the transcript number as-is and this converts it
+	 *     (`element.startTime - element.trimStart`, the same mapping
+	 *     `gatherSpeechIntervals` uses). Preferred for any transcript-driven cut.
+	 *  2. A range guard — an `atTime` landing outside the slot's own timeline
+	 *     span is refused with the valid window and the asset-relative reading
+	 *     of the number, so a caller that got the timebase wrong is told so
+	 *     instead of silently no-op'ing.
+	 */
 	function split(input: {
 		slotId: string;
-		atTime: number;
+		atTime?: number;
+		atSourceTime?: number;
 	}): DirectorResult<{ newSlotIds: string[] }> {
 		const before = captureReel();
 		const located = findSlotOrElement(input.slotId);
 		if (!located) return failSlotNotFound(input.slotId);
+		const el = located.element;
+
+		if (input.atTime == null && input.atSourceTime == null) {
+			return fail(
+				"split needs atTime (timeline seconds) or atSourceTime (asset-relative seconds, e.g. straight from getTranscript).",
+			);
+		}
+
+		const splitTime =
+			input.atSourceTime != null
+				? sourceTimeToTimeline({ element: el, sourceTime: input.atSourceTime })
+				: (input.atTime as number);
+
+		const spanStart = el.startTime;
+		const spanEnd = el.startTime + el.duration;
+		if (splitTime <= spanStart || splitTime >= spanEnd) {
+			const window = `${spanStart.toFixed(2)}s–${spanEnd.toFixed(2)}s on the TIMELINE`;
+			if (input.atSourceTime != null) {
+				// They used the right argument; the source time just isn't visible
+				// through this slot's trims.
+				const visibleStart = el.trimStart;
+				const visibleEnd = el.trimStart + el.duration;
+				return fail(
+					`split point ${input.atSourceTime}s of the source media is trimmed out of slot "${input.slotId}", which shows source ${visibleStart.toFixed(2)}s–${visibleEnd.toFixed(2)}s (${window}). Pick a time inside that source window, or split a slot that still shows it.`,
+				);
+			}
+			// The classic timebase mix-up: an asset-relative number in atTime.
+			const ifSourceTime = sourceTimeToTimeline({
+				element: el,
+				sourceTime: splitTime,
+			});
+			const hint =
+				ifSourceTime > spanStart && ifSourceTime < spanEnd
+					? ` If ${splitTime.toFixed(2)} came from getTranscript it is asset-relative — pass it as atSourceTime, which would cut at ${ifSourceTime.toFixed(2)}s.`
+					: ` atTime is timeline-absolute; getTranscript timestamps are asset-relative — pass those as atSourceTime instead.`;
+			return fail(
+				`split point ${splitTime.toFixed(2)}s is outside slot "${input.slotId}", which spans ${window}.${hint}`,
+			);
+		}
+
 		const right = editor.timeline.splitElements({
-			elements: [{ trackId: located.track.id, elementId: located.element.id }],
-			splitTime: input.atTime,
+			elements: [{ trackId: located.track.id, elementId: el.id }],
+			splitTime,
 		});
 		return withDelta(
 			before,
-			ok(`Split "${input.slotId}" at ${input.atTime}s.`, {
-				newSlotIds: right.map((r) => r.elementId),
-			}),
+			ok(
+				`Split slot "${input.slotId}" at ${splitTime.toFixed(2)}s (timeline).`,
+				{
+					newSlotIds: right.map((r) => r.elementId),
+				},
+			),
 		);
 	}
 

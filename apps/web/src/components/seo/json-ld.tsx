@@ -43,7 +43,7 @@ export function JsonLd() {
 			"Vision self-review of generated takes",
 			"Takes as versions on a multi-track timeline",
 			"Masks, keyframes, transitions, and speed control",
-			"On-device Whisper transcription and captions",
+			"MAI-Transcribe-2 transcription and captions",
 			"Text-based video editing",
 			"Agent-drivable editing over MCP",
 		],

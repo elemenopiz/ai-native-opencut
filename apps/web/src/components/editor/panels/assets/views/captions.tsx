@@ -13,13 +13,12 @@ import { Switch } from "@/components/ui/switch";
 import { useState, useRef } from "react";
 import { useEditor } from "@/hooks/use-editor";
 import { DEFAULT_TEXT_ELEMENT } from "@/constants/text-constants";
-import { WHISPER_LANGUAGES } from "@/constants/transcription-constants";
+import { TRANSCRIPTION_LANGUAGES } from "@/constants/transcription-constants";
 import { LANGUAGES } from "@/constants/language-constants";
 import {
 	SARVAM_STT_LANGUAGES,
 	SARVAM_LANGUAGE_MAP,
 	SARVAM_SUPPORTED_CODES,
-	isSarvamSTTSupported,
 } from "@/constants/sarvam-constants";
 import { SMALLEST_STT_LANGUAGES } from "@/constants/smallest-constants";
 import type {
@@ -31,6 +30,14 @@ import { Spinner } from "@/components/ui/spinner";
 import { Label } from "@/components/ui/label";
 import { useTranscriptStore } from "@/stores/transcript-store";
 import { getElementsAtTime, hasMediaId } from "@/lib/timeline";
+import {
+	ingestOffsetForMedia,
+	toTimelineSegments,
+} from "@/lib/timeline/transcript-timebase";
+import {
+	friendlyTranscriptionError,
+	transcriptionErrorDetail,
+} from "@/lib/transcription/friendly-errors";
 import { toast } from "sonner";
 import { aiClient } from "@/lib/ai-client";
 import { transcribeFileWithEngine } from "@/hooks/use-transcription";
@@ -56,12 +63,17 @@ interface SubtitleTrackInfo {
 
 export function Captions() {
 	const [selectedEngine, setSelectedEngine] =
-		useState<TranscriptionEngine>("whisper");
+		useState<TranscriptionEngine>("mai");
 	const [selectedLanguage, setSelectedLanguage] =
 		useState<TranscriptionLanguage>("auto");
 	const [isProcessing, setIsProcessing] = useState(false);
 	const [processingStep, setProcessingStep] = useState("");
 	const [error, setError] = useState<string | null>(null);
+	// Raw technical detail for the failure above — rendered ONLY behind the
+	// "Show details" toggle, never in the visible message (standing copy rule;
+	// mirrors `views/director.tsx`'s errorDetail channel).
+	const [errorDetail, setErrorDetail] = useState<string | null>(null);
+	const [showErrorDetail, setShowErrorDetail] = useState(false);
 	// When true, transcribe every audio-bearing track's source (whole video),
 	// merging into one transcript. When false, transcribe the first track only.
 	const [transcribeWholeVideo, setTranscribeWholeVideo] = useState(false);
@@ -86,7 +98,7 @@ export function Captions() {
 			? SARVAM_STT_LANGUAGES
 			: selectedEngine === "smallest"
 				? SMALLEST_STT_LANGUAGES
-				: WHISPER_LANGUAGES;
+				: TRANSCRIPTION_LANGUAGES;
 
 	// Filter out tracks that no longer exist on the timeline (user may have deleted them)
 	const timelineTracks = editor.timeline.getTracks();
@@ -101,19 +113,17 @@ export function Captions() {
 		queueMicrotask(() => setSubtitleTracks(activeSubtitleTracks));
 	}
 
-	/** Determine the effective engine for a given language code */
-	const getEffectiveEngine = (langCode: string): TranscriptionEngine => {
+	/**
+	 * Determine the effective engine for a given language code.
+	 *
+	 * This used to silently redirect Indian languages from Whisper to Sarvam,
+	 * because Whisper's local models didn't cover them. MAI-Transcribe-2 covers
+	 * all 22 natively, so the redirect is gone and the user's choice stands.
+	 */
+	const getEffectiveEngine = (_langCode: string): TranscriptionEngine => {
 		if (selectedEngine === "sarvam") return "sarvam";
 		if (selectedEngine === "smallest") return "smallest";
-		// Auto-switch to Sarvam if an Indian language is explicitly selected with Whisper
-		if (
-			langCode !== "auto" &&
-			isSarvamSTTSupported(langCode) &&
-			!WHISPER_LANGUAGES.some((l) => l.code === langCode)
-		) {
-			return "sarvam";
-		}
-		return "whisper";
+		return "mai";
 	};
 
 	const handleGenerateTranscript = async () => {
@@ -123,6 +133,7 @@ export function Captions() {
 		try {
 			setIsProcessing(true);
 			setError(null);
+			setErrorDetail(null);
 
 			const engine = getEffectiveEngine(selectedLanguage);
 			const engineLabel =
@@ -130,7 +141,7 @@ export function Captions() {
 					? "Sarvam AI"
 					: engine === "smallest"
 						? "Smallest AI"
-						: "Whisper";
+						: "MAI-Transcribe-2";
 
 			bgTasks.addTask({
 				id: taskId,
@@ -161,15 +172,17 @@ export function Captions() {
 			interface TranscriptionSource {
 				file: File;
 				label: string;
-				/** Timeline-time offset added to this source's segment timestamps
-				 *  so multiple sources line up on one shared timeline axis. */
+				/** The asset this file is, so its segments carry provenance. */
+				mediaId: string;
+				/** Timeline-time offset added to this source's ASSET-RELATIVE
+				 *  segment timestamps, so multiple sources line up on one shared
+				 *  timeline axis — see `lib/timeline/transcript-timebase.ts`. */
 				offsetSeconds: number;
 			}
 
 			const sources: TranscriptionSource[] = [];
 
 			if (transcribeWholeVideo) {
-				const bestOffsetByMediaId = new Map<string, number>();
 				const trackNameByMediaId = new Map<string, string>();
 
 				for (const track of tracks) {
@@ -178,27 +191,24 @@ export function Captions() {
 						// Images can carry a mediaId too but never have audio — skip them.
 						if (element.type !== "video" && element.type !== "audio") continue;
 						if (!hasMediaId(element as TimelineElement)) continue;
-
 						const typedEl = element as TimelineElement & { mediaId: string };
-						// Reconstruct where this asset's local time 0 sits on the
-						// timeline; take the earliest across all clips of the asset
-						// (e.g. after a prior transcribe split it into several pieces).
-						const offset = Math.max(0, typedEl.startTime - typedEl.trimStart);
-						const existing = bestOffsetByMediaId.get(typedEl.mediaId);
-						if (existing === undefined || offset < existing) {
-							bestOffsetByMediaId.set(typedEl.mediaId, offset);
+						if (!trackNameByMediaId.has(typedEl.mediaId)) {
 							trackNameByMediaId.set(typedEl.mediaId, track.name);
 						}
 					}
 				}
 
-				for (const [mediaId, offsetSeconds] of bestOffsetByMediaId) {
+				for (const mediaId of trackNameByMediaId.keys()) {
 					const asset = editor.media.getAssets().find((a) => a.id === mediaId);
 					if (!asset?.file) continue;
 					sources.push({
 						file: asset.file,
 						label: asset.name || trackNameByMediaId.get(mediaId) || "track",
-						offsetSeconds,
+						mediaId,
+						// Where this asset's own time 0 lands on the timeline, taken
+						// from its earliest clip (a prior transcribe may have split it
+						// into several pieces).
+						offsetSeconds: ingestOffsetForMedia({ tracks, mediaId }) ?? 0,
 					});
 				}
 				sources.sort((a, b) => a.offsetSeconds - b.offsetSeconds);
@@ -235,10 +245,14 @@ export function Captions() {
 						sources.push({
 							file: asset.file,
 							label: asset.name,
-							offsetSeconds: Math.max(
-								0,
-								foundElement.startTime - foundElement.trimStart,
-							),
+							mediaId: foundMediaId,
+							// Same `startTime - trimStart` reconstruction the
+							// whole-video branch does. Hardcoding 0 here assumed the
+							// clip sat untrimmed at timeline 0 — on any trimmed or
+							// repositioned clip it put every caption (and every
+							// transcript-driven cut) at the wrong time.
+							offsetSeconds:
+								ingestOffsetForMedia({ tracks, mediaId: foundMediaId }) ?? 0,
 						});
 					}
 				}
@@ -313,7 +327,7 @@ export function Captions() {
 			let primarySourceFile: File | null = null;
 			const skippedSources: string[] = [];
 			// The first real per-source error, kept so that if EVERY source fails we
-			// can surface the actual cause (e.g. on-device Whisper unavailable)
+			// can surface the actual cause (e.g. transcription unavailable)
 			// instead of the generic "no usable audio" — the latter is only right
 			// when some sources genuinely lack an audio stream.
 			let firstSourceError: Error | null = null;
@@ -364,18 +378,15 @@ export function Captions() {
 					languageSet = true;
 				}
 
-				for (const seg of sourceResult.segments) {
-					mergedSegments.push({
-						...seg,
-						start: seg.start + source.offsetSeconds,
-						end: seg.end + source.offsetSeconds,
-						words: (seg.words ?? []).map((w) => ({
-							...w,
-							start: w.start + source.offsetSeconds,
-							end: w.end + source.offsetSeconds,
-						})),
-					});
-				}
+				// ASSET-RELATIVE → TIMELINE-ABSOLUTE, stamped with provenance so a
+				// later cut can re-resolve the segment if the clip moves.
+				mergedSegments.push(
+					...toTimelineSegments({
+						segments: sourceResult.segments,
+						offsetSeconds: source.offsetSeconds,
+						mediaId: source.mediaId,
+					}),
+				);
 			}
 
 			mergedSegments.sort((a, b) => a.start - b.start);
@@ -419,7 +430,7 @@ export function Captions() {
 
 			if (validSegments.length === 0) {
 				// Every source failed the SAME way → almost always systemic (e.g.
-				// on-device Whisper couldn't initialize), not literally "no audio".
+				// transcription is unavailable), not literally "no audio".
 				// Rethrow the real error so the outer handler surfaces it (and logs
 				// it via console.error, which survives the prod console strip)
 				// instead of hiding it behind a friendly-but-wrong message.
@@ -483,7 +494,7 @@ export function Captions() {
 			// belt-and-suspenders for the type checker.
 			const primaryFile =
 				primarySourceFile ?? ensureFileExtension(sources[0].file);
-			let speakerChangeTimes: number[] = [];
+			const speakerChangeTimes: number[] = [];
 			setProcessingStep("Detecting speakers & emotions...");
 			bgTasks.updateTask(taskId, {
 				progress: "Detecting speakers & emotions...",
@@ -649,31 +660,14 @@ export function Captions() {
 			console.error("Transcription failed:", err);
 			const message =
 				err instanceof Error ? err.message : "An unexpected error occurred";
-			if (
-				message.includes("Cannot connect") ||
-				message.includes("connection_refused")
-			) {
-				// Reaching this means on-device transcription was unavailable (or the
-				// selected engine is server-only) AND no backend was reachable. On the
-				// hosted app transcription runs in-browser, so lead with that; the
-				// self-hosting hint is secondary.
-				setError(
-					"Transcription is unavailable right now. On-device transcription needs a Chromium-based browser (Chrome or Edge); if you're self-hosting, start the AI backend.",
-				);
-			} else if (message.includes("Sarvam API key")) {
-				setError(
-					"Sarvam API key is not configured. Add BYORN_SARVAM_API_KEY to your environment.",
-				);
-			} else if (message.includes("Smallest AI API key")) {
-				setError(
-					"Smallest AI API key is not configured. Add it in Settings > API Keys, or set BYORN_SMALLEST_API_KEY in your environment.",
-				);
-			} else {
-				setError(message);
-			}
+			// Friendly line up front; the raw cause (engine name, missing key,
+			// unreachable backend) rides the collapsed details channel only.
+			setError(friendlyTranscriptionError(message, "transcribe"));
+			setErrorDetail(transcriptionErrorDetail(message));
+			// The background-task row is customer-facing too — friendly line only.
 			bgTasks.updateTask(taskId, {
 				status: "error",
-				error: message,
+				error: friendlyTranscriptionError(message, "transcribe"),
 				completedAt: Date.now(),
 			});
 		} finally {
@@ -791,6 +785,7 @@ export function Captions() {
 
 		setIsImporting(true);
 		setError(null);
+		setErrorDetail(null);
 		try {
 			const text = await file.text();
 			const result = parseSubtitleFile({ fileName: file.name, input: text });
@@ -829,7 +824,10 @@ export function Captions() {
 		} catch (err) {
 			const message =
 				err instanceof Error ? err.message : "Subtitle import failed";
-			setError(message);
+			setError(
+				"That subtitle file couldn't be read. Try a .srt, .vtt, or .ass file.",
+			);
+			setErrorDetail(message);
 		} finally {
 			setIsImporting(false);
 		}
@@ -879,7 +877,8 @@ export function Captions() {
 		} catch (err) {
 			const message =
 				err instanceof Error ? err.message : "Subtitle export failed";
-			setError(message);
+			setError("Couldn't save the subtitle file. Please try again.");
+			setErrorDetail(message);
 		} finally {
 			setIsExportingSubtitles(null);
 		}
@@ -921,6 +920,7 @@ export function Captions() {
 
 		setIsTranslating(true);
 		setError(null);
+		setErrorDetail(null);
 
 		const translationEngine = useSarvam ? "Sarvam AI" : "Local LLM";
 
@@ -1044,27 +1044,11 @@ export function Captions() {
 		} catch (err) {
 			console.error("Translation failed:", err);
 			const message = err instanceof Error ? err.message : "Translation failed";
-			if (
-				message.includes("Cannot connect") ||
-				message.includes("connection_refused")
-			) {
-				setError(
-					"Cannot connect to AI backend. Make sure it is running and an LLM model is loaded.",
-				);
-			} else if (message.includes("Sarvam API key")) {
-				setError(
-					"Sarvam API key is not configured. Add BYORN_SARVAM_API_KEY to your environment.",
-				);
-			} else if (message.includes("Smallest AI API key")) {
-				setError(
-					"Smallest AI API key is not configured. Add it in Settings > API Keys, or set BYORN_SMALLEST_API_KEY in your environment.",
-				);
-			} else {
-				setError(message);
-			}
+			setError(friendlyTranscriptionError(message, "translate"));
+			setErrorDetail(transcriptionErrorDetail(message));
 			bgTasks.updateTask(taskId, {
 				status: "error",
-				error: message,
+				error: friendlyTranscriptionError(message, "translate"),
 				completedAt: Date.now(),
 			});
 		} finally {
@@ -1132,7 +1116,7 @@ export function Captions() {
 							<SelectValue />
 						</SelectTrigger>
 						<SelectContent>
-							<SelectItem value="whisper">Whisper (Local)</SelectItem>
+							<SelectItem value="mai">MAI-Transcribe-2</SelectItem>
 							<SelectItem value="sarvam">
 								Sarvam AI (Indian Languages)
 							</SelectItem>
@@ -1146,7 +1130,7 @@ export function Captions() {
 							? "Cloud-based, optimized for 22 Indian regional languages"
 							: selectedEngine === "smallest"
 								? "Cloud-based, 39 languages with speaker diarization & emotion detection"
-								: "On-device, best for global languages (English, Spanish, French, etc.)"}
+								: "60 languages, word-level timestamps and speaker labels"}
 					</p>
 				</div>
 
@@ -1197,6 +1181,23 @@ export function Captions() {
 				{error && (
 					<div className="bg-destructive/10 border-destructive/20 rounded-md border p-3">
 						<p className="text-destructive text-sm">{error}</p>
+						{/* Technical cause stays collapsed — never in the line above. */}
+						{errorDetail && (
+							<div className="mt-1.5 pt-1.5 border-t border-destructive/20">
+								<button
+									type="button"
+									onClick={() => setShowErrorDetail((v) => !v)}
+									className="text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2"
+								>
+									{showErrorDetail ? "Hide details" : "Show details"}
+								</button>
+								{showErrorDetail && (
+									<pre className="mt-1 whitespace-pre-wrap break-words text-[10px] text-muted-foreground/80 font-mono">
+										{errorDetail}
+									</pre>
+								)}
+							</div>
+						)}
 					</div>
 				)}
 

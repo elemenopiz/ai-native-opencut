@@ -104,7 +104,41 @@ export class MediaManager {
 		// non-video/low-res assets and for assets that already have a proxy.
 		this.scheduleAutoProxyGeneration({ assetId: newAsset.id, projectId });
 
+		// Same fire-and-forget contract: transcribe speech as soon as the asset
+		// lands, so captions, transcript search and the Director's speech
+		// grounding are ready before the user asks for them.
+		this.scheduleAutoTranscription({ assetId: newAsset.id });
+
 		return newAsset.id;
+	}
+
+	/**
+	 * Transcribe a freshly-ingested audio/video asset in the background.
+	 *
+	 * Synchronous/non-blocking on purpose — asset-ready never waits on it, and
+	 * a failure here is invisible to the user (a later explicit transcribe, or
+	 * the Director's own batch pass, retries).
+	 *
+	 * COSTS MONEY: unlike proxy generation this calls a metered provider, so
+	 * the guards matter. Idempotent per asset via the persisted transcript
+	 * record `transcribeAsset` checks first, and via the service's in-flight
+	 * set — project reopen goes through loadProjectMedia, not addMediaAsset,
+	 * so reopening never re-transcribes. Assets with no audio track fail their
+	 * extract and persist nothing, which costs one local decode and no call.
+	 */
+	scheduleAutoTranscription({ assetId }: { assetId: string }): void {
+		const asset = this.assets.find((a) => a.id === assetId);
+		if (!asset || !asset.file) return;
+		if (asset.type !== "video" && asset.type !== "audio") return;
+
+		// Imported lazily so the transcription stack (mediabunny conversion +
+		// the API client) stays out of the editor's initial bundle — ingest is
+		// the first time any of it is needed.
+		void import("@/services/search/asset-transcript-service")
+			.then(({ transcribeAsset }) => transcribeAsset(asset))
+			.catch(() => {
+				// Soft by design — see the doc comment above.
+			});
 	}
 
 	async updateMediaAsset({

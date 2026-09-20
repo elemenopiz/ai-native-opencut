@@ -12,11 +12,17 @@
  *    "Asset Manifest" and "Project Bible") code against: a one-line caption, a
  *    ROLE belief + confidence, open-vocab tags observed across MULTIPLE frames,
  *    faces reconciled to personas, and an optional style probe. It also carries
- *    an optional DEEPENED continuity-aware fingerprint — motion, shot type,
- *    composition, emotion/tone, an audio classification, and a
- *    {@link ContinuityFingerprint} (lighting/white-balance/wardrobe/color) for
- *    match-cutting and identity. All additive/optional — see
+ *    an optional DEEPENED continuity-aware fingerprint — shot type, composition,
+ *    emotion/tone, and a {@link ContinuityFingerprint} (lighting/white-balance/
+ *    wardrobe/color) for match-cutting and identity. All additive/optional — see
  *    {@link isDeepUnderstanding} for detecting a record that predates this.
+ *  - two MEASURED facets that are deliberately NOT part of the model call, because
+ *    the call has no evidence for them: {@link estimateMotion} derives `motion`
+ *    from the luma fingerprints the shot detector already computes, and
+ *    {@link classifyAudioEnergy} turns a real per-chunk loudness curve into
+ *    `audio.energy`. The frames the model sees are non-contiguous stills and
+ *    carry no audio track at all, so asking it for either produced confident
+ *    fabrication; both now come from signal or stay absent.
  *  - {@link buildUnderstandingUserBlocks} / {@link ASSET_UNDERSTANDING_SYSTEM_PROMPT}
  *    frame ONE tool-less "look at these frames and describe the asset" model call,
  *    the frames riding as Anthropic image blocks (real pixels, reusing
@@ -54,6 +60,7 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 import { dataUrlToImageBlock } from "@/lib/director/vision-critic";
+import type { TranscriptSegmentLite } from "@/lib/search/asset-transcript";
 
 // ── the record ───────────────────────────────────────────────────────────────
 
@@ -133,14 +140,24 @@ export interface StyleProbe {
 // simply lacks them. That's the "shallow" record {@link isDeepUnderstanding}
 // detects; nothing here requires a migration or invalidates an old record.
 
-/** Camera-motion energy class the frames establish. */
-export type MotionClass = "static" | "pan" | "handheld" | "fast-cut";
+/**
+ * Camera-motion energy class, MEASURED by {@link estimateMotion} from the luma
+ * fingerprints the shot detector already computes — never reported by the model.
+ *
+ * Only three classes, and that is deliberate. The old set split moving footage
+ * into `pan` vs `handheld`, a distinction that needs dense-frame global-motion
+ * estimation; the pass samples frames seconds apart, so that split could only
+ * ever be guessed. What an 8×8 mean-luma fingerprint at this cadence DOES
+ * support is exactly this ternary: the framing held still, the framing changed,
+ * or the clip is cut-driven. Legacy `pan`/`handheld` records collapse to
+ * `moving` on read via {@link normalizeMotion}.
+ */
+export type MotionClass = "static" | "moving" | "fast-cut";
 
 /** All motion classes, in a stable order. */
 export const MOTION_CLASSES: readonly MotionClass[] = [
 	"static",
-	"pan",
-	"handheld",
+	"moving",
 	"fast-cut",
 ] as const;
 
@@ -171,17 +188,27 @@ export interface CompositionNote {
 	ruleOfThirds?: boolean;
 }
 
+/** Coarse loudness band {@link AudioProbe.energy} reports. */
+export type AudioEnergy = "low" | "medium" | "high";
+
 /**
- * A coarse audio classification for the clip. Deliberately NOT a recompute of
- * the transcript or the beat grid (both already exist as sibling passes —
- * `getTranscript` / `useBeatGridStore`) — this is a cheap same-call label the
- * VLM can read off the frames' audio track alongside everything else.
+ * A coarse audio classification for the clip, MEASURED from the asset's real
+ * audio — never reported by the model, which is sent only JPEG stills and
+ * receives no audio bytes at any point in this pipeline.
+ *
+ * Both fields are sourced from passes that actually look at the audio:
+ * `hasSpeech` from the stored transcript (`lib/search/asset-transcript`), which
+ * answers it definitively, and `energy` from the same deterministic loudness
+ * curve the silence detector runs (`lib/auto-cut`), banded by
+ * {@link classifyAudioEnergy}. A field whose source hasn't run is ABSENT rather
+ * than guessed — notably `hasSpeech: undefined` means "not transcribed yet",
+ * which is a different claim from `hasSpeech: false` ("transcribed, silent").
  */
 export interface AudioProbe {
-	/** True ⇒ the clip has audible speech. */
+	/** True ⇒ the transcript found real speech. Absent ⇒ not transcribed yet. */
 	hasSpeech?: boolean;
-	/** Coarse loudness/energy classification. */
-	energy?: "low" | "medium" | "high";
+	/** Coarse loudness/energy band. Absent ⇒ the audio could not be measured. */
+	energy?: AudioEnergy;
 }
 
 /**
@@ -199,6 +226,95 @@ export interface ContinuityFingerprint {
 	wardrobe?: string;
 	/** Dominant color grade/signature phrase (distinct from {@link StyleProbe.palette} — this is the MATCH-CUTTING fingerprint, not the mood probe). */
 	colorSignature?: string;
+}
+
+// ── frame provenance, shot structure, transcript cues ────────────────────────
+// The pass used to hand the model a bag of anonymous JPEGs: the record said
+// WHAT was seen but never WHEN. Two things fell through that gap.
+// {@link AssetFace.anchorFrame} — "the frame where this face is clearest", the
+// exact frame you would seed a persona lock from — is an index into a list
+// nobody kept, so it addressed nothing. And the shot segmentation the sampler
+// computes on every video was consumed to pick representatives and then thrown
+// away, discarding the answer to "is this a raw take or an already-cut edit?".
+//
+// The third facet here is new capability rather than a recovered one: frames
+// pinned at the moments a SPEAKER points at something, which purely visual
+// selection cannot find (see {@link DeicticBeat}).
+//
+// All three are optional and additive. The store is schema-less and keyPath-only
+// (`asset-understanding-store.ts`), so a record written before this simply lacks
+// them; nothing here needs a migration.
+
+/**
+ * Why a frame was handed to the model.
+ *  - `shot` — the representative frame of a detected shot (the default path).
+ *  - `transcript-cue` — pinned at a moment the speaker points at something on
+ *    screen; see {@link findTranscriptCues}.
+ *  - `only-frame` — a still image, or a clip that yielded a single sample.
+ */
+export type FrameReason = "shot" | "transcript-cue" | "only-frame";
+
+/** One frame the model was shown, and where it came from. */
+export interface UnderstandingFrame {
+	/**
+	 * Frame time in ASSET-RELATIVE seconds — the same timebase as a clip's
+	 * `trimStart`/`trimEnd` and as `AssetTranscript` segments, so a consumer can
+	 * seek to it without converting.
+	 */
+	t: number;
+	reason: FrameReason;
+}
+
+/**
+ * The shot structure the sampler measured — REAL cuts only.
+ *
+ * Deliberately NOT read off {@link segmentShots}, whose segment index also
+ * advances on the {@link SHOT_COVERAGE_FLOOR} so that a long static take still
+ * gets re-sampled. That floor is correct for picking representatives and wrong
+ * for counting cuts: it would report a 40 s locked-off interview as ten shots.
+ * {@link summarizeShots} counts only fingerprint divergences past
+ * {@link SHOT_DIFF_THRESHOLD}.
+ */
+export interface ShotSummary {
+	/** Distinct shots (cuts + 1). 1 ⇒ one continuous take. */
+	count: number;
+	/** Asset-relative time of each detected CUT, time-ordered. Empty ⇒ a single take. */
+	cutsAtSec: number[];
+	/** Mean shot length in seconds across the sampled span. */
+	meanShotSec: number;
+	/**
+	 * True ⇒ the sampling cadence was too sparse for the count to carry much
+	 * weight (samples further apart than
+	 * {@link MOTION_FAST_CUT_MAX_INTERVAL_SEC}, past which ordinary footage reads
+	 * as a cut at nearly every pair — the same sparsity guard
+	 * {@link estimateMotion} applies before it will say `fast-cut`). Read a
+	 * sparse summary as "at least this many", never as an exact edit count.
+	 */
+	sparse: boolean;
+}
+
+/**
+ * A moment where the speaker directs attention at something ON SCREEN — "look
+ * at this", "as you can see", "watch what happens".
+ *
+ * WHY THIS EXISTS: frame selection is otherwise driven entirely by how much the
+ * PICTURE changes, and a presenter gesturing at a slide is a LOW visual-change
+ * event — precisely the signal the shot detector is built to suppress. So the
+ * frames a viewer would call the most important ones are the frames the selector
+ * is least likely to pick. Pinning a frame at the cue fixes that. (The technique
+ * is poached from bradautomates/claude-video's `--timestamps`; no code copied.)
+ *
+ * Detected LEXICALLY ({@link findTranscriptCues}), not by a model: judging cues
+ * per asset would mean a second paid pass at ingest. A lexical match is wrong
+ * sometimes — "look, the point is…" is rhetorical, not deictic — and the cost of
+ * being wrong is one extra frame sampled at that second. It never asserts
+ * anything about the asset that the frames don't then have to back up.
+ */
+export interface DeicticBeat {
+	/** Asset-relative seconds of the thing pointed at (just after the cue phrase). */
+	t: number;
+	/** The cue phrase that matched, lowercased. */
+	phrase: string;
 }
 
 /**
@@ -235,8 +351,10 @@ export interface AssetUnderstanding {
 	/** Optional look probe (palette / lens+mood / setting). Absent ⇒ nothing derived. */
 	styleProbe?: StyleProbe;
 	/**
-	 * Camera-motion energy class, when the frames establish one. Part of the
-	 * DEEPENED fields — see {@link isDeepUnderstanding}.
+	 * Camera-motion energy class, MEASURED from the sampled frames' luma
+	 * fingerprints by {@link estimateMotion} (the service merges it in after the
+	 * model call). Absent ⇒ the frames were too sparse or too few to support a
+	 * verdict — a still image never has one.
 	 */
 	motion?: MotionClass;
 	/**
@@ -248,10 +366,36 @@ export interface AssetUnderstanding {
 	composition?: CompositionNote;
 	/** The felt emotional register of the clip (one or two words), when legible. */
 	emotion?: string;
-	/** Coarse audio classification (speech presence + energy). Absent ⇒ nothing derived. */
+	/**
+	 * Coarse audio classification (speech presence + loudness band), MEASURED
+	 * from the asset's real audio — see {@link AudioProbe}. Absent ⇒ neither
+	 * source had anything to say (no transcript yet, no decodable audio track).
+	 */
 	audio?: AudioProbe;
 	/** Continuity fingerprint for match-cutting/identity. Absent ⇒ nothing derived. */
 	continuityFingerprint?: ContinuityFingerprint;
+	/**
+	 * Every frame the model was shown, in time order — WHAT it looked at and
+	 * WHEN. Absent on records written before frame provenance existed.
+	 *
+	 * This is what makes {@link AssetFace.anchorFrame} mean something: that index
+	 * addresses THIS array (resolve it with {@link anchorFrameTime}). Without it
+	 * the clearest view of a face — the frame you would seed a persona lock from —
+	 * could not be recovered once the pass returned.
+	 */
+	framesSeen?: UnderstandingFrame[];
+	/**
+	 * Shot structure MEASURED from the sampled frames — see {@link ShotSummary}.
+	 * Absent ⇒ fewer than two samples (a still image has no shot structure).
+	 */
+	shots?: ShotSummary;
+	/**
+	 * Moments the speaker pointed at something on screen, MEASURED from the
+	 * transcript. Absent ⇒ no transcript existed when the pass ran, which is a
+	 * different claim from an empty array ("transcript read, no cues in it").
+	 * Re-running the pass after transcription fills it.
+	 */
+	deicticBeats?: DeicticBeat[];
 	/** VLM model name that produced this understanding (for invalidation on upgrade). */
 	modelName: string;
 	/** When the understanding was produced (epoch ms). */
@@ -259,15 +403,43 @@ export interface AssetUnderstanding {
 }
 
 /**
- * True ⇒ `u` carries the DEEPENED perception fields (motion + shotType — the
- * two always-inferable-from-frames facets the widened extraction prompt
- * always asks for). False ⇒ a "shallow" record: either produced before this
- * widening, or a degraded/fail-safe record. Callers use this to detect an
- * asset worth a demand-driven re-extraction — the trigger itself is a
- * follow-up; this is only the detector.
+ * True ⇒ `u` carries the DEEPENED perception fields. False ⇒ a "shallow"
+ * record: either produced before this widening, or a degraded/fail-safe record.
+ * Callers use this to detect an asset worth a demand-driven re-extraction — the
+ * trigger itself is a follow-up; this is only the detector.
+ *
+ * Keyed on `shotType` alone. It used to also require `motion`, back when the
+ * extraction prompt forced the model to emit one for every clip; `motion` is now
+ * MEASURED ({@link estimateMotion}) and legitimately absent for a still image or
+ * a too-sparsely-sampled video, so requiring it would mark those assets
+ * permanently shallow and invite an extraction loop that could never satisfy it.
+ * `shotType` is what's left of "always inferable from the frames the model
+ * actually sees", and it stays the signal.
  */
 export function isDeepUnderstanding(u: AssetUnderstanding): boolean {
-	return u.motion != null && u.shotType != null;
+	return u.shotType != null;
+}
+
+/**
+ * Resolve a face's {@link AssetFace.anchorFrame} to an asset-relative TIME — the
+ * moment this person was seen most clearly, as a seekable timestamp.
+ *
+ * Returns `undefined` when the record predates
+ * {@link AssetUnderstanding.framesSeen}, when the face carries no anchor, or
+ * when the index falls outside the recorded frames. Callers seed persona locks
+ * and thumbnails from this, so never substitute `0` on a miss — `0` is a real
+ * timestamp meaning "the first frame".
+ */
+export function anchorFrameTime(
+	u: AssetUnderstanding,
+	face: AssetFace,
+): number | undefined {
+	const frames = u.framesSeen;
+	if (!frames?.length) return undefined;
+	const i = face.anchorFrame;
+	if (i === undefined || !Number.isInteger(i) || i < 0 || i >= frames.length)
+		return undefined;
+	return frames[i].t;
 }
 
 /** The minimal persona shape the pass needs to reconcile faces (decoupled from the store). */
@@ -340,19 +512,30 @@ export function applyRoleSignal(
 
 // ── model-call framing ───────────────────────────────────────────────────────
 
-/** System prompt for the tool-less asset-understanding model call. */
+/**
+ * System prompt for the tool-less asset-understanding model call.
+ *
+ * Deliberately asks for NEITHER camera motion NOR audio. The call is handed 1–8
+ * JPEG stills sampled seconds apart, with no audio bytes and no contiguous
+ * frames — it has no evidence for either, and an earlier version of this prompt
+ * that required both ("never omit these two") got exactly what it asked for:
+ * confident, fabricated values that consumers downstream read as observed fact.
+ * `motion` is now measured by {@link estimateMotion} and `audio` from the
+ * transcript + a real loudness curve; see {@link AudioProbe}.
+ */
 export const ASSET_UNDERSTANDING_SYSTEM_PROMPT = [
 	"You are the ingest EYE of an AI video editor. You are shown 1–8 frames sampled IN TIME ORDER from ONE media asset a user just imported (a video clip or a still). You may also be given a KNOWN CAST list (personas already in the project) and an optional HINT.",
 	"Your job is to describe what the asset IS, as a compact structured record, so the editor can file it by role and by who is in it. Describe ONLY what is actually visible across the frames; never invent a subject, a person, a role, or a look the frames don't show.",
 	"Reply with ONE minified JSON object and nothing else:",
-	'{"caption":"<one sentence>","role":"hero"|"product"|"logo"|"face-anchor"|"b-roll"|"screen-rec","roleConfidence":<0-1>,"tags":["<open-vocab object/person/scene tags>"],"faces":[{"persona":"<exact KNOWN CAST name, or empty if not a known person>","descriptor":"<age range, build, hair, face, wardrobe, distinguishing features>","recurring":<true if this person appears across multiple frames>,"anchorIndex":<0-based frame index where this face is clearest>,"confidence":<0-1>}],"style":{"palette":"<color grade>","lensMood":"<lens/DoF/film stock/mood>","setting":"<environment, time of day, lighting>"},"motion":"static"|"pan"|"handheld"|"fast-cut","shotType":"wide"|"medium"|"close-up"|"extreme-close-up"|"insert","composition":{"subjectPosition":"<e.g. center, left-third, right-third>","headroom":"<tight|normal|excess>","ruleOfThirds":<true|false>},"emotion":"<1-2 words for the felt register, e.g. joyful, tense, somber>","audio":{"hasSpeech":<true|false>,"energy":"low"|"medium"|"high"},"continuity":{"lighting":"<short phrase>","whiteBalance":"<warm|cool|neutral, or a short phrase>","wardrobe":"<short phrase, omit if no person>","colorSignature":"<dominant grade/color phrase>"}}',
+	'{"caption":"<one sentence>","role":"hero"|"product"|"logo"|"face-anchor"|"b-roll"|"screen-rec","roleConfidence":<0-1>,"tags":["<open-vocab object/person/scene tags>"],"faces":[{"persona":"<exact KNOWN CAST name, or empty if not a known person>","descriptor":"<age range, build, hair, face, wardrobe, distinguishing features>","recurring":<true if this person appears across multiple frames>,"anchorIndex":<0-based frame index where this face is clearest>,"confidence":<0-1>}],"style":{"palette":"<color grade>","lensMood":"<lens/DoF/film stock/mood>","setting":"<environment, time of day, lighting>"},"shotType":"wide"|"medium"|"close-up"|"extreme-close-up"|"insert","composition":{"subjectPosition":"<e.g. center, left-third, right-third>","headroom":"<tight|normal|excess>","ruleOfThirds":<true|false>},"emotion":"<1-2 words for the felt register, e.g. joyful, tense, somber>","continuity":{"lighting":"<short phrase>","whiteBalance":"<warm|cool|neutral, or a short phrase>","wardrobe":"<short phrase, omit if no person>","colorSignature":"<dominant grade/color phrase>"}}',
 	"Rules:",
 	"- role: pick the SINGLE best fit. hero = the featured subject/money shot; product = a product beauty/detail shot; logo = a brand mark/wordmark/bug; face-anchor = a person's face clear and front-on enough to anchor identity; b-roll = generic supporting/background footage; screen-rec = a screen recording / screencast / UI capture. roleConfidence reflects how sure you are.",
 	"- tags: 6–18 concise OPEN-vocabulary tags for the salient objects, people, actions, and scene — across ALL the frames, not just the first. Prefer concrete nouns. Do not pad with near-duplicates.",
 	"- faces: include an entry ONLY for a clearly visible human face. If the person matches a KNOWN CAST member, set persona to that EXACT name; otherwise leave persona empty and give a good descriptor. Omit the faces array entirely when no human face is present. Never guess a cast name you were not given.",
 	"- style: fill the fields the frames actually establish; omit a field (or the whole style object) when the frames say nothing about it. Keep each a compact phrase.",
-	"- motion and shotType: ALWAYS pick the single best fit from the given options — every clip has SOME camera motion and SOME framing distance, so never omit these two.",
-	"- composition, emotion, audio, continuity: fill ONLY the sub-fields the frames actually establish; omit a sub-field (or the whole object) when unclear. Keep every phrase compact (a few words). continuity.wardrobe applies only when a person is visible.",
+	"- shotType: pick the single best fit from the given options when the framing is legible; OMIT it when the frames genuinely don't establish a framing distance. Do not pick one to fill the field.",
+	"- composition, emotion, continuity: fill ONLY the sub-fields the frames actually establish; omit a sub-field (or the whole object) when unclear. Keep every phrase compact (a few words). continuity.wardrobe applies only when a person is visible.",
+	"- Do NOT report camera motion or anything about audio. You are shown still frames sampled seconds apart and no audio; both are measured elsewhere from the real signal. Any such field you emit is discarded.",
 	"- Prefer the HINT for intent, but the FRAMES are the source of truth. When unsure about role or a face, lower the confidence rather than inventing certainty.",
 ].join("\n");
 
@@ -478,11 +661,13 @@ export function parseAssetUnderstanding(
 	const tags = parseTags(obj.tags);
 	const faces = parseFaces(obj.faces, ctx.imageCount, ctx.personas);
 	const styleProbe = parseStyleProbe(obj.style);
-	const motion = normalizeMotion(obj.motion) ?? undefined;
 	const shotType = normalizeShotType(obj.shotType) ?? undefined;
 	const composition = parseComposition(obj.composition);
 	const emotion = cleanStr(obj.emotion ?? obj.tone);
-	const audio = parseAudioProbe(obj.audio);
+	// `motion` and `audio` are NOT read off the reply — the model has no evidence
+	// for either (stills only, no audio) and a value here would be invention. The
+	// service merges in the measured ones after this parse; a model that emits
+	// them anyway is silently ignored.
 	const continuityFingerprint = parseContinuityFingerprint(
 		obj.continuity ?? obj.continuityFingerprint,
 	);
@@ -495,18 +680,25 @@ export function parseAssetUnderstanding(
 		tags,
 		faces,
 		...(styleProbe ? { styleProbe } : {}),
-		...(motion ? { motion } : {}),
 		...(shotType ? { shotType } : {}),
 		...(composition ? { composition } : {}),
 		...(emotion ? { emotion } : {}),
-		...(audio ? { audio } : {}),
 		...(continuityFingerprint ? { continuityFingerprint } : {}),
 		modelName: ctx.modelName,
 		createdAt: ctx.now ?? Date.now(),
 	};
 }
 
-/** Map a loose motion string (synonyms included) to a canonical {@link MotionClass}, or null. */
+/**
+ * Map a loose motion string to a canonical {@link MotionClass}, or null.
+ *
+ * No longer parses a model reply (the pass doesn't ask for motion any more) —
+ * this is the READ path. Its live job is collapsing records already sitting in
+ * the schema-less store under the old four-class vocabulary: `pan` and
+ * `handheld` were the two the frames could never actually distinguish, and both
+ * mean `moving`. The store needs no migration because every reader that cares
+ * runs a stored value through here first.
+ */
 export function normalizeMotion(raw: unknown): MotionClass | null {
 	const s = String(raw ?? "")
 		.toLowerCase()
@@ -514,11 +706,12 @@ export function normalizeMotion(raw: unknown): MotionClass | null {
 	if (!s) return null;
 	if ((MOTION_CLASSES as readonly string[]).includes(s))
 		return s as MotionClass;
-	if (s.includes("handheld") || s.includes("shaky") || s.includes("shake"))
-		return "handheld";
 	if (s.includes("fast") || s.includes("whip") || s.includes("quick cut"))
 		return "fast-cut";
 	if (
+		s.includes("handheld") ||
+		s.includes("shaky") ||
+		s.includes("shake") ||
 		s.includes("pan") ||
 		s.includes("tilt") ||
 		s.includes("dolly") ||
@@ -526,7 +719,7 @@ export function normalizeMotion(raw: unknown): MotionClass | null {
 		s.includes("moving") ||
 		s.includes("gimbal")
 	)
-		return "pan";
+		return "moving";
 	if (
 		s.includes("static") ||
 		s.includes("locked") ||
@@ -577,24 +770,6 @@ function parseComposition(raw: unknown): CompositionNote | undefined {
 		...(subjectPosition ? { subjectPosition } : {}),
 		...(headroom ? { headroom } : {}),
 		...(ruleOfThirds !== undefined ? { ruleOfThirds } : {}),
-	};
-}
-
-/** Coerce a loose `audio` object into an {@link AudioProbe}, or undefined when empty. */
-function parseAudioProbe(raw: unknown): AudioProbe | undefined {
-	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
-	const obj = raw as Record<string, unknown>;
-	const hasSpeech =
-		typeof obj.hasSpeech === "boolean" ? obj.hasSpeech : undefined;
-	const energyRaw = cleanStr(obj.energy)?.toLowerCase();
-	const energy =
-		energyRaw === "low" || energyRaw === "medium" || energyRaw === "high"
-			? energyRaw
-			: undefined;
-	if (hasSpeech === undefined && !energy) return undefined;
-	return {
-		...(hasSpeech !== undefined ? { hasSpeech } : {}),
-		...(energy ? { energy } : {}),
 	};
 }
 
@@ -861,6 +1036,387 @@ export function pickShotRepresentatives(
 	const step = firsts.length / maxFrames;
 	for (let k = 0; k < maxFrames; k++) out.push(firsts[Math.floor(k * step)]);
 	return Array.from(new Set(out));
+}
+
+/** One sampled frame, as {@link chooseUnderstandingFrames} needs to see it. */
+export interface FrameCandidate {
+	/** Asset-relative seconds. */
+	timestampSec: number;
+	/** The frame's luma fingerprint. */
+	grid: LumaGrid;
+	/** How this sample got into the list. */
+	reason: FrameReason;
+}
+
+/**
+ * Choose which sampled candidates the model actually sees, returning their
+ * indices in TIME order.
+ *
+ * Two rules, in this order:
+ *  1. **Cue frames are pinned.** A `transcript-cue` candidate is reserved
+ *     against `maxFrames` BEFORE the shot pass runs, so even-sampling can never
+ *     evict it. That ordering is the whole point: a speaker gesturing at a slide
+ *     barely moves the picture, so the visual selector is exactly the thing that
+ *     would drop the frame if it were allowed to vote.
+ *  2. **The remaining budget goes to shot coverage** — one representative per
+ *     detected shot ({@link segmentShots} + {@link pickShotRepresentatives}),
+ *     computed over the UNIFORM candidates only so a cue's off-grid timestamp
+ *     can't invent a shot boundary.
+ *
+ * Pure so the budget arithmetic is testable without a DOM; the sampling that
+ * produces the candidates lives in `services/search/asset-understanding-service`.
+ */
+export function chooseUnderstandingFrames(
+	candidates: FrameCandidate[],
+	maxFrames: number,
+): number[] {
+	if (candidates.length === 0 || maxFrames <= 0) return [];
+	if (candidates.length === 1) return [0];
+
+	const cueIdx: number[] = [];
+	const uniformIdx: number[] = [];
+	for (let i = 0; i < candidates.length; i++) {
+		if (candidates[i].reason === "transcript-cue") cueIdx.push(i);
+		else uniformIdx.push(i);
+	}
+
+	// Never let cues take the whole budget — the model still has to be able to
+	// tell what the asset IS, which is what the shot coverage is for.
+	const pinned = cueIdx.slice(0, Math.max(0, maxFrames - 1));
+	const repBudget = Math.max(1, maxFrames - pinned.length);
+	const reps = pickShotRepresentatives(
+		segmentShots(uniformIdx.map((i) => candidates[i].grid)),
+		repBudget,
+	);
+
+	const chosen = new Set<number>(pinned);
+	for (const r of reps) {
+		const original = uniformIdx[r];
+		if (original !== undefined) chosen.add(original);
+	}
+	return [...chosen].sort(
+		(a, b) => candidates[a].timestampSec - candidates[b].timestampSec,
+	);
+}
+
+// ── measured facets (deterministic — never asked of the model) ───────────────
+// The two facets the understanding CALL cannot honestly produce. Both are pure
+// and live here (not in the service) so they're unit-testable without a DOM.
+
+/**
+ * Mean fingerprint diff at or below which consecutive in-shot frames read as the
+ * SAME framing — i.e. the camera didn't go anywhere between samples.
+ */
+export const MOTION_STATIC_DIFF = 0.02;
+
+/** Fraction of consecutive sample pairs that must be CUTS before a clip reads as cut-driven. */
+export const MOTION_FAST_CUT_RATIO = 0.6;
+
+/**
+ * Longest mean sampling interval (seconds) at which a cut ratio still means
+ * anything. Sample two frames 12 s apart in ordinary footage and nearly every
+ * pair looks like a cut — that's the sampler being sparse, not the edit being
+ * fast, so past this interval we decline to call `fast-cut` at all.
+ */
+export const MOTION_FAST_CUT_MAX_INTERVAL_SEC = 3;
+
+/** Minimum consecutive pairs before the cut ratio is trusted (one stray cut must not decide it). */
+export const MOTION_FAST_CUT_MIN_PAIRS = 4;
+
+/** One frame's motion evidence: its luma fingerprint and when it was sampled. */
+export interface MotionSample {
+	grid: LumaGrid;
+	timestampSec: number;
+}
+
+/**
+ * Estimate a clip's {@link MotionClass} from the luma fingerprints the shot
+ * detector already computed — no second decode, no model call, no guess.
+ *
+ * Each consecutive pair is either a CUT (fingerprint diverges past
+ * {@link SHOT_DIFF_THRESHOLD}, the same line {@link segmentShots} draws) or an
+ * IN-SHOT pair. A high cut ratio over a dense enough sampling ⇒ `fast-cut`;
+ * otherwise the mean in-shot diff says whether the framing held
+ * ({@link MOTION_STATIC_DIFF} ⇒ `static`) or moved (⇒ `moving`).
+ *
+ * Returns `null` — the honest answer — when the samples can't support a verdict:
+ * fewer than two frames (every still image), or every pair a cut at a cadence
+ * too sparse to distinguish a fast edit from a slow sampler. Callers OMIT the
+ * field rather than substituting a default; see {@link AssetUnderstanding.motion}.
+ */
+export function estimateMotion(samples: MotionSample[]): MotionClass | null {
+	if (samples.length < 2) return null;
+
+	let cuts = 0;
+	let pairs = 0;
+	let inShotDiffSum = 0;
+	let inShotPairs = 0;
+	let intervalSum = 0;
+	for (let i = 1; i < samples.length; i++) {
+		const diff = gridDiff(samples[i - 1].grid, samples[i].grid);
+		pairs += 1;
+		intervalSum += Math.abs(
+			samples[i].timestampSec - samples[i - 1].timestampSec,
+		);
+		if (diff > SHOT_DIFF_THRESHOLD) {
+			cuts += 1;
+		} else {
+			inShotDiffSum += diff;
+			inShotPairs += 1;
+		}
+	}
+
+	const meanInterval = intervalSum / pairs;
+	if (
+		pairs >= MOTION_FAST_CUT_MIN_PAIRS &&
+		meanInterval > 0 &&
+		meanInterval <= MOTION_FAST_CUT_MAX_INTERVAL_SEC &&
+		cuts / pairs >= MOTION_FAST_CUT_RATIO
+	)
+		return "fast-cut";
+
+	// Every pair was a cut, but too sparsely sampled to call it a fast edit —
+	// there is no in-shot evidence left to read, so say nothing.
+	if (inShotPairs === 0) return null;
+
+	return inShotDiffSum / inShotPairs <= MOTION_STATIC_DIFF
+		? "static"
+		: "moving";
+}
+
+/**
+ * Summarize a clip's SHOT STRUCTURE from the same luma fingerprints
+ * {@link estimateMotion} reads — cuts only, no coverage floor (see
+ * {@link ShotSummary} for why that distinction matters).
+ *
+ * Answers a question the pass could not answer before: is this a RAW TAKE or
+ * something already cut? Those want opposite treatment — you re-cut raw footage
+ * and you leave a finished edit alone — and until now the segmentation that
+ * knows was computed for frame selection and discarded.
+ *
+ * Returns `null` for fewer than two samples: a still image has no shot
+ * structure, and saying `count: 1` there would dress up an absence as a
+ * measurement.
+ */
+export function summarizeShots(samples: MotionSample[]): ShotSummary | null {
+	if (samples.length < 2) return null;
+
+	const cutsAtSec: number[] = [];
+	let intervalSum = 0;
+	for (let i = 1; i < samples.length; i++) {
+		intervalSum += Math.abs(
+			samples[i].timestampSec - samples[i - 1].timestampSec,
+		);
+		if (gridDiff(samples[i - 1].grid, samples[i].grid) > SHOT_DIFF_THRESHOLD)
+			cutsAtSec.push(samples[i].timestampSec);
+	}
+
+	const count = cutsAtSec.length + 1;
+	const span = Math.abs(
+		samples[samples.length - 1].timestampSec - samples[0].timestampSec,
+	);
+	return {
+		count,
+		cutsAtSec,
+		meanShotSec: span > 0 ? span / count : 0,
+		sparse:
+			intervalSum / (samples.length - 1) > MOTION_FAST_CUT_MAX_INTERVAL_SEC,
+	};
+}
+
+// ── transcript cues (deictic frame pinning) ─────────────────────────────────
+// Technique poached from bradautomates/claude-video's `--timestamps` flag (MIT;
+// prose/idea only, no code copied). See {@link DeicticBeat} for why visual
+// selection alone cannot find these moments.
+
+/**
+ * Phrase fragments with which a speaker points at something ON SCREEN, as
+ * regex source, matched case-insensitively against segment text.
+ *
+ * Kept deliberately tight. A bare "look" or "see" is far more often rhetorical
+ * ("look, the point is…", "I see what you mean") than deictic, so every entry
+ * requires the pointing complement that makes it about something visible. The
+ * list errs toward MISSING a cue rather than firing on one: a missed cue costs
+ * the frame we would have had anyway under the old behaviour, while a false
+ * one spends a slot out of a budget of {@link MAX_TRANSCRIPT_CUES}.
+ */
+export const DEICTIC_CUE_SOURCES: readonly string[] = [
+	"look at (?:this|that|these|those|the|it|how|what)",
+	"(?:take|have) a look",
+	"let me show you",
+	"(?:if|when) you look",
+	"as you can (?:see|tell)",
+	"you can see (?:this|that|these|those|the|it|here|how|what)",
+	"notice (?:how|that|the|this|these|what)",
+	"watch (?:this|that|closely|carefully|how|what happens)",
+	"(?:right|over|down|up|in) here",
+	"see here",
+	"here (?:we have|you can see|you see|is the|is what|is where)",
+	"check (?:this|it) out",
+	"pay attention to",
+	"(?:shown|highlighted|circled|pictured) (?:here|below|above)",
+	"on (?:the )?screen",
+	"this (?:one )?right here",
+];
+
+/**
+ * Seconds added after the cue phrase ends. The thing being pointed at lands ON
+ * or just AFTER the words — "watch what happens" precedes what happens — so
+ * sampling at the phrase boundary would catch the setup instead of the payoff.
+ */
+export const CUE_LEAD_SEC = 0.4;
+
+/** Cues closer together than this collapse to the first; consecutive cues describe one moment. */
+export const CUE_MIN_GAP_SEC = 1.5;
+
+/**
+ * Most cues one asset contributes. Cue frames are PINNED — reserved against the
+ * frame budget before shot representatives are picked — so an uncapped list
+ * from a lecture could crowd out the coverage that tells the model what the
+ * asset IS. Four of eight leaves half the budget for the shot pass.
+ */
+export const MAX_TRANSCRIPT_CUES = 4;
+
+/** Options for {@link findTranscriptCues}. */
+export interface TranscriptCueOptions {
+	/** Seconds after the cue phrase to sample (default {@link CUE_LEAD_SEC}). */
+	leadSec?: number;
+	/** Minimum spacing between kept cues (default {@link CUE_MIN_GAP_SEC}). */
+	minGapSec?: number;
+	/** Cap on returned cues (default {@link MAX_TRANSCRIPT_CUES}). */
+	maxCues?: number;
+	/** Asset duration in seconds; cue times are clamped inside it when given. */
+	durationSec?: number;
+}
+
+/**
+ * Locate each word's character span within `text` so a regex match can be
+ * resolved back to a WORD, and from there to a real timestamp.
+ *
+ * Scans forward with a cursor, so repeated words map in order. A word the
+ * provider spelled differently from the segment text (punctuation folding,
+ * normalization) simply doesn't map and is skipped — the caller degrades to the
+ * previous mapped word rather than guessing a position.
+ */
+function mapWordCharStarts(
+	text: string,
+	words: { word: string; end: number }[],
+): { start: number; end: number }[] {
+	const out: { start: number; end: number }[] = [];
+	let cursor = 0;
+	for (const w of words) {
+		const needle = w.word.trim().toLowerCase();
+		if (!needle) continue;
+		const at = text.indexOf(needle, cursor);
+		if (at < 0) continue;
+		out.push({ start: at, end: w.end });
+		cursor = at + needle.length;
+	}
+	return out;
+}
+
+/**
+ * Find the moments a speaker points at something on screen, as
+ * {@link DeicticBeat}s in ASSET-RELATIVE seconds.
+ *
+ * TIME RESOLUTION, and its honest limits. With per-word timings (MAI-Transcribe-2
+ * aligns words for real — see `isWordTimed`) the cue resolves to the END of the
+ * matching phrase's last word, which is accurate to a word. WITHOUT them the
+ * only defensible answer is the segment's own start: the cue is somewhere in
+ * that sentence and interpolating a position inside it would be invented
+ * precision of exactly the kind the confabulation fix removed from this pass.
+ * A whole-segment anchor is a worse frame, not a wrong claim.
+ *
+ * Over-cap cues are subsampled EVENLY across the asset rather than truncated,
+ * so a 10-minute talk doesn't spend its whole cue budget in the first minute.
+ */
+export function findTranscriptCues(
+	segments: TranscriptSegmentLite[],
+	opts?: TranscriptCueOptions,
+): DeicticBeat[] {
+	const lead = opts?.leadSec ?? CUE_LEAD_SEC;
+	const minGap = opts?.minGapSec ?? CUE_MIN_GAP_SEC;
+	const maxCues = Math.max(0, opts?.maxCues ?? MAX_TRANSCRIPT_CUES);
+	const duration = opts?.durationSec;
+	if (maxCues === 0 || segments.length === 0) return [];
+
+	const re = new RegExp(`\\b(?:${DEICTIC_CUE_SOURCES.join("|")})`, "g");
+	const found: DeicticBeat[] = [];
+
+	for (const seg of segments) {
+		const text = (seg.text ?? "").toLowerCase();
+		if (!text) continue;
+		const ranges = seg.words?.length ? mapWordCharStarts(text, seg.words) : [];
+		re.lastIndex = 0;
+		for (const m of text.matchAll(re)) {
+			const matchEnd = (m.index ?? 0) + m[0].length;
+			// Last word that STARTS before the match ends — the phrase's own last word.
+			let wordEnd: number | undefined;
+			for (const r of ranges) {
+				if (r.start < matchEnd) wordEnd = r.end;
+				else break;
+			}
+			const base = wordEnd ?? seg.start;
+			let t = base + lead;
+			if (duration !== undefined && duration > 0)
+				t = Math.min(t, Math.max(0, duration - 0.05));
+			t = Math.max(0, t);
+			found.push({ t: Math.round(t * 100) / 100, phrase: m[0] });
+		}
+	}
+
+	found.sort((a, b) => a.t - b.t);
+
+	const spaced: DeicticBeat[] = [];
+	for (const cue of found) {
+		const prev = spaced[spaced.length - 1];
+		if (prev && cue.t - prev.t < minGap) continue;
+		spaced.push(cue);
+	}
+	if (spaced.length <= maxCues) return spaced;
+
+	const step = spaced.length / maxCues;
+	const picked: DeicticBeat[] = [];
+	for (let k = 0; k < maxCues; k++) picked.push(spaced[Math.floor(k * step)]);
+	return picked;
+}
+
+/** dBFS at or above which the measured level reads as `high`. */
+export const AUDIO_ENERGY_HIGH_DBFS = -14;
+
+/** dBFS at or above which the measured level reads as `medium` (below ⇒ `low`). */
+export const AUDIO_ENERGY_MEDIUM_DBFS = -30;
+
+/**
+ * Band a per-chunk loudness curve into an {@link AudioEnergy}.
+ *
+ * `levels` is the curve `lib/auto-cut`'s `computeLoudness` already produces for
+ * silence detection: one max-abs sample amplitude per analysis chunk, in [0, 1].
+ * We take its RMS (so loud chunks weigh more than a long quiet tail, which is
+ * what "energy" means here) and read it in dBFS against two thresholds.
+ *
+ * Returns `null` for an empty/unusable curve — absent, never a default.
+ */
+export function classifyAudioEnergy(
+	levels: ArrayLike<number>,
+): AudioEnergy | null {
+	let sumSquares = 0;
+	let counted = 0;
+	for (let i = 0; i < levels.length; i++) {
+		const v = levels[i];
+		if (!Number.isFinite(v)) continue;
+		const magnitude = Math.min(1, Math.abs(v));
+		sumSquares += magnitude * magnitude;
+		counted += 1;
+	}
+	if (counted === 0) return null;
+
+	const rms = Math.sqrt(sumSquares / counted);
+	if (rms <= 0) return "low"; // digital silence is a real measurement.
+	const dbfs = 20 * Math.log10(rms);
+	if (dbfs >= AUDIO_ENERGY_HIGH_DBFS) return "high";
+	if (dbfs >= AUDIO_ENERGY_MEDIUM_DBFS) return "medium";
+	return "low";
 }
 
 // ── model config (which brain runs the pass) ─────────────────────────────────
@@ -1134,7 +1690,6 @@ export const ASSET_UNDERSTANDING_RESPONSE_SCHEMA = {
 			},
 			propertyOrdering: ["palette", "lensMood", "setting"],
 		},
-		motion: { type: "STRING", enum: [...MOTION_CLASSES] },
 		shotType: { type: "STRING", enum: [...SHOT_TYPES] },
 		composition: {
 			type: "OBJECT",
@@ -1146,14 +1701,6 @@ export const ASSET_UNDERSTANDING_RESPONSE_SCHEMA = {
 			propertyOrdering: ["subjectPosition", "headroom", "ruleOfThirds"],
 		},
 		emotion: { type: "STRING" },
-		audio: {
-			type: "OBJECT",
-			properties: {
-				hasSpeech: { type: "BOOLEAN" },
-				energy: { type: "STRING", enum: ["low", "medium", "high"] },
-			},
-			propertyOrdering: ["hasSpeech", "energy"],
-		},
 		continuity: {
 			type: "OBJECT",
 			properties: {
@@ -1170,12 +1717,14 @@ export const ASSET_UNDERSTANDING_RESPONSE_SCHEMA = {
 			],
 		},
 	},
-	// motion/shotType join the required set: the prompt asks for them on EVERY
-	// clip (unlike composition/emotion/audio/continuity, which stay optional —
-	// the model omits those when the frames don't establish them). This is the
-	// signal `isDeepUnderstanding` reads: a record produced under this schema
-	// always carries both.
-	required: ["caption", "role", "roleConfidence", "tags", "motion", "shotType"],
+	// `shotType` is the one deepened facet in the required set: the frames always
+	// establish a framing distance, so the model can answer it from what it was
+	// actually shown, and it is the signal `isDeepUnderstanding` reads.
+	// `motion` and `audio` are absent from this schema ENTIRELY, not merely
+	// optional — a structured-output schema is an instruction, and listing a
+	// field the model has no evidence for is how the fabrication started. Both
+	// are measured outside this call ({@link estimateMotion}, {@link AudioProbe}).
+	required: ["caption", "role", "roleConfidence", "tags", "shotType"],
 	propertyOrdering: [
 		"caption",
 		"role",
@@ -1183,11 +1732,9 @@ export const ASSET_UNDERSTANDING_RESPONSE_SCHEMA = {
 		"tags",
 		"faces",
 		"style",
-		"motion",
 		"shotType",
 		"composition",
 		"emotion",
-		"audio",
 		"continuity",
 	],
 } as const;

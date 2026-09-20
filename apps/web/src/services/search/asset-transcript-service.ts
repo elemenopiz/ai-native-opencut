@@ -2,28 +2,28 @@
  * Asset transcription orchestrator — the ingest-time pass that turns a media
  * asset's audio into a persisted {@link AssetTranscript}.
  *
- * The RUNTIME half of `lib/search/asset-transcript.ts`: decode the asset's
- * File → on-device Whisper (Transformers.js worker; audio never leaves the
- * device) → persist + upsert the Director's sync cache. FREE and LOCAL, so —
- * unlike the paid VLM Understanding Pass — there is no credit gate and no
- * relay: the only costs are CPU/GPU time and the one-time model download.
+ * The RUNTIME half of `lib/search/asset-transcript.ts`: extract the asset's
+ * audio → MAI-Transcribe-2 via `/api/transcribe` → persist + upsert the
+ * Director's sync cache.
  *
- * The PRIMARY trigger mirrors the Understanding Pass: `use-director` runs
- * {@link transcribeAssetBatch} over not-yet-transcribed assets when the user
- * engages the Director — that's the moment the agent needs speech grounding
- * for sentence-aligned cuts. Unsupported browsers (no Worker/WebAudio) skip
- * the whole pass; failures are per-asset and soft (nothing persisted, so a
- * later run retries).
+ * COST NOTE: this used to be free, because it ran on-device Whisper. It is now
+ * a PAID cloud call billed per hour of audio, and it fires for every ingested
+ * audio/video asset. The `getTranscript` short-circuit below is therefore a
+ * spend guard, not just a speed one: an asset is transcribed exactly once and
+ * the result is persisted, so re-mounting a project costs nothing.
+ *
+ * Triggers: ingest (every uploaded audio/video asset transcribes immediately)
+ * and `use-director`, which runs {@link transcribeAssetBatch} over any asset
+ * that slipped through — that's the moment the agent needs speech grounding
+ * for sentence-aligned cuts. Failures are per-asset and soft (nothing
+ * persisted, so a later run retries).
  */
 
 import {
 	type AssetTranscript,
 	fromTranscriptionResult,
 } from "@/lib/search/asset-transcript";
-import {
-	isLocalWhisperSupported,
-	transcribeLocally,
-} from "@/lib/transcription/local-whisper";
+import { transcribeWithMai } from "@/lib/transcription/mai-transcribe";
 import { cacheTranscript } from "@/lib/director/transcript-lookup";
 import {
 	getTranscript,
@@ -32,7 +32,7 @@ import {
 import type { MediaAsset } from "@/types/assets";
 
 export interface TranscribeAssetOptions {
-	/** The transcription call (default: on-device Whisper); tests inject a stub. */
+	/** The transcription call (default: MAI-Transcribe-2); tests inject a stub. */
 	transcribe?: (
 		file: File,
 	) => Promise<Parameters<typeof fromTranscriptionResult>[1]>;
@@ -60,14 +60,38 @@ export async function transcribeAsset(
 	if (!media.file || (media.type !== "video" && media.type !== "audio")) {
 		return null; // nothing to decode.
 	}
+	// Background pass: never ask for diarization (it doubles provider work for
+	// a label the search index doesn't use).
+	//
+	// STYLE — VERBATIM, and this is load-bearing. It used to be "clean" so that
+	// filler words wouldn't pollute transcript search. That traded away more
+	// than it bought:
+	//   - "clean" asks the PROVIDER to delete every "um"/"uh" before we ever
+	//     see it, which makes mid-sentence filler removal impossible by
+	//     construction — there is nothing left in the text to find, and the
+	//     honest-limitation counter in `lib/auto-cut/filler-detect.ts` would
+	//     report a confident zero for the wrong reason.
+	//   - Verbatim is the SUPERSET: clean can be derived from verbatim (drop
+	//     known filler tokens — we already have the list), but verbatim cannot
+	//     be recovered from clean without paying for the transcription twice.
+	//     Since an asset is transcribed exactly once (see the spend guard
+	//     above), the stored record has to be the recoverable one.
+	// The search it was protecting does not exist yet, and the consumers that
+	// do read this text either ignore content entirely
+	// (`director/story/assembly.ts` only checks for non-empty) or render it for
+	// an agent, where a few fillers cost a rounding error in tokens.
+	const style = "verbatim" as const;
 	const transcribe =
-		options?.transcribe ?? ((file: File) => transcribeLocally(file));
-	if (!options?.transcribe && !isLocalWhisperSupported()) return null;
+		options?.transcribe ??
+		((file: File) => transcribeWithMai(file, { diarize: false, style }));
 
 	let record: AssetTranscript;
 	try {
 		const result = await transcribe(media.file);
-		record = fromTranscriptionResult(media.id, result);
+		// Stamp the style we ASKED for onto the record. A reader can then tell
+		// "no fillers in this speech" from "fillers were stripped before
+		// storage" — see `supportsFillerRemoval`.
+		record = fromTranscriptionResult(media.id, { style, ...result });
 	} catch {
 		return null; // decode/model failure — leave un-transcribed for a retry.
 	}

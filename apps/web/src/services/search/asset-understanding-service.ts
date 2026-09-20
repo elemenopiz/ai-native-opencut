@@ -3,7 +3,17 @@
  * {@link MediaAsset} into a persisted {@link AssetUnderstanding}.
  *
  * Steps: sample a handful of frames (shot-aware, so a multi-shot source doesn't
- * flood) → hand them to the tool-less VLM call → persist the structured record.
+ * flood) → hand them to the tool-less VLM call → MEASURE the two facets that
+ * call has no evidence for → persist the structured record.
+ *
+ * That measuring step is load-bearing. The VLM sees 1–8 JPEG stills and no audio
+ * bytes, so `motion` and `audio` cannot come from it without being invented; the
+ * prompt used to demand both anyway and the Director consumed the results as
+ * observed fact. Now `motion` falls out of the luma fingerprints the shot
+ * detector already computes ({@link estimateMotion} — no second decode) and
+ * `audio` out of the transcript plus the same deterministic loudness curve the
+ * silence detector runs ({@link probeAssetAudio}). Either may be legitimately
+ * ABSENT; absent is the honest answer and every consumer already degrades on it.
  * This is the RUNTIME half; the pure framing/parsing/belief logic lives in
  * `lib/search/asset-understanding.ts` and the persistence in
  * `asset-understanding-store.ts`.
@@ -25,17 +35,30 @@
 
 import {
 	type AssetUnderstanding,
+	type AudioProbe,
+	classifyAudioEnergy,
 	computeLumaGrid,
 	configuredUnderstandingModel,
+	type DeicticBeat,
 	degradedUnderstanding,
+	estimateMotion,
+	findTranscriptCues,
+	type FrameReason,
 	isCreditGateError,
 	type LumaGrid,
+	type MotionClass,
 	type PersonaRef,
-	pickShotRepresentatives,
-	segmentShots,
+	chooseUnderstandingFrames,
 	selectUnderstandAssetFn,
+	type ShotSummary,
+	summarizeShots,
 	type UnderstandAssetFn,
+	type UnderstandingFrame,
 } from "@/lib/search/asset-understanding";
+import { computeLoudness } from "@/lib/auto-cut";
+import { type AssetTranscript, hasSpeech } from "@/lib/search/asset-transcript";
+import { getTranscript } from "@/services/search/asset-transcript-store";
+import { DECODE_SAMPLE_RATE, decodeToMono16k } from "@/lib/media/decode-audio";
 import { gateOn402 } from "@/lib/credits/client-gate";
 import { FEATURE_UNDERSTANDING_PASS } from "@/lib/feature-flags";
 import {
@@ -50,8 +73,20 @@ import {
 import { computeMediaIdentity } from "@/lib/search/media-identity";
 import type { MediaAsset } from "@/types/assets";
 
-/** Version tag for the understanding model/pipeline — bump to invalidate old records. */
-export const UNDERSTANDING_MODEL = "vlm-v1";
+/**
+ * Version tag for the understanding model/pipeline — bump to invalidate old records.
+ *
+ * `vlm-v2` retires every `vlm-v1` record: those were produced by a prompt that
+ * required the model to emit `motion` and `audio` from frames that showed
+ * neither, so each one carries two confidently fabricated fields. They cannot be
+ * repaired in place (the values were never grounded in anything), so they are
+ * invalidated wholesale and re-derived on demand. Records stored under an
+ * explicit `NEXT_PUBLIC_UNDERSTANDING_MODEL` tag are not covered by this bump —
+ * `normalizeMotion` at the read boundary collapses their legacy motion
+ * vocabulary, and their `audio` is overwritten the next time the asset is
+ * understood.
+ */
+export const UNDERSTANDING_MODEL = "vlm-v2";
 
 /**
  * Resolve the model tag a NEW understanding record is produced and stored
@@ -102,6 +137,8 @@ interface SampledFrame {
 	/** 8×8 luma fingerprint for shot segmentation. */
 	grid: LumaGrid;
 	timestampSec: number;
+	/** Why this sample exists — the grid cadence, or a pinned transcript cue. */
+	reason: FrameReason;
 }
 
 /** Draw the current canvas contents into a light JPEG data URL + a luma fingerprint. */
@@ -113,8 +150,24 @@ function encodeFrame(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D) {
 	return { dataUrl, grid };
 }
 
-/** Sample candidate frames from a video via the HTML video + canvas approach. */
-function sampleVideoCandidates(url: string): Promise<SampledFrame[]> {
+/** Two cue times closer than this are the same moment — keep one seek, not two. */
+const CUE_MERGE_EPSILON_SEC = 0.25;
+
+/**
+ * Sample candidate frames from a video via the HTML video + canvas approach.
+ *
+ * `cueTimes` are transcript-cue moments ({@link findTranscriptCues}) merged into
+ * the uniform grid as EXTRA seeks. Sampling them here rather than snapping each
+ * cue to the nearest grid frame is the point: at a 2 s cadence, snapping lands
+ * up to a second off, which is the difference between the gesture and the
+ * reveal. A cue within {@link CUE_MERGE_EPSILON_SEC} of a grid sample is dropped
+ * — the grid frame already covers that moment and a second seek is the
+ * expensive part of this function.
+ */
+function sampleVideoCandidates(
+	url: string,
+	cueTimes: readonly number[] = [],
+): Promise<SampledFrame[]> {
 	return new Promise((resolve, reject) => {
 		if (typeof document === "undefined") {
 			resolve([]);
@@ -140,12 +193,21 @@ function sampleVideoCandidates(url: string): Promise<SampledFrame[]> {
 				return;
 			}
 			const step = Math.max(CANDIDATE_INTERVAL_SEC, duration / MAX_CANDIDATES);
-			const timestamps: number[] = [];
+			const plan: { t: number; reason: FrameReason }[] = [];
 			for (let t = step * 0.5; t < duration; t += step) {
-				timestamps.push(t);
-				if (timestamps.length >= MAX_CANDIDATES) break;
+				plan.push({ t, reason: "shot" });
+				if (plan.length >= MAX_CANDIDATES) break;
 			}
-			if (timestamps.length === 0) timestamps.push(Math.min(0.1, duration / 2));
+			if (plan.length === 0)
+				plan.push({ t: Math.min(0.1, duration / 2), reason: "shot" });
+			for (const cue of cueTimes) {
+				if (!Number.isFinite(cue) || cue < 0 || cue >= duration) continue;
+				if (plan.some((q) => Math.abs(q.t - cue) < CUE_MERGE_EPSILON_SEC))
+					continue;
+				plan.push({ t: cue, reason: "transcript-cue" });
+			}
+			plan.sort((a, b) => a.t - b.t);
+			if (plan.length === 1) plan[0].reason = "only-frame";
 
 			const canvas = document.createElement("canvas");
 			const ratio = video.videoHeight / video.videoWidth || 9 / 16;
@@ -159,18 +221,25 @@ function sampleVideoCandidates(url: string): Promise<SampledFrame[]> {
 			}
 
 			const captureNext = (idx: number) => {
-				if (idx >= timestamps.length) {
+				if (idx >= plan.length) {
 					clearTimeout(timeout);
 					resolve(frames);
 					return;
 				}
-				video.currentTime = timestamps[idx];
+				video.currentTime = plan[idx].t;
 			};
 
 			video.onseeked = () => {
+				// One frame is pushed per seek, so the count IS the plan index.
+				const idx = frames.length;
 				ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 				const { dataUrl, grid } = encodeFrame(canvas, ctx);
-				frames.push({ dataUrl, grid, timestampSec: video.currentTime });
+				frames.push({
+					dataUrl,
+					grid,
+					timestampSec: video.currentTime,
+					reason: plan[idx]?.reason ?? "shot",
+				});
 				captureNext(frames.length);
 			};
 
@@ -212,7 +281,7 @@ function sampleImageCandidate(url: string): Promise<SampledFrame[]> {
 			}
 			ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 			const { dataUrl, grid } = encodeFrame(canvas, ctx);
-			resolve([{ dataUrl, grid, timestampSec: 0 }]);
+			resolve([{ dataUrl, grid, timestampSec: 0, reason: "only-frame" }]);
 		};
 		img.onerror = () => {
 			clearTimeout(timeout);
@@ -222,27 +291,196 @@ function sampleImageCandidate(url: string): Promise<SampledFrame[]> {
 	});
 }
 
+/** What one sampling pass yields: the frames to caption, plus what they measure. */
+export interface UnderstandingFrameSelection {
+	/** Representative frames as `data:` URLs, in time order — the model's input. */
+	frames: string[];
+	/**
+	 * Camera motion measured from the FULL uniform candidate set (not the thinned
+	 * representatives — the dense fingerprints are the evidence). `null` when the
+	 * samples can't support a verdict; see {@link estimateMotion}.
+	 */
+	motion: MotionClass | null;
+	/**
+	 * Time + reason for each frame in {@link frames}, same order — the provenance
+	 * that makes an `anchorFrame` index resolvable to a timestamp.
+	 */
+	framesSeen: UnderstandingFrame[];
+	/** Shot structure measured from the uniform candidates. `null` ⇒ under two samples. */
+	shots: ShotSummary | null;
+	/**
+	 * Deictic cues read from the transcript. `null` ⇒ no transcript was supplied,
+	 * which is NOT the same as `[]` ("read it, found none") — the record keeps
+	 * that distinction so a later re-run after transcription is worth doing.
+	 */
+	cues: DeicticBeat[] | null;
+}
+
 /**
- * Sample the frames to caption: candidate frames, thinned to one representative
- * per detected shot (capped at {@link MAX_VLM_FRAMES}). Returns the frames as
- * `data:` URLs in time order.
+ * Nothing sampled — every field at its honest empty value. A factory, not a
+ * shared constant: the arrays are handed to callers and a single frozen-by-
+ * convention instance would be one `push` away from leaking between assets.
  */
-export async function sampleUnderstandingFrames(
+function emptySelection(): UnderstandingFrameSelection {
+	return { frames: [], motion: null, framesSeen: [], shots: null, cues: null };
+}
+
+/** Options for {@link selectUnderstandingFrames}. */
+export interface SelectFramesOptions {
+	/**
+	 * The asset's transcript, when one exists. Drives transcript-cue frames —
+	 * frames pinned where the SPEAKER points at something, which the visual
+	 * selector systematically misses (see {@link DeicticBeat}).
+	 *
+	 * The transcript is used for SELECTION ONLY and is never shown to the model.
+	 * Handing it the words would reintroduce exactly the failure the
+	 * confabulation fix removed: a model that reads "as you can see, the logo is
+	 * blue" will report a blue logo whether or not the pixels show one.
+	 */
+	transcript?: AssetTranscript | null;
+}
+
+/**
+ * Sample an asset once and take everything the pass needs from that sampling:
+ * the frames to caption (transcript cues pinned first, then one representative
+ * per detected shot, capped at {@link MAX_VLM_FRAMES}), the measured
+ * {@link MotionClass}, the {@link ShotSummary}, and the cues themselves.
+ *
+ * The motion and shot measurements reuse the luma fingerprints `encodeFrame`
+ * already computes — decoding the video a second time to answer "did the camera
+ * move?" would cost more than the model call it replaces.
+ *
+ * MEASUREMENTS READ THE UNIFORM GRID ONLY. A pinned cue frame lands at an
+ * arbitrary second, so letting it into {@link estimateMotion} or
+ * {@link summarizeShots} would make an irregular sampling interval look like
+ * camera movement or an extra cut — the cue frames are for the model's eyes,
+ * not for the measurements, and keeping them out means adding cues cannot move
+ * a `motion` or `shots` value that was already correct.
+ */
+export async function selectUnderstandingFrames(
 	media: MediaAsset,
-): Promise<string[]> {
-	if (!media.url) return [];
+	opts?: SelectFramesOptions,
+): Promise<UnderstandingFrameSelection> {
+	if (!media.url) return emptySelection();
+
+	const transcript = opts?.transcript;
+	const cues = transcript
+		? findTranscriptCues(transcript.segments, {
+				durationSec: transcript.durationSec,
+			})
+		: null;
+
 	const candidates =
 		media.type === "video"
-			? await sampleVideoCandidates(media.url)
+			? await sampleVideoCandidates(media.url, cues?.map((c) => c.t) ?? [])
 			: media.type === "image"
 				? await sampleImageCandidate(media.url)
 				: [];
-	if (candidates.length === 0) return [];
-	if (candidates.length === 1) return [candidates[0].dataUrl];
+	if (candidates.length === 0) return emptySelection();
 
-	const shots = segmentShots(candidates.map((c) => c.grid));
-	const repIndices = pickShotRepresentatives(shots, MAX_VLM_FRAMES);
-	return repIndices.map((i) => candidates[i].dataUrl);
+	const uniform = candidates.filter((c) => c.reason !== "transcript-cue");
+	const motion = estimateMotion(uniform);
+	const shots = summarizeShots(uniform);
+
+	const describe = (picked: SampledFrame[]): UnderstandingFrameSelection => ({
+		frames: picked.map((f) => f.dataUrl),
+		motion,
+		framesSeen: picked.map((f) => ({
+			t: Math.round(f.timestampSec * 100) / 100,
+			reason: f.reason,
+		})),
+		shots,
+		cues,
+	});
+
+	// Which frames the model sees — cues pinned, the rest to shot coverage. The
+	// rule itself is pure and tested in `lib/search/asset-understanding`.
+	const picked = chooseUnderstandingFrames(candidates, MAX_VLM_FRAMES);
+	return describe(picked.map((i) => candidates[i]));
+}
+
+/**
+ * Just the frames from {@link selectUnderstandingFrames}, for callers that don't
+ * need the measurements.
+ */
+export async function sampleUnderstandingFrames(
+	media: MediaAsset,
+	opts?: SelectFramesOptions,
+): Promise<string[]> {
+	return (await selectUnderstandingFrames(media, opts)).frames;
+}
+
+/** Longest asset the measured audio probe will decode — past this the decode costs more than the field is worth. */
+const AUDIO_PROBE_MAX_DURATION_SEC = 20 * 60;
+
+/** Analysis chunks per second for the loudness curve (the auto-cut engine's default timebase). */
+const AUDIO_PROBE_TIMEBASE = 30;
+
+/** Injectable seams for {@link probeAssetAudio} (tests stub both; production uses the real stores). */
+export interface AudioProbeDeps {
+	/** Decode a media file to mono 16 kHz PCM (default: the shared Whisper/auto-cut decode). */
+	decode?: (file: File) => Promise<Float32Array>;
+	/** Read the stored transcript for an asset (default: the transcript store). */
+	transcript?: (mediaId: string) => Promise<AssetTranscript | undefined>;
+}
+
+/**
+ * MEASURE an asset's {@link AudioProbe} from its real audio — the replacement
+ * for asking a model that was never sent any.
+ *
+ * `hasSpeech` comes from the stored transcript, which answers it definitively;
+ * no transcript yet ⇒ the field is ABSENT, which is a different claim from
+ * `false` ("transcribed, and silent") and is the distinction the story
+ * inventory already relies on. `energy` comes from `computeLoudness` — the same
+ * per-chunk curve the silence detector runs — banded by
+ * {@link classifyAudioEnergy}.
+ *
+ * Everything here is best-effort and silent: no audio track, no `file` on the
+ * asset (a URL-only generated clip), an over-long asset, or a decode failure all
+ * just drop `energy`. Returns `undefined` when neither field could be measured,
+ * so the caller omits `audio` entirely rather than persisting an empty shell.
+ */
+export async function probeAssetAudio(
+	media: MediaAsset,
+	deps?: AudioProbeDeps,
+): Promise<AudioProbe | undefined> {
+	const readTranscript = deps?.transcript ?? getTranscript;
+	const decode = deps?.decode ?? decodeToMono16k;
+
+	const transcript = await readTranscript(media.id).catch(() => undefined);
+	const speech = transcript ? hasSpeech(transcript) : undefined;
+
+	const energy = await measureAudioEnergy(media, decode);
+
+	if (speech === undefined && !energy) return undefined;
+	return {
+		...(speech !== undefined ? { hasSpeech: speech } : {}),
+		...(energy ? { energy } : {}),
+	};
+}
+
+/** The `energy` half of {@link probeAssetAudio} — decode, loudness curve, band. Never throws. */
+async function measureAudioEnergy(
+	media: MediaAsset,
+	decode: (file: File) => Promise<Float32Array>,
+): Promise<AudioProbe["energy"]> {
+	// Images have no audio track; a URL-only asset has no bytes to decode here.
+	if (media.type === "image" || !media.file) return undefined;
+	if (media.duration != null && media.duration > AUDIO_PROBE_MAX_DURATION_SEC)
+		return undefined;
+	try {
+		const samples = await decode(media.file);
+		const levels = computeLoudness(
+			samples,
+			DECODE_SAMPLE_RATE,
+			AUDIO_PROBE_TIMEBASE,
+		);
+		return classifyAudioEnergy(levels) ?? undefined;
+	} catch {
+		// A file with no decodable audio track is the common case here, not an
+		// error worth surfacing — the probe simply has nothing to report.
+		return undefined;
+	}
 }
 
 export interface UnderstandAssetOptions {
@@ -263,6 +501,23 @@ export interface UnderstandAssetOptions {
 	modelName?: string;
 	/** Free-text hint about what the user is doing (passed to the VLM). */
 	hint?: string;
+	/**
+	 * The measured audio probe (default: {@link probeAssetAudio} — the transcript
+	 * plus a real loudness curve). Injected so headless tests don't need Web
+	 * Audio; return `undefined` to leave `audio` off the record.
+	 */
+	audio?: (media: MediaAsset) => Promise<AudioProbe | undefined>;
+	/**
+	 * Loads the asset's transcript, which drives transcript-cue frames (default:
+	 * the per-asset transcript store). Injected so headless tests don't need
+	 * IndexedDB; resolve `undefined` to select frames visually, as before.
+	 *
+	 * A transcript is OPTIONAL and often absent: transcription is its own pass
+	 * and may not have run yet at ingest. That case is recorded honestly —
+	 * `deicticBeats` stays absent rather than empty — so a later re-run knows
+	 * there is something new to find.
+	 */
+	transcript?: (mediaId: string) => Promise<AssetTranscript | undefined>;
 	/** Re-run even if a record already exists for the current model. */
 	force?: boolean;
 	/**
@@ -374,12 +629,31 @@ export async function understandAsset(
 		}
 	}
 
-	let frames: string[];
+	// Start the audio measurement NOW so its decode overlaps the (much slower)
+	// frame sampling + model call instead of adding latency after them. The
+	// `catch` is what makes that safe: every path below can return early and
+	// abandon this promise un-awaited, and a settled-to-undefined promise can't
+	// surface as an unhandled rejection when it does.
+	const probe = options?.audio ?? probeAssetAudio;
+	const audioProbe = Promise.resolve()
+		.then(() => probe(media))
+		.catch(() => undefined);
+
+	// Transcript cues only steer WHICH frames get sampled, so a lookup failure
+	// degrades to the old purely-visual selection rather than failing the pass.
+	const loadTranscript = options?.transcript ?? getTranscript;
+	const transcript =
+		media.type === "video"
+			? await loadTranscript(media.id).catch(() => undefined)
+			: undefined; // a still image has no speech to cue off.
+
+	let selection: UnderstandingFrameSelection;
 	try {
-		frames = await sampleUnderstandingFrames(media);
+		selection = await selectUnderstandingFrames(media, { transcript });
 	} catch {
 		return null; // sampling failure — leave the asset un-understood for a retry.
 	}
+	const frames = selection.frames;
 	if (frames.length === 0) return null;
 
 	let record: AssetUnderstanding;
@@ -401,10 +675,26 @@ export async function understandAsset(
 	}
 
 	// Belt-and-suspenders: never persist a record keyed to the wrong asset.
-	const safe: AssetUnderstanding =
+	const parsed: AssetUnderstanding =
 		record.mediaId === media.id
 			? record
 			: degradedUnderstanding({ mediaId: media.id, modelName });
+
+	// Merge the MEASURED facets over whatever came back. These two are sourced,
+	// not asked for: the model is told not to report them and the parser drops
+	// them if it does, so this is the only place either can enter a record. An
+	// unmeasurable facet stays absent — we never fill it with a default.
+	const measuredAudio = await audioProbe;
+	const safe: AssetUnderstanding = {
+		...parsed,
+		...(selection.motion ? { motion: selection.motion } : {}),
+		...(measuredAudio ? { audio: measuredAudio } : {}),
+		...(selection.framesSeen.length
+			? { framesSeen: selection.framesSeen }
+			: {}),
+		...(selection.shots ? { shots: selection.shots } : {}),
+		...(selection.cues ? { deicticBeats: selection.cues } : {}),
+	};
 	await saveUnderstanding(safe).catch(() => undefined);
 	// Refresh the live sync cache the manifest/proposals read each turn, so a
 	// freshly-understood asset shows up in the digest without a reload (follow-up A).

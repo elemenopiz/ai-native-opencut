@@ -222,6 +222,88 @@ export function makeFakeEditor(opts?: { fps?: number }): FakeEditor {
 			});
 			return id;
 		},
+		/**
+		 * Re-trim / reposition one element in place. Enough for the Director's
+		 * `trim` verb, which is how tests build a clip that is NOT sitting
+		 * untrimmed at timeline 0 — the setup every timebase test needs.
+		 */
+		updateElementTrim: ({
+			elementId,
+			trimStart,
+			trimEnd,
+			startTime,
+			duration,
+		}: {
+			elementId: string;
+			trimStart?: number;
+			trimEnd?: number;
+			startTime?: number;
+			duration?: number;
+		}) => {
+			const located = find(elementId);
+			if (!located) return;
+			const element = located.element;
+			const before = { ...element };
+			command.execute({
+				command: makeCommand(
+					"Trim element",
+					() => {
+						if (trimStart !== undefined) element.trimStart = trimStart;
+						if (trimEnd !== undefined) element.trimEnd = trimEnd;
+						if (startTime !== undefined) element.startTime = startTime;
+						if (duration !== undefined) element.duration = duration;
+					},
+					() => Object.assign(element, before),
+				),
+			});
+		},
+		/**
+		 * Split elements at a TIMELINE-absolute time, returning the right-hand
+		 * pieces. Mirrors the real manager's contract closely enough for the
+		 * Director verbs: the left piece keeps its start and shortens, the right
+		 * piece begins at `splitTime` with its `trimStart` advanced by the same
+		 * amount — so source content stays put under the cut.
+		 */
+		splitElements: ({
+			elements,
+			splitTime,
+		}: {
+			elements: Array<{ trackId: string; elementId: string }>;
+			splitTime: number;
+		}) => {
+			const created: Array<{ trackId: string; elementId: string }> = [];
+			for (const ref of elements) {
+				const located = find(ref.elementId);
+				if (!located) continue;
+				const { track, element } = located;
+				const offsetIntoClip = splitTime - element.startTime;
+				if (offsetIntoClip <= 0 || offsetIntoClip >= element.duration) continue;
+				const rightId = nextId("el");
+				const right: FakeElement = {
+					...element,
+					id: rightId,
+					startTime: splitTime,
+					trimStart: element.trimStart + offsetIntoClip,
+					duration: element.duration - offsetIntoClip,
+				};
+				const leftDurationBefore = element.duration;
+				command.execute({
+					command: makeCommand(
+						"Split element",
+						() => {
+							element.duration = offsetIntoClip;
+							track.elements.push(right);
+						},
+						() => {
+							element.duration = leftDurationBefore;
+							track.elements = track.elements.filter((e) => e !== right);
+						},
+					),
+				});
+				created.push({ trackId: track.id, elementId: rightId });
+			}
+			return created;
+		},
 		addTakeToElement: ({
 			elementId,
 			take,

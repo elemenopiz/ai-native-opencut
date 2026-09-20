@@ -6,12 +6,16 @@ import { useTranscriptStore } from "@/stores/transcript-store";
 import { useTranscription } from "@/hooks/use-transcription";
 import { useAIStatus } from "@/hooks/use-ai-status";
 import { getElementsAtTime, hasMediaId } from "@/lib/timeline";
+import type { TimeRange } from "@/lib/text-timeline-sync";
 import {
-	computeSplitPointsFromSegments,
-	type TimeRange,
-} from "@/lib/text-timeline-sync";
+	computeTranscriptSplitPoints,
+	ingestOffsetForMedia,
+	resolveTranscriptCuts,
+	toTimelineSegments,
+} from "@/lib/timeline/transcript-timebase";
 import type { TranscriptWord } from "@/components/editor/ai/transcription-panel";
 import type { TimelineElement } from "@/types/timeline";
+import type { TranscriptionSegment } from "@/types/ai";
 import {
 	captureTranscriptSnapshot,
 	hasTranscriptChanged,
@@ -20,11 +24,43 @@ import {
 import { toast } from "sonner";
 
 /**
+ * Developer-only pointer for a transcription backend that isn't reachable.
+ * Returns "" in production so no customer ever sees infrastructure names —
+ * mirrors `views/director.tsx`'s `relayDevHint`.
+ */
+function transcriptionSetupHint(): string {
+	return process.env.NODE_ENV !== "production"
+		? "Dev: no AI backend reachable — on-device Whisper needs a Chromium-based browser, or start the self-hosted backend."
+		: "";
+}
+
+/**
  * Bridges text-based editing operations to the actual video timeline.
  *
  * When a user deletes text segments, marks words for removal, or reorders
  * paragraphs in the transcription panel, this hook translates those
  * operations into timeline splits and deletions via EditorCore.
+ *
+ * ── Timebase ──
+ * Transcript segments live in `useTranscriptStore` in TIMELINE-ABSOLUTE
+ * seconds (see that store's contract and `lib/timeline/transcript-timebase.ts`).
+ * The panel derives cut ranges straight from those stored times, so they are
+ * only as fresh as the clip layout at the moment of transcription. Before
+ * touching the timeline we re-project every cut through the owning element's
+ * `startTime - trimStart` offset — the same conversion the Director does in
+ * `gatherSpeechIntervals` — so cuts stay correct on clips that were trimmed,
+ * moved, or split afterwards.
+ *
+ * ── When a cut has nowhere to land ──
+ * One asset can back several timeline elements, so a sentence may map to
+ * several timeline ranges — or to none, if that stretch of footage has since
+ * been trimmed away or deleted. The policy:
+ *  - Some of the request resolves → cut exactly the parts that exist, and tell
+ *    the user the rest was already gone.
+ *  - None of it resolves → change NOTHING (timeline or transcript) and say so.
+ *    Deleting the transcript line while the video keeps playing that sentence
+ *    would desync the two, and silently doing nothing would look like a broken
+ *    button.
  */
 export function useTextTimelineBridge() {
 	const editor = useEditor();
@@ -37,12 +73,19 @@ export function useTextTimelineBridge() {
 	/**
 	 * Split the video timeline at each transcription segment boundary
 	 * so every segment maps to its own clip on the timeline.
+	 *
+	 * Segment boundaries are ASSET-RELATIVE, so they are resolved through each
+	 * clip's `startTime - trimStart` placement before being used as timeline
+	 * split points — a boundary inside a trimmed or repositioned clip still
+	 * lands on the right frame, and one that has been trimmed away produces no
+	 * split at all.
 	 */
 	const splitTimelineAtSegmentBoundaries = useCallback(
-		(segments: { start: number; end: number }[]) => {
-			const splitPoints = computeSplitPointsFromSegments(
-				segments as { id: number; text: string; start: number; end: number; words: [] }[],
-			);
+		(segments: TranscriptionSegment[]) => {
+			const splitPoints = computeTranscriptSplitPoints({
+				tracks: editor.timeline.getTracks(),
+				segments,
+			});
 
 			if (splitPoints.length === 0) return;
 
@@ -107,11 +150,51 @@ export function useTextTimelineBridge() {
 	}, [editor]);
 
 	/**
-	 * Cut time ranges from the video timeline.
+	 * Resolve panel-supplied cut ranges (STORE time) against the live timeline.
+	 *
+	 * Returns `null` when the request maps to nothing at all — the caller must
+	 * then abandon the whole operation, leaving timeline and transcript in
+	 * step, and tell the user why.
+	 */
+	const resolveCuts = useCallback(
+		(cuts: TimeRange[]): TimeRange[] | null => {
+			const { ranges, dropped } = resolveTranscriptCuts({
+				tracks: editor.timeline.getTracks(),
+				segments: useTranscriptStore.getState().segments,
+				cuts,
+			});
+
+			if (ranges.length === 0) {
+				toast.info("Nothing to cut", {
+					description:
+						dropped.length > 0
+							? "That part of the clip is no longer on the timeline."
+							: "Those words aren't on the timeline any more.",
+				});
+				return null;
+			}
+
+			if (dropped.length > 0) {
+				toast.info("Part of that was already gone", {
+					description:
+						"Some of the footage for that selection had been trimmed off the timeline, so only the rest was cut.",
+				});
+			}
+
+			return ranges;
+		},
+		[editor],
+	);
+
+	/**
+	 * Cut TIMELINE-absolute time ranges from the video timeline.
 	 *
 	 * For each range, splits elements at the start and end boundaries,
 	 * then deletes the elements that fall within the range.
 	 * After all cuts, compacts the timeline to close any gaps.
+	 *
+	 * Ranges must already be resolved against the live timeline (see
+	 * `resolveCuts`) — this function does no timebase conversion of its own.
 	 */
 	const cutTimeRanges = useCallback(
 		(cuts: TimeRange[]) => {
@@ -153,8 +236,7 @@ export function useTextTimelineBridge() {
 
 				// Now delete all elements that fall entirely within the cut range
 				const currentTracks = editor.timeline.getTracks();
-				const elementsToDelete: { trackId: string; elementId: string }[] =
-					[];
+				const elementsToDelete: { trackId: string; elementId: string }[] = [];
 
 				for (const track of currentTracks) {
 					for (const element of track.elements) {
@@ -204,7 +286,8 @@ export function useTextTimelineBridge() {
 		// Find the primary media track — prefer the one with the most clips
 		const tracks = editor.timeline.getTracks();
 		const mediaTracks = tracks.filter(
-			(t) => (t.type === "video" || t.type === "audio") && t.elements.length > 0,
+			(t) =>
+				(t.type === "video" || t.type === "audio") && t.elements.length > 0,
 		);
 		if (mediaTracks.length === 0) return;
 
@@ -226,7 +309,8 @@ export function useTextTimelineBridge() {
 				const newEnd = clip.startTime + clip.duration;
 				const segDuration = newEnd - newStart;
 				const wordCount = seg.words.length;
-				const wordDuration = wordCount > 0 ? segDuration / wordCount : segDuration;
+				const wordDuration =
+					wordCount > 0 ? segDuration / wordCount : segDuration;
 
 				return {
 					...seg,
@@ -281,13 +365,19 @@ export function useTextTimelineBridge() {
 	 */
 	const handleDeleteSegments = useCallback(
 		(segmentIds: string[], cuts: TimeRange[]) => {
-			const supportsTransaction = typeof editor.command.beginTransaction === "function";
+			// Resolve BEFORE opening the transaction: if none of the request is on
+			// the timeline we leave transcript and timeline alone together.
+			const resolved = resolveCuts(cuts);
+			if (!resolved) return;
+
+			const supportsTransaction =
+				typeof editor.command.beginTransaction === "function";
 			const transcriptBefore = captureTranscriptSnapshot();
 
 			// Begin transaction so timeline + transcript undo together
 			if (supportsTransaction) editor.command.beginTransaction();
 
-			cutTimeRanges(cuts);
+			cutTimeRanges(resolved);
 
 			// Remove from transcript store
 			const numericIds = segmentIds
@@ -305,13 +395,16 @@ export function useTextTimelineBridge() {
 				const transcriptAfter = captureTranscriptSnapshot();
 				if (hasTranscriptChanged(transcriptBefore, transcriptAfter)) {
 					editor.command.push({
-						command: new TranscriptSnapshotCommand(transcriptBefore, transcriptAfter),
+						command: new TranscriptSnapshotCommand(
+							transcriptBefore,
+							transcriptAfter,
+						),
 					});
 				}
 				editor.command.commitTransaction();
 			}
 		},
-		[editor, cutTimeRanges, syncTranscriptTimesToTimeline],
+		[editor, resolveCuts, cutTimeRanges, syncTranscriptTimesToTimeline],
 	);
 
 	/**
@@ -325,11 +418,15 @@ export function useTextTimelineBridge() {
 			_remainingWords: TranscriptWord[],
 			cuts: TimeRange[],
 		) => {
-			const supportsTransaction = typeof editor.command.beginTransaction === "function";
+			const resolved = resolveCuts(cuts);
+			if (!resolved) return;
+
+			const supportsTransaction =
+				typeof editor.command.beginTransaction === "function";
 			const transcriptBefore = captureTranscriptSnapshot();
 			if (supportsTransaction) editor.command.beginTransaction();
 
-			cutTimeRanges(cuts);
+			cutTimeRanges(resolved);
 
 			// Sync remaining segment times to the compacted timeline
 			syncTranscriptTimesToTimeline();
@@ -338,13 +435,16 @@ export function useTextTimelineBridge() {
 				const transcriptAfter = captureTranscriptSnapshot();
 				if (hasTranscriptChanged(transcriptBefore, transcriptAfter)) {
 					editor.command.push({
-						command: new TranscriptSnapshotCommand(transcriptBefore, transcriptAfter),
+						command: new TranscriptSnapshotCommand(
+							transcriptBefore,
+							transcriptAfter,
+						),
 					});
 				}
 				editor.command.commitTransaction();
 			}
 		},
-		[editor, cutTimeRanges, syncTranscriptTimesToTimeline],
+		[editor, resolveCuts, cutTimeRanges, syncTranscriptTimesToTimeline],
 	);
 
 	/**
@@ -368,7 +468,8 @@ export function useTextTimelineBridge() {
 			const currentSegments = useTranscriptStore.getState().segments;
 			if (fromIndex === toIndex || currentSegments.length === 0) return;
 
-			const supportsTransaction = typeof editor.command.beginTransaction === "function";
+			const supportsTransaction =
+				typeof editor.command.beginTransaction === "function";
 			const transcriptBefore = captureTranscriptSnapshot();
 			if (supportsTransaction) editor.command.beginTransaction();
 
@@ -376,7 +477,8 @@ export function useTextTimelineBridge() {
 
 			// Collect ALL media tracks (video + audio) — they must be reordered together
 			const mediaTracks = tracks.filter(
-				(t) => (t.type === "video" || t.type === "audio") && t.elements.length >= 2,
+				(t) =>
+					(t.type === "video" || t.type === "audio") && t.elements.length >= 2,
 			);
 
 			if (mediaTracks.length === 0) {
@@ -386,7 +488,10 @@ export function useTextTimelineBridge() {
 					const transcriptAfter = captureTranscriptSnapshot();
 					if (hasTranscriptChanged(transcriptBefore, transcriptAfter)) {
 						editor.command.push({
-							command: new TranscriptSnapshotCommand(transcriptBefore, transcriptAfter),
+							command: new TranscriptSnapshotCommand(
+								transcriptBefore,
+								transcriptAfter,
+							),
 						});
 					}
 					editor.command.commitTransaction();
@@ -408,7 +513,10 @@ export function useTextTimelineBridge() {
 				);
 
 				// Guard: if the track has fewer elements than the from/to indices, skip
-				if (fromIndex >= sortedElements.length || toIndex >= sortedElements.length) {
+				if (
+					fromIndex >= sortedElements.length ||
+					toIndex >= sortedElements.length
+				) {
 					continue;
 				}
 
@@ -437,7 +545,10 @@ export function useTextTimelineBridge() {
 				const sortedElements = [...textTrack.elements].sort(
 					(a, b) => a.startTime - b.startTime,
 				);
-				if (fromIndex >= sortedElements.length || toIndex >= sortedElements.length) {
+				if (
+					fromIndex >= sortedElements.length ||
+					toIndex >= sortedElements.length
+				) {
 					continue;
 				}
 
@@ -467,7 +578,10 @@ export function useTextTimelineBridge() {
 				const transcriptAfter = captureTranscriptSnapshot();
 				if (hasTranscriptChanged(transcriptBefore, transcriptAfter)) {
 					editor.command.push({
-						command: new TranscriptSnapshotCommand(transcriptBefore, transcriptAfter),
+						command: new TranscriptSnapshotCommand(
+							transcriptBefore,
+							transcriptAfter,
+						),
 					});
 				}
 				editor.command.commitTransaction();
@@ -499,9 +613,13 @@ export function useTextTimelineBridge() {
 	 */
 	const handleTranscribe = useCallback(async () => {
 		if (!isConnected) {
-			toast.error("AI backend is not connected", {
+			// Customer-facing copy names no backend, service, or setup command —
+			// the technical pointer is a developer hint only (see
+			// `views/director.tsx`'s friendly-error pattern).
+			toast.error("Transcription isn't available right now", {
 				description:
-					"Start the AI backend to enable transcription. Click the AI status indicator for setup instructions.",
+					transcriptionSetupHint() ||
+					"Please try again in a moment. If it keeps happening, reload the editor.",
 			});
 			return;
 		}
@@ -516,7 +634,8 @@ export function useTextTimelineBridge() {
 					(track.type === "video" || track.type === "audio") &&
 					hasMediaId(element as TimelineElement)
 				) {
-					foundMediaId = (element as TimelineElement & { mediaId: string }).mediaId;
+					foundMediaId = (element as TimelineElement & { mediaId: string })
+						.mediaId;
 					break;
 				}
 			}
@@ -525,8 +644,7 @@ export function useTextTimelineBridge() {
 
 		if (!foundMediaId) {
 			toast.error("No video or audio found", {
-				description:
-					"Import a video or audio file first, then transcribe it.",
+				description: "Import a video or audio file first, then transcribe it.",
 			});
 			return;
 		}
@@ -546,10 +664,27 @@ export function useTextTimelineBridge() {
 		try {
 			const result = await transcribeVideo(mediaAsset.file);
 
+			// `transcribeVideo` writes the backend's raw ASSET-RELATIVE segments
+			// into the store. Re-write them in the store's TIMELINE-ABSOLUTE
+			// contract, stamped with provenance, using the asset's own placement —
+			// otherwise every later cut is off by `startTime - trimStart` on any
+			// clip that isn't sitting untrimmed at 0.
+			const offset =
+				ingestOffsetForMedia({
+					tracks: editor.timeline.getTracks(),
+					mediaId: foundMediaId,
+				}) ?? 0;
+			const normalized = toTimelineSegments({
+				segments: result?.segments ?? [],
+				offsetSeconds: offset,
+				mediaId: foundMediaId,
+			});
+			useTranscriptStore.getState().setSegments(normalized);
+
 			// Auto-split the video at segment boundaries so each
 			// transcript segment maps to its own timeline clip
-			if (result?.segments && result.segments.length > 1) {
-				splitTimelineAtSegmentBoundaries(result.segments);
+			if (normalized.length > 1) {
+				splitTimelineAtSegmentBoundaries(normalized);
 			}
 
 			toast.success("Transcription complete", {

@@ -12,10 +12,24 @@
  *    timebase as a clip's `trimStart`/`trimEnd`, so segment boundaries ARE
  *    valid cut points with no conversion.
  *  - {@link fromTranscriptionResult} adapts the shared `TranscriptionResult`
- *    shape (local Whisper or the server engine) into a lean stored record.
- *    Word-level timings are deliberately DROPPED: the local path synthesizes
- *    them by even splitting (fake precision), and sentence boundaries are the
- *    cut points that matter.
+ *    shape into a lean stored record, INCLUDING per-word timings.
+ *
+ *    Words used to be dropped here, and that was right at the time: the only
+ *    engine was on-device Whisper, whose `onnx-community/whisper-*` exports
+ *    carry no cross-attentions, so the pipeline synthesized word times by
+ *    splitting a phrase's span evenly across its tokens — fake precision that
+ *    would have put cuts on invented boundaries. MAI-Transcribe-2 returns
+ *    REAL per-word alignment (`modelOptions.timestamps: "word"`, see
+ *    `app/api/transcribe/route.ts`), so the timings are now worth keeping:
+ *    they are what lets auto-cut remove a filler word from the MIDDLE of a
+ *    sentence instead of only cutting whole filler-only segments (WORD MODE
+ *    in `lib/auto-cut/filler-detect.ts`).
+ *
+ *    COST: words are the bulk of a stored record — roughly 6x the segment
+ *    payload (see `asset-transcript.test.ts`, which measures it rather than
+ *    assuming). `confidence` is deliberately NOT stored: Azure reports it per
+ *    PHRASE and the route copies that one value onto every word, so per-word
+ *    confidence carries no information a segment-level field wouldn't.
  *  - {@link selectTranscriptionCandidates} — which assets an auto-transcribe
  *    batch should process (speech-bearing media: video + audio, with a File).
  *  - {@link windowSegments} / {@link renderTranscriptDigest} shape a transcript
@@ -29,6 +43,20 @@
 import type { MediaAsset } from "@/types/assets";
 import type { TranscriptionResult } from "@/types/ai";
 
+/**
+ * One word with REAL provider alignment, in ASSET-RELATIVE seconds — the same
+ * timebase as its parent segment. Structurally identical to `TimedWord` in
+ * `lib/auto-cut/filler-detect.ts` on purpose: a stored segment satisfies that
+ * module's `DetectableSegment` with no adapter in between.
+ */
+export interface TranscriptWordLite {
+	word: string;
+	/** Word start, seconds from the start of the SOURCE media. */
+	start: number;
+	/** Word end, seconds from the start of the SOURCE media. */
+	end: number;
+}
+
 /** One spoken segment (roughly a sentence/phrase) in ASSET-RELATIVE seconds. */
 export interface TranscriptSegmentLite {
 	/** Segment start, seconds from the start of the SOURCE media. */
@@ -36,6 +64,13 @@ export interface TranscriptSegmentLite {
 	/** Segment end, seconds from the start of the SOURCE media. */
 	end: number;
 	text: string;
+	/**
+	 * Per-word timings, when the engine supplied them. Absent on records
+	 * written before word persistence landed, and on any engine that doesn't
+	 * align words — consumers MUST treat this as optional and degrade (see
+	 * {@link isWordTimed}).
+	 */
+	words?: TranscriptWordLite[];
 }
 
 /**
@@ -55,8 +90,39 @@ export interface AssetTranscript {
 	durationSec: number;
 	/** Which engine produced this ("whisper-local" or a server engine name). */
 	engine: string;
+	/**
+	 * Which transcription style the provider was asked for.
+	 *
+	 * MATTERS FOR AUTO-CUT: a "clean" transcript has had its filler words
+	 * removed by the provider, so there is no "um" left in `text` to find —
+	 * filler detection over one reports zero fillers, which reads as "this
+	 * speaker has none" when it actually means "we never asked for them".
+	 * Absent on records written before this field existed (treat as unknown).
+	 */
+	style?: "clean" | "verbatim";
 	/** When the transcript was produced (epoch ms). */
 	createdAt: number;
+}
+
+/**
+ * True when every non-empty segment carries real per-word timings — i.e. this
+ * record can drive WORD MODE filler detection rather than degrading to
+ * whole-segment cuts. False for records written before word persistence.
+ */
+export function isWordTimed(t: AssetTranscript): boolean {
+	const speech = t.segments.filter((s) => s.text.trim().length > 0);
+	return speech.length > 0 && speech.every((s) => !!s.words?.length);
+}
+
+/**
+ * True when this record can support mid-sentence filler removal: it needs word
+ * timings to localize a cut AND a verbatim style, because a "clean" transcript
+ * has no fillers in it to localize. Records predating {@link AssetTranscript.style}
+ * report `undefined` style and are treated as unusable here rather than
+ * silently producing a confident "no fillers found".
+ */
+export function supportsFillerRemoval(t: AssetTranscript): boolean {
+	return t.style === "verbatim" && isWordTimed(t);
 }
 
 /** True when the transcript contains any real speech. */
@@ -64,23 +130,61 @@ export function hasSpeech(t: AssetTranscript): boolean {
 	return t.segments.some((s) => s.text.trim().length > 0);
 }
 
+/** Round a time to whole milliseconds — finer than any cut needs, and it keeps
+ *  stored values (and therefore test expectations) free of float dust. */
+const toMs = (t: number) => Math.round(t * 1000) / 1000;
+
 /**
- * Adapt the shared {@link TranscriptionResult} (local Whisper / server engine)
- * into the lean stored record: keep segment timings + text, drop word-level
- * data (see module doc), drop empty segments, clamp negative/inverted spans.
+ * Normalize one segment's provider words into the stored shape.
+ *
+ * Drops empty tokens, and CLAMPS every word into its parent segment's span.
+ * Clamping shrinks rather than expands on purpose: a word that claims to run
+ * past its phrase is bad provider data, and the safe reading of bad data here
+ * is the narrower one — {@link fromTranscriptionResult}'s output feeds cut
+ * ranges, so over-reaching would eat a neighbouring word's audio, while
+ * under-reaching only leaves a few ms of filler behind.
+ *
+ * Returns `undefined` (not `[]`) when nothing survives, so "engine gave no
+ * words" and "engine gave words" stay distinguishable downstream.
+ */
+function normalizeWords(
+	words: readonly { word?: string; start?: number; end?: number }[] | undefined,
+	segStart: number,
+	segEnd: number,
+): TranscriptWordLite[] | undefined {
+	if (!words?.length) return undefined;
+	const out: TranscriptWordLite[] = [];
+	for (const w of words) {
+		const word = (w.word ?? "").trim();
+		if (!word) continue;
+		const start = Math.min(Math.max(w.start ?? segStart, segStart), segEnd);
+		const end = Math.min(Math.max(w.end ?? start, start), segEnd);
+		out.push({ word, start: toMs(start), end: toMs(end) });
+	}
+	return out.length > 0 ? out : undefined;
+}
+
+/**
+ * Adapt the shared {@link TranscriptionResult} into the lean stored record:
+ * keep segment timings + text + per-word timings (see module doc), drop empty
+ * segments, clamp negative/inverted spans.
  */
 export function fromTranscriptionResult(
 	mediaId: string,
-	result: TranscriptionResult & { engine?: string },
+	result: TranscriptionResult & {
+		engine?: string;
+		style?: "clean" | "verbatim";
+	},
 	now: number = Date.now(),
 ): AssetTranscript {
 	const segments: TranscriptSegmentLite[] = [];
 	for (const seg of result.segments ?? []) {
 		const text = (seg.text ?? "").trim();
 		if (!text) continue;
-		const start = Math.max(0, seg.start ?? 0);
-		const end = Math.max(start, seg.end ?? start);
-		segments.push({ start, end, text });
+		const start = toMs(Math.max(0, seg.start ?? 0));
+		const end = toMs(Math.max(start, seg.end ?? start));
+		const words = normalizeWords(seg.words, start, end);
+		segments.push(words ? { start, end, text, words } : { start, end, text });
 	}
 	return {
 		mediaId,
@@ -88,6 +192,7 @@ export function fromTranscriptionResult(
 		language: result.language ?? "en",
 		durationSec: result.duration ?? segments.at(-1)?.end ?? 0,
 		engine: result.engine ?? "unknown",
+		...(result.style ? { style: result.style } : {}),
 		createdAt: now,
 	};
 }

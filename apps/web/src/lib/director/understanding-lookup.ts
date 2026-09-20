@@ -27,6 +27,7 @@
 import {
 	type AssetUnderstanding as CanonicalUnderstanding,
 	effectiveRole,
+	normalizeMotion,
 	type StyleProbe,
 } from "@/lib/search/asset-understanding";
 import { getAllUnderstandings } from "@/services/search/asset-understanding-store";
@@ -53,6 +54,11 @@ export type StyleProbeLookup = (mediaId: string) => StyleProbe | undefined;
 export function adaptUnderstandingForManifest(
 	u: CanonicalUnderstanding,
 ): ManifestUnderstanding {
+	// `motion` runs through `normalizeMotion` rather than passing straight
+	// through: a record persisted before motion was narrowed to the measured
+	// three-class vocabulary can still carry `pan`/`handheld`, and the store is
+	// schema-less with no migration. Normalizing on READ is the migration.
+	const motion = normalizeMotion(u.motion);
 	return {
 		mediaId: u.mediaId,
 		caption: u.caption,
@@ -78,7 +84,7 @@ export function adaptUnderstandingForManifest(
 		// through when present, same "spread only when set" discipline as
 		// styleProbe above. A SHALLOW canonical record (predates the widening, or
 		// degraded) simply has none of these — the manifest side degrades silently.
-		...(u.motion ? { motion: u.motion } : {}),
+		...(motion ? { motion } : {}),
 		...(u.shotType ? { shotType: u.shotType } : {}),
 		...(u.composition
 			? {

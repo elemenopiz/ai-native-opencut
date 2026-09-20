@@ -4,6 +4,15 @@ import type { TranscriptionWord, TranscriptionSegment } from "@/types/ai";
 // Types
 // ---------------------------------------------------------------------------
 
+/**
+ * A time range in whatever timebase the caller is working in.
+ *
+ * Everything in this module is pure arithmetic over the transcript's OWN
+ * numbers — it does no timeline conversion. The transcript store holds
+ * TIMELINE-ABSOLUTE times, and `useTextTimelineBridge` re-resolves the ranges
+ * these functions produce against the live timeline (see
+ * `lib/timeline/transcript-timebase.ts`) before cutting anything.
+ */
 export interface TimeRange {
 	start: number;
 	end: number;
@@ -151,6 +160,14 @@ export function computeReorderTimeline(
  *
  * We skip the very first start and very last end since those are the media
  * boundaries – splitting there would be a no-op.
+ *
+ * ⚠️ TIMEBASE: this reads segment times as-is, so it is only correct when they
+ * are already TIMELINE-ABSOLUTE and the asset sits as a single untrimmed clip.
+ * For anything else use `computeTranscriptSplitPoints` in
+ * `lib/timeline/transcript-timebase.ts`, which resolves each ASSET-RELATIVE
+ * boundary through the clip's placement (and handles an asset split into
+ * several pieces). Kept for the merge/cut helpers' shared shape; the
+ * text-timeline bridge no longer calls it.
  */
 export function computeSplitPointsFromSegments(
 	segments: TranscriptionSegment[],

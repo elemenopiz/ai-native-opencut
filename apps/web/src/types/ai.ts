@@ -9,10 +9,29 @@ export interface TranscriptionWord {
 export interface TranscriptionSegment {
 	id: number;
 	text: string;
+	/**
+	 * TIMELINE-ABSOLUTE seconds, once the segment is in `useTranscriptStore`.
+	 * Transcription backends emit ASSET-RELATIVE times; every ingest path
+	 * converts them via `lib/timeline/transcript-timebase.ts` before storing,
+	 * because the renderer and subtitle builder match these against element
+	 * `startTime`. See that module's header for the full rule.
+	 */
 	start: number;
+	/** TIMELINE-ABSOLUTE seconds — see `start`. */
 	end: number;
 	words: TranscriptionWord[];
 	speaker?: string;
+	/** Provenance: the media asset these times were transcribed from. */
+	mediaId?: string;
+	/**
+	 * ASSET-RELATIVE start as the backend reported it, kept so a later timeline
+	 * operation can re-project this segment onto wherever the footage sits now
+	 * (the clip may have been trimmed, moved, or split since). Absent on
+	 * segments from older projects.
+	 */
+	sourceStart?: number;
+	/** ASSET-RELATIVE end as the backend reported it — see `sourceStart`. */
+	sourceEnd?: number;
 }
 
 export interface TranscriptionResult {
