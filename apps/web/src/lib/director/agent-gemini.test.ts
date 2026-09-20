@@ -243,7 +243,11 @@ test("brain seam: explicit gemini brain surfaces GeminiKeyMissingError when unco
 	).rejects.toBeInstanceOf(GeminiKeyMissingError);
 });
 
-test("brain seam: auto falls frontier → gemini, then fails loud with a config error (local fallback retired)", async () => {
+test("brain seam: a missing Anthropic key fails loud — NO fallback to gemini or the local loop", async () => {
+	// Anthropic is the only Director brain. This test is the regression guard on
+	// that guarantee: the Director used to fall frontier → gemini → (once) a
+	// local Ollama loop, which meant a deploy missing ANTHROPIC_API_KEY silently
+	// ran on a different, weaker model. A missing key must now be an error.
 	const relaysHit: string[] = [];
 	global.fetch = mock(async (input: string | URL | Request) => {
 		const url = String(input);
@@ -254,9 +258,13 @@ test("brain seam: auto falls frontier → gemini, then fails loud with a config 
 				{ status: 503, headers: { "content-type": "application/json" } },
 			);
 		}
+		// Reachable only on a regression — a healthy Gemini relay here would let
+		// a reintroduced fallback pass silently, so answer 200 on purpose.
 		return new Response(
-			JSON.stringify({ error: "gemini_not_configured", message: "" }),
-			{ status: 503, headers: { "content-type": "application/json" } },
+			JSON.stringify({
+				candidates: [{ content: { parts: [{ text: "gemini answered" }] } }],
+			}),
+			{ status: 200, headers: { "content-type": "application/json" } },
 		);
 	}) as unknown as typeof fetch;
 
@@ -269,14 +277,40 @@ test("brain seam: auto falls frontier → gemini, then fails loud with a config 
 				return '{"final":"local brain speaking"}';
 			},
 			userMessage: "hi",
-			brain: "auto",
 		}),
 	).rejects.toThrow(/No Director brain is configured/);
 
-	// Both relays were consulted (in order); the retired local text loop never ran.
+	// ONLY the Anthropic relay was consulted. Neither the Gemini relay nor the
+	// retired local text loop ran.
+	expect(relaysHit).toHaveLength(1);
 	expect(relaysHit[0]).toContain("/api/llm/agent");
-	expect(relaysHit[1]).toContain("/api/llm/gemini");
+	expect(relaysHit.some((u) => u.includes("/api/llm/gemini"))).toBe(false);
 	expect(chatInvoked).toBe(false);
+});
+
+test("brain seam: default brain is frontier Claude (no brain option passed)", async () => {
+	const relaysHit: string[] = [];
+	global.fetch = mock(async (input: string | URL | Request) => {
+		relaysHit.push(String(input));
+		return new Response(
+			JSON.stringify({
+				content: [{ type: "text", text: "claude answered" }],
+				stop_reason: "end_turn",
+				model: "claude-opus-5",
+				usage: { input_tokens: 1, output_tokens: 1 },
+			}),
+			{ status: 200, headers: { "content-type": "application/json" } },
+		);
+	}) as unknown as typeof fetch;
+
+	await runDirectorAgent({
+		director: fakeDirector(),
+		chat: noopChat,
+		userMessage: "hi",
+	});
+
+	expect(relaysHit[0]).toContain("/api/llm/agent");
+	expect(relaysHit.some((u) => u.includes("/api/llm/gemini"))).toBe(false);
 });
 
 test("cooperative cancel stops the run but keeps completed steps", async () => {

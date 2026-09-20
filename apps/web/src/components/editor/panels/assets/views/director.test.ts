@@ -18,7 +18,7 @@ describe("classifyAgentError — friendly primary-copy line", () => {
 	it("maps no-brain-configured to a deployment-setup line", () => {
 		expect(
 			classifyAgentError(
-				"No Director brain is configured. Set ANTHROPIC_API_KEY (Claude) or GEMINI_API_KEY (Gemini) in apps/web/.env.local.",
+				"No Director brain is configured. Set ANTHROPIC_API_KEY in apps/web/.env.local.",
 			),
 		).toBe("AI isn't set up on this deployment yet.");
 	});
