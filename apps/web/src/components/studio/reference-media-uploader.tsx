@@ -8,24 +8,12 @@ import {
 	CheckmarkBadge01Icon,
 	ImageAdd02Icon,
 } from "@hugeicons/core-free-icons";
-import { Button } from "@/components/ui/button";
-import {
-	Dialog,
-	DialogClose,
-	DialogContent,
-	DialogDescription,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/utils/ui";
 import { useEditor } from "@/hooks/use-editor";
 import { getDragData } from "@/lib/drag-data";
-import { isAssetRef, normalizeAssetUri } from "@/lib/studio/asset-ref";
+import { isAssetRef } from "@/lib/studio/asset-ref";
 import { uploadReferenceFile } from "@/lib/studio/reference-upload";
-import type { SavedVerifiedAsset } from "@/lib/studio/saved-verified-assets";
 
 /** A single reference attachment for Seedance omni-reference. */
 export interface ReferenceMediaItem {
@@ -88,19 +76,6 @@ interface ReferenceMediaUploaderProps {
 	 *  prompt (see generation-form.tsx). Omit to keep the tag a plain,
 	 *  non-interactive label (existing callers unaffected). */
 	onHandleClick?: (id: string) => void;
-	/** Enables the "Add verified asset" control: paste a BytePlus
-	 *  `asset://<asset_id>` URI to reference a consent-verified real-human
-	 *  likeness. Opt-in (default off) so only the Seedance omni-reference
-	 *  surface offers it; existing callers are unaffected. */
-	allowVerifiedAsset?: boolean;
-	/** The owner's saved verified assets, shown as one-click quick-picks in the
-	 *  add dialog (BytePlus has no list API, so the owner pastes each once and
-	 *  the parent persists it). Only meaningful with `allowVerifiedAsset`. */
-	savedAssets?: SavedVerifiedAsset[];
-	/** Persist a newly-pasted verified asset to the owner's shortlist. */
-	onSaveAsset?: (asset: Omit<SavedVerifiedAsset, "id">) => void;
-	/** Drop a saved verified asset from the owner's shortlist. */
-	onRemoveSavedAsset?: (id: string) => void;
 }
 
 /**
@@ -117,23 +92,11 @@ export function ReferenceMediaUploader({
 	disabled,
 	className,
 	onHandleClick,
-	allowVerifiedAsset = false,
-	savedAssets,
-	onSaveAsset,
-	onRemoveSavedAsset,
 }: ReferenceMediaUploaderProps) {
 	const imagesOnly = accept === "image";
 	const editor = useEditor();
 	const inputRef = useRef<HTMLInputElement>(null);
 	const [dragging, setDragging] = useState(false);
-	const [assetDialogOpen, setAssetDialogOpen] = useState(false);
-	const [assetUri, setAssetUri] = useState("");
-	const [assetLabel, setAssetLabel] = useState("");
-	// Deliberately unselected until the user picks: a BytePlus asset id is
-	// opaque (nothing says image vs video), and the kind decides whether the
-	// URI is sent as reference_image or reference_video — a silent "image"
-	// default mislabeled real video assets.
-	const [assetKind, setAssetKind] = useState<"image" | "video" | null>(null);
 
 	const itemsRef = useRef(items);
 	itemsRef.current = items;
@@ -306,59 +269,6 @@ export function ReferenceMediaUploader({
 		[applyChange],
 	);
 
-	// Attach a verified real-human asset by its BytePlus URI. Unlike a file, an
-	// `asset://` reference is already the value the provider wants, so it skips
-	// upload/normalize entirely and lands in the list as a ready item. Returns
-	// false (with a toast) when the per-kind cap is hit, so callers can bail.
-	const addAssetItem = useCallback(
-		(uri: string, kind: "image" | "video", label?: string): boolean => {
-			if (capReached(kind)) {
-				toast.error(
-					kind === "video"
-						? `Max ${MAX_OMNI_VIDEOS} reference videos`
-						: `Max ${MAX_OMNI_IMAGES} reference images`,
-				);
-				return false;
-			}
-			applyChange([
-				...itemsRef.current,
-				{
-					id: crypto.randomUUID(),
-					url: uri,
-					kind,
-					name: label?.trim() || `Verified ${kind}`,
-					status: "ready",
-				},
-			]);
-			return true;
-		},
-		[applyChange, capReached],
-	);
-
-	// Dialog "Add reference" — validate the pasted URI, attach it, and persist
-	// it to the owner's shortlist for one-click reuse next time.
-	const addFromDialog = useCallback(() => {
-		const uri = normalizeAssetUri(assetUri);
-		if (!uri) {
-			toast.error("Enter a BytePlus asset URI, e.g. asset://asset-….");
-			return;
-		}
-		if (!assetKind) {
-			toast.error(
-				"Pick Portrait image or Video — the type can't be read from the asset id.",
-			);
-			return;
-		}
-		const label = assetLabel.trim();
-		if (!addAssetItem(uri, assetKind, label)) return;
-		// Raw (possibly empty) label — the store fills in a fallback and, on a
-		// re-paste of a known URI, updates the saved kind instead of no-op'ing.
-		onSaveAsset?.({ uri, kind: assetKind, label });
-		setAssetUri("");
-		setAssetLabel("");
-		setAssetDialogOpen(false);
-	}, [assetUri, assetLabel, assetKind, addAssetItem, onSaveAsset]);
-
 	return (
 		<div className={cn("flex flex-wrap gap-2", className)}>
 			<input
@@ -485,138 +395,6 @@ export function ReferenceMediaUploader({
 						className="size-[17px] text-muted-foreground"
 					/>
 				</button>
-			)}
-
-			{!disabled && allowVerifiedAsset && (
-				<>
-					<button
-						type="button"
-						onClick={() => setAssetDialogOpen(true)}
-						title="Add a verified real-human asset by its BytePlus asset:// URI"
-						aria-label="Add verified real-human asset"
-						className="flex h-20 w-[106px] shrink-0 flex-col items-center justify-center gap-1 rounded-xl border-[1.5px] border-dashed border-foreground/[0.18] text-muted-foreground transition-colors hover:border-foreground/30"
-					>
-						<HugeiconsIcon
-							icon={CheckmarkBadge01Icon}
-							className="size-[17px]"
-						/>
-						<span className="text-[9px] font-medium">Verified ID</span>
-					</button>
-
-					<Dialog
-						open={assetDialogOpen}
-						onOpenChange={(open) => {
-							setAssetDialogOpen(open);
-							// Every add starts with the type unselected — carrying the
-							// previous choice over is how a video got saved as "image".
-							if (!open) setAssetKind(null);
-						}}
-					>
-						<DialogContent className="sm:max-w-md">
-							<DialogHeader>
-								<DialogTitle>Add a verified real-human asset</DialogTitle>
-								<DialogDescription>
-									Paste a BytePlus asset URI from ModelArk → My assets →
-									Real-human. It's sent to Seedance as a consent-verified
-									reference, so a real face isn't blocked.
-								</DialogDescription>
-							</DialogHeader>
-							<div className="space-y-3 py-1">
-								{savedAssets && savedAssets.length > 0 && (
-									<div className="space-y-1.5">
-										<span className="text-[11px] font-medium text-muted-foreground">
-											Your verified assets — click to add
-										</span>
-										<div className="flex flex-col gap-1">
-											{savedAssets.map((a) => (
-												<div
-													key={a.id}
-													className="flex items-center gap-1 rounded-md border border-border px-2 py-1"
-												>
-													<button
-														type="button"
-														onClick={() => {
-															if (addAssetItem(a.uri, a.kind, a.label))
-																setAssetDialogOpen(false);
-														}}
-														title={a.uri}
-														className="flex min-w-0 flex-1 items-center gap-2 text-left"
-													>
-														<HugeiconsIcon
-															icon={CheckmarkBadge01Icon}
-															className="size-3.5 shrink-0 text-foreground/50"
-														/>
-														<span className="truncate text-[12px] font-medium">
-															{a.label}
-														</span>
-														<span className="shrink-0 text-[10px] text-muted-foreground">
-															{a.kind}
-														</span>
-													</button>
-													{onRemoveSavedAsset && (
-														<button
-															type="button"
-															onClick={() => onRemoveSavedAsset(a.id)}
-															aria-label={`Forget ${a.label}`}
-															className="shrink-0 text-muted-foreground hover:text-foreground"
-														>
-															<HugeiconsIcon
-																icon={Cancel01Icon}
-																className="size-3"
-															/>
-														</button>
-													)}
-												</div>
-											))}
-										</div>
-										<span className="text-[11px] text-muted-foreground">
-											Or add a new one:
-										</span>
-									</div>
-								)}
-								<Input
-									value={assetUri}
-									onChange={(e) => setAssetUri(e.target.value)}
-									onKeyDown={(e) => {
-										if (e.key === "Enter") {
-											e.preventDefault();
-											addFromDialog();
-										}
-									}}
-									placeholder="asset://asset-20260715220651-2f74b"
-								/>
-								<Input
-									value={assetLabel}
-									onChange={(e) => setAssetLabel(e.target.value)}
-									placeholder="Label (optional) — e.g. Zak front"
-								/>
-								<div className="flex gap-2">
-									{(["image", "video"] as const).map((k) => (
-										<button
-											key={k}
-											type="button"
-											onClick={() => setAssetKind(k)}
-											className={cn(
-												"rounded-md border px-2.5 py-1 text-[12px] font-medium transition-colors",
-												assetKind === k
-													? "border-foreground/40 bg-foreground/[0.06] text-foreground"
-													: "border-border text-muted-foreground hover:text-foreground",
-											)}
-										>
-											{k === "image" ? "Portrait image" : "Video"}
-										</button>
-									))}
-								</div>
-							</div>
-							<DialogFooter>
-								<DialogClose asChild>
-									<Button variant="ghost">Cancel</Button>
-								</DialogClose>
-								<Button onClick={addFromDialog}>Add reference</Button>
-							</DialogFooter>
-						</DialogContent>
-					</Dialog>
-				</>
 			)}
 		</div>
 	);

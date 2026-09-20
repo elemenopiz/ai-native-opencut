@@ -36,11 +36,8 @@ import {
 	STILL_SIZE_BY_ORIENTATION,
 } from "@/lib/studio/options";
 import { estimateGenerationSeconds } from "@/lib/studio/generation-eta";
-import { useSession } from "@/lib/auth/client";
 import { useAiAccess } from "@/hooks/use-ai-access";
 import { AiAccessNotice } from "@/components/ai-access-notice";
-import { isOwnerEmail } from "@/lib/credits/signup-grant";
-import { useSavedVerifiedAssets } from "@/lib/studio/saved-verified-assets";
 import { useBackends } from "@/hooks/use-backends";
 // Client-safe: registry.ts is pure data (a Map + type imports), no secret env.
 import { DEFAULT_BACKEND_ID } from "@/lib/studio/backends/registry";
@@ -318,12 +315,6 @@ export function GenerationForm({
 	// Omni references (images + videos) — drag from Assets, drop, or browse.
 	const [refMedia, setRefMedia] = useState<ReferenceMediaItem[]>([]);
 	const refUploading = refMedia.some((r) => r.status === "uploading");
-	// Verified real-human assets (BytePlus `asset://`) are owner-only: every
-	// asset lives under the single BYTEPLUS_API_KEY account, so a picker shown
-	// to other users would expose the owner's likeness. Gated to OWNER_EMAILS.
-	const { data: session } = useSession();
-	const isOwner = isOwnerEmail(session?.user?.email);
-	const savedVerifiedAssets = useSavedVerifiedAssets();
 	// Early-access / owner-only gate for AI generation — anonymous visitors and
 	// newly-created accounts can still browse/edit, just not spend AI credits.
 	const { signedIn, aiAccess, loading: aiAccessLoading } = useAiAccess();
@@ -1085,10 +1076,6 @@ export function GenerationForm({
 								handles={handleMap}
 								disabled={busy}
 								onHandleClick={insertHandleFromThumb}
-								allowVerifiedAsset={supportsOmniRef && isOwner}
-								savedAssets={savedVerifiedAssets.assets}
-								onSaveAsset={savedVerifiedAssets.add}
-								onRemoveSavedAsset={savedVerifiedAssets.remove}
 							/>
 						</>
 					)}
