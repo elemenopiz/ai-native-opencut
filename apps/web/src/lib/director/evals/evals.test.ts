@@ -58,11 +58,50 @@ import {
 	APPLY_EDIT_FIXTURE_HISTORY_LENGTH,
 	applyEditScenario,
 } from "./apply-edit-scenario";
+import {
+	DEMO_PATH_TOTAL_DURATION_SEC,
+	demoPathAssembleRefineExportScenario,
+} from "./demo-path-assemble-refine-export-scenario";
+import {
+	THIN_INVENTORY_SCENARIO_EXPECTED_SUMMARY,
+	thinInventoryDraftCutScenario,
+} from "./thin-inventory-draft-cut-scenario";
+import {
+	TIGHTEN_UNREACHABLE_MIN_CLIP_DURATION_SEC,
+	tightenTargetUnreachableScenario,
+} from "./tighten-target-unreachable-scenario";
+import {
+	STALE_ELEMENT_ID,
+	staleReferenceScenario,
+} from "./stale-reference-scenario";
+import {
+	NSFW_SCENARIO_EXPECTED_ATTEMPTS,
+	generationNsfwScenario,
+	getNsfwAttemptCount,
+} from "./generation-nsfw-scenario";
+import {
+	RATE_LIMIT_SCENARIO_EXPECTED_ATTEMPTS,
+	generationRateLimitScenario,
+	getRateLimitAttemptCount,
+} from "./generation-rate-limit-scenario";
+import {
+	STUCK_TIMEOUT_SCENARIO_EXPECTED_ATTEMPTS,
+	generationStuckTimeoutScenario,
+	getStuckTimeoutAttemptCount,
+} from "./generation-stuck-timeout-scenario";
+import {
+	IP_DETECTED_SCENARIO_DESIRED_ATTEMPTS,
+	generationIpDetectedScenario,
+	getIpDetectedAttemptCount,
+} from "./generation-ip-detected-scenario";
 import { runScenario } from "./runner";
 import {
 	assertKnownVerbs,
+	assertNoMutation,
+	assertNoOrphanedElements,
 	assertNoUnhandledErrors,
 	assertScenario,
+	assertTerminated,
 } from "./assertions";
 
 const originalFetch = globalThis.fetch;
@@ -93,6 +132,17 @@ const allScenarios = [
 	multiStepUndoScenario,
 	generationFailureScenario,
 	applyEditScenario,
+	// ── Wave 2 additions: the demo path + its seams + its named failure modes ──
+	demoPathAssembleRefineExportScenario,
+	thinInventoryDraftCutScenario,
+	tightenTargetUnreachableScenario,
+	generationNsfwScenario,
+	generationRateLimitScenario,
+	generationStuckTimeoutScenario,
+	generationIpDetectedScenario,
+	// NOT included: staleReferenceScenario — like brokenVerbScenario, it's a
+	// deliberate ok:false-step fixture (see its own header) and gets its own
+	// dedicated test below instead of the generic sweep.
 ];
 
 describe("Director eval harness — deterministic tier", () => {
@@ -410,6 +460,213 @@ describe("Director eval harness — deterministic tier", () => {
 		expect(run.modelCallCount).toBe(1);
 		expect(run.awaitingApproval).toBe(false);
 		expect(run.finalMessage.length).toBeGreaterThan(0);
+	});
+
+	test("demo-path scenario: draftCut assembles real footage, cutOnBeat snaps the join, export produces a file", async () => {
+		const run = await runScenario(demoPathAssembleRefineExportScenario);
+
+		// draftCut placed exactly the two clips the scripted Treatment planned —
+		// RESULTING STATE, not "was draftCut called" (already covered by
+		// mustCallVerbs).
+		const videoElements =
+			run.timelineAfter?.tracks
+				.filter((t) => t.kind === "video")
+				.flatMap((t) => t.elements) ?? [];
+		expect(videoElements).toHaveLength(2);
+
+		// cutOnBeat's snap landed on the SAME numbers
+		// `craft-cut-on-beat-scenario.ts` pins for an identical fixture shape —
+		// the join moved from 3.9s onto the 4.0s beat. draftCut mints its own
+		// element ids, so these are read off the resulting elements by position
+		// (sorted by start time), not by a hardcoded id.
+		const sorted = [...videoElements].sort((a, b) => a.startSec - b.startSec);
+		expect(sorted[0]?.durationSec).toBeCloseTo(4.0, 5);
+		expect(sorted[1]?.startSec).toBeCloseTo(4.0, 5);
+		expect(sorted[1]?.durationSec).toBeCloseTo(4.9, 5);
+
+		// Total VIDEO runtime is conserved by the snap (it only moves the join)
+		// — read off the video elements themselves, not
+		// `timelineAfter.totalDurationSec`, which also spans the 20s beat-source
+		// audio track this fixture seeds for cutOnBeat (see the scenario file's
+		// own `expect` comment on why `durationBoundsSec` isn't used here).
+		const videoSpanSec = Math.max(
+			...sorted.map((el) => el.startSec + el.durationSec),
+		);
+		expect(videoSpanSec).toBeCloseTo(DEMO_PATH_TOTAL_DURATION_SEC, 1);
+
+		// export actually ran and reported a real file, same assertion shape
+		// `challenge-demo-scenario.ts`'s own dedicated test uses.
+		const exportStep = run.steps.find((s) => s.action === "export");
+		expect(exportStep?.ok).toBe(true);
+		expect(exportStep?.message).toMatch(/Exported/);
+
+		// TODO(scoreCut): once scoreCut exists, add an assertion here that a
+		// scoreCut → (conditional recut) → scoreCut sequence runs BETWEEN the
+		// applyEdit step and the export step, and that the recut only fires
+		// when the score is below threshold. Not expressible yet — see this
+		// scenario's own file header.
+	});
+
+	test("thin-inventory scenario: draftCut over unmatched footage terminates cleanly with zero clips and an honest all-gap summary", async () => {
+		const run = await runScenario(thinInventoryDraftCutScenario);
+
+		const draftCutStep = run.steps[0];
+		expect(draftCutStep?.action).toBe("draftCut");
+		expect(draftCutStep?.ok).toBe(true);
+		expect(draftCutStep?.message).toBe(
+			THIN_INVENTORY_SCENARIO_EXPECTED_SUMMARY,
+		);
+
+		// Nothing was placed and nothing was invented (ADR-007) — a thin
+		// inventory degrades to an honest zero, not a hallucinated cut.
+		const elements = run.timelineAfter?.tracks.flatMap((t) => t.elements) ?? [];
+		expect(elements).toHaveLength(0);
+		expect(run.timelineAfter?.totalDurationSec).toBe(0);
+	});
+
+	test("tighten-unreachable scenario: the water-fill loop stops at its own floor instead of overshooting or claiming success", async () => {
+		const run = await runScenario(tightenTargetUnreachableScenario);
+
+		const clipOne = run.fake.find("el_floor_one")?.element;
+		const clipTwo = run.fake.find("el_floor_two")?.element;
+
+		// Neither clip was trimmed below the configured floor — the invariant
+		// that actually matters here (see this scenario's own file header): an
+		// impossible target must never be "achieved" by violating the floor.
+		expect(clipOne?.duration).toBeGreaterThanOrEqual(
+			TIGHTEN_UNREACHABLE_MIN_CLIP_DURATION_SEC,
+		);
+		expect(clipTwo?.duration).toBeGreaterThanOrEqual(
+			TIGHTEN_UNREACHABLE_MIN_CLIP_DURATION_SEC,
+		);
+		expect(clipOne?.duration).toBeCloseTo(
+			TIGHTEN_UNREACHABLE_MIN_CLIP_DURATION_SEC,
+			5,
+		);
+		expect(clipTwo?.duration).toBeCloseTo(
+			TIGHTEN_UNREACHABLE_MIN_CLIP_DURATION_SEC,
+			5,
+		);
+	});
+
+	describe("generation failure modes that fire live on camera", () => {
+		test("nsfw content-policy rejection: auto-rephrases once, then escalates cleanly (2 attempts, never the raw provider text)", async () => {
+			const run = await runScenario(generationNsfwScenario);
+
+			expect(getNsfwAttemptCount()).toBe(NSFW_SCENARIO_EXPECTED_ATTEMPTS);
+
+			const [healthySlot, flaggedSlot] = run.reelAfter.slots;
+			expect(healthySlot?.status).toBe("ready");
+			expect(flaggedSlot?.status).toBe("failed");
+
+			// No raw provider text anywhere a customer-facing surface would read
+			// from — only the generic, class-based label.
+			const generateStep = run.steps.find((s) => s.action === "generate");
+			expect(generateStep?.ok).toBe(true);
+			expect(generateStep?.message).not.toMatch(/nsfw/i);
+			expect(generateStep?.message).toMatch(/content-safety rejection/i);
+		});
+
+		test("HTTP 429 rate limiting: retries with backoff up to the ceiling, then escalates cleanly (3 attempts, never the raw status text)", async () => {
+			const run = await runScenario(generationRateLimitScenario);
+
+			expect(getRateLimitAttemptCount()).toBe(
+				RATE_LIMIT_SCENARIO_EXPECTED_ATTEMPTS,
+			);
+
+			const [healthySlot, rateLimitedSlot] = run.reelAfter.slots;
+			expect(healthySlot?.status).toBe("ready");
+			expect(rateLimitedSlot?.status).toBe("failed");
+
+			const generateStep = run.steps.find((s) => s.action === "generate");
+			expect(generateStep?.ok).toBe(true);
+			expect(generateStep?.message).not.toMatch(/429/);
+			expect(generateStep?.message).toMatch(/provider error/i);
+		});
+
+		test("stuck-queued timeout: retries with backoff up to the ceiling, then escalates cleanly (3 attempts, never naming the provider)", async () => {
+			const run = await runScenario(generationStuckTimeoutScenario);
+
+			expect(getStuckTimeoutAttemptCount()).toBe(
+				STUCK_TIMEOUT_SCENARIO_EXPECTED_ATTEMPTS,
+			);
+
+			const [healthySlot, stuckSlot] = run.reelAfter.slots;
+			expect(healthySlot?.status).toBe("ready");
+			expect(stuckSlot?.status).toBe("failed");
+
+			const generateStep = run.steps.find((s) => s.action === "generate");
+			expect(generateStep?.ok).toBe(true);
+			expect(generateStep?.message).not.toMatch(/higgsfield/i);
+			expect(generateStep?.message).toMatch(/timeout/i);
+		});
+
+		/**
+		 * FINDING (see `generation-ip-detected-scenario.ts`'s header for the
+		 * full writeup): `ip_detected` — one of Higgsfield's two documented
+		 * terminal content-policy statuses, named explicitly in the task brief
+		 * as a "terminal job status, not a retryable error" alongside `nsfw` —
+		 * is NOT recognized by `failure-classification.ts`'s `classifyFailure`.
+		 * It falls through to the `"unknown"` class, which IS retryable, so the
+		 * Director burns 2 extra retries against a request that can never
+		 * succeed instead of taking the one-rephrase-then-escalate path a
+		 * terminal rejection deserves (nsfw gets exactly that path today — see
+		 * the sibling test above, 2 attempts).
+		 *
+		 * `test.failing`: this assertion is CORRECT and will start passing for
+		 * real the moment `classifyFailure` learns to recognize `ip_detected`
+		 * (and kin: "public figure", "trademark", "recognizable likeness") as a
+		 * `class: "safety"` signal alongside `nsfw`. Bun then reports THIS test
+		 * as an unexpected pass, which is the signal to delete `.failing` here.
+		 * `failure-classification.ts` is outside `evals/`'s ownership, so the
+		 * fix belongs to a different session — this pins the bug so it can't
+		 * silently regress further or go unnoticed.
+		 */
+		test.failing(
+			"FINDING: ip_detected should be treated like nsfw (2 attempts) but is misclassified as retryable (3 attempts today)",
+			async () => {
+				const run = await runScenario(generationIpDetectedScenario);
+				expect(getIpDetectedAttemptCount()).toBe(
+					IP_DETECTED_SCENARIO_DESIRED_ATTEMPTS,
+				);
+				const [healthySlot, flaggedSlot] = run.reelAfter.slots;
+				expect(healthySlot?.status).toBe("ready");
+				expect(flaggedSlot?.status).toBe("failed");
+			},
+		);
+	});
+
+	describe("stale-reference fixture — moved/removed element the plan still targets", () => {
+		test("trim against a removed/never-existed element id fails cleanly (coaching message, zero mutation, clean close)", async () => {
+			const run = await runScenario(staleReferenceScenario);
+
+			const trimStep = run.steps.find((s) => s.action === "trim");
+			expect(trimStep?.ok).toBe(false);
+			expect(trimStep?.args.slotId).toBe(STALE_ELEMENT_ID);
+			// This is caught by `agent.ts`'s `expandIdArgs`/`ShortIdMap.expand`
+			// (see `stale-reference-scenario.ts`'s header for why it never even
+			// reaches `trim`'s own `failSlotNotFound` path) — still a clean,
+			// synthetic message, never a raw exception/stack-trace fragment.
+			expect(trimStep?.message).toContain(`Unknown id "${STALE_ELEMENT_ID}"`);
+			expect(trimStep?.message).not.toMatch(
+				/TypeError|undefined is not|at Object\.|node_modules/,
+			);
+
+			// Nothing moved as a side effect of the failed call.
+			expect(assertNoMutation(run)).toEqual([]);
+			expect(assertNoOrphanedElements(run)).toEqual([]);
+
+			// The run still closes cleanly despite the one failed step — this is
+			// the property that actually matters (a model recovering from a
+			// stale reference must not be able to wedge the loop).
+			expect(assertTerminated(run)).toEqual([]);
+
+			// This fixture's one deliberate ok:false step IS correctly flagged by
+			// the generic sweep (same proof-of-life `brokenVerbScenario`'s own
+			// dedicated test does) — that's exactly why it's excluded from
+			// `allScenarios` above rather than silently miscounted as "passing".
+			expect(assertNoUnhandledErrors(run).length).toBeGreaterThan(0);
+		});
 	});
 
 	describe("negative fixture — proves the harness can actually fail", () => {
