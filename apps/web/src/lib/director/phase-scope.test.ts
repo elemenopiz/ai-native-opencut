@@ -220,15 +220,81 @@ test("per-phase active counts stay generous but bounded (15–32)", () => {
 	// (cutOnBeat/tightenToLength/duckMusicUnderSpeech — free, instant edits on
 	// existing footage, same "editing on an already-cut reel" bucket as
 	// trim/removeSilence) landed polish-only too, pushing the shared ceiling
-	// to 32. Still a bit over half the catalog and in the same spirit as
-	// guidance.
+	// to 32.
+	//
+	// The bound then moved 32 → 33 → 34, both times for a verb that lets the
+	// model PERCEIVE the thing polish edits — a class the bucket had been
+	// silently starving because it was the cheapest thing to cut against a
+	// count:
+	//  - 32 → 33, watchBack. Polish owns every verb that changes the
+	//    COMPOSITED timeline (trim/split/reorder/addText/applyTransition/
+	//    applyEffect) and watchBack is the only verb that RENDERS it. Two
+	//    earlier passes deliberately left it production-only to avoid touching
+	//    this bound, which meant the polish surface could edit a cut it was
+	//    structurally unable to look at — the exact failure
+	//    docs/plans/2026-09-18-director-autonomy-architecture.md §7 exists to
+	//    close. The bound was the wrong thing to protect; it moved.
+	//  - 33 → 34, readMix. Same argument on the audio half (§4 of that doc):
+	//    polish owns duckMusicUnderSpeech/removeSilence/tightenToLength/
+	//    addMusicBed, and readMix is the only verb that MEASURES the mix those
+	//    act on. A remedy on the menu with no way to diagnose what it should
+	//    remedy is the same gap as an edit with no way to see it.
+	// Both are READS: they add no new mutation surface, only sight.
+	//
+	// It got nudged once more — 34 → 35, for `applyEdit` (Wave 2A, the
+	// program-engine composition verb, `lib/director/program/*`) — landing
+	// TEMPORARILY alongside the three P5 craft macros it was designed to
+	// subsume, on the explicit written promise that "the honest expectation is
+	// that a LATER pass deletes them". `applyEdit` itself added no new
+	// mutation SURFACE — every op it can perform is one of the ten primitives
+	// already in this bucket, individually — but sitting next to the macros it
+	// subsumed was never the end state.
+	//
+	// That later pass is THIS one. `cutOnBeat`, `tightenToLength` and
+	// `duckMusicUnderSpeech` are each now proven op-for-op equivalent to a
+	// program over the primitive surface (`program/programs/
+	// {cut-on-beat,tighten-to-length,duck-music-under-speech}.ts`, each with
+	// its own `*.program.test.ts` parity suite) and are DELETED — from this
+	// table, `tool-catalog.ts`, and `director-api.ts`. The bound drops
+	// 35 → 32 (the craft trio's own +3 from above, undone); `applyEdit` stays
+	// (it is the replacement, not one of the deleted three).
+	// `removeSilence` was investigated for the same treatment and STAYS
+	// undeleted: it plans through a whole-track `TracksSnapshotCommand` (not a
+	// `CraftOp[]`/primitive sequence) built from an async file-decode analysis
+	// pass this synchronous-only program engine cannot run — not expressible
+	// without inventing new capability the brief for this pass explicitly said
+	// not to force.
+	//
+	// 32 → 33, `scoreCut` (Wave 2 "scoreCut" — lib/director/scoring/
+	// score-cut.ts). Same class of addition as watchBack/readMix before it: a
+	// PERCEPTION verb (grades the assembled cut) with no local substitute,
+	// bucketed alongside the applyEdit-shaped fixes it routes a weak
+	// hook/hold-rate to — splitting the pair across phases would surface a
+	// suggestion the model can't act on. One READ, no new mutation surface.
+	//
+	// 33 → 34, `addCaptions` (Wave 3 "captions in one call" — the Director had
+	// no caption verb at all, so captioning a transcript meant issuing an
+	// addText call per DEFAULT_WORDS_PER_CAPTION-word card: ~30 calls for 45s
+	// of speech, any one of which could fail halfway and leave a half-
+	// captioned track). Unlike the last two additions this IS new mutation
+	// surface, but it belongs in the same bucket as addText/updateText it
+	// sits next to: captioning requires footage already PLACED on the
+	// timeline and already TRANSCRIBED, the identical precondition
+	// trim/split/addText share, and it produces exactly the kind of element
+	// (a text track) polish already owns end to end. Splitting it into its
+	// own phase would strand it from the verbs it composes with.
+	//
+	// Polish is still past Google's 10–20 guidance (34, vs. briefing/
+	// production's high-20s) — the still-open REBALANCE this comment has
+	// flagged since the ceiling first crossed 30 remains the honest next step
+	// if it grows again, not another nudge.
 	for (const phase of PHASES) {
 		const count = activeToolNamesForPhase(phase).length;
 		expect(
 			count,
 			`${phase} bucket too small (${count})`,
 		).toBeGreaterThanOrEqual(15);
-		expect(count, `${phase} bucket too fat (${count})`).toBeLessThanOrEqual(32);
+		expect(count, `${phase} bucket too fat (${count})`).toBeLessThanOrEqual(34);
 	}
 });
 
@@ -271,8 +337,15 @@ test("adjacent-phase jumps stay possible (pinned memberships)", () => {
 		);
 	}
 	// Polish: all timeline/text/audio verbs + export/final approval + voice
-	// consent + generate/reroll for "redo shot 3" asks.
+	// consent + generate/reroll for "redo shot 3" asks + the two PERCEPTION
+	// verbs (watchBack sees the cut, readMix measures the mix) — pinned here
+	// so a future count squeeze can't quietly make the polish surface blind
+	// again; see the count-bounds comment above for why the ceiling moved.
 	for (const name of [
+		"watchBack",
+		"readMix",
+		"scoreCut",
+		"applyEdit",
 		"trim",
 		"move",
 		"split",
@@ -282,6 +355,7 @@ test("adjacent-phase jumps stay possible (pinned memberships)", () => {
 		"addClip",
 		"addText",
 		"updateText",
+		"addCaptions",
 		"applyTransition",
 		"applyEffect",
 		"addVoiceover",

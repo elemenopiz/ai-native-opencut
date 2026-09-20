@@ -7,6 +7,8 @@
 
 import { webEnv } from "@byorn/env/web";
 import { fetchWithTimeout } from "@/lib/studio/fetch-timeout";
+import { buildReferenceContractSentence } from "@/lib/studio/personas";
+import type { ReferenceImage } from "@/lib/studio/backends/types";
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -23,6 +25,25 @@ export interface GenerateVideoParams {
 	 * Publicly-fetchable URLs (R2) so BytePlus can pull them.
 	 */
 	referenceImages?: string[];
+	/**
+	 * The roled + named form of `referenceImages` (see `ReferenceImage`'s
+	 * docblock in backends/types.ts). Optional and purely additive: when a
+	 * caller supplies it, `byteplusSubmit` appends the explicit per-reference
+	 * "use image N only for…" contract sentence
+	 * (`personas.ts`'s `buildReferenceContractSentence`) to the prompt text
+	 * before submitting — reference images themselves still go out via the
+	 * plain `referenceImages` array above, unchanged. Order MUST match
+	 * `referenceImages` 1:1 (index N here describes `referenceImages[N]`,
+	 * i.e. what the prompt calls `@ImageN+1`/`image N+1`).
+	 *
+	 * No current caller populates this yet — `backends/video/byteplus-seedance.ts`
+	 * (the only caller of `generateVideo`) forwards `referenceImageUrl` /
+	 * `referenceImages` / `referenceVideos` but not this field. Left in place,
+	 * same as `BackendRequest.realFaceReference`, so a follow-up can thread it
+	 * through (`GenerationBackend.submit` → here) without touching this
+	 * adapter's request shape again.
+	 */
+	referenceImageRefs?: ReferenceImage[];
 	referenceVideos?: string[];
 	/** First & last frame mode: the end frame to transition to (flf2v). */
 	lastFrameUrl?: string;
@@ -90,12 +111,25 @@ async function byteplusSubmit(
 	const modelId =
 		webEnv.BYTEPLUS_SEEDANCE_ENDPOINT_ID || "dreamina-seedance-2-0-260128";
 
+	// Reference role contract: when the caller supplies the roled form
+	// alongside the plain `referenceImages`, append the explicit "use image N
+	// only for…" sentence to the prompt text — see `referenceImageRefs`'s
+	// docblock above and docs/plans/2026-09-18-commercial-prompt-patterns.md §4.
+	// A caller with no roled references (today: all of them — see the
+	// docblock) gets `""` back and the prompt is sent verbatim, unchanged.
+	const contractSentence = params.referenceImageRefs
+		? buildReferenceContractSentence(params.referenceImageRefs)
+		: "";
+	const promptText = contractSentence
+		? `${params.prompt} ${contractSentence}`
+		: params.prompt;
+
 	// Build the multimodal content array. Order: prompt text, then the
 	// image-to-video first frame (if any), then any omni-reference images and
 	// videos. Each reference carries a `role` so Seedance 2.0 treats it as a
 	// conditioning reference rather than a frame to animate.
 	const content: Record<string, unknown>[] = [
-		{ type: "text", text: params.prompt },
+		{ type: "text", text: promptText },
 	];
 
 	// First frame — persona stills + First-&-last-frame mode. Only inject the

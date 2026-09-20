@@ -31,6 +31,8 @@ import {
 	type ExportQuality,
 } from "@/types/export";
 import { PLAYBOOKS, type PlaybookId } from "@/lib/studio/playbooks";
+import { DEFAULT_WORDS_PER_CAPTION } from "@/constants/transcription-constants";
+import type { SubtitleStyleOverrides } from "@/lib/subtitles/types";
 import type { DirectorApi, SpecOverride } from "./director-api";
 import type { DirectorResult } from "./types";
 import type { ConsistencyCharacter } from "./consistency-prompt";
@@ -42,6 +44,7 @@ import type {
 	ProposedShotInput,
 	ShotSource,
 } from "./reel-proposal";
+import { WATCH_BACK_MAX_FRAMES } from "./watch-back";
 
 // ── feature gate: critiqueEdit (Director-intelligence Bet 2 v1) ────────────
 //
@@ -198,6 +201,118 @@ export function asSpecOverride(v: unknown): SpecOverride | undefined {
 	// Agent-facing key is `backendId`; a raw `model` is also accepted.
 	if (o.backendId != null) out.model = String(o.backendId);
 	else if (o.model != null) out.model = String(o.model);
+	return Object.keys(out).length ? out : undefined;
+}
+
+/**
+ * Coerce a loose `transform` patch arg for `addText`/`updateText` — only the
+ * present leaf fields survive (`position.x`, `position.y`, `scale`, `rotate`);
+ * anything unparsable is dropped, letting `director-api.ts` merge the surviving
+ * fields onto the current (update) or default (create) transform field-by-field.
+ * Returns `undefined` when nothing usable is present so callers omit `transform`.
+ */
+export function asTextTransformPatch(
+	v: unknown,
+):
+	| { position?: { x?: number; y?: number }; scale?: number; rotate?: number }
+	| undefined {
+	if (!v || typeof v !== "object" || Array.isArray(v)) return undefined;
+	const o = v as Record<string, unknown>;
+	const out: {
+		position?: { x?: number; y?: number };
+		scale?: number;
+		rotate?: number;
+	} = {};
+	if (
+		o.position &&
+		typeof o.position === "object" &&
+		!Array.isArray(o.position)
+	) {
+		const p = o.position as Record<string, unknown>;
+		const x = numOrUndefined(p.x);
+		const y = numOrUndefined(p.y);
+		if (x !== undefined || y !== undefined) {
+			out.position = {
+				...(x !== undefined ? { x } : {}),
+				...(y !== undefined ? { y } : {}),
+			};
+		}
+	}
+	const scale = numOrUndefined(o.scale);
+	if (scale !== undefined) out.scale = scale;
+	const rotate = numOrUndefined(o.rotate);
+	if (rotate !== undefined) out.rotate = rotate;
+	return Object.keys(out).length ? out : undefined;
+}
+
+/**
+ * Coerce a loose `background` patch arg for `addText`/`updateText` — only
+ * `enabled`/`color` are Director-tunable (padding/corner radius/offset keep
+ * their current/default values); anything else is dropped.
+ */
+export function asTextBackgroundPatch(
+	v: unknown,
+): { enabled?: boolean; color?: string } | undefined {
+	if (!v || typeof v !== "object" || Array.isArray(v)) return undefined;
+	const o = v as Record<string, unknown>;
+	const out: { enabled?: boolean; color?: string } = {};
+	if (typeof o.enabled === "boolean") out.enabled = o.enabled;
+	if (o.color != null) out.color = String(o.color);
+	return Object.keys(out).length ? out : undefined;
+}
+
+/**
+ * Coerce a loose `style` patch arg for `addCaptions` into the reused
+ * `SubtitleStyleOverrides` shape (the SAME type `lib/subtitles/insert.ts`'s
+ * cue builder already accepts) — font/color/alignment/background only;
+ * `placement` and `fontSizeRatioOfPlayHeight` are parser-internal fields not
+ * exposed here (position goes through `transform` instead, same as
+ * `addText`/`updateText`). Unknown/ill-typed fields are dropped.
+ */
+export function asCaptionStyleOverride(
+	v: unknown,
+): SubtitleStyleOverrides | undefined {
+	if (!v || typeof v !== "object" || Array.isArray(v)) return undefined;
+	const o = v as Record<string, unknown>;
+	const out: SubtitleStyleOverrides = {};
+	const fontSize = numOrUndefined(o.fontSize);
+	if (fontSize !== undefined) out.fontSize = fontSize;
+	if (o.fontFamily != null) out.fontFamily = String(o.fontFamily);
+	if (o.color != null) out.color = String(o.color);
+	if (
+		o.textAlign === "left" ||
+		o.textAlign === "center" ||
+		o.textAlign === "right"
+	) {
+		out.textAlign = o.textAlign;
+	}
+	if (o.fontWeight === "normal" || o.fontWeight === "bold") {
+		out.fontWeight = o.fontWeight;
+	}
+	if (o.fontStyle === "normal" || o.fontStyle === "italic") {
+		out.fontStyle = o.fontStyle;
+	}
+	if (
+		o.textDecoration === "none" ||
+		o.textDecoration === "underline" ||
+		o.textDecoration === "line-through"
+	) {
+		out.textDecoration = o.textDecoration;
+	}
+	const letterSpacing = numOrUndefined(o.letterSpacing);
+	if (letterSpacing !== undefined) out.letterSpacing = letterSpacing;
+	const lineHeight = numOrUndefined(o.lineHeight);
+	if (lineHeight !== undefined) out.lineHeight = lineHeight;
+	if (
+		o.background &&
+		typeof o.background === "object" &&
+		!Array.isArray(o.background)
+	) {
+		const bg = o.background as Record<string, unknown>;
+		if (typeof bg.enabled === "boolean" && bg.color != null) {
+			out.background = { enabled: bg.enabled, color: String(bg.color) };
+		}
+	}
 	return Object.keys(out).length ? out : undefined;
 }
 
@@ -561,6 +676,97 @@ const slotSpecSchema: JSONSchema = {
 	additionalProperties: false,
 };
 
+/**
+ * `addText`/`updateText` placement — the SAME `Transform` the renderer already
+ * uses for every visual element (`lib/preview/element-bounds.ts`), not a second
+ * coordinate system: only the given leaf field(s) change, the rest keep their
+ * current (update) or default (create) value.
+ *
+ * THE ONE SENTENCE THAT MAKES THIS USABLE: `position` is in PIXELS at the
+ * project's render resolution (see `getProjectInfo`'s canvasWidth/canvasHeight),
+ * measured from the CANVAS CENTER — not the top-left — with +x pointing right
+ * and +y pointing down, so `{x: 0, y: 0}` is dead center and e.g. `{x: 0, y:
+ * canvasHeight * 0.35}` sits in the lower third.
+ */
+const textTransformProp: JSONSchema = {
+	type: "object",
+	description:
+		"Where to place the overlay. `position` is in PIXELS at the project's render resolution (see getProjectInfo's canvasWidth/canvasHeight), measured from the CANVAS CENTER (not the top-left): +x = right, +y = down, {x:0,y:0} = dead center — e.g. {x:0, y: canvasHeight*0.35} lands in the lower third. `scale`: 1 = the text's natural size (default). `rotate`: degrees clockwise. Omit any field to leave it unchanged.",
+	properties: {
+		position: {
+			type: "object",
+			description: "Pixel offset from canvas center; +x right, +y down.",
+			properties: {
+				x: {
+					type: "number",
+					description: "Pixels right of canvas center (negative = left).",
+				},
+				y: {
+					type: "number",
+					description: "Pixels down from canvas center (negative = up).",
+				},
+			},
+		},
+		scale: {
+			type: "number",
+			description: "Uniform scale multiplier; 1 = natural size.",
+		},
+		rotate: { type: "number", description: "Rotation in degrees, clockwise." },
+	},
+	additionalProperties: false,
+};
+
+/**
+ * `addText`/`updateText` legibility box — only `enabled`/`color` are exposed
+ * (padding/corner-radius/offset keep their current/default values); enough to
+ * put a solid backing plate behind text over moving footage.
+ */
+const textBackgroundProp: JSONSchema = {
+	type: "object",
+	description:
+		'Solid backing box behind the text, for legibility over moving footage. enabled: turn the box on/off. color: box fill (any CSS color, e.g. "#000000" or "rgba(0,0,0,0.6)" for translucent).',
+	properties: {
+		enabled: { type: "boolean" },
+		color: { type: "string" },
+	},
+	additionalProperties: false,
+};
+
+/**
+ * `addCaptions` style override — font/color/alignment/background applied to
+ * EVERY caption card. Position is NOT here — use `transform` (same coordinate
+ * system as `addText`/`updateText`) to move the whole caption track.
+ */
+const captionStyleProp: JSONSchema = {
+	type: "object",
+	description:
+		"Optional style applied to every caption card (font/color/alignment/background). Omit any field to keep the app's default caption look.",
+	properties: {
+		fontSize: { type: "number", description: "Font size in app units." },
+		fontFamily: { type: "string" },
+		color: { type: "string", description: "Text color (any CSS color)." },
+		textAlign: { type: "string", enum: ["left", "center", "right"] },
+		fontWeight: { type: "string", enum: ["normal", "bold"] },
+		fontStyle: { type: "string", enum: ["normal", "italic"] },
+		textDecoration: {
+			type: "string",
+			enum: ["none", "underline", "line-through"],
+		},
+		letterSpacing: { type: "number" },
+		lineHeight: { type: "number" },
+		background: {
+			type: "object",
+			description: "Solid backing box behind each card.",
+			properties: {
+				enabled: { type: "boolean" },
+				color: { type: "string" },
+			},
+			additionalProperties: false,
+		},
+	},
+	additionalProperties: false,
+};
+
 // ── the catalog ───────────────────────────────────────────────────────────────
 
 /**
@@ -758,7 +964,7 @@ export function toolCatalog(): ToolDescriptor[] {
 		{
 			name: "readPlaybook",
 			description:
-				"read the full body of a named UGC prompt playbook (title/description already ride the system-prompt pointer).",
+				"read the full body of a named prompt playbook (title/description already ride the system-prompt pointer). The registry is no longer UGC-only — `shot-craft` is the general camera/motion/style-lock craft under any multi-shot generation.",
 			mutating: false,
 			// Self-contained lookup against the static PLAYBOOKS registry; ignores
 			// the director arg entirely (no reel/timeline state involved).
@@ -767,7 +973,17 @@ export function toolCatalog(): ToolDescriptor[] {
 				properties: {
 					id: {
 						type: "string",
-						enum: ["ugc-photo-prompts", "ugc-video-prompts"],
+						// DERIVED from the registry, never hand-listed. This enum drifted
+						// once already: `shot-craft` landed in PLAYBOOKS (and in the
+						// system-prompt pointer, `agent.ts`'s PLAYBOOK_POINTER, which
+						// enumerates the registry) while the enum still named only the
+						// two UGC ids — so the schema advertised a narrower menu than the
+						// handler below actually resolves. Advisory-only drift (the
+						// handler reads `PLAYBOOKS[id]` and never consulted this list),
+						// but it told the model a real playbook did not exist. Reading
+						// both from the same object makes "ids we advertise" and "ids we
+						// can resolve" ONE fact instead of two that must be kept in sync.
+						enum: Object.keys(PLAYBOOKS),
 						description: "Playbook id.",
 					},
 				},
@@ -1537,6 +1753,32 @@ export function toolCatalog(): ToolDescriptor[] {
 					frames: numOrUndefined(a.frames),
 				}),
 		},
+		{
+			name: "watchBack",
+			description:
+				"SEE the CUT — render the COMPOSITED TIMELINE (the actual assembled output: tracks, transitions, text, effects together) at the given SECONDS and look at the frames. Different from reviewTake, which looks at a single slot's SOURCE take before it's even placed. Use this after editing (trim/split/reorder/addText/applyTransition/…) to check what you actually made — e.g. watchBack({ times: [0, 5, 10] }) to check the opening, a cut point, and the ending. Times past the end are clamped, duplicates are merged, and at most a few frames are rendered per call — spend them on the moments you actually need to check.",
+			// Read-only: renders + decodes frames, changes nothing on the reel → reel:read.
+			mutating: false,
+			inputSchema: {
+				type: "object",
+				properties: {
+					times: {
+						type: "array",
+						items: { type: "number", "x-seconds": true },
+						minItems: 1,
+						maxItems: WATCH_BACK_MAX_FRAMES,
+						description: `Timestamps (SECONDS) into the composited timeline to sample, e.g. [0, 5, 10]. Up to ${WATCH_BACK_MAX_FRAMES} per call.`,
+					},
+				},
+				required: ["times"],
+			},
+			handler: (d, a) =>
+				d.watchBack({
+					times: Array.isArray(a.times)
+						? a.times.map((v) => Number(v)).filter((n) => Number.isFinite(n))
+						: [],
+				}),
+		},
 		// ── audio (VO + music bed) ──────────────────────────────────────────
 		{
 			name: "addVoiceover",
@@ -1965,117 +2207,90 @@ export function toolCatalog(): ToolDescriptor[] {
 					minCut: numOrUndefined(a.minCut),
 				}),
 		},
-		// ── craft (P5 macros — free, instant edits on your OWN footage; no
-		// generation, no model call) ─────────────────────────────────────────
+		// ── mix perception (free, instant, no generation, no model call) ────
+		//
+		// `cutOnBeat`/`tightenToLength`/`duckMusicUnderSpeech` used to be
+		// catalog verbs here (the "P5 macros"). All three are RETIRED: each was
+		// proven op-for-op equivalent to a program over the ten primitives
+		// (`program/programs/*.program.test.ts`), so `applyEdit` now covers what
+		// they covered — e.g. `applyEdit({ program: "<a duck/tighten/beat-cut
+		// program>", mode: "apply" })` — with no separate verb to keep in sync.
+		// `removeSilence` (below) was investigated too and stays: it applies a
+		// whole-track rewrite (`TracksSnapshotCommand`) from an async file-decode
+		// analysis pass, neither of which this synchronous, primitive-composing
+		// engine can express.
 		{
-			name: "cutOnBeat",
+			name: "readMix",
 			description:
-				"snap every cut point on a video track onto the nearest analyzed beat — free, instant, works on your own footage (no generation, no model call). Needs a beat grid already analyzed (the timeline's beat-snap toggle) and at least two cut-together clips on the target track to have a join to snap. Prefer this over manually nudging trim/move when the user wants cuts to feel musical.",
-			mutating: true,
+				"HEAR the mix — MEASURE the assembled audio instead of guessing at it: overall loudness (LUFS + true peak), a sampled loudness curve, every stretch of dead air, and every window where a music bed is playing LOUDER than a proper duck under speech. Free, instant, no generation and no model call. The audio counterpart of watchBack (which shows you the picture). Use it before reaching for an audio fix — applyEdit with a duck-style program when overlaps are competing, removeSilence or applyEdit with a tighten-style program when dead air is eating the runtime — and again after, to confirm the fix landed. Read-only: it measures, it never changes the timeline.",
+			// Read-only: decodes + measures, changes nothing on the reel → reel:read.
+			mutating: false,
 			inputSchema: {
 				type: "object",
 				properties: {
-					trackId: {
-						type: "string",
-						description:
-							"FULL track id to snap cuts on. Omit to use the main video track.",
-					},
-					// LENGTH/tolerance, not a timeline position.
-					toleranceSec: secs(
-						"a cut within this many seconds of a beat gets pulled onto it (default 0.15).",
-					),
-					minClipDurationSec: secs(
-						"never snap a cut if it would shrink either side below this duration (default 0.5).",
+					loudnessSampleIntervalSec: secs(
+						"how finely to sample the loudness curve (default 0.5). Widened automatically on a long timeline to keep the point count sane, so this is a floor, not an exact spacing.",
 					),
 				},
 				additionalProperties: false,
 			},
 			handler: (d, a) =>
-				d.cutOnBeat({
-					trackId: strOrUndefined(a.trackId),
-					toleranceSec: numOrUndefined(a.toleranceSec),
-					minClipDurationSec: numOrUndefined(a.minClipDurationSec),
+				d.readMix({
+					loudnessSampleIntervalSec: numOrUndefined(
+						a.loudnessSampleIntervalSec,
+					),
 				}),
 		},
+		// ── engagement score (lib/director/scoring/score-cut.ts) — the
+		// self-graded-edit demo loop: score, recut the weak part, score again.
+		// No external scorer is reachable (see that module's header), so this
+		// is computed locally from the timeline/transcript/beat-grid/mix data
+		// this catalog already exposes reads for — never a network call.
 		{
-			name: "tightenToLength",
+			name: "scoreCut",
 			description:
-				"shrink a cut-together sequence down to a target runtime — free, instant, works on your own footage (no generation, no model call). Shaves dead air / low-interest material first, then proportionally trims what's left; never trims into protected speech (protectSpeech, default true). If the target can't be fully reached, applies the best partial tighten and reports the shortfall instead of silently missing it.",
+				'Grade the ASSEMBLED CUT as an "Engagement Score" (0-100, letter grade) — hook strength in the opening seconds, an estimated hold-rate/retention curve with drop-off points, and a per-moment attention heatmap. Computed entirely LOCALLY from the timeline\'s own structure, transcript, and (when analyzed) beat grid / measured mix loudness — no network call, no backend, no external scorer. When the hook or hold-rate reads weak, the result includes suggestedFixes: concrete applyEdit-shaped fixes (a tighten-to-length or cut-on-beat program) — ADVISORY ONLY, never auto-executed; call applyEdit yourself (mode: "dry-run" first) to try one. Also reports unmeasuredSignals in plain language for the one axis (face presence) this repo cannot measure without a vision backend, and any others degraded to a neutral fallback for this call (no beat grid analyzed, no mix decodable). Read-only: measures, changes nothing.',
+			mutating: false,
+			inputSchema: EMPTY,
+			handler: (d) => d.scoreCut(),
+		},
+		// ── program engine (lib/director/program/*) — ONE composition verb over
+		// the primitive editing surface. See `director-api.ts`'s `applyEdit` doc
+		// comment for the atomicity/data-wiring contract this handler relies on.
+		{
+			name: "applyEdit",
+			description:
+				'Run a short PROGRAM — a tiny deterministic script, not prose — over the timeline-editing primitives (trim, move, split, reorder, remove, addClip, addText, applyTransition, applyEffect, animateItem) plus read-only data reads (clips(), tracks(), scenes(), beats(), speech()). Use this instead of a long chain of individual verb calls when the edit is COMPOSED or CONDITIONAL — e.g. "trim every clip under 1s", "shift every clip after this join by 2s", or a bespoke cut rule a single macro does not cover. ALWAYS CALL WITH mode: "dry-run" FIRST (the default, even if omitted) — it returns the COMPLETE ORDERED LIST of operations the program WOULD perform (in `data.ops`) plus its own log() lines (`data.logs`) and changes NOTHING on the timeline. Read that op list; only once it looks right, call AGAIN with the IDENTICAL program text and mode: "apply" to actually run it. An applied run lands as exactly ONE undo step, so a mistake is one undo() away. This grants no new capability — every primitive it can call is one this catalog already exposes as its own verb, one call at a time — it only lets you COMPOSE them instead of guessing ids/times in prose across many round-trips.',
 			mutating: true,
 			inputSchema: {
 				type: "object",
 				properties: {
-					targetSec: secs(
-						"desired total runtime of the target track, in SECONDS.",
-					),
-					trackId: {
+					program: {
 						type: "string",
 						description:
-							"FULL track id to tighten. Omit to use the main video track.",
+							'The program source: a small whitelisted script (let/if/for + calls into the primitives and data reads named above — no while, no methods, no eval, no closures). Call with mode "dry-run" to see exactly what it would do before trusting it with mode "apply".',
 					},
-					protectSpeech: {
-						type: "boolean",
-						description:
-							"never trim into detected speech (voiceover elements + transcribed dialogue). Default true.",
-					},
-					minClipDurationSec: secs(
-						"never trim an element below this duration (default 0.5).",
-					),
-					convergenceToleranceSec: secs(
-						'how close to targetSec counts as "reached" (default 0.25).',
-					),
-				},
-				required: ["targetSec"],
-			},
-			handler: (d, a) =>
-				d.tightenToLength({
-					targetSec: numOrZeroTime(a.targetSec),
-					trackId: strOrUndefined(a.trackId),
-					protectSpeech: boolOrUndefined(a.protectSpeech),
-					minClipDurationSec: numOrUndefined(a.minClipDurationSec),
-					convergenceToleranceSec: numOrUndefined(a.convergenceToleranceSec),
-				}),
-		},
-		{
-			name: "duckMusicUnderSpeech",
-			description:
-				"duck a music bed's volume under speech — free, instant, works on your own footage (no generation, no model call). Finds speech from voiceover clips and/or transcribed dialogue, then keyframes the music-bed element(s) down during it and back up cleanly after, with a built-in flutter guard between close-together lines. Needs at least one detectable speech source and one music-bed element already on the timeline (addMusicBed).",
-			mutating: true,
-			inputSchema: {
-				type: "object",
-				properties: {
-					duckDb: {
-						type: "number",
-						description:
-							"how far to duck, in dB relative to normal (default -12).",
-					},
-					attackSec: secs("ramp-down time once speech starts (default 0.15)."),
-					releaseSec: secs("ramp-back-up time once speech ends (default 0.4)."),
-					mergeGapSec: secs(
-						"speech gaps shorter than this are treated as one continuous interval (default 0.3).",
-					),
-					trackId: {
+					mode: {
 						type: "string",
+						enum: ["dry-run", "apply"],
 						description:
-							"FULL audio track id to scope ducking to. Omit to duck every music-bed element on the timeline.",
+							'"dry-run" (the default — use this first): plans only, returns data.ops/data.logs, applies nothing. "apply": actually execute the SAME program text, as one undo step.',
 					},
 				},
+				required: ["program"],
 				additionalProperties: false,
 			},
 			handler: (d, a) =>
-				d.duckMusicUnderSpeech({
-					duckDb: numOrUndefined(a.duckDb),
-					attackSec: numOrUndefined(a.attackSec),
-					releaseSec: numOrUndefined(a.releaseSec),
-					mergeGapSec: numOrUndefined(a.mergeGapSec),
-					trackId: strOrUndefined(a.trackId),
+				d.applyEdit({
+					program: str(a.program),
+					mode: a.mode === "apply" ? "apply" : undefined,
 				}),
 		},
 		// ── text (elementId is a FULL id, never a reel short id) ─────────────
 		{
 			name: "addText",
 			description:
-				"add a text overlay. Returns a FULL elementId (not a reel slot id) — pass it back verbatim to updateText.",
+				'add a text overlay — a caption, title, or lower third. Returns a FULL elementId (not a reel slot id) — pass it back verbatim to updateText. Use `transform` to place it (see that field\'s description for the coordinate system) and `background`/`strokeColor`/`strokeWidth`/`opacity` to keep it legible over moving footage — a lower third IS text placed in the lower third via `transform`, there is no separate "lower third" mode.',
 			mutating: true,
 			inputSchema: {
 				type: "object",
@@ -2090,6 +2305,22 @@ export function toolCatalog(): ToolDescriptor[] {
 					fontFamily: { type: "string" },
 					color: { type: "string" },
 					textAlign: { type: "string", enum: ["left", "center", "right"] },
+					transform: textTransformProp,
+					background: textBackgroundProp,
+					strokeColor: {
+						type: "string",
+						description:
+							"Outline color drawn around the glyphs (any CSS color).",
+					},
+					strokeWidth: {
+						type: "number",
+						description:
+							"Outline width as a ratio of fontSize (0 = none, ~0.08 = a bold outline).",
+					},
+					opacity: {
+						type: "number",
+						description: "Overlay opacity, 0 (invisible) to 1 (fully opaque).",
+					},
 				},
 				required: ["content", "startTime"],
 			},
@@ -2103,12 +2334,17 @@ export function toolCatalog(): ToolDescriptor[] {
 					fontFamily: strOrUndefined(a.fontFamily),
 					color: strOrUndefined(a.color),
 					textAlign: textAlignOf(a.textAlign),
+					transform: asTextTransformPatch(a.transform),
+					background: asTextBackgroundPatch(a.background),
+					strokeColor: strOrUndefined(a.strokeColor),
+					strokeWidth: numOrUndefined(a.strokeWidth),
+					opacity: numOrUndefined(a.opacity),
 				}),
 		},
 		{
 			name: "updateText",
 			description:
-				"edit an existing text overlay by its FULL elementId (from addText, never a short slot id).",
+				"edit an existing text overlay by its FULL elementId (from addText, never a short slot id) — including moving/restyling it via `transform`/`background`/`strokeColor`/`strokeWidth`/`opacity` (same fields and coordinate system as addText).",
 			mutating: true,
 			inputSchema: {
 				type: "object",
@@ -2126,6 +2362,22 @@ export function toolCatalog(): ToolDescriptor[] {
 					fontFamily: { type: "string" },
 					color: { type: "string" },
 					textAlign: { type: "string", enum: ["left", "center", "right"] },
+					transform: textTransformProp,
+					background: textBackgroundProp,
+					strokeColor: {
+						type: "string",
+						description:
+							"Outline color drawn around the glyphs (any CSS color).",
+					},
+					strokeWidth: {
+						type: "number",
+						description:
+							"Outline width as a ratio of fontSize (0 = none, ~0.08 = a bold outline).",
+					},
+					opacity: {
+						type: "number",
+						description: "Overlay opacity, 0 (invisible) to 1 (fully opaque).",
+					},
 				},
 				required: ["elementId"],
 			},
@@ -2139,6 +2391,63 @@ export function toolCatalog(): ToolDescriptor[] {
 					fontFamily: strOrUndefined(a.fontFamily),
 					color: strOrUndefined(a.color),
 					textAlign: textAlignOf(a.textAlign),
+					transform: asTextTransformPatch(a.transform),
+					background: asTextBackgroundPatch(a.background),
+					strokeColor: strOrUndefined(a.strokeColor),
+					strokeWidth: numOrUndefined(a.strokeWidth),
+					opacity: numOrUndefined(a.opacity),
+				}),
+		},
+		{
+			name: "addCaptions",
+			description:
+				"caption a media asset's speech in ONE call instead of issuing an addText call per caption card. Groups the transcript into wordsPerCaption-word cards (default matches the app's own caption preset) and converts each card's ASSET-RELATIVE transcript timing into TIMELINE-ABSOLUTE placement — correct even on a trimmed, moved, or split clip — then creates ONE text track holding every card as a SINGLE undo step. Requires mediaId to already be TRANSCRIBED (getTranscript) and PLACED on the timeline. Default placement is low-in-frame; pass transform (same pixel/canvas-center coordinate system as addText — see that field's description) to move the whole caption track, and style for font/color/alignment/background. Do NOT use addText in a loop for this — use addCaptions.",
+			mutating: true,
+			inputSchema: {
+				type: "object",
+				properties: {
+					mediaId: {
+						type: "string",
+						description:
+							"FULL media id (not a reel slot id) — must already be transcribed (getTranscript) and placed on the timeline.",
+					},
+					wordsPerCaption: {
+						type: "integer",
+						minimum: 1,
+						default: DEFAULT_WORDS_PER_CAPTION,
+						description: `Words per caption card. Defaults to the app's own preset (${DEFAULT_WORDS_PER_CAPTION}).`,
+					},
+					startSec: {
+						type: "number",
+						minimum: 0,
+						description:
+							"Only caption from this ASSET-RELATIVE second onward (same timebase as getTranscript). Omit to caption the whole transcript.",
+					},
+					endSec: {
+						type: "number",
+						minimum: 0,
+						description:
+							"Only caption up to this ASSET-RELATIVE second (same timebase as getTranscript). Omit to caption through the end.",
+					},
+					trackName: {
+						type: "string",
+						description:
+							"Optional caption-track name. Defaults to a name derived from the transcript's language.",
+					},
+					transform: textTransformProp,
+					style: captionStyleProp,
+				},
+				required: ["mediaId"],
+			},
+			handler: (d, a) =>
+				d.addCaptions({
+					mediaId: str(a.mediaId),
+					wordsPerCaption: numOrUndefined(a.wordsPerCaption),
+					startSec: numOrUndefined(a.startSec),
+					endSec: numOrUndefined(a.endSec),
+					trackName: strOrUndefined(a.trackName),
+					transform: asTextTransformPatch(a.transform),
+					style: asCaptionStyleOverride(a.style),
 				}),
 		},
 		// ── polish (transitions / effects) ──────────────────────────────────

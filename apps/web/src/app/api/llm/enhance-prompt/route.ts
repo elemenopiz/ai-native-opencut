@@ -36,13 +36,14 @@ import { webEnv } from "@byorn/env/web";
 import { auth } from "@/lib/auth/server";
 import { aiAccessDeniedResponse, hasAiAccess } from "@/lib/ai-access";
 import { enforceRateLimit } from "@/lib/rate-limit";
-import { reportError } from "@/lib/observability/logger";
+import { logger, reportError } from "@/lib/observability/logger";
+import { PROMPT_CRAFT_QUICKREF } from "@/lib/studio/playbooks";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 /** Default models — mirror the agent/gemini relays' provider defaults. */
-const DEFAULT_MODEL = "claude-opus-4-8";
+const DEFAULT_MODEL = "claude-opus-5";
 const KIMI_BASE_URL = "https://api.moonshot.ai/anthropic";
 const DEFAULT_KIMI_MODEL = "kimi-k2.6";
 const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
@@ -91,6 +92,13 @@ type EnhanceContext = z.infer<typeof contextSchema>;
  * keep the user's exact subject/intent, add concrete specificity in the target
  * model's own prompt dialect, and lean on the project's established look
  * (never contradicting or inventing it).
+ *
+ * The concrete-specificity craft below (camera/lens/lighting language, motion
+ * verbs, the don't-redescribe-the-anchor-frame rule, STYLE-token consistency,
+ * positive phrasing, density-over-length) is drawn from
+ * `@/lib/studio/playbooks`'s `PROMPT_CRAFT_QUICKREF` — kept in sync with the
+ * `shot-craft` playbook the Director reads via `readPlaybook` — so a one-shot
+ * enhance and an in-agent Director rewrite apply the same standard.
  */
 function buildSystemPrompt(mode: EnhanceMode): string {
 	const shared = [
@@ -103,6 +111,7 @@ function buildSystemPrompt(mode: EnhanceMode): string {
 		"- EVERY concrete element the user specified — subjects, actions, settings, styles, constraints, names, numbers, ordering — MUST survive into the rewrite. If you're unsure whether a detail was intentional, keep it; when in doubt, preserve.",
 		"- If reference context is provided (STYLE, BRIEF, ASSETS, PERSONA), weave it in so the result is consistent with the look the user has already established. Cite their actual descriptors; never contradict them and never invent facts about their assets, characters, or brand that the context does not state.",
 		'- The draft may contain literal handle tokens like @Image1 or @Video2 — machine-readable references to attached media (see ASSETS for what each one is). Preserve every one EXACTLY as written: same letters, digits, and leading @, never translated, renamed, merged, explained, or dropped. Keep each token attached to the phrase it modifies (e.g. "@Image1 walking through fog" stays built around @Image1 as the subject).',
+		`- ${PROMPT_CRAFT_QUICKREF.anchorFrameRule} If the draft references an attached image/video handle (@Image1, @Video2, …) as its starting point, this applies directly: describe what changes or moves from that reference, not the reference itself.`,
 		"- Output ONLY the rewritten prompt text. No preamble, no explanation, no surrounding quotes, no markdown, no code fences, no labels. Just the prompt.",
 	];
 
@@ -110,6 +119,7 @@ function buildSystemPrompt(mode: EnhanceMode): string {
 		return [
 			...shared,
 			"- This is a DIRECTOR instruction, addressed to an autonomous editing agent. Write it as clear, natural creative direction — not a comma-separated image caption. Expand the user's ask into concrete direction: the shots or beats implied, pacing, tone, and mood. Keep it actionable and specific, but do NOT fabricate details about the user's footage or cast.",
+			`- If the ask spans multiple shots or beats (a reel, a sequence, a multi-clip ad), say so explicitly and call for one locked visual style held constant across all of them: ${PROMPT_CRAFT_QUICKREF.styleToken}`,
 			"- Length should scale with the draft: roughly 150 words is a good guideline for a typical ask, but this is soft guidance, not a cap — a detailed draft earns a longer rewrite, never a shorter one. Absolute ceiling: about 350 words.",
 		].join("\n");
 	}
@@ -121,7 +131,12 @@ function buildSystemPrompt(mode: EnhanceMode): string {
 	return [
 		...shared,
 		`- This targets an AI ${mode} model. Write a dense, richly visual prompt as comma-separated descriptors: subject and its details, composition and framing, lighting, lens/camera language,${motion} mood, color, and overall style.`,
+		`- ${PROMPT_CRAFT_QUICKREF.cameraLighting}`,
+		...(mode === "video" ? [`- ${PROMPT_CRAFT_QUICKREF.motionVerbs}`] : []),
+		`- ${PROMPT_CRAFT_QUICKREF.positivePhrasing} Only fall back to literal "no X" phrasing if the context explicitly says this model takes a real negative-prompt field.`,
+		...(mode === "video" ? [`- ${PROMPT_CRAFT_QUICKREF.styleToken}`] : []),
 		"- Front-load the subject, then layer specificity. Prefer concrete, visual nouns and adjectives over abstract or narrative phrasing.",
+		`- ${PROMPT_CRAFT_QUICKREF.density}`,
 		"- Length should scale with the draft: roughly 60–200 words is a good guideline, but this is soft guidance, not a cap — a sparse draft can land near the low end, a detailed one deserves more room and should never be compressed below the substance the user already wrote. Absolute ceiling: about 350 words.",
 	].join("\n");
 }
@@ -273,6 +288,23 @@ export async function POST(req: Request) {
 	const useGemini = Boolean(geminiKey);
 	const useKimi = !useGemini && Boolean(moonshotKey);
 	const apiKey = useGemini ? geminiKey : useKimi ? moonshotKey : anthropicKey;
+
+	// Visibility only — does NOT change the precedence above. Whichever key
+	// wins is silent by construction (first non-empty key in priority order),
+	// so an operator with more than one key configured would otherwise have no
+	// way to tell which brain is actually answering. This line makes the real
+	// selection (and any lower-priority keys that lost) show up in the server
+	// log, without ever surfacing provider/env names on any customer-facing
+	// response.
+	if (geminiKey || moonshotKey || anthropicKey) {
+		logger.info("llm/enhance-prompt: brain selected", {
+			brain: useGemini ? "gemini" : useKimi ? "kimi" : "anthropic",
+			geminiKeyConfigured: Boolean(geminiKey),
+			moonshotKeyConfigured: Boolean(moonshotKey),
+			anthropicKeyConfigured: Boolean(anthropicKey),
+		});
+	}
+
 	if (!apiKey) {
 		// Machine-readable "no key" signal — the client hides the Enhance button on
 		// this exact code (there is no local fallback for this feature).

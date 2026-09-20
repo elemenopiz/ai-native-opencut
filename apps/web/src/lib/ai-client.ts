@@ -1910,10 +1910,14 @@ class AIClient {
 		title?: string;
 		video_path?: string;
 	}): Promise<EngagementScoreResult> {
-		return this.requestWithKeepalive("/api/engagement/score", {
-			method: "POST",
-			body: JSON.stringify(clip),
-		});
+		const wire = await this.requestWithKeepalive<WireEngagementScoreResult>(
+			"/api/engagement/score",
+			{
+				method: "POST",
+				body: JSON.stringify(clip),
+			},
+		);
+		return wireToAppEngagementScore(wire);
 	}
 
 	/** Score a video file's engagement potential. */
@@ -1924,11 +1928,12 @@ class AIClient {
 		const formData = new FormData();
 		formData.append("file", file);
 		if (transcriptText) formData.append("transcript_text", transcriptText);
-		return this.requestFormData(
+		const wire = await this.requestFormData<WireEngagementScoreResult>(
 			"/api/engagement/score-video",
 			formData,
 			LLM_TIMEOUT_MS,
 		);
+		return wireToAppEngagementScore(wire);
 	}
 
 	/** Score multiple clips in batch. */
@@ -1941,10 +1946,13 @@ class AIClient {
 			title?: string;
 		}[],
 	): Promise<{ scores: EngagementScoreResult[] }> {
-		return this.requestWithKeepalive("/api/engagement/score-batch", {
+		const wire = await this.requestWithKeepalive<{
+			scores: WireEngagementScoreResult[];
+		}>("/api/engagement/score-batch", {
 			method: "POST",
 			body: JSON.stringify({ clips }),
 		});
+		return { scores: wire.scores.map(wireToAppEngagementScore) };
 	}
 
 	async scoreThumbnails(
@@ -1974,9 +1982,14 @@ class AIClient {
 	async recordScore(
 		score: EngagementScoreResult & { project_id?: string; type?: string },
 	): Promise<{ recorded: boolean; id: string }> {
+		const { project_id, type, ...engagement } = score;
+		const wireBody: WireEngagementScoreResult & {
+			project_id?: string;
+			type?: string;
+		} = { ...appToWireEngagementScore(engagement), project_id, type };
 		return this.requestWithKeepalive("/api/engagement/record-score", {
 			method: "POST",
-			body: JSON.stringify(score),
+			body: JSON.stringify(wireBody),
 		});
 	}
 
@@ -1987,9 +2000,14 @@ class AIClient {
 		const params = new URLSearchParams();
 		if (projectId) params.set("project_id", projectId);
 		if (limit) params.set("limit", String(limit));
-		return this.requestWithKeepalive(
-			`/api/engagement/score-history?${params.toString()}`,
-		);
+		const wire = await this.requestWithKeepalive<{
+			history: WireScoreHistoryEntry[];
+			total: number;
+		}>(`/api/engagement/score-history?${params.toString()}`);
+		return {
+			history: wire.history.map(wireToAppScoreHistoryEntry),
+			total: wire.total,
+		};
 	}
 
 	async getScoreAnalytics(projectId?: string): Promise<ScoreAnalyticsResponse> {
@@ -2126,7 +2144,17 @@ export interface EngagementScoreResult {
 	audio_sync: EngagementSubScore;
 	face_presence: EngagementSubScore;
 	emotional_arc: EngagementSubScore;
-	virality: EngagementSubScore;
+	/**
+	 * Renamed from the retired Python ai-backend's `virality` composite —
+	 * Byorn is a serious editor, not a virality tool ("Virality Score" was
+	 * deliberately removed from the app; see git history around @8161be45).
+	 * The WIRE format this app's `engagementScore*`/`recordScore`/
+	 * `getScoreHistory` calls exchange with `services/ai-backend/app/routes/
+	 * engagement.py` still literally says `"virality"` (that backend is
+	 * unowned Python, out of scope here) — see `wireToAppEngagementScore`/
+	 * `appToWireEngagementScore` below for the translation at that boundary.
+	 */
+	reach: EngagementSubScore;
 	suggestions: {
 		signal: string;
 		current_score: number;
@@ -2137,6 +2165,33 @@ export interface EngagementScoreResult {
 	composite: number;
 	grade: string;
 	grade_label: string;
+}
+
+/**
+ * The shape actually exchanged with `services/ai-backend/app/routes/
+ * engagement.py` over `/api/engagement/score*` and `/record-score` — that
+ * backend (and its in-memory `_score_history` cache) still keys this
+ * composite `"virality"`. Kept distinct from the app-facing
+ * `EngagementScoreResult` (`reach`) so the rename doesn't silently break
+ * that live-in-local-dev wire contract or orphan anything already recorded
+ * in that cache — see {@link wireToAppEngagementScore}.
+ */
+type WireEngagementScoreResult = Omit<EngagementScoreResult, "reach"> & {
+	virality: EngagementSubScore;
+};
+
+function wireToAppEngagementScore(
+	wire: WireEngagementScoreResult,
+): EngagementScoreResult {
+	const { virality, ...rest } = wire;
+	return { ...rest, reach: virality };
+}
+
+function appToWireEngagementScore(
+	score: EngagementScoreResult,
+): WireEngagementScoreResult {
+	const { reach, ...rest } = score;
+	return { ...rest, virality: reach };
 }
 
 export interface ScoredClipData {
@@ -2199,9 +2254,22 @@ export interface ScoreHistoryEntry {
 	audio_sync: EngagementSubScore;
 	face_presence: EngagementSubScore;
 	emotional_arc: EngagementSubScore;
-	virality: EngagementSubScore;
+	/** See `EngagementScoreResult.reach`'s doc comment — same wire boundary. */
+	reach: EngagementSubScore;
 	type: string;
 	created_at: number;
+}
+
+/** Wire shape for a `ScoreHistoryEntry` — see `WireEngagementScoreResult`. */
+type WireScoreHistoryEntry = Omit<ScoreHistoryEntry, "reach"> & {
+	virality: EngagementSubScore;
+};
+
+function wireToAppScoreHistoryEntry(
+	wire: WireScoreHistoryEntry,
+): ScoreHistoryEntry {
+	const { virality, ...rest } = wire;
+	return { ...rest, reach: virality };
 }
 
 export interface ScoreHistoryResponse {

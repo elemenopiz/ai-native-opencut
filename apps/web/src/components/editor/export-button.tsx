@@ -124,7 +124,6 @@ function ExportPopover({
 	// reach it from the UI, matching how the other preset-only fields
 	// (dimensions) work.
 	const [audioOnly, setAudioOnly] = useState<boolean>(false);
-	const [shouldIncludeWatermark, setShouldIncludeWatermark] = useState(true);
 	const [isExportingCapcutDraft, setIsExportingCapcutDraft] = useState(false);
 	const [isBatchOpen, setIsBatchOpen] = useState(false);
 	// Staged output dimensions from the selected preset. `null` means "use the
@@ -162,7 +161,10 @@ function ExportPopover({
 				quality,
 				fps: activeProject.settings.fps,
 				includeAudio: shouldIncludeAudio,
-				includeWatermark: shouldIncludeWatermark,
+				// The UI no longer offers a watermark toggle — exports never
+				// watermark. The renderer's watermark capability itself
+				// (services/renderer/nodes/watermark-node.ts) is untouched.
+				includeWatermark: false,
 				dimensions: dimensions ?? undefined,
 				audioOnly,
 			},
@@ -178,8 +180,18 @@ function ExportPopover({
 			mimeType: getExportMimeType({ format }),
 		});
 
-		if (outcome.status === "failed" && outcome.reason === "cancelled") {
-			editor.project.clearExportState();
+		if (outcome.status === "failed") {
+			if (outcome.reason === "cancelled") {
+				editor.project.clearExportState();
+				return;
+			}
+			// Non-cancelled failure: `editor.project.export` already stashed this
+			// same raw result in export state (see the store subscription below),
+			// so the popover's failure branch renders it — sanitised through
+			// `commitExport`, never the raw provider/codec text. The toast is a
+			// second, louder signal for the one beat of the demo the audience is
+			// guaranteed to be looking at, in case the popover isn't in view.
+			toast.error(outcome.message);
 			return;
 		}
 
@@ -202,6 +214,32 @@ function ExportPopover({
 	const handleCancel = () => {
 		editor.project.cancelExport();
 	};
+
+	// `exportState.result` is the RAW result from the renderer (see
+	// core/managers/project-manager.ts's `export`) — it can carry a raw
+	// `DOMException`/codec string on `.error`. Route it through the same
+	// `commitExport` gate the Director/MCP export verb uses before this popover
+	// is allowed to render anything from it, so no raw provider/codec text can
+	// reach the screen regardless of which caller populated this state (this
+	// button's own `handleExport`, or an export triggered elsewhere, e.g. via
+	// Director). `jobId`/`filename`/`mimeType` are unused on the failure path
+	// `commitExport` takes here — placeholders only — and `download: false`
+	// guarantees this purely-for-display call can never re-trigger a download.
+	const sanitizedResultOutcome =
+		exportResult && !exportResult.success
+			? commitExport({
+					result: exportResult,
+					jobId: "export-popover-display",
+					filename: "",
+					mimeType: "",
+					download: false,
+				})
+			: null;
+	// `commitExport` always returns the "failed" branch for a `!success` input
+	// (see its implementation), but the type checker can't see that from this
+	// call site — narrow explicitly rather than casting.
+	const failureOutcome =
+		sanitizedResultOutcome?.status === "failed" ? sanitizedResultOutcome : null;
 
 	const handleCapcutDraftExport = async () => {
 		if (!activeProject || isExportingCapcutDraft) return;
@@ -237,9 +275,10 @@ function ExportPopover({
 
 	return (
 		<PopoverContent className="bg-background mr-4 flex w-80 flex-col p-0">
-			{exportResult && !exportResult.success ? (
+			{failureOutcome ? (
 				<ExportError
-					error={exportResult.error || "Unknown error occurred"}
+					message={failureOutcome.message}
+					detail={failureOutcome.detail}
 					onRetry={handleExport}
 				/>
 			) : (
@@ -389,33 +428,6 @@ function ExportPopover({
 											</div>
 										</SectionContent>
 									</Section>
-
-									<Section showTopBorder>
-										<SectionHeader>
-											<SectionTitle>Watermark</SectionTitle>
-										</SectionHeader>
-										<SectionContent>
-											<div className="flex items-start space-x-2">
-												<Checkbox
-													id="include-watermark"
-													checked={shouldIncludeWatermark}
-													onCheckedChange={(checked) =>
-														setShouldIncludeWatermark(!!checked)
-													}
-												/>
-												<div className="flex flex-col gap-0.5">
-													<Label htmlFor="include-watermark">
-														Include Byorn watermark
-													</Label>
-													<p className="text-[10px] text-muted-foreground leading-relaxed">
-														This is open-source software. Including the
-														watermark helps spread the word and support the
-														project.
-													</p>
-												</div>
-											</div>
-										</SectionContent>
-									</Section>
 								</div>
 
 								<div className="flex flex-col gap-2 p-3 pt-0">
@@ -446,10 +458,6 @@ function ExportPopover({
 										<Layers className="size-4" />
 										Batch export (multi-platform)
 									</Button>
-									<p className="text-[10px] text-muted-foreground leading-relaxed">
-										CapCut draft keeps your clips editable in CapCut / JianYing.
-										Unsupported effects are skipped.
-									</p>
 									<Dialog open={isBatchOpen} onOpenChange={setIsBatchOpen}>
 										<DialogContent className="max-w-md p-0">
 											<DialogHeader className="sr-only">
@@ -493,16 +501,24 @@ function ExportPopover({
 }
 
 function ExportError({
-	error,
+	message,
+	detail,
 	onRetry,
 }: {
-	error: string;
+	/** Always a human-safe sentence — see `commitExport`'s doc in lib/export.ts. */
+	message: string;
+	/**
+	 * Raw provider/codec text, when there was one. Never rendered as primary
+	 * copy — collapsed behind "Technical details", matching the pattern in
+	 * `components/editor/youtube/engagement-panel.tsx`.
+	 */
+	detail?: string;
 	onRetry: () => void;
 }) {
 	const [copied, setCopied] = useState(false);
 
 	const handleCopy = async () => {
-		await navigator.clipboard.writeText(error);
+		await navigator.clipboard.writeText(detail ?? message);
 		setCopied(true);
 		setTimeout(() => setCopied(false), 1000);
 	};
@@ -511,7 +527,17 @@ function ExportError({
 		<div className="space-y-4 p-3">
 			<div className="flex flex-col gap-1.5">
 				<p className="text-destructive text-sm font-medium">Export failed</p>
-				<p className="text-muted-foreground text-xs">{error}</p>
+				<p className="text-muted-foreground text-xs">{message}</p>
+				{detail && (
+					<details className="mt-1">
+						<summary className="cursor-pointer select-none text-[10px] text-muted-foreground/60">
+							Technical details
+						</summary>
+						<p className="mt-1 break-words text-[10px] text-muted-foreground/60">
+							{detail}
+						</p>
+					</details>
+				)}
 			</div>
 
 			<div className="flex gap-2">

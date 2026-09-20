@@ -10,6 +10,13 @@ function formatTime(seconds: number): string {
 	return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+const SCORE_BAR_LABELS: Record<string, string> = {
+	hook: "hook",
+	curiosity: "curiosity",
+	energy: "energy",
+	reach: "reach",
+};
+
 const GRADE_COLORS: Record<string, string> = {
 	A: "bg-green-500/20 text-green-400 border-green-500/30",
 	B: "bg-blue-500/20 text-blue-400 border-blue-500/30",
@@ -25,7 +32,12 @@ interface ClipCardProps {
 	onExpand: () => void;
 }
 
-export function ClipCard({ clip, selected, onToggle, onExpand }: ClipCardProps) {
+export function ClipCard({
+	clip,
+	selected,
+	onToggle,
+	onExpand,
+}: ClipCardProps) {
 	const grade = clip.engagement?.grade ?? "C";
 	const composite = clip.engagement?.composite ?? 0;
 	const duration = clip.end - clip.start;
@@ -34,7 +46,9 @@ export function ClipCard({ clip, selected, onToggle, onExpand }: ClipCardProps) 
 		<div
 			className={cn(
 				"rounded-lg border p-3 space-y-2 cursor-pointer transition-colors",
-				selected ? "border-primary bg-primary/5" : "border-border hover:border-muted-foreground/30",
+				selected
+					? "border-primary bg-primary/5"
+					: "border-border hover:border-muted-foreground/30",
 			)}
 			onClick={onExpand}
 		>
@@ -52,14 +66,18 @@ export function ClipCard({ clip, selected, onToggle, onExpand }: ClipCardProps) 
 					/>
 					<span className="text-sm font-medium truncate">{clip.title}</span>
 				</div>
-				<Badge className={cn("text-xs flex-shrink-0 border", GRADE_COLORS[grade])}>
+				<Badge
+					className={cn("text-xs flex-shrink-0 border", GRADE_COLORS[grade])}
+				>
 					{grade} {Math.round(composite)}
 				</Badge>
 			</div>
 
 			{/* Details */}
 			<div className="flex items-center gap-2 text-xs text-muted-foreground">
-				<span>{formatTime(clip.start)} - {formatTime(clip.end)}</span>
+				<span>
+					{formatTime(clip.start)} - {formatTime(clip.end)}
+				</span>
 				<span>({Math.round(duration)}s)</span>
 			</div>
 
@@ -67,7 +85,11 @@ export function ClipCard({ clip, selected, onToggle, onExpand }: ClipCardProps) 
 			{clip.tags.length > 0 && (
 				<div className="flex flex-wrap gap-1">
 					{clip.tags.slice(0, 3).map((tag) => (
-						<Badge key={tag} variant="outline" className="text-[10px] px-1.5 py-0">
+						<Badge
+							key={tag}
+							variant="outline"
+							className="text-[10px] px-1.5 py-0"
+						>
 							{tag}
 						</Badge>
 					))}
@@ -84,7 +106,7 @@ export function ClipCard({ clip, selected, onToggle, onExpand }: ClipCardProps) 
 			{/* Score bars */}
 			{clip.engagement && (
 				<div className="grid grid-cols-4 gap-1">
-					{(["hook", "curiosity", "energy", "virality"] as const).map((key) => {
+					{(["hook", "curiosity", "energy", "reach"] as const).map((key) => {
 						const eng = clip.engagement!;
 						const sub = eng[key];
 						const val = sub?.composite ?? 0;
@@ -94,12 +116,18 @@ export function ClipCard({ clip, selected, onToggle, onExpand }: ClipCardProps) 
 									<div
 										className={cn(
 											"h-full rounded-full",
-											val >= 70 ? "bg-green-500" : val >= 40 ? "bg-yellow-500" : "bg-red-500",
+											val >= 70
+												? "bg-green-500"
+												: val >= 40
+													? "bg-yellow-500"
+													: "bg-red-500",
 										)}
 										style={{ width: `${val}%` }}
 									/>
 								</div>
-								<span className="text-[9px] text-muted-foreground capitalize">{key}</span>
+								<span className="text-[9px] text-muted-foreground capitalize">
+									{SCORE_BAR_LABELS[key]}
+								</span>
 							</div>
 						);
 					})}

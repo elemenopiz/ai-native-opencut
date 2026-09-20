@@ -112,7 +112,7 @@ const webEnvSchema = z.object({
 	ANTHROPIC_API_KEY: z.string().default(""),
 	MOONSHOT_API_KEY: z.string().default(""),
 	// Model override for whichever Director brain is active. Empty = the
-	// route's built-in default (claude-opus-4-8 / kimi-k2.6).
+	// route's built-in default (claude-opus-5 / kimi-k2.6).
 	DIRECTOR_MODEL: z.string().default(""),
 
 	// Pexels stock-photo search (/api/images/search). Optional — callers may
@@ -137,6 +137,60 @@ const webEnvSchema = z.object({
 	KLING_SECRET_KEY: z.string().default(""),
 	KLING_BASE_URL: z.string().default(""),
 	KLING_MODEL: z.string().default(""),
+	// Higgsfield AI — Seedance 2.5. ONE credential string in "key-id:key-secret"
+	// form (split on `:` by the adapter), sent as `Authorization: Key
+	// ${keyId}:${keySecret}`. Falls back to HF_CREDENTIALS (the name the smoke-
+	// test script uses) so a single env var works for both without duplicating
+	// it — the adapter itself always reads the namespaced HIGGSFIELD_CREDENTIALS
+	// through this validated schema.
+	HIGGSFIELD_CREDENTIALS: z
+		.string()
+		.default("")
+		.transform((v) => v || process.env.HF_CREDENTIALS || ""),
+	HIGGSFIELD_BASE_URL: z.string().default(""),
+	HIGGSFIELD_MODEL: z.string().default(""),
+	// Higgsfield's other modalities — image (GPT Image 2.5, Nano Banana 2, Soul
+	// Cinematic) and audio (Seed Audio 1.0, text-to-speech). They share the one
+	// HIGGSFIELD_CREDENTIALS above, but each also needs its own REST ENDPOINT
+	// PATH here before its adapter reports available, and that is deliberate.
+	//
+	// Higgsfield's public repos document the CLI surface (flat model ids like
+	// `gpt_image_2_5`); the adapters post to REST endpoint paths shaped
+	// `<vendor>/<model>/<tier>/<task?>` — a TIER segment (`standard`, `pro`,
+	// `v2/standard`), NOT a task verb. That shape was measured against the live
+	// API on 2026-09-19, which also settled which models the open REST API
+	// actually serves: it is a SUBSET of the CLI catalog. `higgsfield-ai/soul/
+	// v2/standard` EXISTS (422 = path resolved, validation ran), while every
+	// probed GPT Image, Nano Banana and Seed Audio path returned 404
+	// `model_not_found` — those appear to be CLI/console-only models with no
+	// open REST endpoint. Each adapter's own header comment carries its probe
+	// evidence. Soul's path is verified but its BODY schema is not, which is
+	// why the gate below still applies to it.
+	//
+	// If the shared credential alone switched them on, configuring Higgsfield
+	// VIDEO would silently enlist three image/audio backends into the router —
+	// and for GPT Image, Nano Banana and Seed Audio that is now a MEASURED 404,
+	// not a hypothetical one. The gate is what has kept those failures off
+	// customer surfaces. So an operator pastes a path they have confirmed into
+	// the matching var below, and the adapter stays inert until they do. Blank
+	// (the default) = that model off.
+	//
+	// Expected shapes (UNCONFIRMED — confirm in the console before setting):
+	//   openai/gpt-image-2.5/text-to-image
+	//   google/nano-banana-2/text-to-image
+	//   higgsfield/soul-cinematic/text-to-image
+	//   bytedance/seed-audio/text-to-speech
+	HIGGSFIELD_GPT_IMAGE_ENDPOINT: z.string().default(""),
+	HIGGSFIELD_NANO_BANANA_ENDPOINT: z.string().default(""),
+	HIGGSFIELD_SOUL_ENDPOINT: z.string().default(""),
+	HIGGSFIELD_SEED_AUDIO_ENDPOINT: z.string().default(""),
+	// Optional project-default narrator voice for Seed Audio. MUST be set as a
+	// PAIR — the provider rejects one without the other — so the adapter sends
+	// them only when both are non-empty. `voice_type` is "preset" (a catalog
+	// voice) or "element" (a cloned voice); get real values from
+	// `higgsfield voices list`. Unset = the model's own default voice.
+	HIGGSFIELD_SEED_AUDIO_VOICE_TYPE: z.string().default(""),
+	HIGGSFIELD_SEED_AUDIO_VOICE_ID: z.string().default(""),
 	// Google Gemini — ONE key shared by Veo (video, Standard + Fast), Imagen
 	// (image), and Gemini Flash Image / "Nano Banana" (image).
 	GEMINI_API_KEY: z.string().default(""),

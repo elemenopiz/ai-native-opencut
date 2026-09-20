@@ -19,6 +19,7 @@ import {
 	CropIcon,
 	CursorMove01Icon,
 	Analytics01Icon,
+	AnalyticsUpIcon,
 	Video01Icon,
 	Video02Icon,
 	Scissor01Icon,
@@ -33,6 +34,7 @@ import { useAssetsPanelStore } from "@/stores/assets-panel-store";
 import { TemplatePanel } from "@/components/editor/ai/template-panel";
 import { BRollSuggestionsPanel } from "@/components/editor/ai/broll-suggestions-panel";
 import { YouTubeReelsPanel } from "@/components/editor/youtube/youtube-reels-panel";
+import { EngagementPanel } from "@/components/editor/youtube/engagement-panel";
 import { AIDubbingPanel } from "@/components/editor/panels/assets/views/ai-dubbing";
 import { AutoChaptersPanel } from "@/components/editor/panels/assets/views/auto-chapters";
 import { SmartReframePanel } from "@/components/editor/panels/assets/views/smart-reframe";
@@ -71,6 +73,7 @@ type ToolMode =
 	| "reframe"
 	| "tracking"
 	| "ab-testing"
+	| "engagement"
 	| "script-to-video"
 	| "shorts"
 	| "scenes"
@@ -360,6 +363,12 @@ export function ToolsView() {
 			description: "Compare take variants side by side.",
 			icon: Analytics01Icon,
 		},
+		{
+			mode: "engagement",
+			label: "Engagement Score",
+			description: "Check your video's engagement score before publishing.",
+			icon: AnalyticsUpIcon,
+		},
 		...(isFeatureAvailable("scriptToVideo")
 			? [
 					{
@@ -485,6 +494,13 @@ export function ToolsView() {
 
 			{/* ── A/B Testing ── */}
 			{mode === "ab-testing" && <ABTestingPanel className="flex-1 min-h-0" />}
+
+			{/* ── Engagement Score ── */}
+			{mode === "engagement" && (
+				<div className="flex-1 min-h-0 overflow-y-auto px-2 py-3">
+					<EngagementPanel />
+				</div>
+			)}
 
 			{/* ── Script-to-Video ── */}
 			{mode === "script-to-video" && isFeatureAvailable("scriptToVideo") && (

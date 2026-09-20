@@ -225,6 +225,23 @@ export const PHASE_TOOL_ASSIGNMENTS: Readonly<
 	compareTake: ["production"],
 	chooseTake: ["production"],
 	reviewTake: ["production"],
+	// watchBack ("SEE the cut" — see docs/plans/2026-09-18-director-autonomy-
+	// architecture.md §7): production + polish.
+	//  - production, because this is the take-judging phase — the natural home
+	//    for every "look before you commit" verb, alongside its source-media
+	//    sibling reviewTake.
+	//  - polish, because that is where the verb's actual subject EXISTS.
+	//    watchBack renders the COMPOSITED timeline (tracks, transitions, text,
+	//    effects together), and polish is the only bucket carrying the verbs
+	//    that change it — trim/split/reorder/addText/applyTransition/
+	//    applyEffect. Scoping it to production alone let the model make those
+	//    edits and then be unable to look at what it made: the exact "edits a
+	//    timeline it has never seen" failure §7 exists to close, reintroduced
+	//    by the phase filter. Two earlier passes deferred this because polish
+	//    sat on phase-scope.test.ts's enforced count ceiling; the ceiling was
+	//    raised 32 → 33 for this verb specifically (see the bound's comment
+	//    there) rather than leaving the polish surface eyeless.
+	watchBack: ["production", "polish"],
 	approveHeroShot: ["production"],
 	setConsistencyContext: ["production"],
 	revertBibleCheckpoint: ["production"],
@@ -243,6 +260,12 @@ export const PHASE_TOOL_ASSIGNMENTS: Readonly<
 	removeSilence: ["polish"],
 	addText: ["polish"],
 	updateText: ["polish"],
+	// addCaptions: polish — same "dress up an already-cut reel" bucket as
+	// addText/updateText (it IS an addText batch, just collapsed to one call
+	// and one undo step for a whole transcript's worth of cards). Captioning
+	// is timeline surgery on footage that is already placed and already
+	// transcribed, the same precondition trim/split/addText share.
+	addCaptions: ["polish"],
 	applyTransition: ["polish"],
 	applyEffect: ["polish"],
 	// animateItem/removeBackground: polish — motion + AI matting cleanup on
@@ -254,15 +277,61 @@ export const PHASE_TOOL_ASSIGNMENTS: Readonly<
 	addClip: ["polish"],
 	export: ["polish"],
 	approveFinalCut: ["polish"],
-	// cutOnBeat/tightenToLength/duckMusicUnderSpeech (P5 craft macros): polish
-	// — same "editing on an already-cut reel" bucket as trim/removeSilence.
-	// Each needs a REAL cut-together sequence (and, for duckMusicUnderSpeech,
-	// a music bed) already on the timeline to do anything useful, which only
-	// exists once footage has been assembled — the same precondition
-	// trim/removeSilence share.
-	cutOnBeat: ["polish"],
-	tightenToLength: ["polish"],
-	duckMusicUnderSpeech: ["polish"],
+	// readMix (the AUDIO half of "give it eyes" — docs/plans/2026-09-18-
+	// director-autonomy-architecture.md §4): polish ONLY, for two reasons that
+	// point the same way.
+	//  - PRECONDITION. It measures the MIX — dead air, integrated loudness,
+	//    where music is competing with speech. That only means something once
+	//    footage, voiceover and a music bed are actually assembled together,
+	//    the same "needs a real cut-together sequence" precondition
+	//    trim/removeSilence/applyEdit share. Reading the mix of a
+	//    half-generated reel measures nothing but the gaps.
+	//  - REMEDY ADJACENCY. Every fix it can point at — a duck-style applyEdit
+	//    program (competing music), removeSilence/a tighten-style applyEdit
+	//    program (dead air) — is polish-only. Diagnosis and remedy have to be
+	//    reachable in the same bucket or the read is a dead end. This pairing
+	//    is not incidental: readMix merges its overlap windows with the
+	//    duck-music program's own DEFAULT_MERGE_GAP_SEC so a `competingDb`
+	//    figure describes exactly the window that program would duck.
+	// Deliberately NOT in production, even though addVoiceover/addMusicBed are
+	// (audio is part of BUILDING the reel): during production the mix is still
+	// being assembled, and none of the verbs that would act on a bad reading
+	// are on the menu there.
+	readMix: ["polish"],
+	// applyEdit (Wave 2A — the program-engine composition verb, lib/director/
+	// program/*): polish ONLY, for the same reason its own primitives
+	// (trim/move/split/reorder/remove/addClip/addText/applyTransition/
+	// applyEffect/animateItem) all live there — a program can only ever call
+	// primitives this bucket already grants one at a time, so bucketing it
+	// anywhere else would let it reach ops its OWN phase can't reach
+	// individually.
+	//
+	// HISTORY: this pushed the shared ceiling 34 → 35 when `applyEdit` first
+	// landed alongside the three P5 craft macros it was built to subsume
+	// (`cutOnBeat`/`tightenToLength`/`duckMusicUnderSpeech`), on the explicit,
+	// written promise that "the honest expectation is that a LATER pass
+	// deletes them". That pass is this one: all three are proven op-for-op
+	// equivalent to a program over the primitive surface
+	// (`program/programs/*.program.test.ts`) and DELETED — from this table,
+	// the tool catalog, and `director-api.ts`. The ceiling is 35 → 32.
+	// `removeSilence` was investigated for the same treatment and STAYS (see
+	// its own entry above): it plans through a whole-track
+	// `TracksSnapshotCommand`, not a `CraftOp[]`/primitive sequence, and its
+	// detection pass is an async file decode this synchronous-only engine
+	// cannot run.
+	applyEdit: ["polish"],
+	// scoreCut (Wave 2 "scoreCut" — lib/director/scoring/score-cut.ts): polish
+	// ONLY, the same bucket as its two review siblings watchBack/readMix (the
+	// "measure/perceive what you built" reads) — grading the cut is a
+	// judged-and-settled-cut activity, not a briefing-time or mid-generation
+	// concern. It also pairs with applyEdit, which is polish-only too: a weak
+	// hook/hold-rate routes to a suggested tighten-to-length/cut-on-beat
+	// program (`edit-critic.ts`'s `suggestFixesForCutScore`), and bucketing
+	// scoreCut anywhere applyEdit isn't would surface a fix the model cannot
+	// reach the verb to run. The bound moves 32 → 33 for this one addition —
+	// see the count-bounds comment in `phase-scope.test.ts` for the running
+	// history; this is a single READ, no new mutation surface.
+	scoreCut: ["polish"],
 };
 
 /**

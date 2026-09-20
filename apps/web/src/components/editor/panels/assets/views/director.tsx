@@ -36,6 +36,10 @@ import { formatCostRange } from "@/lib/studio/cost";
 import { useStudioSettingsStore } from "@/stores/studio-settings-store";
 import { CostApprovalDialog } from "@/components/studio/cost-approval-dialog";
 import { EnhancePromptButton } from "@/components/editor/ai/enhance-prompt-button";
+import {
+	TypingDots,
+	EditingStatusChip,
+} from "@/components/editor/ai/director-typing-indicator";
 import { serializeConsistencyContext } from "@/lib/director/consistency-prompt";
 import { summarizeBrief } from "@/lib/director/director-brief";
 import { getUnderstandingCaptions } from "@/lib/director/understanding-lookup";
@@ -45,7 +49,6 @@ import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
-	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -322,7 +325,9 @@ export function DirectorView() {
 	// Item 9 (F-local) — conversation persistence. `ensureConversation` is
 	// called once per turn (below, in `handleSend`) so the write-through has a
 	// conversation to save to; `startNewConversation`/`openConversation` back
-	// the header's history affordance (New chat / reopen).
+	// the header's two sibling controls (a one-click New chat button, and a
+	// separate History button that opens the reopen-a-past-conversation list —
+	// see the header render below).
 	const ensureConversation = useAIStore((s) => s.ensureConversation);
 	const startNewConversation = useAIStore((s) => s.startNewConversation);
 	const openConversation = useAIStore((s) => s.openConversation);
@@ -964,14 +969,35 @@ export function DirectorView() {
 						</Button>
 					)}
 				</div>
-				{/* Far-right, quiet controls: conversation history (Item 9 F-local)
-				    + New chat. "Clear" was folded into New chat when the reopen UI
-				    landed — with real persistence, a separate destructive "clear"
-				    would just be a near-duplicate (New chat already preserves the
-				    old conversation, reopenable from History) — so there's no
-				    standalone delete button here. */}
+				{/* Persistent "working" chip (Task 3) — mounted for as long as a turn
+				    is in flight, in either chat or transcript mode, driven by the
+				    same `isThinking` flag that already gates the composer's Stop
+				    button and the transcript's status row below. Lives outside the
+				    `mode === "chat"` block (unlike the history/new-chat controls)
+				    since a transcript-mode turn sets `isThinking` too. */}
+				{isThinking && <EditingStatusChip className="ml-2" />}
+				{/* Far-right, quiet controls: New chat and conversation history are
+				    now two sibling one-click controls instead of "New chat" being a
+				    menu item buried inside the history popover — a primary surface's
+				    most common action (start over) shouldn't cost an extra click to
+				    open a menu first. Both keep their prior behavior exactly;
+				    `handleNewChat`/`handleReopenConversation` are unchanged. "Clear"
+				    was folded into New chat when the reopen UI landed — with real
+				    persistence, a separate destructive "clear" would just be a
+				    near-duplicate (New chat already preserves the old conversation,
+				    reopenable from History) — so there's still no standalone delete
+				    button here. */}
 				{mode === "chat" && (
 					<div className="ml-auto flex items-center gap-1 shrink-0">
+						<Button
+							variant="ghost"
+							size="sm"
+							className="h-6 w-6 p-0 text-muted-foreground"
+							onClick={handleNewChat}
+							title="New chat"
+						>
+							<HugeiconsIcon icon={Add01Icon} className="size-3" />
+						</Button>
 						<DropdownMenu
 							open={historyOpen}
 							onOpenChange={(open) => {
@@ -993,11 +1019,6 @@ export function DirectorView() {
 								align="end"
 								className="w-64 max-h-72 overflow-y-auto"
 							>
-								<DropdownMenuItem onClick={handleNewChat} className="gap-1.5">
-									<HugeiconsIcon icon={Add01Icon} className="size-3.5" />
-									<span className="text-xs">New chat</span>
-								</DropdownMenuItem>
-								{conversationHistory.length > 0 && <DropdownMenuSeparator />}
 								{conversationHistory.length === 0 ? (
 									<div className="px-2 py-2 text-[11px] text-muted-foreground">
 										No saved conversations yet
@@ -1022,17 +1043,6 @@ export function DirectorView() {
 								)}
 							</DropdownMenuContent>
 						</DropdownMenu>
-						{messages.length > 0 && (
-							<Button
-								variant="ghost"
-								size="sm"
-								className="h-6 w-6 p-0 text-muted-foreground"
-								onClick={handleNewChat}
-								title="New chat"
-							>
-								<HugeiconsIcon icon={Add01Icon} className="size-3" />
-							</Button>
-						)}
 					</div>
 				)}
 			</div>
@@ -1187,12 +1197,12 @@ export function DirectorView() {
 								return (
 									<div key={msg.id} className="mb-3">
 										{msg.role === "user" ? (
-											<div className="rounded-lg bg-primary text-primary-foreground ml-6 px-3 py-2 text-xs">
+											<div className="rounded-lg bg-primary text-primary-foreground ml-6 px-3 py-2 text-sm">
 												{msg.content}
 											</div>
 										) : (
 											<div className="rounded-lg bg-muted mr-2 px-3 py-2.5">
-												<div className="prose-studio text-xs leading-relaxed">
+												<div className="prose-studio text-sm leading-relaxed">
 													<ReactMarkdown
 														components={{
 															// Item 2 — down-rank h1/h2 to inline emphasis: same
@@ -1327,9 +1337,17 @@ export function DirectorView() {
 
 						{isThinking && (
 							<div className="mx-2 my-1">
+								{/* Task 3 — this is the "next assistant message" placeholder:
+								    it renders exactly where that reply will land once it
+								    starts streaming in. The three-dot row replaces the old
+								    spinner here on purpose — a spinner reads as "loading a
+								    resource"; dots read as "composing a reply", which is
+								    what's actually happening. Driven by the same `isThinking`
+								    flag as the composer's Stop button and the header's
+								    "Byorn is editing" chip — no second busy flag. */}
 								<div className="border border-dashed border-primary/30 rounded-lg px-3 py-2.5 bg-primary/[0.03]">
 									<div className="flex items-center gap-2">
-										<Spinner className="size-3 text-primary/60" />
+										<TypingDots className="text-primary/60" />
 										<span className="text-[11px] text-primary/70 font-medium animate-pulse">
 											{agentStatus ?? thinkingMessage}
 										</span>
@@ -1369,7 +1387,7 @@ export function DirectorView() {
 								disabled={(!isConnected && mode !== "chat") || chatAiBlocked}
 								rows={1}
 								className={cn(
-									"flex-1 resize-none rounded-md border bg-transparent px-2.5 py-2 text-xs outline-none",
+									"flex-1 resize-none rounded-md border bg-transparent px-2.5 py-2 text-sm outline-none",
 									"focus:ring-1 focus:ring-ring",
 									"placeholder:text-muted-foreground/50",
 									"disabled:opacity-50",

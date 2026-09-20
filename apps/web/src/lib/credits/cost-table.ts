@@ -78,6 +78,11 @@ const VIDEO_COGS_PER_SEC_FLAT: Record<string, number> = {
 	runway: 35,
 	"google-veo": 40,
 	"google-veo-fast": 12,
+	// Higgsfield (Seedance 2.5, 720p): published rate ~$0.495 / 5s → $0.099/sec
+	// → 9.9 credits/sec. UNVERIFIED — derived from Higgsfield's advertised
+	// per-5s price, not a fetched rate card (docs.higgsfield.ai is blocked by
+	// this environment's egress proxy); flag for a fresh pull once reachable.
+	higgsfield: 9.9,
 };
 /** @see VIDEO_COGS_PER_SEC_FLAT */
 const VIDEO_COGS_FLAT_LAST_VERIFIED = "2026-07-14";
@@ -98,6 +103,32 @@ const IMAGE_COGS_FLAT: Record<string, number> = {
 	"google-imagen": 4,
 	"google-nano-banana": 14,
 	ideogram: 3,
+	// ── Higgsfield-hosted image models ────────────────────────────────────
+	// UNVERIFIED, and more weakly so than the rows above: Higgsfield bills in
+	// its own internal credit currency and publishes no per-image $ rate card
+	// we can reach, so none of these three is derived from a published number
+	// the way google-nano-banana's is. Each is anchored to the best comparable
+	// available — what this table already pays for the same or a similar model
+	// bought direct:
+	//   higgsfield-gpt-image   — GPT Image 2.5: the same OpenAI model as
+	//       `openai-gpt-image` (COGS 4) bought through a reseller; +50% for the
+	//       reseller's own margin → 6.
+	//   higgsfield-nano-banana — the same Nano Banana Pro model as
+	//       `google-nano-banana`, whose 14 IS a published Google rate
+	//       ($0.134/image at 1K/2K). Carried across unchanged: same model, same
+	//       resolution tier. A reseller premium on top is likely, which would
+	//       make this an UNDERestimate of COGS (thinner real margin than the
+	//       2.5x markup implies) — first thing to re-check with a live account.
+	//   higgsfield-soul        — Soul Cinematic is Higgsfield's own model with
+	//       no external comparable at all; 8 is an order-of-magnitude estimate
+	//       placed between the commodity models (3–4) and Nano Banana Pro (14),
+	//       on the reasoning that a house model at a 1.5k/2k tier is mid-range.
+	// These were estimated 2026-09-19, NOT on IMAGE_COGS_LAST_VERIFIED's date —
+	// that constant is one shared stamp for the whole table, and these three
+	// rows have never been checked against any rate card at all.
+	"higgsfield-gpt-image": 6,
+	"higgsfield-nano-banana": 14,
+	"higgsfield-soul": 8,
 };
 /** @see IMAGE_COGS_FLAT */
 const IMAGE_COGS_LAST_VERIFIED = "2026-07-14";
@@ -113,6 +144,14 @@ const IMAGE_COGS_LAST_VERIFIED = "2026-07-14";
 const AUDIO_COGS_PER_SEC: Record<string, number> = {
 	"fal-mmaudio": 0.1,
 	"elevenlabs-music": 0.25,
+	// higgsfield-seed-audio — text-to-SPEECH (narration), a third audio shape
+	// alongside score and music. UNVERIFIED: no reachable Higgsfield $ rate
+	// card, same limitation as the image rows above. Anchored to the one
+	// comparable in this table — ElevenLabs Music at 0.25 cr/sec ($0.15/min) —
+	// discounted to 0.15 cr/sec ($0.09/min) on the standard industry shape that
+	// TTS is materially cheaper per second than music generation. Estimated
+	// 2026-09-19, not on AUDIO_COGS_LAST_VERIFIED's date.
+	"higgsfield-seed-audio": 0.15,
 };
 /** @see AUDIO_COGS_PER_SEC */
 const AUDIO_COGS_LAST_VERIFIED = "2026-07-14";
@@ -147,6 +186,9 @@ const VIDEO_MARKUP_FLAT: Record<string, number> = {
 	runway: 80 / 35,
 	"google-veo": 1.6,
 	"google-veo-fast": 2.0,
+	// Higgsfield: same flat 2.2x as the other partner-API video backends above
+	// (kling/luma-ray/pika) — no founder-approved override for this backend yet.
+	higgsfield: 2.2,
 };
 
 /** Flat markup applied to every image backend's COGS. */

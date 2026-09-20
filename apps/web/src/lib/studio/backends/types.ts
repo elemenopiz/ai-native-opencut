@@ -28,6 +28,53 @@ export type { SafetyTier };
 export type GenerationModality = "video" | "image" | "audio";
 
 /**
+ * The job a reference image is doing in a multi-reference call — see
+ * `docs/plans/2026-09-18-commercial-prompt-patterns.md` §4 ("Reference role
+ * assignment — each reference gets a job"). Today a caller hands the model an
+ * unlabelled `referenceImages[]` and hopes it infers the right use for each
+ * one; the source material's own commercial prompts instead spell out an
+ * explicit contract per image ("use image 1 exclusively for the character's
+ * appearance, and image 2 only for the environment…"). `buildReferenceContractSentence`
+ * in `personas.ts` turns an array of these into that sentence.
+ */
+export type ReferenceRole = "appearance" | "environment" | "grade" | "style";
+
+/**
+ * One named, role-scoped reference image — the roled/handle-aware form of a
+ * plain reference URL. `handle` is the semantic name a user or the Director
+ * assigned to the underlying asset (e.g. persona name "Orlando"), used to
+ * address it in later prompts as `@Orlando` instead of a positional
+ * `@Image1`/`@Image2` that doesn't survive past one generation call — see
+ * `docs/plans/2026-09-18-commercial-prompt-patterns.md` §3. A reference
+ * without a `handle` still gets a positional `imageN` fallback wherever a
+ * handle would otherwise be used (see `personas.ts`'s
+ * `buildReferenceContractSentence`); a reference without a `role` is not
+ * mentioned in the generated contract sentence at all — it's still sent to
+ * the provider (via the plain `referenceImages[]` array below), just without
+ * an explicit-use clause.
+ */
+export interface ReferenceImage {
+	url: string;
+	role?: ReferenceRole;
+	/** Semantic handle without the leading `@`, e.g. "Orlando". */
+	handle?: string;
+}
+
+/**
+ * Derive the plain `string[]` form of a reference list from its roled form —
+ * the inverse of what a caller does when it upgrades a `referenceImages[]`
+ * array to `ReferenceImage[]`. Order is preserved 1:1 so `referenceImages[i]`
+ * and `referenceImageRefs[i]` always describe the same reference (this is
+ * what lets `BackendRequest` carry both arrays in parallel — see its
+ * docblock). Exists so a caller building a `BackendRequest` from a single
+ * `ReferenceImage[]` source doesn't hand-roll the `.map(r => r.url)` at every
+ * call site.
+ */
+export function toPlainReferenceImages(refs: ReferenceImage[]): string[] {
+	return refs.map((r) => r.url);
+}
+
+/**
  * What a timeline slot is asking for — the router's primary signal. Inferred
  * from the `GenerationSpec` (persona present, modality, prompt shape) unless a
  * caller sets it explicitly.
@@ -96,6 +143,27 @@ export interface BackendRequest {
 	mode?: VideoMode;
 	referenceImageUrl?: string;
 	referenceImages?: string[];
+	/**
+	 * The roled + named form of `referenceImages`, carried ALONGSIDE it rather
+	 * than replacing it — see `ReferenceImage`'s docblock for why a handle/role
+	 * matters. This is additive on purpose: every adapter today
+	 * (backends/video/*.ts, backends/image/*.ts) reads `referenceImages` as a
+	 * plain `string[]` — `.map((uri) => …)`, `...spread`, `.slice(0, 3)` — so
+	 * widening that field's element type to `string | ReferenceImage` would
+	 * break every one of them at compile time, and none are in this wave's
+	 * scope to touch. A caller that wants role-aware prompting populates BOTH
+	 * arrays from the same source (`referenceImages: toPlainReferenceImages(refs)`,
+	 * `referenceImageRefs: refs`) so existing adapters keep working unmodified
+	 * off the plain array while a role-aware caller — today only
+	 * `provider-adapter.ts`'s BytePlus submit path — reads this one to write
+	 * the explicit per-reference contract sentence into the prompt
+	 * (`personas.ts`'s `buildReferenceContractSentence`). When present, order
+	 * MUST match `referenceImages` 1:1 (`referenceImageRefs[i].url ===
+	 * referenceImages[i]`) — `toPlainReferenceImages` exists to keep that true.
+	 * Every other backend ignores this field harmlessly until it's updated to
+	 * read it directly (tracked follow-up — see the wave's report).
+	 */
+	referenceImageRefs?: ReferenceImage[];
 	referenceVideos?: string[];
 	lastFrameUrl?: string;
 	seed?: number;

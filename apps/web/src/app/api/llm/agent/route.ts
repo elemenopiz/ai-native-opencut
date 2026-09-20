@@ -15,7 +15,7 @@
  *  - `ANTHROPIC_API_KEY` (server-only, required) — when unset we return a 503
  *    with `error: "anthropic_not_configured"`, which the client agent detects
  *    and uses to fall back to the local Ollama brain (privacy mode).
- *  - `DIRECTOR_MODEL` (optional) — model override; defaults to claude-opus-4-8.
+ *  - `DIRECTOR_MODEL` (optional) — model override; defaults to claude-opus-5.
  */
 
 import { NextResponse } from "next/server";
@@ -26,6 +26,7 @@ import { auth } from "@/lib/auth/server";
 import { aiAccessDeniedResponse, hasAiAccess } from "@/lib/ai-access";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { isOwnerEmail } from "@/lib/credits/signup-grant";
+import { logger } from "@/lib/observability/logger";
 import {
 	DIRECTOR_BURST_LIMIT_MESSAGE,
 	DIRECTOR_DAILY_LIMIT_MESSAGE,
@@ -35,7 +36,7 @@ export const runtime = "nodejs";
 export const maxDuration = 120;
 
 /** Default model for the Director brain; override with DIRECTOR_MODEL. */
-const DEFAULT_MODEL = "claude-opus-4-8";
+const DEFAULT_MODEL = "claude-opus-5";
 
 /**
  * Kimi (Moonshot) as the Director brain — used when `MOONSHOT_API_KEY` is set.
@@ -86,6 +87,21 @@ export async function POST(req: Request) {
 	const anthropicKey = webEnv.ANTHROPIC_API_KEY;
 	const useKimi = Boolean(moonshotKey);
 	const apiKey = useKimi ? moonshotKey : anthropicKey;
+
+	// Visibility only — does NOT change the precedence above. MOONSHOT_API_KEY
+	// silently wins when both keys are set, so an operator with both configured
+	// would otherwise believe they're running Claude while actually on Kimi.
+	// This line makes the actual selection (and whether it was contested by a
+	// second configured key) show up in the server log, without ever surfacing
+	// provider/env names on any customer-facing response.
+	if (moonshotKey || anthropicKey) {
+		logger.info("llm/agent: director brain selected", {
+			brain: useKimi ? "kimi" : "anthropic",
+			moonshotKeyConfigured: Boolean(moonshotKey),
+			anthropicKeyConfigured: Boolean(anthropicKey),
+		});
+	}
+
 	if (!apiKey) {
 		// Deliberate, machine-readable "no key" signal — the client agent falls
 		// back to the local Ollama brain on this exact error code.

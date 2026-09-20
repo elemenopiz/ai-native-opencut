@@ -12,6 +12,7 @@ import { registerBackend } from "@/lib/studio/backends/registry";
 import { byteplusSeedanceBackend } from "@/lib/studio/backends/video/byteplus-seedance";
 import { googleVeoBackend } from "@/lib/studio/backends/video/google-veo";
 import { googleVeoFastBackend } from "@/lib/studio/backends/video/google-veo-fast";
+import { higgsfieldBackend } from "@/lib/studio/backends/video/higgsfield";
 import { klingBackend } from "@/lib/studio/backends/video/kling";
 import { lumaBackend } from "@/lib/studio/backends/video/luma";
 import { pikaBackend } from "@/lib/studio/backends/video/pika";
@@ -30,4 +31,5 @@ export function registerVideoBackends(): void {
 	registerBackend(runwayBackend);
 	registerBackend(lumaBackend);
 	registerBackend(pikaBackend);
+	registerBackend(higgsfieldBackend);
 }

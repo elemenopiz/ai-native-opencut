@@ -189,13 +189,18 @@ describe("allPricedOps — no-negative-margin sanity gate", () => {
 				"runway",
 				"google-veo",
 				"google-veo-fast",
+				"higgsfield",
 				"openai-gpt-image",
 				"bfl-flux",
 				"google-imagen",
 				"google-nano-banana",
 				"ideogram",
+				"higgsfield-gpt-image",
+				"higgsfield-nano-banana",
+				"higgsfield-soul",
 				"fal-mmaudio",
 				"elevenlabs-music",
+				"higgsfield-seed-audio",
 			]),
 		);
 	});

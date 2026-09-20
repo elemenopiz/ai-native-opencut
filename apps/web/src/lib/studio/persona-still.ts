@@ -23,6 +23,12 @@ import { composePersonaScenePrompt } from "@/lib/studio/personas";
 import { canRehost, fetchBytes, rehostToR2 } from "@/lib/studio/media-storage";
 import type { ImageSize } from "@/lib/studio/image-generator";
 import type { GenerationSpec } from "@/types/timeline";
+import { settleGeneration } from "@/lib/studio/settle-generation";
+
+/** Polling budget for a job-queue image backend. The persona-still route
+ *  (`/api/studio/personas/[id]/still`) runs with `maxDuration = 120`, so this
+ *  leaves headroom for the rehost and the response. */
+const PERSONA_STILL_SETTLE_BUDGET_MS = 100_000;
 
 export interface RenderPersonaStillParams {
 	/** Canonical portrait — the primary identity reference (passed first). */
@@ -115,12 +121,14 @@ export async function renderPersonaStill(
 		size: params.size ?? "1024x1024",
 	});
 
-	if (result.status === "failed" || !result.mediaUrl) {
-		throw new Error(result.error ?? "Persona still generation failed");
-	}
+	// Inline backends resolve immediately; a job-queue backend (the Higgsfield
+	// image models) returns `pending` and settles on a later poll.
+	const settled = await settleGeneration(route.backend, result, {
+		budgetMs: PERSONA_STILL_SETTLE_BUDGET_MS,
+	});
 
 	return {
-		imageUrl: await toFetchableUrl(result.mediaUrl),
+		imageUrl: await toFetchableUrl(settled.mediaUrl),
 		backendId: route.backend.id,
 	};
 }

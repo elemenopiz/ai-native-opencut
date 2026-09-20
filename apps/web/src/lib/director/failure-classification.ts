@@ -19,8 +19,15 @@ import type { FailureClass, GenerationFailure } from "./types";
 
 // Ordered, case-insensitive signals. SAFETY is checked first because a
 // moderation rejection is frequently delivered as an otherwise-normal 400/422.
+// `ip_detected` (Higgsfield's other documented terminal content-policy
+// status, alongside `nsfw`) plus its plain-English kin — a public figure,
+// trademark, branded character, or recognizable likeness in the prompt — are
+// TERMINAL, not retryable: rephrasing is the only route, since the same
+// prompt will trip the filter again on retry. Without a pattern here it fell
+// through to the retryable "unknown" class and burned extra attempts against
+// a request that could never succeed.
 const SAFETY_RE =
-	/\b(safety|moderation|moderat\w*|content[\s_-]?polic\w*|flagged|nsfw|not[\s_-]?safe|blocked|prohibit\w*|disallow\w*|violat\w*|sensitive|explicit|sexual|graphic content|policy violation|rejected by)\b/i;
+	/\b(safety|moderation|moderat\w*|content[\s_-]?polic\w*|flagged|nsfw|not[\s_-]?safe|blocked|prohibit\w*|disallow\w*|violat\w*|sensitive|explicit|sexual|graphic content|policy violation|rejected by|ip[\s_-]?detected|intellectual property|public figure|trademark\w*|branded character|recognizable likeness|copyrighted character)\b/i;
 const TIMEOUT_RE =
 	/\b(timeout|timed[\s_-]?out|etimedout|deadline exceeded|took too long|request timed)\b/i;
 // Retryable provider hiccups (network + overload + rate limiting).

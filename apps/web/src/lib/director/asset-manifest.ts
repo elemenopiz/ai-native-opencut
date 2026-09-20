@@ -7,7 +7,13 @@
  * invisible to the brain unless it happened to call `searchMedia`. This module
  * gives the brain STANDING AWARENESS of the whole library — counts by role, a
  * few named heroes with captions, named face-anchors (personas), and a tail
- * pointer to the searchable residual — in ~40 tokens, cheap to rebuild each turn.
+ * pointer to the searchable residual — in well under 100 tokens (measured:
+ * ~55-85 depending on branch/library size — see `formatAssetFacts`'s doc
+ * comment), cheap to rebuild each turn. Every NAMED asset (a hero, or a
+ * fallback-path recent name) also carries its duration/resolution/fps facts
+ * tag — the cost stays flat regardless of library size because named assets
+ * are capped (`HERO_NAME_CAP`/`RECENT_FALLBACK_CAP`), not because any field
+ * is dropped.
  *
  * DEPENDENCY + GRACEFUL DEGRADATION:
  * Role/caption/face data comes from a sibling "Understanding Pass" agent, read
@@ -324,6 +330,8 @@ export interface ManifestHero {
 	height?: number;
 	/** Duration in seconds, when known. */
 	durationSec?: number;
+	/** Frames per second, when known (video assets only). */
+	fps?: number;
 	/** Provenance ("ai" ⇒ Studio-generated; "upload" ⇒ user-uploaded/imported), when known. */
 	source?: "upload" | "ai";
 	/** Compact aspect-ratio label (see {@link aspectRatioTag}), when width/height are both known. */
@@ -575,6 +583,7 @@ export function buildLibraryManifest(input: {
 				...(asset.durationSec != null
 					? { durationSec: asset.durationSec }
 					: {}),
+				...(asset.fps != null ? { fps: asset.fps } : {}),
 				...(asset.source != null ? { source: asset.source } : {}),
 				...(orientation != null ? { orientation } : {}),
 				...(u.styleProbe != null ? { styleProbe: u.styleProbe } : {}),
@@ -790,6 +799,43 @@ function formatRoleSegments(
 }
 
 /**
+ * Compact `"4.2s, 1920x1080 (landscape), 30fps"`-style facts tag for ONE
+ * named asset — duration, resolution+orientation, and fps, in that order.
+ * This is the fix for the finding that grounds every model call cutting
+ * Byorn's timeline: `buildLibraryManifest` computes these fields for free on
+ * every {@link ManifestAsset}, but both digest serializers used to discard
+ * them, leaving the brain to cut without knowing how long any clip was. Every
+ * segment is independently optional (mirrors {@link formatHeroFacets}'s own
+ * degrade-per-bit contract) and DURATION IS NEVER DROPPED WHEN KNOWN — a model
+ * that only knows a clip's length can still cut; one that knows its mood and
+ * not its length cannot (see this module's mission doc). Resolution folds
+ * its own {@link orientationOf} bucket in parens rather than emitting a
+ * second standalone orientation token — `1080x1920 (portrait)` already reads
+ * unambiguously, so a duplicate `portrait` elsewhere would just be more
+ * tokens for the same fact. Returns `""` (zero bytes) when the asset carries
+ * none of the three — same silent-degrade contract as every other facet here.
+ */
+function formatAssetFacts(a: {
+	durationSec?: number;
+	width?: number;
+	height?: number;
+	fps?: number;
+}): string {
+	const parts: string[] = [];
+	if (a.durationSec != null) parts.push(`${a.durationSec.toFixed(1)}s`);
+	if (a.width != null && a.height != null) {
+		const orientation = orientationOf(a.width, a.height);
+		parts.push(
+			orientation
+				? `${a.width}x${a.height} (${orientation})`
+				: `${a.width}x${a.height}`,
+		);
+	}
+	if (a.fps != null) parts.push(`${a.fps}fps`);
+	return parts.join(", ");
+}
+
+/**
  * Compact `[...]` bracket for a hero's DEEPENED perception facets — a few
  * tokens, appended straight after the caption in the digest STRING (unlike
  * `styleProbe`/`composition`/`audio`/`continuityFingerprint`, which ride the
@@ -824,7 +870,11 @@ function formatGroundedDigest(m: {
 
 	if (m.heroes.length) {
 		const named = m.heroes
-			.map((h) => `${h.ref} ${JSON.stringify(h.caption)}${formatHeroFacets(h)}`)
+			.map((h) => {
+				const facts = formatAssetFacts(h);
+				const factsPart = facts ? ` ${facts}` : "";
+				return `${h.ref} ${JSON.stringify(h.caption)}${factsPart}${formatHeroFacets(h)}`;
+			})
 			.join(", ");
 		parts.push(`Heroes: ${named}.`);
 	}
@@ -855,9 +905,16 @@ function formatFallbackDigest(
 		.map((t) => `${typeCounts[t]} ${t}`)
 		.join(" · ");
 	// Assets are stored in insertion order, so the tail is the most recent.
+	// Each named asset carries its facts tag (duration/resolution+orientation/
+	// fps) so the fallback path — the PRODUCTION path today (understanding-pass
+	// flag is off for beta) — never asks the model to cut blind. See
+	// `formatAssetFacts`'s doc comment for why this exists.
 	const recentNames = assets
 		.slice(-RECENT_FALLBACK_CAP)
-		.map((a) => a.name)
+		.map((a) => {
+			const facts = formatAssetFacts(a);
+			return facts ? `${a.name} (${facts})` : a.name;
+		})
 		.join(", ");
 	const recentPart = recentNames ? ` Recent: ${recentNames}.` : "";
 

@@ -86,11 +86,54 @@ describe("commitExport — staged-output handoff gate", () => {
 
 		expect(outcome.status).toBe("failed");
 		expect(outcome.status === "failed" && outcome.reason).toBe("render-failed");
-		expect(outcome.status === "failed" && outcome.message).toBe(
-			"codec unavailable",
-		);
 		expect(appendedNodes).toHaveLength(0);
 		expect(clicked).toHaveLength(0);
+	});
+
+	it("sanitises a raw renderer failure into a human message, keeping the raw text on `detail`", () => {
+		// This is the demo-day defect: a real browser encode failure surfaces
+		// as a raw DOMException/codec string. `message` must never carry that
+		// verbatim — it's what the Director's exportReel wrapper puts
+		// straight into chat with no sanitisation of its own. The raw text
+		// must still survive, but only on `detail`, for dev-side logging.
+		const result: ExportResult = {
+			success: false,
+			error:
+				"DOMException: codec 'avc1.640028' unavailable at /tmp/scratch.mp4",
+		};
+
+		const outcome = commitExport({
+			result,
+			jobId: jobId(),
+			filename: "reel.mp4",
+			mimeType: "video/mp4",
+		});
+
+		if (outcome.status !== "failed") throw new Error("expected failure");
+		expect(outcome.reason).toBe("render-failed");
+		expect(outcome.message).not.toMatch(/DOMException/);
+		expect(outcome.message).not.toMatch(/codec/i);
+		expect(outcome.message).not.toMatch(/avc1/);
+		expect(outcome.message).not.toMatch(/\/tmp/);
+		expect(outcome.message.length).toBeGreaterThan(0);
+		expect(outcome.detail).toBe(
+			"DOMException: codec 'avc1.640028' unavailable at /tmp/scratch.mp4",
+		);
+	});
+
+	it("falls back to a generic detail when the renderer reports failure with no error text", () => {
+		const result: ExportResult = { success: false };
+
+		const outcome = commitExport({
+			result,
+			jobId: jobId(),
+			filename: "reel.mp4",
+			mimeType: "video/mp4",
+		});
+
+		if (outcome.status !== "failed") throw new Error("expected failure");
+		expect(outcome.reason).toBe("render-failed");
+		expect(outcome.detail).toBe("unknown error");
 	});
 
 	it("never touches the download handoff when success is reported with no buffer", () => {

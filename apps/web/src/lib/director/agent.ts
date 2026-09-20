@@ -44,7 +44,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import type { DirectorApi } from "./director-api";
 import type { StoryboardPlan } from "./storyboard-plan";
 import { styleBibleDescriptors } from "./storyboard-plan";
-import type { ReelSnapshot, ReviewTakeData } from "./types";
+import type { ReelSnapshot, ReviewTakeData, WatchBackData } from "./types";
 import { PLAYBOOKS } from "@/lib/studio/playbooks";
 import { createShortIdMap, type ShortIdMap } from "./short-id";
 import {
@@ -197,10 +197,34 @@ const MAX_STEPS = 6;
  * one-JSON-per-turn local loop, so the budget is higher — but still hard-capped
  * to bound a runaway model. When {@link MAX_TOOL_CALLS} is reached the loop
  * forces a final text summary via `tool_choice: {type: "none"}`.
+ *
+ * Sized for the Director's "doer" autonomy pass (2026-09-18 — see
+ * `docs/plans/2026-09-18-director-autonomy-architecture.md` §3): a one-shot
+ * vlog edit (captions, cuts, graphics, generated B-roll, audio/voiceover) is
+ * hundreds of primitive verb calls, not a handful, so the old 24/30 forced a
+ * "check in" long before a real edit was done. Raised 24→150 / 30→180 (same
+ * ~0.8 tool-calls-per-model-call ratio as before) — enough headroom for a
+ * long autonomous run while staying a HARD ceiling, not unlimited: hitting it
+ * still forces a clean text summary (never a silent stop), and the user can
+ * simply continue in a follow-up turn (conversation history rides via
+ * `priorMessages`) rather than the loop running forever on its own.
+ *
+ * COST NOTE: this bounds ROUND-TRIP COUNT, not per-call spend — the relay's
+ * own `MAX_OUTPUT_TOKENS` (16k, `app/api/llm/agent/route.ts`) is the
+ * per-call anti-abuse ceiling and is UNCHANGED here. Raising `MAX_MODEL_CALLS`
+ * does widen the theoretical worst case (all calls hitting the full 16k):
+ * 30 × 16k = 480k output tokens/turn before this change, 180 × 16k = 2.88M
+ * after — a ~6x worst-case ceiling. Real turns run far below that (most model
+ * calls are a short "what's next" decision, not a maxed-out completion), and
+ * the existing per-account rate limits (`enforceRateLimit` in the relay
+ * route) and the COST GATE below (which still pauses for approval before any
+ * real paid generation) are unaffected by this constant. If usage data later
+ * shows this ceiling is still being hit routinely, prefer raising it again in
+ * a follow-up over removing the cap outright.
  */
-export const MAX_TOOL_CALLS = 24;
-/** Bound on model round-trips (also covers pause_turn re-sends). */
-export const MAX_MODEL_CALLS = 30;
+export const MAX_TOOL_CALLS = 150;
+/** Bound on model round-trips (also covers pause_turn re-sends). See {@link MAX_TOOL_CALLS}'s doc comment for the cost reasoning behind this number. */
+export const MAX_MODEL_CALLS = 180;
 
 // ── conversation history replay (Director-revamp Item 9) ─────────────────────
 //
@@ -647,15 +671,20 @@ export async function executeTool(
 		observation = result.message;
 	}
 
-	// reviewTake carries decoded frames — attach them as image content blocks so
-	// the model SEES the take instead of reading about it. The data URLs are kept
-	// OUT of `observation` (they're large and never belong in the step log); the
-	// text summary rides alongside the images in the tool_result content array.
+	// reviewTake (a slot's SOURCE take) and watchBack (the COMPOSITED timeline —
+	// see watch-back.ts) both carry decoded frames — attach them as image content
+	// blocks so the model SEES the shot/cut instead of reading about it. The data
+	// URLs are kept OUT of `observation` (they're large and never belong in the
+	// step log); the text summary rides alongside the images in the tool_result
+	// content array.
 	let content:
 		| string
 		| Array<Anthropic.TextBlockParam | Anthropic.ImageBlockParam> = observation;
-	if (action === "reviewTake" && result.ok) {
-		const frames = (result.data as ReviewTakeData | undefined)?.frames ?? [];
+	if (result.ok && (action === "reviewTake" || action === "watchBack")) {
+		const frames =
+			action === "reviewTake"
+				? ((result.data as ReviewTakeData | undefined)?.frames ?? [])
+				: ((result.data as WatchBackData | undefined)?.frames ?? []);
 		const imageBlocks = frames
 			.map(dataUrlToImageBlock)
 			.filter((b): b is Anthropic.ImageBlockParam => b !== null);
@@ -1527,14 +1556,14 @@ export function buildFrontierSystemPrompt(director: DirectorApi): string {
 		"",
 		"PLAN FIRST for multi-shot briefs: when the brief implies MORE THAN ONE shot (a sequence, story, ad, montage, or a 'make a video about X' that isn't a single clip), call `storyboard` BEFORE generating anything. Decompose the brief into ordered shots — each with its `prompt` PLUS creative `intent`/`camera`/`subject` notes — under one shared `bible` (palette, lensMood, setting, and any recurring `characters`). `storyboard` persists the plan (it appears as PLAN in the REEL below and via getReel) and auto-seeds the reel's consistency context from the bible, so every later `generate` inherits the same style and cast — do NOT restate style/characters shot by shot. Then generate against each shot's planned intent. If a PLAN already exists, build on it (setPrompt/reroll individual shots) rather than re-storyboarding from scratch.",
 		'SINGLE / QUICK requests stay fast: for a one-off clip ("make me one clip of X", "add a shot of Y"), skip planning — go straight to reserveSlot (or a one-shot storyboard) and generate. Don\'t force a storyboard or a style bible onto a single-shot ask.',
-		'CLARIFY BEFORE BUILDING, but only when the ask is genuinely THIN — a vague one-liner that wants something good but doesn\'t pin down the essentials (subject/story, the vibe or visual style, target duration or shot count, aspect/format). When it is, ask AT MOST ONE short, friendly question — plain text, no tool call — and WAIT for the answer instead of one-shotting a mediocre reel from a single line. Phrase it for a lazy user: pack in a sensible default they can accept in one word, e.g. "Fun — I\'m thinking 3 shots, ~6s each, moody-cinematic, vertical 9:16, sound good?" Never stack multiple questions and never ask a second round. If the user states a target length ("make this a 60-second reel"), call `updateBrief` with `durationSec` right away so later turns can pace against it. Otherwise — brief already specific, user says "just go" / "surprise me" / "you decide", or it\'s a single quick clip (per SINGLE / QUICK above) — skip the question entirely: just act, then narrate briefly what you did.',
+		'CLARIFY ONCE, THEN BUILD — you are a DOER, not a brainstorming partner. A request like "edit this vlog" or "make me a product ad" already carries enough intent to start: your job is to fill the gaps yourself, not hand the brief back to the user to write. INFER AGGRESSIVELY FIRST from what you already know — the LIBRARY (footage, its aspect/duration, whether it has speech), getTranscript/scene boundaries on the actual clips, and the project\'s own settings: if the footage is already 9:16 and 45s, that answers aspect and length — do NOT ask about it. Ask ONLY when something that would genuinely change the output cannot be inferred this way: at most 3 short questions, batched into ONE plain-text message (no tool call), asked ONCE for the whole conversation — the turns above are your record of whether you already asked; if you did, do not ask again, infer a sensible default instead and say so in your summary. The questions worth asking, when truly unclear: what must stay CONSISTENT across the cut (a person, brand, or product to lock), target length/platform (only if the footage and brief don\'t already pin it down), and tone/vibe. Phrase it for a lazy user, packing in defaults they can accept in one word, e.g. "On it — keeping it under a minute for Reels, upbeat and punchy, you as the through-line throughout — sound right?" If the user states a target length or platform, call `updateBrief` right away so later turns pace against it. The moment you have an answer (or decided not to ask), GET TO WORK end-to-end without pausing for permission again: cut the footage, add captions, generate whatever graphics/B-roll/AI shots the cut calls for, and add music/voiceover as part of the same run — not a plan you present for approval first.',
 		"",
-		"COST GATE: any paid action — generate/reroll/compareTake, or an audio add (addVoiceover/addMusicBed) — that would spend more than a small amount pauses for the user's approval; the run stops and asks them out-of-band. This is expected, not an error; do NOT retry the same action to force it through.",
+		"COST GATE: any paid action — generate/reroll/compareTake, or an audio add (addVoiceover/addMusicBed) — that would spend more than a small amount pauses for the user's approval; the run stops and asks them out-of-band. This is expected, not an error; do NOT retry the same action to force it through. This is the ONE thing that still stops mid-run — it protects real money, not the user's creative sign-off, so don't treat it as license to ask for approval elsewhere.",
 		MODEL_ROUTING_POLICY,
 		BUDGET_POLICY,
 		"",
 		"HONOR THE BRIEF: the DIRECTOR BRIEF below is the user's durable creative intent. Let it shape every prompt you write and every take you pick. When the user states a new preference — or a chosen take reveals one — call updateBrief so it persists for later turns.",
-		"CAPTURE, DON'T INTERROGATE: this is about RETAINING facts the user already gave you, not asking for more (the CLARIFY BEFORE BUILDING one-question policy above stands — never add a second question just to fill in the brief). Whenever a brief-relevant fact surfaces naturally in conversation — they name their audience, the platform/format it's for, a tone/vibe, or something that must appear in the cut — call `updateBrief` with it SILENTLY (no tool-call narration, no confirming question) so it rides in every later turn's prompt instead of evaporating after this one.",
+		"CAPTURE, DON'T INTERROGATE: this is about RETAINING facts the user already gave you, not asking for more (the CLARIFY ONCE, THEN BUILD policy above stands — never ask a second round just to fill in the brief). Whenever a brief-relevant fact surfaces naturally in conversation — they name their audience, the platform/format it's for, a tone/vibe, or something that must appear in the cut — call `updateBrief` with it SILENTLY (no tool-call narration, no confirming question) so it rides in every later turn's prompt instead of evaporating after this one.",
 		briefBlock(director),
 		"",
 		'EYES ON INPUT: when the user ATTACHES reference images — style refs (a moodboard, a film still, a product/location shot) and/or a character photo — do NOT plan from words alone. Call `intakeReferences` FIRST with those reference mediaIds (full media ids; see the recent assets in the project info): the model SEES the pixels and derives a StyleBible (palette/lens-mood/setting) that seeds the reel\'s consistency context, and — when a person is the subject — locks & activates a PERSONA so that character recurs across shots. Then pass the returned `bible` into `storyboard` and generate; every shot inherits the referenced look and cast without you restating it. Use it for a plain "make it look like this" / "use this character" ask, not for footage the user wants placed on the timeline (that\'s addClip).',
@@ -1543,6 +1572,7 @@ export function buildFrontierSystemPrompt(director: DirectorApi): string {
 		"  · fundamentally wrong shot (wrong subject/scene, missing the point) → fix the prompt with `setPrompt`, then `reroll` for a fresh take.",
 		"  · mostly right but one flaw (extra finger, wrong color, missing prop) → `remix` with a SHORT delta prompt to edit it in place, seed-anchored.",
 		"Review when the user cares about quality (asks for it to look good/right/best), when a take might be off, or before finishing an important shot — not reflexively after every generation. A separate automatic review may also run for quality-focused turns; it uses the same reviewTake→verdict→fix logic.",
+		"WATCH YOUR OWN CUT: `reviewTake` looks at a single slot's SOURCE take before it's placed — it does NOT show you the assembled timeline. Once you've made several edits to the actual TIMELINE (trims, splits, reorders, text, transitions), call `watchBack` with a few seconds to check (an opening, a cut point, the ending) and SEE the composited result before calling the run done — don't assume a cut looks right just because each edit call returned ok.",
 		"AUDIO: a reel is not silent. If the brief mentions narration/voiceover, use addVoiceover — pass the narrated shot's slotId so the VO is TIMED to that shot (one VO per shot/beat it narrates). Use addMusicBed for background music/ambience under the whole reel. Do this as part of building the reel, not as an afterthought.",
 		"SPEECH-AWARE CUTS: library footage with speech is auto-transcribed (the LIBRARY line reports how many assets have speech). Before you trim or split footage that contains speech, call getTranscript with its mediaId: it returns sentence segments in ASSET-RELATIVE seconds — the same timebase as trim's trimStart/trimEnd — so place cut points AT segment boundaries, never mid-sentence. When choosing which part of a long talking clip to keep, choose by what is SAID (the transcript), not only by how frames look.",
 		"SELF-CORRECTION: generation auto-retries transient/provider/timeout errors and auto-rephrases content-safety rejections before giving up. A result that still says a slot 'needs your input' is a genuine dead-end — relay that to the user (with the reason) instead of blindly re-running the same call.",

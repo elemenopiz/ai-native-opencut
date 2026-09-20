@@ -16,6 +16,7 @@ import {
 	type GenerationBackend,
 } from "@/lib/studio/backends";
 import { costFor } from "@/lib/credits/cost-table";
+import { settleGeneration } from "@/lib/studio/settle-generation";
 import { InsufficientCredits } from "@/lib/credits/ledger";
 import {
 	insufficientCreditsResponse,
@@ -27,6 +28,10 @@ import {
 
 // Synchronous image generation (+ optional R2 rehost) in one request.
 export const maxDuration = 60;
+
+/** Polling budget for a job-queue image backend, held well under
+ *  `maxDuration` so the credit settle and the response still fit. */
+const IMAGE_SETTLE_BUDGET_MS = 45_000;
 
 export async function POST(req: Request) {
 	try {
@@ -122,9 +127,12 @@ export async function POST(req: Request) {
 			throw err;
 		}
 
-		// Sync image backends return the finished image inline from submit(); one
-		// submit per requested image. Any failure in the batch releases the whole
-		// hold — we never charge for a partial batch.
+		// One submit per requested image. Inline backends answer straight from
+		// submit(); job-queue backends (the Higgsfield image models) come back
+		// `pending` and settle on a later poll — `settleGeneration` covers both
+		// and never polls the inline ones. Any failure in the batch releases the
+		// whole hold — we never charge for a partial batch, and a poll that runs
+		// out of budget throws down this same path rather than being charged for.
 		let results: Array<{ imageUrl: string }>;
 		try {
 			results = await Promise.all(
@@ -137,10 +145,10 @@ export async function POST(req: Request) {
 						referenceImageUrl,
 						referenceImages,
 					});
-					if (submitted.status !== "completed" || !submitted.mediaUrl) {
-						throw new Error(submitted.error ?? "provider dispatch failed");
-					}
-					return { imageUrl: submitted.mediaUrl };
+					const settled = await settleGeneration(backend, submitted, {
+						budgetMs: IMAGE_SETTLE_BUDGET_MS,
+					});
+					return { imageUrl: settled.mediaUrl };
 				}),
 			);
 		} catch (err) {

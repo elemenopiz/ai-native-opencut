@@ -21,6 +21,17 @@
  *    grounding line.
  *  - {@link formatTranscriptExcerpt} renders a capped, token-lean transcript
  *    excerpt from already-resolved segments.
+ *  - {@link formatMixReadSummary} folds a `mix-read.ts` {@link MixRead}
+ *    (loudness, speech/music ducking, dead air — the AUDIO half of "the
+ *    agent cannot see its own work", `docs/plans/2026-09-18-director-
+ *    autonomy-architecture.md` §4) into one grounding line, so the critic's
+ *    judgement accounts for the mix, not just the picture: music burying
+ *    dialogue, a hard cut landing in dead air, or mid-word.
+ *  - {@link CutScoreInput} / {@link formatCutScoreSummary} open the SEAM for
+ *    an external cut score (§4's `brain_activity` hook/attention/retention,
+ *    plugged in later — no client lives here) alongside the local
+ *    `aiClient.engagementScore` this repo already ships. Typed and
+ *    documented only; see {@link CutScoreInput}'s own doc comment.
  *  - {@link EDIT_CRITIC_SYSTEM_PROMPT} / {@link buildEditCritiqueUserBlocks}
  *    frame the ONE tool-less "judge this cut" model call, reusing
  *    `dataUrlToImageBlock` from `vision-critic.ts` so real pixels ride to the
@@ -41,6 +52,10 @@
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
+import type { EngagementDiagnostics } from "@/lib/engagement-diagnostics";
+import type { MixRead } from "./mix-read";
+import { buildCutOnBeatProgram } from "./program/programs/cut-on-beat";
+import { buildTightenToLengthProgram } from "./program/programs/tighten-to-length";
 import { dataUrlToImageBlock } from "./vision-critic";
 
 // ── EditCritique result shape ────────────────────────────────────────────────
@@ -374,6 +389,128 @@ export function formatTranscriptExcerpt(
 	return `TRANSCRIPT: ${lines.join(" ")}${truncNote}`;
 }
 
+// ── mix read (audio grounding — the audio half of ADR-plan §4's "give it eyes") ──
+
+/** Cap on individual overlap/dead-air entries folded into the mix grounding line — token economy, same spirit as this file's other `MAX_*` caps. */
+export const MAX_MIX_READ_ITEMS = 8;
+
+/** An overlap is only worth calling out to the model above this `competingDb` — small positive/negative values are normal duck jitter, not a real issue. */
+export const MIX_READ_COMPETING_DB_THRESHOLD = 3;
+
+/**
+ * Render a `mix-read.ts` {@link MixRead} into one compact grounding line —
+ * same "already-summarized facts, never a raw data dump" discipline
+ * {@link formatBeatGridSummary} uses for the beat grid. Only the figures a
+ * critic call actually needs make it into the prompt: the integrated
+ * loudness headline, overlap windows whose `competingDb` clears
+ * {@link MIX_READ_COMPETING_DB_THRESHOLD} (i.e. music plausibly burying
+ * speech), and dead-air stretches — NOT the full per-point loudness curve
+ * (that's for a future numeric/graph consumer, not a token-budgeted prompt
+ * line). `undefined` (no mix read run for this call) ⇒ `""`, same
+ * degrade-to-nothing contract every other `format*` helper here uses.
+ */
+export function formatMixReadSummary(mixRead: MixRead | undefined): string {
+	if (!mixRead) return "";
+	const parts: string[] = [];
+
+	const loud = mixRead.integratedLoudness;
+	parts.push(
+		`integrated ${loud.integrated} LUFS-style (short-term ${loud.shortTerm}, range ${loud.range}LU)`,
+	);
+
+	const competing = mixRead.overlaps
+		.filter((o) => o.competingDb > MIX_READ_COMPETING_DB_THRESHOLD)
+		.slice(0, MAX_MIX_READ_ITEMS);
+	if (competing.length > 0) {
+		const items = competing.map(
+			(o) =>
+				`${formatSec(o.startSec)}–${formatSec(o.endSec)} (+${o.competingDb.toFixed(1)}dB over its own duck target)`,
+		);
+		parts.push(`music competing with speech: ${items.join(", ")}`);
+	}
+
+	const dead = mixRead.deadAir.slice(0, MAX_MIX_READ_ITEMS);
+	if (dead.length > 0) {
+		const items = dead.map(
+			(d) => `${formatSec(d.startSec)}–${formatSec(d.endSec)}`,
+		);
+		const truncNote = mixRead.deadAir.length > dead.length ? " …" : "";
+		parts.push(`audio dead air: ${items.join(", ")}${truncNote}`);
+	}
+
+	return `MIX: ${parts.join("; ")}.`;
+}
+
+// ── external cut-score seam (typed only — no client wired here) ────────────
+
+/**
+ * One named axis of a cut score — e.g. Higgsfield's "hook"/"attention"/
+ * "retention", or the local engagement scorer's "curiosity"/"energy"/etc.
+ * Deliberately mirrors `lib/ai-client.ts`'s `EngagementSubScore`
+ * (`{ composite: number; [key: string]: unknown }`) so either source's
+ * per-axis payload drops in without reshaping.
+ */
+export interface CutScoreAxis {
+	composite: number;
+	[key: string]: unknown;
+}
+
+/**
+ * SEAM ONLY — no client is wired here (ADR-plan §4: `brain_activity`
+ * hook/attention/retention "will be plugged in later"). This type is shaped
+ * to fit BOTH of the two engines named in that plan:
+ *  - Higgsfield's `brain_activity` (Virality Predictor) — a finished-clip
+ *    score returning hook/attention/retention. `api.higgsfield.ai` is
+ *    BLOCKED in this environment, so no client for it exists here; a later
+ *    change wires a real caller and produces this shape.
+ *  - The LOCAL engagement scorer already in this repo —
+ *    `aiClient.engagementScore` (`lib/ai-client.ts`'s `EngagementScoreResult`:
+ *    `hook`/`curiosity`/`energy`/`audio_sync`/`face_presence`/
+ *    `emotional_arc`/`virality`, each an `EngagementSubScore`, plus a
+ *    `composite`/`grade`) — see `components/editor/youtube/engagement-panel.tsx`
+ *    for its existing consumer, which already documents "a Higgsfield
+ *    model-based video scorer will plug in here later" as the same swap.
+ * A caller of EITHER shape maps its own named sub-scores into `axes` (e.g.
+ * `{ hook: result.hook, attention: ..., retention: ... }` for Higgsfield, or
+ * `{ hook: result.hook, curiosity: result.curiosity, ... }` for the local
+ * scorer) and sets `overall` from whichever single figure that source
+ * surfaces (`composite` for both).
+ */
+export interface CutScoreInput {
+	/** Which engine produced this score — free-form, but `"higgsfield-brain-activity"` and `"local-engagement-scorer"` are the two named sources this seam is shaped for. */
+	source: string;
+	/** Named per-axis scores — whichever axes this source supports. */
+	axes: Record<string, CutScoreAxis>;
+	/** A single overall figure, when the source has one (both named sources do, as `composite`). */
+	overall?: number;
+	/** A source-supplied letter/label grade, when it has one (the local scorer's `grade`/`grade_label`). */
+	grade?: string;
+	/** Freeform notes from the scoring engine, if any. */
+	notes?: string;
+}
+
+/**
+ * Render a {@link CutScoreInput} into one compact grounding line for the
+ * critic prompt — same "summarized facts, not raw payload" discipline every
+ * other `format*` helper in this file uses. `undefined` (no score for this
+ * call — the common case until a client is wired) ⇒ `""`.
+ */
+export function formatCutScoreSummary(
+	score: CutScoreInput | undefined,
+): string {
+	if (!score) return "";
+	const axisParts = Object.entries(score.axes).map(
+		([name, axis]) => `${name} ${axis.composite}`,
+	);
+	const overallPart =
+		score.overall != null
+			? ` (overall ${score.overall}${score.grade ? `, ${score.grade}` : ""})`
+			: "";
+	const body =
+		axisParts.length > 0 ? axisParts.join(", ") : "no per-axis scores";
+	return `CUT SCORE (${score.source}): ${body}${overallPart}.`;
+}
+
 // ── critic call framing ──────────────────────────────────────────────────────
 
 /**
@@ -385,17 +522,18 @@ export function formatTranscriptExcerpt(
  * never imply a fix already happened.
  */
 export const EDIT_CRITIC_SYSTEM_PROMPT = [
-	"You are a STRICT editorial critic for a short-form video reel/cut. You are shown a compact TIMELINE digest (tracks, elements, durations), optional BEAT GRID and TRANSCRIPT grounding, and up to 12 frames SAMPLED across the assembled cut in TIME ORDER, each labeled with its timeline position in seconds.",
+	"You are a STRICT editorial critic for a short-form video reel/cut. You are shown a compact TIMELINE digest (tracks, elements, durations), optional BEAT GRID, TRANSCRIPT, MIX (loudness/ducking/dead-air) and CUT SCORE grounding, and up to 12 frames SAMPLED across the assembled cut in TIME ORDER, each labeled with its timeline position in seconds.",
 	"Judge the cut as a WHOLE FILM, on these axes:",
 	'- "pacing": do shot durations match their energy? A slow shot that lingers past its welcome, or a fast cut that never lands, is a pacing issue.',
-	'- "hook": is the strongest, most attention-grabbing moment in the FIRST ~2 SECONDS? A cold viewer decides to keep watching (or scroll past) almost immediately — a buried hook is a high-severity issue.',
+	'- "hook": is the strongest, most attention-grabbing moment in the FIRST ~2 SECONDS? A cold viewer decides to keep watching (or scroll past) almost immediately — a buried hook is a high-severity issue. When a CUT SCORE is supplied, its "hook"/"attention" figures are another signal for this axis, not a replacement for your own read of the frames.',
 	'- "variety": do consecutive or nearby shots look near-identical (same framing/subject/angle, no visual change)? Judge this directly from the sampled frames.',
 	'- "rhythm": when a BEAT GRID is supplied, do cuts (element boundaries) land near the beat, or do they fight the music\'s tempo?',
-	'- "dead-air": any reported GAPS (no visual coverage) or, from the TRANSCRIPT, long silent/empty stretches?',
+	'- "dead-air": any reported GAPS (no visual coverage), any "audio dead air" reported in MIX, or long silent/empty stretches from the TRANSCRIPT?',
 	'- "continuity": do frames near a cut break continuity (lighting, wardrobe, palette, identity) with the shot before it?',
-	'- "arc": does the sequence of sampled frames read as a coherent emotional arc (build, peak, resolve), or does it feel flat/random?',
+	'- "arc": does the sequence of sampled frames read as a coherent emotional arc (build, peak, resolve), or does it feel flat/random? A CUT SCORE\'s "retention" figure, when supplied, is a signal here too.',
+	'A MIX line, when supplied, may report "music competing with speech" windows — a music bed still loud while someone is talking. Treat that as a "pacing" or "dead-air"-adjacent issue in its own right (propose a `duckMusicUnderSpeech`-shaped fix via `animateItem` on the music element, or an `applyTransition`/`trim`, whichever actually addresses it) even if nothing looks wrong in the frames — you cannot SEE a mix problem.',
 	"Reply with ONE minified JSON object and nothing else:",
-	'{"summary":"<1-2 sentence overall read>","issues":[{"axis":"pacing"|"hook"|"variety"|"rhythm"|"dead-air"|"continuity"|"arc","severity":"low"|"med"|"high","location":{"sec":<number>,"elementRef":"<element id, when you can name one>"},"note":"<one or two sentences, specific>","proposedFix":{"verb":"<a real editing verb: trim, move, split, reorder, remove, removeSilence, applyTransition>","args":{<args for that verb>}}}]}',
+	'{"summary":"<1-2 sentence overall read>","issues":[{"axis":"pacing"|"hook"|"variety"|"rhythm"|"dead-air"|"continuity"|"arc","severity":"low"|"med"|"high","location":{"sec":<number>,"elementRef":"<element id, when you can name one>"},"note":"<one or two sentences, specific>","proposedFix":{"verb":"<a real editing verb: trim, move, split, reorder, remove, removeSilence, applyTransition, animateItem>","args":{<args for that verb>}}}]}',
 	"Rules:",
 	'- An empty "issues" array is a GOOD, valid outcome — a well-paced cut with nothing to fix. Do not invent issues to fill the list.',
 	'- "proposedFix" is a SUGGESTION ONLY. It is NEVER executed automatically — a human must explicitly run it later. Never say or imply the fix already happened. Omit "proposedFix" when you don\'t have a concrete, actionable fix in mind.',
@@ -424,6 +562,10 @@ export function buildEditCritiqueUserBlocks(input: {
 	gapsNote?: string;
 	beatGridSummary?: string;
 	transcriptExcerpt?: string;
+	/** Pre-formatted line from {@link formatMixReadSummary} — additive, ADDED AFTER the existing grounding lines so an omitted/undefined value is a pure no-op for every existing caller. */
+	mixReadSummary?: string;
+	/** Pre-formatted line from {@link formatCutScoreSummary} — the external cut-score seam; additive, same no-op-when-absent contract as `mixReadSummary`. */
+	scoreSummary?: string;
 	frames: CritiqueFrame[];
 }): Anthropic.ContentBlockParam[] {
 	const introParts = [`TIMELINE:\n${input.digest || "(no digest)"}`];
@@ -432,6 +574,9 @@ export function buildEditCritiqueUserBlocks(input: {
 		introParts.push(input.beatGridSummary.trim());
 	if (input.transcriptExcerpt?.trim())
 		introParts.push(input.transcriptExcerpt.trim());
+	if (input.mixReadSummary?.trim())
+		introParts.push(input.mixReadSummary.trim());
+	if (input.scoreSummary?.trim()) introParts.push(input.scoreSummary.trim());
 	introParts.push(
 		`${input.frames.length} frame(s) sampled across the cut follow, in time order (each labeled with its timeline position). Judge the whole cut against the rubric and reply with the JSON critique.`,
 	);
@@ -583,4 +728,100 @@ export function parseEditCritique(text: string): EditCritique {
 	}
 
 	return { summary, issues };
+}
+
+// ── weak-cut → craft-program routing (closes the score→fix loop) ───────────
+//
+// `scoreCut` (`lib/director/scoring/score-cut.ts`, wired as `director-api.ts`'s
+// `scoreCut` verb) reports a NUMBER — a hook/hold-rate rating is not, on its
+// own, something a model or user can act on. This section closes that gap:
+// given the `EngagementDiagnostics` `scoreCut` already computed, decide
+// whether the cut is weak enough to route to a concrete REMEDY, and if so,
+// build it from the SAME craft programs `applyEdit` already exposes
+// (`program/programs/tighten-to-length.ts`, `program/programs/cut-on-beat.ts`
+// — the exact two programs that subsumed the old `tightenToLength`/
+// `cutOnBeat` verbs, see `phase-scope.ts`'s deletion history) rather than
+// inventing a third editing mechanism.
+//
+// ADVISORY-ONLY, same ADR-006 contract every other `ProposedFix` in this file
+// uses: a suggestion names an `applyEdit` call with `mode: "dry-run"` (so the
+// caller sees `data.ops` before anything runs) — this module NEVER executes
+// it, and calling code must not either without an explicit later step.
+
+/** Cut left after tightening, as a fraction of the current runtime — a fixed, honest "trim the slack" ratio, not tuned against any real data (there is none to tune against locally). */
+const DEFAULT_TIGHTEN_RATIO = 0.85;
+
+/** One concrete, executable fix a weak `scoreCut` diagnostic routes to. */
+export interface CutScoreFixSuggestion {
+	/** Which diagnostic axis this fix targets. */
+	axis: "hook" | "holdRate";
+	/** Why this fix was suggested, in plain language — surfaced to the user, never auto-run. */
+	reason: string;
+	/** An `applyEdit`-shaped `ProposedFix` — `verb: "applyEdit"`, `args: { program, mode: "dry-run" }`. */
+	fix: ProposedFix;
+}
+
+/**
+ * Route a weak `hook` (and/or weak `holdRate`) diagnostic to a concrete
+ * `applyEdit` fix instead of leaving the caller with only a number:
+ *  - a weak hook OR a weak hold rate ⇒ a `tightenToLength`-shaped program
+ *    targeting {@link DEFAULT_TIGHTEN_RATIO} of the current runtime — trims
+ *    the slack a lingering opening (weak hook) or a mid-cut drop-off (weak
+ *    hold rate) is bleeding attention at. Same program `readMix`'s own
+ *    dead-air coaching note already points the model at.
+ *  - a weak hook, WHEN a beat grid has been analyzed ⇒ ALSO a
+ *    `cutOnBeat`-shaped program, since a hook that doesn't land on the
+ *    music's rhythm is a second, independent fix from "the opening is too
+ *    long" — offered alongside, not instead of, the tighten suggestion.
+ * A strong/ok cut on both axes ⇒ `[]` — same "an empty result is a good,
+ * valid outcome" posture {@link parseEditCritique} uses; this function never
+ * invents a fix to fill the list.
+ */
+export function suggestFixesForCutScore(
+	diagnostics: Pick<EngagementDiagnostics, "hook" | "holdRate">,
+	ctx: {
+		totalDurationSec: number;
+		hasBeatGrid: boolean;
+		tightenRatio?: number;
+	},
+): CutScoreFixSuggestion[] {
+	const suggestions: CutScoreFixSuggestion[] = [];
+	const hookWeak: boolean = diagnostics.hook.rating === "weak";
+	const holdWeak: boolean = diagnostics.holdRate.rating === "weak";
+
+	if ((hookWeak || holdWeak) && ctx.totalDurationSec > 0) {
+		const ratio = ctx.tightenRatio ?? DEFAULT_TIGHTEN_RATIO;
+		const targetDurationSec = Math.max(
+			1,
+			Math.round(ctx.totalDurationSec * ratio * 100) / 100,
+		);
+		const reason = hookWeak
+			? `Hook scored weak (${diagnostics.hook.score}/100) — tightening the cut to ~${targetDurationSec}s trims slack out of the opening shots so the strongest moment lands sooner.`
+			: `Hold rate scored weak (${diagnostics.holdRate.score}/100) with drop-off points on the timeline — tightening the cut to ~${targetDurationSec}s removes the slack those drop-offs are bleeding viewers at.`;
+		suggestions.push({
+			axis: hookWeak ? "hook" : "holdRate",
+			reason,
+			fix: {
+				verb: "applyEdit",
+				args: {
+					program: buildTightenToLengthProgram({ targetDurationSec }),
+					mode: "dry-run",
+				},
+			},
+		});
+	}
+
+	if (hookWeak && ctx.hasBeatGrid) {
+		suggestions.push({
+			axis: "hook",
+			reason:
+				"A beat grid is analyzed and the hook scored weak — snapping cuts to the beat can sharpen the opening's rhythm independently of trimming its length.",
+			fix: {
+				verb: "applyEdit",
+				args: { program: buildCutOnBeatProgram(), mode: "dry-run" },
+			},
+		});
+	}
+
+	return suggestions;
 }

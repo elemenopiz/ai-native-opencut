@@ -55,16 +55,20 @@ import {
 	sourceTimeToTimeline,
 } from "@/lib/timeline/audio-sync-utils";
 import {
-	cutOnBeat as planCutOnBeat,
-	duckMusicUnderSpeech as planDuckMusicUnderSpeech,
-	tightenToLength as planTightenToLength,
 	type CraftBeatMarker,
-	type CraftClip,
 	type CraftOp,
 	type DuckMusicElement,
-	type TightenElementInput,
 	type TimeRangeSec,
 } from "./craft";
+import {
+	createDerivedDataFunctions,
+	runProgram,
+	type ProgramOp,
+	type ProgramPrimitiveApi,
+	type ProgramRunMode,
+	type ProgramRunResult,
+	type ProgramValue,
+} from "./program";
 import {
 	removeImageBackground,
 	type BackgroundRemovalResult,
@@ -74,6 +78,7 @@ import type {
 	AnimationInterpolation,
 	AnimationPropertyPath,
 	AnimationValue,
+	ElementAnimations,
 } from "@/types/animation";
 import {
 	buildConsistencyContext,
@@ -154,6 +159,17 @@ import {
 import type { AssetUnderstanding } from "@/lib/search/asset-understanding";
 import { getAllUnderstandings } from "@/services/search/asset-understanding-store";
 import {
+	elementsForMedia,
+	resolveAssetRangeToTimelineRanges,
+} from "@/lib/timeline/transcript-timebase";
+import { buildCaptionChunks } from "@/lib/transcription/caption";
+import { DEFAULT_WORDS_PER_CAPTION } from "@/constants/transcription-constants";
+import { insertSubtitleCuesAsTextTrack } from "@/lib/subtitles/insert";
+import type {
+	SubtitleCue,
+	SubtitleStyleOverrides,
+} from "@/lib/subtitles/types";
+import {
 	runStoryEngine,
 	type RunStoryEngineDeps,
 	type StoryEngineRelay,
@@ -196,6 +212,7 @@ import {
 	type DurationProbe,
 	type FrameDecoder,
 } from "@/lib/media/frame-extraction";
+import { watchBackTimeline, type WatchBackRenderer } from "./watch-back";
 import {
 	buildEditCritiqueUserBlocks,
 	detectVisualGaps,
@@ -205,13 +222,31 @@ import {
 	formatTranscriptExcerpt,
 	parseEditCritique,
 	planFrameSamples,
+	suggestFixesForCutScore,
 	type CritiqueFrame,
+	type CutScoreFixSuggestion,
 	type EditCritique,
 	type EditCriticRelay,
 	type SamplableElement,
 	type TranscriptExcerptSegment,
 } from "./edit-critic";
+import {
+	scoreCut as computeCutScore,
+	type ScoreCutBeat,
+	type ScoreCutClip,
+	type ScoreCutLoudnessPoint,
+	type ScoreCutResult,
+	type ScoreCutSpeechSpan,
+} from "./scoring/score-cut";
 import { dataUrlToFile } from "@/lib/media/data-url";
+import {
+	readMix as analyzeMix,
+	DEFAULT_LOUDNESS_SAMPLE_INTERVAL_SEC,
+	type DeadAirStretch,
+	type MusicSpeechOverlap,
+} from "./mix-read";
+import { DECODE_SAMPLE_RATE, decodeToMono16k } from "@/lib/media/decode-audio";
+import { resolveVolumeAtTime } from "@/lib/animation";
 import { analyzeMediaSilence } from "@/lib/auto-cut";
 import { applyAutoCut, type AutoCutApplySummary } from "@/lib/auto-cut/apply";
 import type { DerivedFrameLabel } from "@/services/storage/types";
@@ -276,6 +311,7 @@ import type {
 	GenerationFailure,
 	IntakeReferencesData,
 	MediaSearchHit,
+	MixReadData,
 	MutationDelta,
 	ProjectInfo,
 	ReelSnapshot,
@@ -289,6 +325,7 @@ import type {
 	TimelineSnapshot,
 	TimelineTrackSnapshot,
 	UniformShift,
+	WatchBackData,
 } from "./types";
 
 export type {
@@ -307,6 +344,7 @@ export type {
 	GenerationSpec,
 	GenerativeFields,
 	MediaSearchHit,
+	MixReadData,
 	ProjectInfo,
 	ReelSnapshot,
 	SlotGenerationOutcome,
@@ -425,6 +463,185 @@ export interface RecoveryOptions {
 	rephrase?: (prompt: string, failure: GenerationFailure) => string;
 }
 
+/**
+ * One decoded, TIMELINE-ABSOLUTE mono mixdown of the project's audio — the
+ * input `lib/director/mix-read.ts` analyzes (that module is deliberately pure:
+ * "caller supplies already-decoded PCM", decode is the call site's problem).
+ * `samples[i]` is the mix at `i / sampleRate` seconds from timeline zero, so
+ * every figure `readMix` reports shares a timebase with `gatherSpeechIntervals`
+ * / `gatherMusicElements` and therefore with `duckMusicUnderSpeech`'s plan.
+ *
+ * `sourcesMixed`/`sourcesSkipped` are provenance, not decoration: a mixdown is
+ * an approximation of what the user will hear, and the verb refuses to report
+ * confident-looking numbers over a mix nothing was summed into.
+ */
+export interface DecodedTimelineMix {
+	samples: Float32Array;
+	sampleRate: number;
+	/** Timeline elements decoded and summed into `samples`. */
+	sourcesMixed: number;
+	/** Elements passed over — no resolvable file, no decodable audio track, or muted. */
+	sourcesSkipped: number;
+}
+
+/**
+ * Mixdown seam for `readMix` — BROWSER-BOUND by default (`decodeAudioData` +
+ * `OfflineAudioContext`, via the shared `decodeToMono16k`), so headless tests
+ * inject a stub that returns synthetic PCM. Same pattern as
+ * `watchBack.render` / `frames.decode`. Returning `null` means "there is
+ * nothing here to measure" (empty timeline) rather than an error.
+ */
+export type TimelineMixDecoder = () => Promise<DecodedTimelineMix | null>;
+
+// ── readMix tunables ───────────────────────────────────────────────────────
+// Three caps, all for the same reason `watch-back.ts` caps frames at 4: a read
+// verb's output is context the model pays for on every subsequent turn, and a
+// mixdown is memory the browser pays for while it runs.
+
+/**
+ * Longest timeline `readMix`'s default mixdown will attempt, seconds.
+ * The buffer is `durationSec * DECODE_SAMPLE_RATE` 32-bit floats held at once
+ * (10 minutes ≈ 38 MB) ON TOP of each source asset's own decode, so this is a
+ * memory bound, not a taste one. Comfortably past any reel this app makes;
+ * past it the verb says so rather than quietly allocating hundreds of MB.
+ */
+const MIX_READ_MAX_DURATION_SEC = 600;
+
+/**
+ * Most loudness-curve points `readMix` will return. `mix-read.ts`'s own
+ * default interval (0.5s) is the right RESOLUTION but not a bound — a 5-minute
+ * cut would return 600 points. Past this count the interval widens instead
+ * (see `resolveCurveIntervalSec`), which keeps the shape of the curve while
+ * keeping the payload roughly constant: the model wants the trend, not a
+ * transcript of every half-second.
+ */
+const MIX_READ_MAX_CURVE_POINTS = 120;
+
+/**
+ * Most overlap / dead-air entries returned. Both lists are truncated by
+ * SIGNIFICANCE (worst-competing overlaps, longest dead air) and then re-sorted
+ * into time order, so a truncated list is still the part worth acting on. The
+ * headline counts/totals on {@link MixReadData} are always computed over the
+ * FULL analysis, never over the truncated arrays.
+ */
+const MIX_READ_MAX_LIST_ITEMS = 20;
+
+/**
+ * How far above a proper duck an overlap must measure before `readMix` counts
+ * it as "music competing with speech", in dB. Not zero: `competingDb` is a
+ * heuristic built on a mixed-down buffer with no stem separation (see
+ * `computeSpeechMusicOverlaps`'s own doc), so a fraction of a dB either side of
+ * the target is measurement noise, not a note to give the user. 1 dB is below
+ * the ~3 dB most listeners can reliably hear on program material, so nothing
+ * audible is filtered out.
+ */
+const MIX_READ_COMPETING_DB = 1;
+
+/**
+ * Resolution the element volume ENVELOPE is sampled at while mixing, seconds.
+ * Evaluating `resolveVolumeAtTime` per PCM sample would be ~16k calls per
+ * second of timeline for no benefit: the ramps this has to reproduce are
+ * `duckMusicUnderSpeech`'s own attack/release (0.15s / 0.4s), so a 10ms grid
+ * resolves them ~15× over.
+ */
+const MIX_READ_GAIN_BLOCK_SEC = 0.01;
+
+/** The element fields {@link mixElementInto} reads — a structural subset of
+ *  `VideoElement | AudioElement` so the placement math can be exercised with
+ *  synthetic PCM and a plain object, no editor. */
+export interface MixSourcePlacement {
+	/** TIMELINE seconds this element starts at. */
+	startTime: number;
+	/** VISIBLE duration, seconds (timeline span). */
+	duration: number;
+	/** Seconds into the SOURCE media the visible span begins. */
+	trimStart: number;
+	playbackRate?: number;
+	reversed?: boolean;
+	/** The element's own static volume (audio elements); 1 when it has none. */
+	volume?: number;
+	/** Volume keyframes, element-start-relative — e.g. what `duckMusicUnderSpeech` writes. */
+	animations?: ElementAnimations;
+}
+
+/**
+ * Write ONE element's decoded source into the shared timeline-absolute
+ * mixdown buffer — the whole of `readMix`'s placement math, kept module-scope
+ * and pure (same reasoning as `resolvePendingRefsInArgs`: it closes over
+ * nothing, so it is directly unit-testable without building a DirectorApi or
+ * touching a browser decode). `decodeTimelineMixdown` is then only the
+ * walk-the-tracks-and-decode loop around it.
+ *
+ * Source index stepping (rather than resampling) is how `playbackRate` and
+ * `reversed` are honored: nearest-neighbour, so PITCH is wrong but timing and
+ * envelope — the only things `mix-read.ts` measures — are right.
+ *
+ * Gain is `trackGain × the element's volume ENVELOPE`, re-evaluated every
+ * {@link MIX_READ_GAIN_BLOCK_SEC} when the element has animations and held
+ * constant when it doesn't. That is what makes a duck visible to a re-read:
+ * `duckMusicUnderSpeech` expresses its work purely as volume keyframes, so a
+ * mixdown that ignored them would report the pre-duck mix forever.
+ *
+ * Sums are NOT clamped — see `decodeTimelineMixdown`'s doc for why an
+ * above-0-dBFS true peak is a useful reading rather than a bug.
+ */
+export function mixElementInto(input: {
+	mix: Float32Array;
+	source: Float32Array;
+	element: MixSourcePlacement;
+	sampleRate: number;
+	trackGain: number;
+}): void {
+	const { mix, source, element, sampleRate, trackGain } = input;
+	if (source.length === 0 || sampleRate <= 0) return;
+
+	const outStart = Math.round(element.startTime * sampleRate);
+	if (outStart >= mix.length) return;
+	const outLength = Math.min(
+		Math.round(element.duration * sampleRate),
+		mix.length - Math.max(0, outStart),
+	);
+	if (outLength <= 0) return;
+
+	const rate =
+		typeof element.playbackRate === "number" && element.playbackRate > 0
+			? element.playbackRate
+			: 1;
+	const srcStart = element.trimStart * sampleRate;
+	const srcSpan = element.duration * rate * sampleRate;
+	const baseVolume = typeof element.volume === "number" ? element.volume : 1;
+	// Only walk the envelope when there is a VOLUME channel: most animated
+	// elements carry position/opacity keyframes and nothing else, and for those
+	// the static gain is already the right answer for every sample.
+	const animations = element.animations?.channels?.volume
+		? element.animations
+		: undefined;
+	const gainBlockFrames = Math.max(
+		1,
+		Math.round(sampleRate * MIX_READ_GAIN_BLOCK_SEC),
+	);
+
+	let gain = trackGain * baseVolume;
+	for (let i = 0; i < outLength; i++) {
+		const outIndex = outStart + i;
+		if (outIndex < 0) continue;
+		if (animations && i % gainBlockFrames === 0) {
+			gain =
+				trackGain *
+				resolveVolumeAtTime({
+					baseVolume,
+					animations,
+					localTime: i / sampleRate,
+				});
+		}
+		const srcIndex = Math.round(
+			srcStart + (element.reversed ? srcSpan - 1 - i * rate : i * rate),
+		);
+		if (srcIndex < 0 || srcIndex >= source.length) continue;
+		mix[outIndex] += source[srcIndex] * gain;
+	}
+}
+
 export interface CreateDirectorApiOptions {
 	/**
 	 * Injectable boundary for real provider/network generation. If omitted,
@@ -492,6 +709,28 @@ export interface CreateDirectorApiOptions {
 		decode?: FrameDecoder;
 		upload?: (file: File) => Promise<string>;
 		probeDuration?: DurationProbe;
+	};
+	/**
+	 * Composited-timeline render seam for `watchBack` (see `watch-back.ts`).
+	 * `render` renders the ACTUAL rendered cut (fresh `buildScene()` + a canvas
+	 * renderer, mirroring the freeze-frame action) at the requested times and
+	 * returns decoded frames. BROWSER-BOUND by default, so headless tests
+	 * inject a stub — same pattern as `frames`/`audio`/`references`.
+	 */
+	watchBack?: {
+		render?: WatchBackRenderer;
+	};
+	/**
+	 * Mixdown seam for `readMix` (see {@link TimelineMixDecoder} and
+	 * `mix-read.ts`) — the AUDIO sibling of `watchBack`'s render seam. `decode`
+	 * sums every audible element's decoded PCM into one timeline-absolute mono
+	 * buffer; the default does that with the SAME `decodeToMono16k` path
+	 * transcription and auto-cut already share, so nothing new decodes audio in
+	 * this app. BROWSER-BOUND, so headless tests inject a stub — same pattern
+	 * as `watchBack`/`frames`/`references`.
+	 */
+	mixAudio?: {
+		decode?: TimelineMixDecoder;
 	};
 	/**
 	 * "Understanding Pass" seam (see `asset-manifest.ts`). A per-asset lookup that
@@ -647,9 +886,10 @@ const fail = <T = undefined>(message: string): DirectorResult<T> => ({
  * over nothing but its own arguments — pure, and directly unit-testable
  * without constructing a full `DirectorApi`/editor (see
  * `director-draft-cut.test.ts`). Every PRE-EXISTING `executeCraftPlan` caller
- * (`cutOnBeat`/`tightenToLength`/`duckMusicUnderSpeech`) addresses only real,
- * already-placed element ids and never emits a pending-ref token, so this
- * resolution pass is a no-op for them — purely additive.
+ * (`cutOnBeat`/`tightenToLength`/`duckMusicUnderSpeech`, back when those were
+ * their own verbs, and `story/assembly.ts`'s `planAssembly` today) addresses
+ * only real, already-placed element ids and never emits a pending-ref token,
+ * so this resolution pass is a no-op for them — purely additive.
  */
 export function resolvePendingRefsInArgs(
 	args: Record<string, unknown>,
@@ -1041,6 +1281,18 @@ export function createDirectorApi(
 	const probeDuration: DurationProbe =
 		options.frames?.probeDuration ??
 		((source) => resolveVideoDurationSec(source));
+
+	// watchBack's render seam — undefined here just means "use watch-back.ts's
+	// own browser-bound default" (resolved inside `watchBackTimeline`).
+	const watchBackRender: WatchBackRenderer | undefined =
+		options.watchBack?.render;
+
+	// readMix's mixdown seam. Unlike watchBack's, the default lives in THIS file
+	// (`decodeTimelineMixdown` below) rather than in the analysis module, because
+	// `mix-read.ts` is deliberately editor-free and pure — walking tracks and
+	// resolving assets is director-api's job, not the analyzer's.
+	const decodeMix: TimelineMixDecoder =
+		options.mixAudio?.decode ?? (() => decodeTimelineMixdown());
 
 	// Resolved self-correction config (defaults + injected overrides).
 	const recovery = {
@@ -2306,10 +2558,10 @@ export function createDirectorApi(
 	 * op `runStoryEngine`'s assembly stage produces is applied through
 	 * `executeCraftPlan` (pending-ref-aware — see its own doc comment), the
 	 * SAME transaction primitive `cutOnBeat`/`tightenToLength`/
-	 * `duckMusicUnderSpeech` use, so it inherits that function's rollback
-	 * semantics verbatim (a partial-apply failure leaves already-applied ops on
-	 * the live timeline, un-recorded as one undo step — call `getTimeline` to
-	 * check).
+	 * `duckMusicUnderSpeech` used back when those were their own verbs, so it
+	 * inherits that function's rollback semantics verbatim (a partial-apply
+	 * failure leaves already-applied ops on the live timeline, un-recorded as
+	 * one undo step — call `getTimeline` to check).
 	 *
 	 * Deps wired here: the standing `DirectorBrief` + the P1 preference-
 	 * defaults read for brief resolution; the real media library plus
@@ -4749,6 +5001,46 @@ export function createDirectorApi(
 		);
 	}
 
+	// ---- WATCH BACK (composited-timeline vision) ---------------------------
+	//
+	// reviewTake watches a SLOT's take — a single clip's SOURCE media. watchBack
+	// watches the COMPOSITED TIMELINE — the actual cut, tracks/transitions/text/
+	// effects composited together, as an audience would see it. This is the
+	// other half of "generate → SEE → fix" the agent had no access to before:
+	// it edited a timeline it had never looked at (see
+	// docs/plans/2026-09-18-director-autonomy-architecture.md §7). Read-only
+	// (no `withDelta`): nothing on the reel changes; the observation IS the
+	// pixels, decoded via `watch-back.ts` (fresh `buildScene()` + a canvas
+	// render, mirroring the freeze-frame action exactly).
+
+	/**
+	 * Render the composited timeline at up to a small handful of requested
+	 * times (see `WATCH_BACK_MAX_FRAMES` in `watch-back.ts`) and return the
+	 * decoded, downscaled frames so the model can SEE what it just assembled.
+	 * `times` are clamped into the timeline's actual span, de-duplicated, and
+	 * capped — a request past the end or with near-duplicate timestamps still
+	 * gets a sane, bounded result rather than an error.
+	 */
+	async function watchBack(input: {
+		times: number[];
+	}): Promise<DirectorResult<WatchBackData>> {
+		const outcome = await watchBackTimeline({
+			editor,
+			times: input.times,
+			render: watchBackRender,
+		});
+		if ("error" in outcome) return fail(outcome.error);
+
+		return ok(outcome.summary, {
+			times: outcome.frames.map((f) => f.time),
+			frames: outcome.frames.map((f) => f.dataUrl),
+			captions: outcome.frames.map(
+				(f) =>
+					`@${f.time.toFixed(1)}s${f.clip ? ` — ${f.clip}` : " — nothing on screen"}`,
+			),
+		});
+	}
+
 	// ---- AUDIO (voiceover + music bed) ------------------------------------
 	//
 	// The Director owns the whole soundtrack, not just silent video: `addVoiceover`
@@ -5027,7 +5319,7 @@ export function createDirectorApi(
 		duration?: number;
 	}): DirectorResult {
 		const before = captureReel();
-		const located = findSlot(input.slotId);
+		const located = findSlotOrElement(input.slotId);
 		if (!located) return failSlotNotFound(input.slotId);
 		const el = located.element;
 		editor.timeline.updateElementTrim({
@@ -5037,7 +5329,7 @@ export function createDirectorApi(
 			startTime: input.startTime,
 			duration: input.duration,
 		});
-		return withDelta(before, ok(`Trimmed slot "${input.slotId}".`));
+		return withDelta(before, ok(`Trimmed "${input.slotId}".`));
 	}
 
 	/** `newStartTime` is in SECONDS. */
@@ -5047,7 +5339,7 @@ export function createDirectorApi(
 		targetTrackId?: string;
 	}): DirectorResult {
 		const before = captureReel();
-		const located = findSlot(input.slotId);
+		const located = findSlotOrElement(input.slotId);
 		if (!located) return failSlotNotFound(input.slotId);
 		editor.timeline.moveElement({
 			sourceTrackId: located.track.id,
@@ -5057,7 +5349,7 @@ export function createDirectorApi(
 		});
 		return withDelta(
 			before,
-			ok(`Moved slot "${input.slotId}" to ${input.newStartTime}s.`),
+			ok(`Moved "${input.slotId}" to ${input.newStartTime}s.`),
 		);
 	}
 
@@ -5086,7 +5378,7 @@ export function createDirectorApi(
 		atSourceTime?: number;
 	}): DirectorResult<{ newSlotIds: string[] }> {
 		const before = captureReel();
-		const located = findSlot(input.slotId);
+		const located = findSlotOrElement(input.slotId);
 		if (!located) return failSlotNotFound(input.slotId);
 		const el = located.element;
 
@@ -5189,12 +5481,12 @@ export function createDirectorApi(
 
 	function remove(input: { slotId: string }): DirectorResult {
 		const before = captureReel();
-		const located = findSlot(input.slotId);
+		const located = findSlotOrElement(input.slotId);
 		if (!located) return failSlotNotFound(input.slotId);
 		editor.timeline.deleteElements({
 			elements: [{ trackId: located.track.id, elementId: located.element.id }],
 		});
-		return withDelta(before, ok(`Removed slot "${input.slotId}".`));
+		return withDelta(before, ok(`Removed "${input.slotId}".`));
 	}
 
 	/**
@@ -5297,6 +5589,15 @@ export function createDirectorApi(
 	 * Apply a transition to a slot's outgoing edge. Delegates to
 	 * `AddTransitionCommand` (mirrors the Transitions panel UI). `duration` is
 	 * SECONDS; omit it to use the transition's own default duration.
+	 *
+	 * TARGET-TYPE CHECK, new with the `findSlotOrElement` widening below:
+	 * `AddTransitionCommand` itself silently no-ops on a non-visual element
+	 * (`updateElementInTracks`'s `elementPredicate: isVisualElement` just
+	 * skips the update — no error, no effect) — fine when the target could
+	 * only ever be a generative slot (always video/image, always visual), but
+	 * a plain AUDIO element is now reachable too, and letting that through
+	 * would report `ok: true` for an edit that silently did nothing. Checked
+	 * explicitly here so that failure is loud instead of a no-op success.
 	 */
 	function applyTransition(input: {
 		slotId: string;
@@ -5304,8 +5605,13 @@ export function createDirectorApi(
 		duration?: number;
 	}): DirectorResult {
 		const before = captureReel();
-		const located = findSlot(input.slotId);
+		const located = findSlotOrElement(input.slotId);
 		if (!located) return failSlotNotFound(input.slotId);
+		if (!isVisualElement(located.element)) {
+			return fail(
+				`"${input.slotId}" is a "${located.element.type}" element — transitions only apply to visual elements (video/image/text/sticker).`,
+			);
+		}
 
 		const validTypes = getAllTransitions().map((t) => t.type);
 		if (!validTypes.includes(input.transitionType)) {
@@ -5325,9 +5631,7 @@ export function createDirectorApi(
 
 		return withDelta(
 			before,
-			ok(
-				`Applied "${input.transitionType}" transition to slot "${input.slotId}".`,
-			),
+			ok(`Applied "${input.transitionType}" transition to "${input.slotId}".`),
 		);
 	}
 
@@ -5335,8 +5639,11 @@ export function createDirectorApi(
 	 * Apply a visual effect to a slot. Delegates to
 	 * `editor.timeline.addClipEffect`, then optionally overrides params via
 	 * `updateClipEffectParams`. Generative slots are always video/image
-	 * elements, which are within `EFFECT_TARGET_ELEMENT_TYPES` — no extra
-	 * target-type check needed here.
+	 * elements, which are within `EFFECT_TARGET_ELEMENT_TYPES` — but see the
+	 * explicit `isVisualElement` check below, added for the SAME reason
+	 * `applyTransition` just above needed one: `findSlotOrElement` now also
+	 * resolves plain, non-visual (audio) elements, and `AddClipEffectCommand`
+	 * silently no-ops on those rather than failing.
 	 */
 	function applyEffect(input: {
 		slotId: string;
@@ -5344,8 +5651,13 @@ export function createDirectorApi(
 		params?: Partial<EffectParamValues>;
 	}): DirectorResult<{ effectId: string }> {
 		const before = captureReel();
-		const located = findSlot(input.slotId);
+		const located = findSlotOrElement(input.slotId);
 		if (!located) return failSlotNotFound(input.slotId);
+		if (!isVisualElement(located.element)) {
+			return fail(
+				`"${input.slotId}" is a "${located.element.type}" element — effects only apply to visual elements (video/image/text/sticker).`,
+			);
+		}
 
 		const validTypes = getAllEffects().map((e) => e.type);
 		if (!validTypes.includes(input.effectType)) {
@@ -5369,7 +5681,7 @@ export function createDirectorApi(
 
 		return withDelta(
 			before,
-			ok(`Applied "${input.effectType}" effect to slot "${input.slotId}".`, {
+			ok(`Applied "${input.effectType}" effect to "${input.slotId}".`, {
 				effectId,
 			}),
 		);
@@ -5396,9 +5708,98 @@ export function createDirectorApi(
 	}
 
 	/**
+	 * Target resolution for `trim`/`move`/`split`/`remove`/`applyTransition`/
+	 * `applyEffect` (Wave 2A — closes `program/executor.ts`'s "KNOWN GAPS"
+	 * slot-only-targeting note and `program/primitives.ts`'s TARGETING
+	 * CAVEAT). Those six verbs used to resolve ONLY via `findSlot` —
+	 * generative reel slots — which is exactly why `executeCraftPlan` above
+	 * re-implements trim/move against `findElement` instead of reusing them: a
+	 * program (or any editing-first caller) could not trim plain, already-cut
+	 * footage through the public verb at all.
+	 *
+	 * SLOT-FIRST, NOT SLOT-ONLY: try `findSlot`, then fall back to
+	 * `findElement`. This is deliberately NOT a straight swap to `findElement`
+	 * alone, for the not-found case specifically —
+	 * `director-lookup-errors.test.ts`'s "applyEffect on a missing slot
+	 * returns SLOT_NOT_FOUND (not EFFECT_NOT_FOUND) — slot resolves first"
+	 * pins that an id matching NEITHER a slot NOR any element still reports
+	 * `SLOT_NOT_FOUND` (via `failSlotNotFound`, unchanged at every call site
+	 * below) — the exact code/message contract these verbs had before this
+	 * widening. Only the FOUND case grows: an id that is a plain placed
+	 * element (video/image/audio/text — anything `findElement` sees) now
+	 * resolves instead of failing, which is the whole point.
+	 */
+	function findSlotOrElement(
+		id: string,
+	): { track: TimelineTrack; element: TimelineElement } | null {
+		return findSlot(id) ?? findElement(id);
+	}
+
+	/**
+	 * Partial `transform` patch accepted by `addText`/`updateText`. Only the
+	 * given leaf fields change — an unset `position` axis, or an omitted
+	 * `scale`/`rotate`, keeps its current (update) or default (create) value.
+	 * Matches `TextElement["transform"]`'s own shape/units exactly — this is
+	 * the SAME coordinate system `animateItem`'s "position" property and the
+	 * renderer (`lib/preview/element-bounds.ts`) already use, not a new one.
+	 */
+	interface TextTransformPatch {
+		position?: { x?: number; y?: number };
+		scale?: number;
+		rotate?: number;
+	}
+
+	/**
+	 * Partial `background` patch — only `enabled`/`color` are Director-tunable;
+	 * every other `TextBackground` field (padding/corner radius/offset) keeps
+	 * its current (update) or default (create) value.
+	 */
+	interface TextBackgroundPatch {
+		enabled?: boolean;
+		color?: string;
+	}
+
+	/** Merge a `TextTransformPatch` onto a base `Transform`, leaf-field-wise. */
+	function mergeTransformPatch(
+		base: TextElement["transform"],
+		patch: TextTransformPatch | undefined,
+	): TextElement["transform"] {
+		if (!patch) return base;
+		return {
+			...base,
+			...(patch.scale != null ? { scale: patch.scale } : {}),
+			...(patch.rotate != null ? { rotate: patch.rotate } : {}),
+			...(patch.position
+				? {
+						position: {
+							x: patch.position.x ?? base.position.x,
+							y: patch.position.y ?? base.position.y,
+						},
+					}
+				: {}),
+		};
+	}
+
+	/** Merge a `TextBackgroundPatch` onto a base `TextBackground`, field-wise. */
+	function mergeBackgroundPatch(
+		base: TextElement["background"],
+		patch: TextBackgroundPatch | undefined,
+	): TextElement["background"] {
+		if (!patch) return base;
+		return {
+			...base,
+			...(patch.enabled != null ? { enabled: patch.enabled } : {}),
+			...(patch.color != null ? { color: patch.color } : {}),
+		};
+	}
+
+	/**
 	 * Add a text overlay. `startTime`/`duration` are SECONDS; unset optional
 	 * style fields fall back to `DEFAULT_TEXT_ELEMENT`. Auto-places onto (or
-	 * creates) a text track unless `trackId` is given.
+	 * creates) a text track unless `trackId` is given. `transform`/`background`/
+	 * `strokeColor`/`strokeWidth`/`opacity` are the same fields a lower third or
+	 * a legible title-over-footage needs — see the verb's tool-catalog
+	 * description for the coordinate system.
 	 *
 	 * Not wrapped in `withDelta`: text elements aren't generative slots, so
 	 * `captureReel()` can't see this insert either way — the returned FULL
@@ -5413,6 +5814,11 @@ export function createDirectorApi(
 		fontFamily?: string;
 		color?: string;
 		textAlign?: TextElement["textAlign"];
+		transform?: TextTransformPatch;
+		background?: TextBackgroundPatch;
+		strokeColor?: string;
+		strokeWidth?: number;
+		opacity?: number;
 	}): DirectorResult<{ elementId: string }> {
 		if (!input.content.trim())
 			return fail("addText requires non-empty content.");
@@ -5427,6 +5833,25 @@ export function createDirectorApi(
 			...(input.fontFamily != null ? { fontFamily: input.fontFamily } : {}),
 			...(input.color != null ? { color: input.color } : {}),
 			...(input.textAlign != null ? { textAlign: input.textAlign } : {}),
+			...(input.transform != null
+				? {
+						transform: mergeTransformPatch(
+							DEFAULT_TEXT_ELEMENT.transform,
+							input.transform,
+						),
+					}
+				: {}),
+			...(input.background != null
+				? {
+						background: mergeBackgroundPatch(
+							DEFAULT_TEXT_ELEMENT.background,
+							input.background,
+						),
+					}
+				: {}),
+			...(input.strokeColor != null ? { strokeColor: input.strokeColor } : {}),
+			...(input.strokeWidth != null ? { strokeWidth: input.strokeWidth } : {}),
+			...(input.opacity != null ? { opacity: input.opacity } : {}),
 		};
 
 		const elementId = editor.timeline.insertElement({
@@ -5458,6 +5883,11 @@ export function createDirectorApi(
 		fontFamily?: string;
 		color?: string;
 		textAlign?: TextElement["textAlign"];
+		transform?: TextTransformPatch;
+		background?: TextBackgroundPatch;
+		strokeColor?: string;
+		strokeWidth?: number;
+		opacity?: number;
 	}): DirectorResult {
 		const located = findElement(input.elementId);
 		if (!located) return failItemNotFound(input.elementId);
@@ -5466,6 +5896,7 @@ export function createDirectorApi(
 				`Element "${input.elementId}" is a "${located.element.type}", not a text element.`,
 			);
 		}
+		const current = located.element as TextElement;
 
 		const updates: Partial<TextElement> = {};
 		if (input.content != null) updates.content = input.content;
@@ -5475,6 +5906,21 @@ export function createDirectorApi(
 		if (input.fontFamily != null) updates.fontFamily = input.fontFamily;
 		if (input.color != null) updates.color = input.color;
 		if (input.textAlign != null) updates.textAlign = input.textAlign;
+		if (input.strokeColor != null) updates.strokeColor = input.strokeColor;
+		if (input.strokeWidth != null) updates.strokeWidth = input.strokeWidth;
+		if (input.opacity != null) updates.opacity = input.opacity;
+		if (input.transform != null) {
+			updates.transform = mergeTransformPatch(
+				current.transform,
+				input.transform,
+			);
+		}
+		if (input.background != null) {
+			updates.background = mergeBackgroundPatch(
+				current.background,
+				input.background,
+			);
+		}
 
 		if (Object.keys(updates).length === 0) {
 			return fail("updateText requires at least one field to change.");
@@ -5486,6 +5932,207 @@ export function createDirectorApi(
 			],
 		});
 		return ok(`Updated text element "${input.elementId}".`);
+	}
+
+	/**
+	 * Caption ONE media asset's speech in a single call — the answer to needing
+	 * ~N `addText` calls (one per `DEFAULT_WORDS_PER_CAPTION`-word card) to
+	 * caption a transcript by hand. This is a DOOR into work the app already
+	 * knows how to do, not a second caption engine: every piece below is the
+	 * app's own reused machinery, unmodified.
+	 *  - `buildCaptionChunks` (lib/transcription/caption.ts) groups transcript
+	 *    text into `wordsPerCaption`-word cards (default
+	 *    `DEFAULT_WORDS_PER_CAPTION`) — the same words-per-caption convention
+	 *    the rest of the app uses.
+	 *  - `resolveAssetRangeToTimelineRanges` (lib/timeline/transcript-timebase.ts)
+	 *    projects each card's ASSET-RELATIVE window onto wherever `mediaId`
+	 *    actually sits on the TIMELINE right now — correct on a trimmed, moved,
+	 *    or split clip, and correct for an asset placed more than once (one
+	 *    card can become several timeline cues, or zero if that stretch of
+	 *    footage isn't on the timeline at all).
+	 *  - `insertSubtitleCuesAsTextTrack` (lib/subtitles/insert.ts) creates the
+	 *    text track and every card in ONE transaction — the exact machinery
+	 *    subtitle FILE IMPORT already uses, so this produces a single undo step
+	 *    for the whole operation, not one per card.
+	 *
+	 * Default placement is low-in-frame — the reused builder's own default
+	 * (bottom-aligned, ~10% margin) — so the common case needs no positioning
+	 * args at all. `transform` overrides where the whole track sits, in the
+	 * SAME pixel/canvas-center coordinate system `addText`/`updateText` use
+	 * (applied as a post-pass batch update after insertion, since the reused
+	 * subtitle builder's own placement vocabulary is ratio-based, not pixel
+	 * transform — this is the one seam where this verb adds its OWN glue
+	 * rather than a plain call-through). `style` overrides font/color/
+	 * alignment/background per the reused `SubtitleStyleOverrides` shape.
+	 *
+	 * ATOMICITY: `insertSubtitleCuesAsTextTrack`'s own rollback only discards
+	 * UNDO bookkeeping on a mid-loop failure — the cards it already inserted
+	 * before throwing are already applied to the live document (see that
+	 * function's own header). A caption verb that could leave a half-built
+	 * track live on the timeline would be worse than doing nothing, so on any
+	 * error here every track this call itself created is explicitly removed
+	 * before returning a failure — this file cannot fix that gap in
+	 * `lib/subtitles/insert.ts` directly (out of ownership), so it compensates
+	 * at the call site instead.
+	 */
+	function addCaptions(input: {
+		mediaId: string;
+		wordsPerCaption?: number;
+		startSec?: number;
+		endSec?: number;
+		trackName?: string;
+		transform?: TextTransformPatch;
+		style?: SubtitleStyleOverrides;
+	}): DirectorResult<{
+		trackId: string;
+		captionCount: number;
+		droppedCards: number;
+	}> {
+		if (!options.transcripts) {
+			return fail(
+				"No transcript pass is wired in this context — captioning is unavailable.",
+			);
+		}
+		const t = options.transcripts(input.mediaId);
+		if (!t) {
+			return fail(
+				`No transcript for media "${input.mediaId}" — it may still be transcribing, or transcription is unavailable here.`,
+			);
+		}
+		if (t.segments.length === 0) {
+			return fail(
+				`Media "${input.mediaId}" was transcribed: no speech found — nothing to caption.`,
+			);
+		}
+
+		const tracks = editor.timeline.getTracks();
+		if (elementsForMedia({ tracks, mediaId: input.mediaId }).length === 0) {
+			return fail(
+				`Media "${input.mediaId}" isn't currently on the timeline — place it before captioning.`,
+			);
+		}
+
+		const windowed = windowSegments(t.segments, input.startSec, input.endSec);
+		if (windowed.length === 0) {
+			return fail(`No speech in the requested window for "${input.mediaId}".`);
+		}
+
+		const wordsPerChunk =
+			input.wordsPerCaption != null && input.wordsPerCaption > 0
+				? Math.floor(input.wordsPerCaption)
+				: DEFAULT_WORDS_PER_CAPTION;
+
+		const chunks = buildCaptionChunks({ segments: windowed, wordsPerChunk });
+		if (chunks.length === 0) {
+			return fail(`Nothing to caption for "${input.mediaId}" in that window.`);
+		}
+
+		// Convert every card from ASSET-RELATIVE (buildCaptionChunks' input
+		// timebase) to TIMELINE-ABSOLUTE (what a text element's startTime/
+		// duration actually mean) — the exact conversion transcript-timebase.ts
+		// exists for. One card can resolve to several timeline cues (the asset
+		// appears more than once) or none (that stretch is trimmed away); the
+		// latter is a real, counted answer, not a silent drop.
+		const cues: SubtitleCue[] = [];
+		let droppedCards = 0;
+		for (const chunk of chunks) {
+			const assetRange = {
+				start: chunk.startTime,
+				end: chunk.startTime + chunk.duration,
+			};
+			if (!(assetRange.end > assetRange.start)) continue;
+			const timelineRanges = resolveAssetRangeToTimelineRanges({
+				tracks,
+				mediaId: input.mediaId,
+				range: assetRange,
+			});
+			if (timelineRanges.length === 0) {
+				droppedCards++;
+				continue;
+			}
+			for (const r of timelineRanges) {
+				cues.push({
+					text: chunk.text,
+					startTime: r.start,
+					duration: r.end - r.start,
+					...(input.style ? { style: input.style } : {}),
+				});
+			}
+		}
+
+		if (cues.length === 0) {
+			return fail(
+				`None of "${input.mediaId}"'s transcript is currently on the timeline — it may be fully trimmed away.`,
+			);
+		}
+		cues.sort((a, b) => a.startTime - b.startTime);
+
+		const trackName = input.trackName ?? `Captions: ${t.language || "auto"}`;
+		const tracksBefore = new Set(tracks.map((tr) => tr.id));
+
+		let inserted: { trackId: string; count: number } | null;
+		try {
+			inserted = insertSubtitleCuesAsTextTrack({ editor, cues, trackName });
+		} catch (error) {
+			// See ATOMICITY above: insertSubtitleCuesAsTextTrack's rollback only
+			// clears undo bookkeeping, so a half-built track can still be live —
+			// remove anything this call created before reporting failure. The
+			// cleanup itself runs inside its OWN begin/rollback pair (nested
+			// inside the choke-point transaction `withAgentOrigin` already has
+			// open) so the compensating `removeTrack` never lands in undo
+			// history either — net effect on the document AND on history is
+			// zero, matching "never happened", not a stray "removed a track you
+			// never saw added" entry.
+			editor.command.beginTransaction();
+			for (const tr of editor.timeline.getTracks()) {
+				if (!tracksBefore.has(tr.id)) {
+					try {
+						editor.timeline.removeTrack({ trackId: tr.id });
+					} catch {
+						/* best effort cleanup */
+					}
+				}
+			}
+			editor.command.rollbackTransaction();
+			return fail(
+				`Captioning failed partway through and was rolled back: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+			);
+		}
+
+		if (!inserted) {
+			return fail(`Captioning produced no cards for "${input.mediaId}".`);
+		}
+
+		if (input.transform) {
+			const track = editor.timeline
+				.getTracks()
+				.find((tr) => tr.id === inserted.trackId);
+			if (track) {
+				const updates = track.elements
+					.filter((el): el is TextElement => el.type === "text")
+					.map((el) => ({
+						trackId: inserted.trackId,
+						elementId: el.id,
+						updates: {
+							transform: mergeTransformPatch(el.transform, input.transform),
+						},
+					}));
+				if (updates.length > 0) {
+					editor.timeline.updateElements({ updates });
+				}
+			}
+		}
+
+		const droppedNote =
+			droppedCards > 0
+				? ` (${droppedCards} card(s) dropped — that stretch of the transcript isn't on the timeline)`
+				: "";
+		return ok(
+			`Captioned "${input.mediaId}": ${cues.length} card(s) on track "${inserted.trackId}"${droppedNote}.`,
+			{ trackId: inserted.trackId, captionCount: cues.length, droppedCards },
+		);
 	}
 
 	// ---- MOTION ---------------------------------------------------------
@@ -5742,14 +6389,20 @@ export function createDirectorApi(
 		return isSlotElement(located.element) ? withDelta(before, result) : result;
 	}
 
-	// ---- CRAFT (P5 macros — lib/director/craft/*) --------------------------
+	// ---- CRAFT (lib/director/craft/* — the CraftOp EXECUTOR) ---------------
 	//
-	// Wires the pure, deterministic "craft" planners (cutOnBeat/tightenToLength/
-	// duckMusicUnderSpeech — `lib/director/craft/index.ts`) into agent-reachable
-	// verbs. Each macro is a PLANNER ONLY (see `craft/types.ts`'s `CraftOp` doc
-	// comment) — it never touches the editor. This section is the EXECUTOR
-	// half: gather a read-only digest off the live timeline, call the macro,
-	// then apply the returned `CraftOp[]` plan through `executeCraftPlan`.
+	// `cutOnBeat`/`tightenToLength`/`duckMusicUnderSpeech` used to be wired here
+	// as their own agent-reachable verbs, gathering a read-only digest off the
+	// live timeline, calling their pure "craft" planner, then applying the
+	// returned `CraftOp[]` plan through `executeCraftPlan` below. All three were
+	// retired (see the comment just above `gatherMusicElements`'s neighbor
+	// below): each is now proven op-for-op equivalent to a program over the ten
+	// primitives, reachable through `applyEdit`. This section's EXECUTOR half —
+	// `executeCraftPlan`/`executeCraftOp` and friends — stays: the Story
+	// Engine's `planAssembly` (`story/assembly.ts`) still calls `cutOnBeat`
+	// (the pure planner, `lib/director/craft/cut-on-beat.ts` — unaffected, only
+	// the VERB was retired) directly and hands `draftCut` its `CraftOp[]` plan
+	// to apply through the same `executeCraftPlan`.
 	//
 	// TARGETING: `trim`/`move` above resolve their target via `findSlot` — REEL
 	// SLOTS ONLY (a generative image/video element). A craft plan's `CraftOp`s
@@ -5977,7 +6630,7 @@ export function createDirectorApi(
 		});
 	}
 
-	// ── shared digest gatherers (cutOnBeat / tightenToLength / duckMusicUnderSpeech) ──
+	// ── shared digest gatherers (readMix; formerly also cutOnBeat/tightenToLength/duckMusicUnderSpeech, now retired) ──
 
 	/**
 	 * Own local mirror of `hooks/use-auto-duck.ts`'s `isVoiceoverElement` — same
@@ -6061,261 +6714,526 @@ export function createDirectorApi(
 		return out;
 	}
 
-	/** Resolve the target track for `cutOnBeat`/`tightenToLength`: an explicit
-	 *  `trackId`, else the main video track, else the first video track. */
-	function resolveCraftTrack(trackId?: string): TimelineTrack | undefined {
-		const tracks = editor.timeline.getTracks();
-		if (trackId) return tracks.find((t) => t.id === trackId);
-		return getMainTrack({ tracks }) ?? tracks.find((t) => t.type === "video");
-	}
+	// cutOnBeat/tightenToLength/duckMusicUnderSpeech (P5 craft macro verbs) were
+	// retired here: each was proven op-for-op equivalent to a program over the
+	// ten primitives (program/programs/cut-on-beat.ts,
+	// program/programs/tighten-to-length.ts,
+	// program/programs/duck-music-under-speech.ts — see their parity test
+	// files), so `applyEdit` now covers what they covered with no separate
+	// verb. `executeCraftPlan`/`executeCraftOp` and the gatherers above stay:
+	// the Story Engine's `planAssembly` (story/assembly.ts) still emits
+	// `CraftOp[]` plans through the same executor, and `readMix` still reads
+	// `gatherSpeechIntervals`/`gatherMusicElements`.
+
+	// ---- READ MIX (audio perception) ---------------------------------------
+	//
+	// `watchBack` lets the agent SEE the composited cut. `readMix` lets it HEAR
+	// one — as numbers, not audio: loudness curve, integrated loudness, dead
+	// air, and where a music bed is competing with speech (see
+	// docs/plans/2026-09-18-director-autonomy-architecture.md §4, "Read the mix
+	// ... rather than assuming"). Read-only (no `withDelta`): nothing changes;
+	// the measurement IS the observation.
+	//
+	// The ANALYSIS is entirely `mix-read.ts`, which is pure by design and takes
+	// already-decoded PCM. Everything below is the wiring that module left to
+	// its caller, and nothing more:
+	//  - mix the timeline down to one timeline-absolute mono buffer
+	//    (`decodeTimelineMixdown`),
+	//  - hand it the SAME speech intervals and music elements
+	//    `duckMusicUnderSpeech` plans against (`gatherSpeechIntervals` /
+	//    `gatherMusicElements` — the shared gatherers, exactly as that module's
+	//    own header anticipated: "a future verb wiring can share one gather
+	//    pass"),
+	//  - reduce the report to something an agent can act on in one read.
 
 	/**
-	 * Snap every cut-together join on a video track onto the nearest analyzed
-	 * beat (`lib/director/craft/cut-on-beat.ts`) — free, instant, editing on
-	 * your own footage (no generation, no model call). Needs a beat grid
-	 * already analyzed and at least two clips on the target track to have a
-	 * join to snap. `trackId` defaults to the main video track. Executes the
-	 * whole plan as ONE undo step.
+	 * Sum every AUDIBLE timeline element into ONE timeline-absolute mono buffer
+	 * at {@link DECODE_SAMPLE_RATE} — the `readMix` mixdown.
+	 *
+	 * Reuses the shared `decodeToMono16k` (the same decode path transcription
+	 * and auto-cut's `analyzeMediaSilence` already run through), so this adds no
+	 * new way to decode audio in the app; what it adds is the PLACEMENT — each
+	 * element's decoded source is read through its trim window and written at
+	 * its `startTime`, so the resulting buffer shares a timebase with
+	 * `gatherSpeechIntervals`/`gatherMusicElements` and therefore with anything
+	 * `duckMusicUnderSpeech` would plan.
+	 *
+	 * Audibility is decided the same way playback decides it: a muted track or
+	 * element contributes nothing, and a video whose source audio was detached
+	 * onto its own audio element (`isSourceAudioEnabled === false`, see
+	 * `lib/timeline/audio-separation.ts`) is skipped so its audio isn't counted
+	 * twice. Gain is track volume × the element's own volume ENVELOPE — the
+	 * static `volume` when it has no keyframes, and `resolveVolumeAtTime`
+	 * otherwise, which is what makes the read→duck→re-read loop honest: after
+	 * `duckMusicUnderSpeech` keyframes a bed down, this mixdown reflects the
+	 * duck rather than the pre-duck level.
+	 *
+	 * KNOWN APPROXIMATIONS, stated because the numbers are only as good as
+	 * these:
+	 *  - 16 kHz mono, like every other loudness path here. Fine for the
+	 *    max-abs / mean-square figures `mix-read.ts` computes; it is not a
+	 *    mastering-grade meter.
+	 *  - `playbackRate`/`reversed` are honored by index stepping (nearest
+	 *    neighbour), not by a resampler — pitch is wrong, envelope and timing
+	 *    are right, which is all the analysis reads.
+	 *  - No pans, effects, transitions or track solo. The sum can exceed ±1
+	 *    where clips overlap; that is deliberately NOT clamped, so a
+	 *    `truePeak` above 0 dBFS reads as "this mix would clip".
 	 */
-	function cutOnBeat(input: {
-		trackId?: string;
-		toleranceSec?: number;
-		minClipDurationSec?: number;
-	}): DirectorResult<{
-		opsApplied: number;
-		snappedCount: number;
-		skippedCount: number;
-	}> {
-		const grid = useBeatGridStore.getState().grid;
-		if (!grid) {
-			return fail(
-				"cutOnBeat needs an analyzed beat grid to snap cuts to — analyze a music/audio clip's beats first (the timeline's beat-snap toggle), then retry.",
+	async function decodeTimelineMixdown(): Promise<DecodedTimelineMix | null> {
+		const durationSec = editor.timeline.getTotalDuration();
+		if (!(durationSec > 0)) return null;
+		if (durationSec > MIX_READ_MAX_DURATION_SEC) {
+			throw new Error(
+				`this timeline is ${Math.round(durationSec)}s long and readMix mixes down at most ${MIX_READ_MAX_DURATION_SEC}s at a time`,
 			);
 		}
 
-		const tracks = editor.timeline.getTracks();
-		const track = resolveCraftTrack(input.trackId);
-		if (!track) {
-			return fail(
-				input.trackId
-					? `No track with id "${input.trackId}".`
-					: "No video track on the timeline to cut on beat.",
-			);
-		}
-		if (track.elements.length < 2) {
-			return fail(
-				`Track "${track.id}" has fewer than two clips — cutOnBeat needs at least two cut-together clips to have a join to snap.`,
-			);
-		}
+		const sampleRate = DECODE_SAMPLE_RATE;
+		const totalFrames = Math.max(1, Math.ceil(durationSec * sampleRate));
+		const mix = new Float32Array(totalFrames);
+		// One decode per MEDIA ASSET, not per element: a clip used twice — or a
+		// split clip, which is two elements over one asset — must not pay twice.
+		// A cached `null` is a remembered "this has no decodable audio".
+		const decodedByMedia = new Map<string, Float32Array | null>();
+		let sourcesMixed = 0;
+		let sourcesSkipped = 0;
 
-		const before = captureReel();
-		const sorted = [...track.elements].sort(
-			(a, b) => a.startTime - b.startTime,
-		);
-		const clips: CraftClip[] = sorted.map((el) => ({
-			elementId: el.id,
-			startSec: el.startTime,
-			durationSec: el.duration,
-			trimStart: el.trimStart,
-		}));
-		const beats: CraftBeatMarker[] = getTimelineBeatMarkers({ tracks, grid });
+		for (const track of editor.timeline.getTracks()) {
+			if (track.type !== "video" && track.type !== "audio") continue;
+			if (track.muted) continue;
+			const trackGain = typeof track.volume === "number" ? track.volume : 1;
 
-		const plan = planCutOnBeat(clips, beats, {
-			toleranceSec: input.toleranceSec,
-			minClipDurationSec: input.minClipDurationSec,
-		});
-		if (plan.reason) {
-			return fail(`cutOnBeat: ${plan.reason}.`);
-		}
-		if (plan.ops.length === 0) {
-			return ok(
-				"No cuts needed snapping — every join is already on the beat (within tolerance).",
-				{ opsApplied: 0, snappedCount: 0, skippedCount: plan.skipped.length },
-			);
-		}
+			for (const element of track.elements) {
+				if (element.type !== "video" && element.type !== "audio") continue;
+				if (element.muted) continue;
+				if (element.type === "video" && element.isSourceAudioEnabled === false)
+					continue;
 
-		const exec = executeCraftPlan(plan.ops);
-		if (!exec.ok) return fail(exec.message);
+				const mediaId = (element as { mediaId?: string }).mediaId;
+				if (!mediaId) {
+					sourcesSkipped++; // e.g. a library audio element (sourceUrl, no asset)
+					continue;
+				}
 
-		return withDelta(
-			before,
-			ok(
-				`Snapped ${plan.ops.length} cut(s) onto the beat grid.` +
-					(plan.skipped.length > 0
-						? ` ${plan.skipped.length} join(s) left alone (already on beat or out of tolerance).`
-						: ""),
-				{
-					opsApplied: exec.data?.opsApplied ?? plan.ops.length,
-					snappedCount: plan.ops.length,
-					skippedCount: plan.skipped.length,
-				},
-			),
-		);
-	}
+				let source = decodedByMedia.get(mediaId);
+				if (source === undefined) {
+					const file = editor.media.getAssetById(mediaId)?.file;
+					try {
+						source = file ? await decodeToMono16k(file) : null;
+					} catch {
+						source = null; // no decodable audio track (an image, a silent render)
+					}
+					decodedByMedia.set(mediaId, source);
+				}
+				if (!source || source.length === 0) {
+					sourcesSkipped++;
+					continue;
+				}
 
-	/**
-	 * Shrink a cut-together sequence down to a target runtime
-	 * (`lib/director/craft/tighten-to-length.ts`) — free, instant, editing on
-	 * your own footage. Shaves low-interest material first, then
-	 * proportionally trims what's left; never trims into protected speech
-	 * (`protectSpeech`, default true). `trackId` defaults to the main video
-	 * track. If the target can't be fully reached, still applies the best
-	 * partial tighten and reports the shortfall — never silently misses the
-	 * target. Executes the whole plan as ONE undo step.
-	 */
-	function tightenToLength(input: {
-		targetSec: number;
-		trackId?: string;
-		protectSpeech?: boolean;
-		minClipDurationSec?: number;
-		convergenceToleranceSec?: number;
-	}): DirectorResult<{
-		opsApplied: number;
-		projectedDurationSec: number;
-		shortfallSec?: number;
-	}> {
-		if (!Number.isFinite(input.targetSec) || input.targetSec < 0) {
-			return fail("tightenToLength requires a non-negative `targetSec`.");
-		}
-
-		const track = resolveCraftTrack(input.trackId);
-		if (!track) {
-			return fail(
-				input.trackId
-					? `No track with id "${input.trackId}".`
-					: "No video track on the timeline to tighten.",
-			);
-		}
-		if (track.elements.length === 0) {
-			return fail(`Track "${track.id}" has no clips to tighten.`);
-		}
-
-		const before = captureReel();
-		const sorted = [...track.elements].sort(
-			(a, b) => a.startTime - b.startTime,
-		);
-		const elements: TightenElementInput[] = sorted.map((el) => ({
-			elementId: el.id,
-			startSec: el.startTime,
-			durationSec: el.duration,
-		}));
-
-		const protectSpeech = input.protectSpeech ?? true;
-		const protectedRanges = protectSpeech ? gatherSpeechIntervals() : [];
-
-		const plan = planTightenToLength({
-			elements,
-			targetDurationSec: input.targetSec,
-			protectedRanges,
-			minClipDurationSec: input.minClipDurationSec,
-			convergenceToleranceSec: input.convergenceToleranceSec,
-		});
-
-		const targetLabel = input.targetSec.toFixed(1);
-
-		if (plan.ops.length === 0) {
-			if (plan.shortfall) {
-				return ok(
-					`Nothing to trim — ${plan.shortfall.reason}. Currently ${plan.projectedDurationSec.toFixed(1)}s, target ${targetLabel}s.`,
-					{
-						opsApplied: 0,
-						projectedDurationSec: plan.projectedDurationSec,
-						shortfallSec: plan.shortfall.deltaSec,
+				mixElementInto({
+					mix,
+					source,
+					element: {
+						startTime: element.startTime,
+						duration: element.duration,
+						trimStart: element.trimStart,
+						playbackRate: element.playbackRate,
+						reversed: element.type === "video" && element.reversed === true,
+						volume: element.type === "audio" ? element.volume : 1,
+						animations: element.animations,
 					},
-				);
+					sampleRate,
+					trackGain,
+				});
+				sourcesMixed++;
 			}
-			return ok(
-				`Already at or under the ${targetLabel}s target — nothing to trim.`,
-				{ opsApplied: 0, projectedDurationSec: plan.projectedDurationSec },
-			);
 		}
 
-		const exec = executeCraftPlan(plan.ops);
-		if (!exec.ok) return fail(exec.message);
-
-		const shortfallNote = plan.shortfall
-			? ` Reached ${plan.projectedDurationSec.toFixed(1)}s — ${plan.shortfall.deltaSec.toFixed(1)}s short of the ${targetLabel}s target (${plan.shortfall.reason}).`
-			: ` Now ${plan.projectedDurationSec.toFixed(1)}s.`;
-
-		return withDelta(
-			before,
-			ok(`Tightened with ${plan.ops.length} operation(s).${shortfallNote}`, {
-				opsApplied: exec.data?.opsApplied ?? plan.ops.length,
-				projectedDurationSec: plan.projectedDurationSec,
-				shortfallSec: plan.shortfall?.deltaSec,
-			}),
-		);
+		return { samples: mix, sampleRate, sourcesMixed, sourcesSkipped };
 	}
 
 	/**
-	 * Duck a music bed's volume under speech
-	 * (`lib/director/craft/duck-music-under-speech.ts`) — free, instant,
-	 * editing on your own footage. Finds speech from voiceover clips and/or
-	 * transcribed dialogue (`gatherSpeechIntervals`), then keyframes the
-	 * music-bed element(s) down during it and back up cleanly after, with a
-	 * built-in flutter guard between close-together lines. Executes via the
-	 * widened `animateItem` volume path, as ONE undo step.
+	 * Widen `mix-read.ts`'s curve interval just enough to keep the returned
+	 * point count under {@link MIX_READ_MAX_CURVE_POINTS}. Never NARROWS below
+	 * that module's own default (or an explicit caller override): a short reel
+	 * keeps full 0.5s resolution, a long one trades resolution for a payload
+	 * that doesn't grow without bound.
 	 */
-	function duckMusicUnderSpeech(input: {
-		duckDb?: number;
-		attackSec?: number;
-		releaseSec?: number;
-		mergeGapSec?: number;
-		trackId?: string;
-	}): DirectorResult<{
-		opsApplied: number;
-		elementsAffected: number;
-		mergedIntervalCount: number;
-	}> {
-		const speechIntervals = gatherSpeechIntervals();
-		if (speechIntervals.length === 0) {
+	function resolveCurveIntervalSec(
+		durationSec: number,
+		requestedSec?: number,
+	): number {
+		const floor =
+			requestedSec && requestedSec > 0
+				? requestedSec
+				: DEFAULT_LOUDNESS_SAMPLE_INTERVAL_SEC;
+		return Math.max(floor, durationSec / MIX_READ_MAX_CURVE_POINTS);
+	}
+
+	/** Keep the `by`-largest entries, then restore time order — see {@link MIX_READ_MAX_LIST_ITEMS}. */
+	function topByThenChronological<T extends { startSec: number }>(
+		items: T[],
+		by: (item: T) => number,
+	): T[] {
+		if (items.length <= MIX_READ_MAX_LIST_ITEMS) return items;
+		return [...items]
+			.sort((a, b) => by(b) - by(a))
+			.slice(0, MIX_READ_MAX_LIST_ITEMS)
+			.sort((a, b) => a.startSec - b.startSec);
+	}
+
+	/**
+	 * Measure the assembled mix: loudness curve, integrated (LUFS-style)
+	 * loudness, dead air, and every window where a music bed is competing with
+	 * speech instead of ducking under it.
+	 *
+	 * ADVISORY: this changes nothing. It exists so the agent can decide from
+	 * MEASUREMENT rather than assumption which of its own audio verbs to reach
+	 * for — `duckMusicUnderSpeech` when music is competing, `removeSilence` /
+	 * `tightenToLength` when dead air is eating the runtime — and so it can
+	 * re-read afterwards and see whether the fix landed. The `competingDb`
+	 * figures are stated against `duckMusicUnderSpeech`'s OWN definition of a
+	 * proper duck, and the overlap windows are merged with that verb's own
+	 * `DEFAULT_MERGE_GAP_SEC`, so "what readMix flagged" and "what the duck
+	 * would do" describe the same windows.
+	 */
+	async function readMix(
+		input: { loudnessSampleIntervalSec?: number } = {},
+	): Promise<DirectorResult<MixReadData>> {
+		const durationSec = editor.timeline.getTotalDuration();
+		if (!(durationSec > 0)) {
 			return fail(
-				"duckMusicUnderSpeech needs speech to duck under — add a voiceover clip or transcribe your footage first.",
+				"Nothing on the timeline to listen to yet — readMix measures an assembled cut.",
 			);
 		}
 
-		const musicElements = gatherMusicElements(input.trackId);
-		if (musicElements.length === 0) {
+		let decoded: DecodedTimelineMix | null;
+		try {
+			decoded = await decodeMix();
+		} catch (err) {
 			return fail(
-				input.trackId
-					? `No music-bed elements on track "${input.trackId}" to duck.`
-					: "No music bed on the timeline to duck — add one with addMusicBed first.",
+				`Couldn't mix the timeline down to measure it: ${
+					err instanceof Error ? err.message : String(err)
+				}`,
+			);
+		}
+		if (!decoded || decoded.sourcesMixed === 0) {
+			return fail(
+				"No decodable audio on the timeline yet — readMix measures the assembled mix, so it needs at least one clip, voiceover or music bed with real audio in it.",
 			);
 		}
 
-		const before = captureReel();
-		const plan = planDuckMusicUnderSpeech(speechIntervals, musicElements, {
-			duckAmountDb: input.duckDb,
-			attackSec: input.attackSec,
-			releaseSec: input.releaseSec,
-			mergeGapSec: input.mergeGapSec,
+		const loudnessSampleIntervalSec = resolveCurveIntervalSec(
+			durationSec,
+			input.loudnessSampleIntervalSec,
+		);
+		const analysis = analyzeMix({
+			samples: decoded.samples,
+			sampleRate: decoded.sampleRate,
+			durationSec,
+			speechIntervals: gatherSpeechIntervals(),
+			musicElements: gatherMusicElements(),
+			loudnessSampleIntervalSec,
 		});
 
-		if (plan.ops.length === 0) {
-			return ok(
-				"No overlap between the music bed(s) and any speech — nothing to duck.",
-				{
-					opsApplied: 0,
-					elementsAffected: 0,
-					mergedIntervalCount: plan.mergedIntervalCount,
-				},
+		const competing = analysis.overlaps.filter(
+			(o) => o.competingDb > MIX_READ_COMPETING_DB,
+		);
+		const deadAirTotalSec =
+			Math.round(
+				analysis.deadAir.reduce((sum, d) => sum + d.durationSec, 0) * 100,
+			) / 100;
+
+		const data: MixReadData = {
+			durationSec: Math.round(durationSec * 100) / 100,
+			sourcesMixed: decoded.sourcesMixed,
+			sourcesSkipped: decoded.sourcesSkipped,
+			loudnessSampleIntervalSec: analysis.loudnessSampleIntervalSec,
+			loudnessCurve: analysis.loudnessCurve,
+			integratedLoudness: analysis.integratedLoudness,
+			overlaps: topByThenChronological<MusicSpeechOverlap>(
+				analysis.overlaps,
+				(o) => o.competingDb,
+			),
+			competingOverlapCount: competing.length,
+			deadAir: topByThenChronological<DeadAirStretch>(
+				analysis.deadAir,
+				(d) => d.durationSec,
+			),
+			deadAirTotalSec,
+		};
+
+		// The message carries the verdict and NAMES the remedy verb — the same
+		// coaching shape the structured lookup failures use. The arrays are for
+		// when the agent wants to know exactly where.
+		const notes: string[] = [
+			`integrated ${analysis.integratedLoudness.integrated} LUFS, true peak ${analysis.integratedLoudness.truePeak} dBFS`,
+		];
+		notes.push(
+			analysis.deadAir.length === 0
+				? "no dead air"
+				: `${analysis.deadAir.length} dead-air stretch(es) totalling ${deadAirTotalSec}s (removeSilence, or applyEdit with a tighten-style program)`,
+		);
+		if (analysis.overlaps.length === 0) {
+			notes.push("no music playing under speech");
+		} else if (competing.length === 0) {
+			notes.push(
+				`${analysis.overlaps.length} music/speech overlap(s), all already ducked`,
+			);
+		} else {
+			notes.push(
+				`${competing.length} of ${analysis.overlaps.length} music/speech overlap(s) measure louder than a proper duck (applyEdit with a duck-style program)`,
 			);
 		}
 
-		const exec = executeCraftPlan(plan.ops);
-		if (!exec.ok) return fail(exec.message);
-
-		return withDelta(
-			before,
-			ok(
-				`Ducked ${plan.ops.length} music element(s) under ${plan.mergedIntervalCount} speech interval(s).`,
-				{
-					opsApplied: exec.data?.opsApplied ?? plan.ops.length,
-					elementsAffected: plan.ops.length,
-					mergedIntervalCount: plan.mergedIntervalCount,
-				},
-			),
+		return ok(
+			`Mix read across ${data.durationSec}s from ${decoded.sourcesMixed} audible source(s): ${notes.join("; ")}.`,
+			data,
 		);
+	}
+
+	// ---- ENGAGEMENT SCORE (lib/director/scoring/score-cut.ts) --------------
+	//
+	// `scoreCut` grades the self-graded-edit demo loop: score the timeline,
+	// let the Director recut the weak part, score again. No external scorer is
+	// reachable (Higgsfield's `brain_activity` 404s on every spelling; the
+	// Python ai-backend `aiClient.engagementScore` calls isn't deployed — see
+	// `scoring/score-cut.ts`'s header), so this verb synthesizes the score
+	// LOCALLY from data the Director already reads for `applyEdit`
+	// (`clips()`/`speech()`/`beats()`, the same `createDerivedDataFunctions`
+	// bag `applyEdit` below builds) plus `readMix()`'s measured loudness curve
+	// when a mixdown decodes.
+
+	function toScoreCutClip(v: ProgramValue): ScoreCutClip {
+		const o = (
+			v && typeof v === "object" && !Array.isArray(v) ? v : {}
+		) as Record<string, ProgramValue>;
+		return {
+			id: typeof o.id === "string" ? o.id : "",
+			kind: typeof o.kind === "string" ? o.kind : "",
+			startSec: typeof o.startSec === "number" ? o.startSec : 0,
+			durationSec: typeof o.durationSec === "number" ? o.durationSec : 0,
+		};
+	}
+
+	function toScoreCutSpeechSpan(v: ProgramValue): ScoreCutSpeechSpan {
+		const o = (
+			v && typeof v === "object" && !Array.isArray(v) ? v : {}
+		) as Record<string, ProgramValue>;
+		return {
+			startSec: typeof o.startSec === "number" ? o.startSec : 0,
+			endSec: typeof o.endSec === "number" ? o.endSec : 0,
+			text: typeof o.text === "string" ? o.text : "",
+		};
+	}
+
+	function toScoreCutBeat(v: ProgramValue): ScoreCutBeat {
+		const o = (
+			v && typeof v === "object" && !Array.isArray(v) ? v : {}
+		) as Record<string, ProgramValue>;
+		return {
+			time: typeof o.time === "number" ? o.time : 0,
+			isDownbeat: o.isDownbeat === true,
+		};
+	}
+
+	/** Everything `scoreCut` returns to the model: the synthesized score, its diagnostics breakdown, honestly-flagged unmeasured signals, and any advisory fixes a weak hook/hold-rate routes to. */
+	interface ScoreCutVerbData extends ScoreCutResult {
+		suggestedFixes: CutScoreFixSuggestion[];
+	}
+
+	/**
+	 * Score the assembled cut — read-only, nothing mutates, no `delta`. Reuses
+	 * the SAME derived-data bag `applyEdit` wires (tracks/beatGrid/transcripts)
+	 * so `scoreCut`'s idea of the timeline structure never diverges from what a
+	 * program can already see, and calls `readMix()` (this same file, above)
+	 * for a real loudness curve when one is decodable — never re-decodes audio
+	 * itself. `beats()` throws when no beat grid has been analyzed; that is
+	 * treated as "not analyzed" (not a failure) — `scoring/score-cut.ts`
+	 * degrades that signal to a neutral, HONESTLY-labeled fallback rather than
+	 * refusing the whole score over one missing analysis pass.
+	 *
+	 * When the hook or hold-rate diagnostic reads weak, `suggestedFixes` names
+	 * concrete `applyEdit`-shaped remedies (`edit-critic.ts`'s
+	 * `suggestFixesForCutScore`) built from the SAME craft programs `applyEdit`
+	 * already exposes — ADVISORY ONLY (ADR-006): never auto-executed here or
+	 * anywhere in this call chain.
+	 */
+	async function scoreCut(): Promise<DirectorResult<ScoreCutVerbData>> {
+		const totalDurationSec = editor.timeline.getTotalDuration();
+		if (!(totalDurationSec > 0)) {
+			return fail(
+				"Nothing on the timeline to score yet — scoreCut measures an assembled cut.",
+			);
+		}
+
+		const derived = createDerivedDataFunctions({
+			tracks: () => editor.timeline.getTracks(),
+			beatGrid: () => useBeatGridStore.getState().grid,
+			...(options.transcripts ? { transcripts: options.transcripts } : {}),
+		});
+
+		const clips = (derived.clips([]) as ProgramValue[]).map(toScoreCutClip);
+		const speech = (derived.speech([]) as ProgramValue[]).map(
+			toScoreCutSpeechSpan,
+		);
+
+		let beats: ScoreCutBeat[] | undefined;
+		try {
+			beats = (derived.beats([]) as ProgramValue[]).map(toScoreCutBeat);
+		} catch {
+			beats = undefined; // no beat grid analyzed — score-cut.ts degrades this signal gracefully
+		}
+
+		let loudnessCurveDb: ScoreCutLoudnessPoint[] | undefined;
+		try {
+			const mix = await readMix();
+			if (mix.ok && mix.data) loudnessCurveDb = mix.data.loudnessCurve;
+		} catch {
+			loudnessCurveDb = undefined; // readMix already fails safe; this is belt-and-suspenders
+		}
+
+		const result = computeCutScore({
+			clips,
+			speech,
+			beats,
+			totalDurationSec,
+			loudnessCurveDb,
+		});
+
+		const suggestedFixes = suggestFixesForCutScore(result.diagnostics, {
+			totalDurationSec,
+			hasBeatGrid: Boolean(beats && beats.length > 0),
+		});
+
+		const fixNote =
+			suggestedFixes.length > 0
+				? ` ${suggestedFixes.length} suggested fix(es) available (advisory only — call applyEdit yourself, mode: "dry-run" first, to try one).`
+				: "";
+		return ok(
+			`Engagement Score: ${result.score.grade} (${result.score.composite}/100) — hook ${result.diagnostics.hook.rating}, hold rate ${result.diagnostics.holdRate.rating}.${fixNote}`,
+			{ ...result, suggestedFixes },
+		);
+	}
+
+	// ---- PROGRAM ENGINE (lib/director/program/*) ---------------------------
+	//
+	// `applyEdit` is the ONE verb over the sandboxed program engine (Layer 2 of
+	// docs/plans/2026-09-18-director-autonomy-architecture.md §2): a short,
+	// whitelisted-AST script written over the same ten primitives (trim/move/
+	// split/reorder/remove/addClip/addText/applyTransition/applyEffect/
+	// animateItem) the catalog already exposes one call at a time, plus
+	// read-only derived-data reads (clips/tracks/scenes/beats/speech) so a
+	// plan can be COMPUTED from the timeline's actual state instead of the
+	// model doing that arithmetic in prose and hoping the ids/times line up.
+	// See `program/executor.ts`'s module docblock for the full threat model —
+	// this verb changes composition, not authority: every primitive it can
+	// reach is a primitive the catalog already grants one call at a time.
+
+	/**
+	 * `programApi` binds the RAW local closures (`trim`, `move`, …) below, NOT
+	 * the `withAgentOrigin`-wrapped verbs `d.trim` etc. resolve to on the
+	 * returned `DirectorApi` — calling through the wrapped versions here would
+	 * open one redundant nested transaction per primitive call for no benefit
+	 * (harmless either way, since nested transactions merge upward per
+	 * `CommandManager.beginTransaction`'s own doc, but there is no reason to
+	 * pay for it). Assignable with NO CAST because `ProgramPrimitiveApi`
+	 * declares its methods with METHOD SYNTAX specifically so parameter
+	 * bivariance accepts the real (more specific) verb signatures — see
+	 * `program/primitives.ts`'s header.
+	 */
+	const programApi: ProgramPrimitiveApi = {
+		trim,
+		move,
+		split,
+		reorder,
+		remove,
+		addClip,
+		addText,
+		applyTransition,
+		applyEffect,
+		animateItem,
+	};
+
+	/**
+	 * Run a program over the primitive surface (`runProgram`, `program/
+	 * executor.ts`). `mode` defaults to `"dry-run"` — see this section's header
+	 * and the tool-catalog description: the intended loop is INSPECT (read
+	 * `data.ops`/`data.logs` from a dry run) THEN APPLY (re-call with the
+	 * IDENTICAL program text and `mode: "apply"`). This verb does not enforce
+	 * that ordering — nothing stops a model calling `"apply"` first — it is a
+	 * policy the description leads with, not a mechanism.
+	 *
+	 * ATOMICITY: `editor.command` is always passed as the run's undo scope,
+	 * but `runProgram` only actually opens a transaction with it in `"apply"`
+	 * mode (`program/executor.ts`), so a dry run never touches undo history at
+	 * all — nested inside THIS verb's own choke-point transaction
+	 * (`withAgentOrigin`, near the bottom of this file), an applied run's
+	 * transaction merges upward into it, which is what collapses N primitive
+	 * calls into exactly ONE undo entry tagged `{ origin: "agent", name:
+	 * "applyEdit" }` (see executor.ts's "ATOMICITY / UNDO" section).
+	 *
+	 * DATA WIRING: `tracks`/`beatGrid` mirror `cutOnBeat`'s own sources exactly
+	 * (same `useBeatGridStore` read); `transcripts` forwards `options.
+	 * transcripts` when the host supplied one, same source
+	 * `gatherSpeechIntervals` reads. `words`/`pcm` are deliberately NOT wired —
+	 * nothing in this api keeps a synchronous per-asset word-timing or
+	 * decoded-PCM cache (`readMix`'s PCM path is a one-shot async mixdown, not
+	 * a reusable per-asset cache) — so `words()`/`loudness()` correctly REFUSE
+	 * inside a program run here (a named "unavailable" error) rather than
+	 * silently answering wrong.
+	 */
+	function applyEdit(input: {
+		program: string;
+		mode?: ProgramRunMode;
+	}): DirectorResult<{
+		mode: ProgramRunMode;
+		ops: ProgramOp[];
+		logs: string[];
+		usage: ProgramRunResult["usage"];
+	}> {
+		if (!input.program || !input.program.trim()) {
+			return fail("applyEdit requires a non-empty program.");
+		}
+		const mode: ProgramRunMode = input.mode ?? "dry-run";
+		const before = mode === "apply" ? captureReel() : undefined;
+
+		const result = runProgram({
+			source: input.program,
+			mode,
+			api: programApi,
+			data: {
+				tracks: () => editor.timeline.getTracks(),
+				beatGrid: () => useBeatGridStore.getState().grid,
+				...(options.transcripts ? { transcripts: options.transcripts } : {}),
+			},
+			undo: editor.command,
+		});
+
+		const payload = {
+			mode,
+			ops: result.ops,
+			logs: result.logs,
+			usage: result.usage,
+		};
+
+		if (!result.ok) {
+			// Structured failure detail (parse line/col, which cap tripped, which
+			// op index/verb failed) lives in `result.failure`; `message` already
+			// renders it in prose (see `executor.ts`'s `toFailure`/`describeError`).
+			// `data.ops` is still the partial op log up to the failure point — "what
+			// was it doing when it broke" per `ProgramOp`'s own doc comment.
+			return { ok: false, message: result.message, data: payload };
+		}
+
+		const message =
+			mode === "dry-run"
+				? `${result.message} Inspect data.ops, then re-call applyEdit with the SAME program and mode: "apply" to execute it.`
+				: result.message;
+
+		const applied = ok(message, payload);
+		return before ? withDelta(before, applied) : applied;
 	}
 
 	// ---- AI CLEANUP -------------------------------------------------------
@@ -6539,10 +7457,17 @@ export function createDirectorApi(
 		});
 
 		if (outcome.status === "failed") {
+			// `commitExport` already sanitises its failure copy into a whole,
+			// punctuated sentence (the raw codec/DOMException text lives on
+			// `outcome.detail`, dev-logging only). Appending our own period
+			// produced "…Please try again.." on a surface the user reads, so
+			// only punctuate a message that does not already end in one.
 			const message =
 				outcome.reason === "cancelled"
 					? outcome.message
-					: `Export failed: ${outcome.message}.`;
+					: `Export failed: ${outcome.message}${
+							/[.!?]$/.test(outcome.message.trim()) ? "" : "."
+						}`;
 			return {
 				ok: false,
 				message,
@@ -6700,6 +7625,7 @@ export function createDirectorApi(
 		chainFrom,
 		chooseTake,
 		reviewTake,
+		watchBack,
 		// budget (whole-reel spend planning)
 		getBudgetStatus,
 		setBudget,
@@ -6742,12 +7668,27 @@ export function createDirectorApi(
 		// text
 		addText,
 		updateText,
+		addCaptions,
 		// motion
 		animateItem,
-		// craft (P5 macros — lib/director/craft/*)
-		cutOnBeat,
-		tightenToLength,
-		duckMusicUnderSpeech,
+		// audio perception (lib/director/mix-read.ts) — the read to plan an
+		// applyEdit program from, rather than guessing.
+		readMix,
+		// engagement score (lib/director/scoring/score-cut.ts) — score the
+		// assembled cut, no external backend; weak hook/hold-rate routes to a
+		// suggested applyEdit fix (edit-critic.ts's suggestFixesForCutScore).
+		scoreCut,
+		// program engine (lib/director/program/*) — the composition verb that
+		// SUBSUMED cutOnBeat/tightenToLength/duckMusicUnderSpeech (each proven
+		// op-for-op equivalent to a program over the ten primitives — see
+		// program/programs/*.program.test.ts) and REPLACED them; those three
+		// verbs are deleted (see phase-scope.ts's PHASE_TOOL_ASSIGNMENTS history
+		// for the deletion record). removeSilence was investigated too and left
+		// in place: it plans through `TracksSnapshotCommand`, not a `CraftOp[]`
+		// sequence, and its detection pass (`analyzeMediaSilence`) is an async
+		// file decode this SYNCHRONOUS-only engine cannot run — not expressible
+		// without inventing new async + whole-track-rewrite capability.
+		applyEdit,
 		// AI cleanup
 		removeBackground,
 		// lifecycle
