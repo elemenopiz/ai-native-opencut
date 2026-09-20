@@ -34,6 +34,7 @@ import type { EditorCore } from "@/core";
 import type { ScrubPlayer } from "@/lib/audio/scrub-player";
 import { stretchAudioBufferSegment } from "@/lib/media/pitch-preserving-stretch";
 import { perfStats } from "@/services/renderer/perf-stats";
+import { selectUnderstandingFrames } from "@/services/search/asset-understanding-service";
 import { useBackgroundTasksStore } from "@/stores/background-tasks-store";
 import { useBeatGridStore } from "@/stores/beat-grid-store";
 import { useFrameChainStore } from "@/stores/frame-chain-store";
@@ -78,6 +79,13 @@ export interface E2EBridge {
 	 *  captured directly at the renderer seam, before the UI gets a chance
 	 *  to consume and clear it. Null before any real export has completed. */
 	getLastExportResult: () => ExportResult | null;
+	/** The REAL Understanding-Pass frame selector (sampling + shot/motion
+	 *  measurement + transcript-cue pinning), exposed so a headless run can
+	 *  assert WHICH frames the pass would send — and at what timestamps —
+	 *  against a real decoded video, without spending a paid VLM call. This is
+	 *  the only part of the pass that needs a DOM, so it is the only part the
+	 *  unit tests cannot reach. */
+	selectUnderstandingFrames: typeof selectUnderstandingFrames;
 	/** The REAL pitch-preserving stretch seam (shared by preview + export), so
 	 *  the audible-correctness e2e can render through the genuine WASM worklet
 	 *  and assert dominant frequency is preserved across a speed change. */
@@ -176,6 +184,7 @@ export function E2EBridge() {
 			releaseExport: () => releaseExport(),
 			stubExport: E2E_STUB_EXPORT,
 			getLastExportResult: () => lastExportResult,
+			selectUnderstandingFrames,
 			stretchAudioBufferSegment,
 			perf: perfStats,
 			projectScopedStores: {

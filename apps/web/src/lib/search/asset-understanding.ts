@@ -60,6 +60,7 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 import { dataUrlToImageBlock } from "@/lib/director/vision-critic";
+import type { TranscriptSegmentLite } from "@/lib/search/asset-transcript";
 
 // ── the record ───────────────────────────────────────────────────────────────
 
@@ -227,6 +228,95 @@ export interface ContinuityFingerprint {
 	colorSignature?: string;
 }
 
+// ── frame provenance, shot structure, transcript cues ────────────────────────
+// The pass used to hand the model a bag of anonymous JPEGs: the record said
+// WHAT was seen but never WHEN. Two things fell through that gap.
+// {@link AssetFace.anchorFrame} — "the frame where this face is clearest", the
+// exact frame you would seed a persona lock from — is an index into a list
+// nobody kept, so it addressed nothing. And the shot segmentation the sampler
+// computes on every video was consumed to pick representatives and then thrown
+// away, discarding the answer to "is this a raw take or an already-cut edit?".
+//
+// The third facet here is new capability rather than a recovered one: frames
+// pinned at the moments a SPEAKER points at something, which purely visual
+// selection cannot find (see {@link DeicticBeat}).
+//
+// All three are optional and additive. The store is schema-less and keyPath-only
+// (`asset-understanding-store.ts`), so a record written before this simply lacks
+// them; nothing here needs a migration.
+
+/**
+ * Why a frame was handed to the model.
+ *  - `shot` — the representative frame of a detected shot (the default path).
+ *  - `transcript-cue` — pinned at a moment the speaker points at something on
+ *    screen; see {@link findTranscriptCues}.
+ *  - `only-frame` — a still image, or a clip that yielded a single sample.
+ */
+export type FrameReason = "shot" | "transcript-cue" | "only-frame";
+
+/** One frame the model was shown, and where it came from. */
+export interface UnderstandingFrame {
+	/**
+	 * Frame time in ASSET-RELATIVE seconds — the same timebase as a clip's
+	 * `trimStart`/`trimEnd` and as `AssetTranscript` segments, so a consumer can
+	 * seek to it without converting.
+	 */
+	t: number;
+	reason: FrameReason;
+}
+
+/**
+ * The shot structure the sampler measured — REAL cuts only.
+ *
+ * Deliberately NOT read off {@link segmentShots}, whose segment index also
+ * advances on the {@link SHOT_COVERAGE_FLOOR} so that a long static take still
+ * gets re-sampled. That floor is correct for picking representatives and wrong
+ * for counting cuts: it would report a 40 s locked-off interview as ten shots.
+ * {@link summarizeShots} counts only fingerprint divergences past
+ * {@link SHOT_DIFF_THRESHOLD}.
+ */
+export interface ShotSummary {
+	/** Distinct shots (cuts + 1). 1 ⇒ one continuous take. */
+	count: number;
+	/** Asset-relative time of each detected CUT, time-ordered. Empty ⇒ a single take. */
+	cutsAtSec: number[];
+	/** Mean shot length in seconds across the sampled span. */
+	meanShotSec: number;
+	/**
+	 * True ⇒ the sampling cadence was too sparse for the count to carry much
+	 * weight (samples further apart than
+	 * {@link MOTION_FAST_CUT_MAX_INTERVAL_SEC}, past which ordinary footage reads
+	 * as a cut at nearly every pair — the same sparsity guard
+	 * {@link estimateMotion} applies before it will say `fast-cut`). Read a
+	 * sparse summary as "at least this many", never as an exact edit count.
+	 */
+	sparse: boolean;
+}
+
+/**
+ * A moment where the speaker directs attention at something ON SCREEN — "look
+ * at this", "as you can see", "watch what happens".
+ *
+ * WHY THIS EXISTS: frame selection is otherwise driven entirely by how much the
+ * PICTURE changes, and a presenter gesturing at a slide is a LOW visual-change
+ * event — precisely the signal the shot detector is built to suppress. So the
+ * frames a viewer would call the most important ones are the frames the selector
+ * is least likely to pick. Pinning a frame at the cue fixes that. (The technique
+ * is poached from bradautomates/claude-video's `--timestamps`; no code copied.)
+ *
+ * Detected LEXICALLY ({@link findTranscriptCues}), not by a model: judging cues
+ * per asset would mean a second paid pass at ingest. A lexical match is wrong
+ * sometimes — "look, the point is…" is rhetorical, not deictic — and the cost of
+ * being wrong is one extra frame sampled at that second. It never asserts
+ * anything about the asset that the frames don't then have to back up.
+ */
+export interface DeicticBeat {
+	/** Asset-relative seconds of the thing pointed at (just after the cue phrase). */
+	t: number;
+	/** The cue phrase that matched, lowercased. */
+	phrase: string;
+}
+
 /**
  * The structured, per-asset understanding produced at ingest — the layer ABOVE
  * raw CLIP vectors. This is the STABLE contract the Asset Manifest and Project
@@ -284,6 +374,28 @@ export interface AssetUnderstanding {
 	audio?: AudioProbe;
 	/** Continuity fingerprint for match-cutting/identity. Absent ⇒ nothing derived. */
 	continuityFingerprint?: ContinuityFingerprint;
+	/**
+	 * Every frame the model was shown, in time order — WHAT it looked at and
+	 * WHEN. Absent on records written before frame provenance existed.
+	 *
+	 * This is what makes {@link AssetFace.anchorFrame} mean something: that index
+	 * addresses THIS array (resolve it with {@link anchorFrameTime}). Without it
+	 * the clearest view of a face — the frame you would seed a persona lock from —
+	 * could not be recovered once the pass returned.
+	 */
+	framesSeen?: UnderstandingFrame[];
+	/**
+	 * Shot structure MEASURED from the sampled frames — see {@link ShotSummary}.
+	 * Absent ⇒ fewer than two samples (a still image has no shot structure).
+	 */
+	shots?: ShotSummary;
+	/**
+	 * Moments the speaker pointed at something on screen, MEASURED from the
+	 * transcript. Absent ⇒ no transcript existed when the pass ran, which is a
+	 * different claim from an empty array ("transcript read, no cues in it").
+	 * Re-running the pass after transcription fills it.
+	 */
+	deicticBeats?: DeicticBeat[];
 	/** VLM model name that produced this understanding (for invalidation on upgrade). */
 	modelName: string;
 	/** When the understanding was produced (epoch ms). */
@@ -306,6 +418,28 @@ export interface AssetUnderstanding {
  */
 export function isDeepUnderstanding(u: AssetUnderstanding): boolean {
 	return u.shotType != null;
+}
+
+/**
+ * Resolve a face's {@link AssetFace.anchorFrame} to an asset-relative TIME — the
+ * moment this person was seen most clearly, as a seekable timestamp.
+ *
+ * Returns `undefined` when the record predates
+ * {@link AssetUnderstanding.framesSeen}, when the face carries no anchor, or
+ * when the index falls outside the recorded frames. Callers seed persona locks
+ * and thumbnails from this, so never substitute `0` on a miss — `0` is a real
+ * timestamp meaning "the first frame".
+ */
+export function anchorFrameTime(
+	u: AssetUnderstanding,
+	face: AssetFace,
+): number | undefined {
+	const frames = u.framesSeen;
+	if (!frames?.length) return undefined;
+	const i = face.anchorFrame;
+	if (i === undefined || !Number.isInteger(i) || i < 0 || i >= frames.length)
+		return undefined;
+	return frames[i].t;
 }
 
 /** The minimal persona shape the pass needs to reconcile faces (decoupled from the store). */
@@ -904,6 +1038,67 @@ export function pickShotRepresentatives(
 	return Array.from(new Set(out));
 }
 
+/** One sampled frame, as {@link chooseUnderstandingFrames} needs to see it. */
+export interface FrameCandidate {
+	/** Asset-relative seconds. */
+	timestampSec: number;
+	/** The frame's luma fingerprint. */
+	grid: LumaGrid;
+	/** How this sample got into the list. */
+	reason: FrameReason;
+}
+
+/**
+ * Choose which sampled candidates the model actually sees, returning their
+ * indices in TIME order.
+ *
+ * Two rules, in this order:
+ *  1. **Cue frames are pinned.** A `transcript-cue` candidate is reserved
+ *     against `maxFrames` BEFORE the shot pass runs, so even-sampling can never
+ *     evict it. That ordering is the whole point: a speaker gesturing at a slide
+ *     barely moves the picture, so the visual selector is exactly the thing that
+ *     would drop the frame if it were allowed to vote.
+ *  2. **The remaining budget goes to shot coverage** — one representative per
+ *     detected shot ({@link segmentShots} + {@link pickShotRepresentatives}),
+ *     computed over the UNIFORM candidates only so a cue's off-grid timestamp
+ *     can't invent a shot boundary.
+ *
+ * Pure so the budget arithmetic is testable without a DOM; the sampling that
+ * produces the candidates lives in `services/search/asset-understanding-service`.
+ */
+export function chooseUnderstandingFrames(
+	candidates: FrameCandidate[],
+	maxFrames: number,
+): number[] {
+	if (candidates.length === 0 || maxFrames <= 0) return [];
+	if (candidates.length === 1) return [0];
+
+	const cueIdx: number[] = [];
+	const uniformIdx: number[] = [];
+	for (let i = 0; i < candidates.length; i++) {
+		if (candidates[i].reason === "transcript-cue") cueIdx.push(i);
+		else uniformIdx.push(i);
+	}
+
+	// Never let cues take the whole budget — the model still has to be able to
+	// tell what the asset IS, which is what the shot coverage is for.
+	const pinned = cueIdx.slice(0, Math.max(0, maxFrames - 1));
+	const repBudget = Math.max(1, maxFrames - pinned.length);
+	const reps = pickShotRepresentatives(
+		segmentShots(uniformIdx.map((i) => candidates[i].grid)),
+		repBudget,
+	);
+
+	const chosen = new Set<number>(pinned);
+	for (const r of reps) {
+		const original = uniformIdx[r];
+		if (original !== undefined) chosen.add(original);
+	}
+	return [...chosen].sort(
+		(a, b) => candidates[a].timestampSec - candidates[b].timestampSec,
+	);
+}
+
 // ── measured facets (deterministic — never asked of the model) ───────────────
 // The two facets the understanding CALL cannot honestly produce. Both are pure
 // and live here (not in the service) so they're unit-testable without a DOM.
@@ -987,6 +1182,203 @@ export function estimateMotion(samples: MotionSample[]): MotionClass | null {
 	return inShotDiffSum / inShotPairs <= MOTION_STATIC_DIFF
 		? "static"
 		: "moving";
+}
+
+/**
+ * Summarize a clip's SHOT STRUCTURE from the same luma fingerprints
+ * {@link estimateMotion} reads — cuts only, no coverage floor (see
+ * {@link ShotSummary} for why that distinction matters).
+ *
+ * Answers a question the pass could not answer before: is this a RAW TAKE or
+ * something already cut? Those want opposite treatment — you re-cut raw footage
+ * and you leave a finished edit alone — and until now the segmentation that
+ * knows was computed for frame selection and discarded.
+ *
+ * Returns `null` for fewer than two samples: a still image has no shot
+ * structure, and saying `count: 1` there would dress up an absence as a
+ * measurement.
+ */
+export function summarizeShots(samples: MotionSample[]): ShotSummary | null {
+	if (samples.length < 2) return null;
+
+	const cutsAtSec: number[] = [];
+	let intervalSum = 0;
+	for (let i = 1; i < samples.length; i++) {
+		intervalSum += Math.abs(
+			samples[i].timestampSec - samples[i - 1].timestampSec,
+		);
+		if (gridDiff(samples[i - 1].grid, samples[i].grid) > SHOT_DIFF_THRESHOLD)
+			cutsAtSec.push(samples[i].timestampSec);
+	}
+
+	const count = cutsAtSec.length + 1;
+	const span = Math.abs(
+		samples[samples.length - 1].timestampSec - samples[0].timestampSec,
+	);
+	return {
+		count,
+		cutsAtSec,
+		meanShotSec: span > 0 ? span / count : 0,
+		sparse:
+			intervalSum / (samples.length - 1) > MOTION_FAST_CUT_MAX_INTERVAL_SEC,
+	};
+}
+
+// ── transcript cues (deictic frame pinning) ─────────────────────────────────
+// Technique poached from bradautomates/claude-video's `--timestamps` flag (MIT;
+// prose/idea only, no code copied). See {@link DeicticBeat} for why visual
+// selection alone cannot find these moments.
+
+/**
+ * Phrase fragments with which a speaker points at something ON SCREEN, as
+ * regex source, matched case-insensitively against segment text.
+ *
+ * Kept deliberately tight. A bare "look" or "see" is far more often rhetorical
+ * ("look, the point is…", "I see what you mean") than deictic, so every entry
+ * requires the pointing complement that makes it about something visible. The
+ * list errs toward MISSING a cue rather than firing on one: a missed cue costs
+ * the frame we would have had anyway under the old behaviour, while a false
+ * one spends a slot out of a budget of {@link MAX_TRANSCRIPT_CUES}.
+ */
+export const DEICTIC_CUE_SOURCES: readonly string[] = [
+	"look at (?:this|that|these|those|the|it|how|what)",
+	"(?:take|have) a look",
+	"let me show you",
+	"(?:if|when) you look",
+	"as you can (?:see|tell)",
+	"you can see (?:this|that|these|those|the|it|here|how|what)",
+	"notice (?:how|that|the|this|these|what)",
+	"watch (?:this|that|closely|carefully|how|what happens)",
+	"(?:right|over|down|up|in) here",
+	"see here",
+	"here (?:we have|you can see|you see|is the|is what|is where)",
+	"check (?:this|it) out",
+	"pay attention to",
+	"(?:shown|highlighted|circled|pictured) (?:here|below|above)",
+	"on (?:the )?screen",
+	"this (?:one )?right here",
+];
+
+/**
+ * Seconds added after the cue phrase ends. The thing being pointed at lands ON
+ * or just AFTER the words — "watch what happens" precedes what happens — so
+ * sampling at the phrase boundary would catch the setup instead of the payoff.
+ */
+export const CUE_LEAD_SEC = 0.4;
+
+/** Cues closer together than this collapse to the first; consecutive cues describe one moment. */
+export const CUE_MIN_GAP_SEC = 1.5;
+
+/**
+ * Most cues one asset contributes. Cue frames are PINNED — reserved against the
+ * frame budget before shot representatives are picked — so an uncapped list
+ * from a lecture could crowd out the coverage that tells the model what the
+ * asset IS. Four of eight leaves half the budget for the shot pass.
+ */
+export const MAX_TRANSCRIPT_CUES = 4;
+
+/** Options for {@link findTranscriptCues}. */
+export interface TranscriptCueOptions {
+	/** Seconds after the cue phrase to sample (default {@link CUE_LEAD_SEC}). */
+	leadSec?: number;
+	/** Minimum spacing between kept cues (default {@link CUE_MIN_GAP_SEC}). */
+	minGapSec?: number;
+	/** Cap on returned cues (default {@link MAX_TRANSCRIPT_CUES}). */
+	maxCues?: number;
+	/** Asset duration in seconds; cue times are clamped inside it when given. */
+	durationSec?: number;
+}
+
+/**
+ * Locate each word's character span within `text` so a regex match can be
+ * resolved back to a WORD, and from there to a real timestamp.
+ *
+ * Scans forward with a cursor, so repeated words map in order. A word the
+ * provider spelled differently from the segment text (punctuation folding,
+ * normalization) simply doesn't map and is skipped — the caller degrades to the
+ * previous mapped word rather than guessing a position.
+ */
+function mapWordCharStarts(
+	text: string,
+	words: { word: string; end: number }[],
+): { start: number; end: number }[] {
+	const out: { start: number; end: number }[] = [];
+	let cursor = 0;
+	for (const w of words) {
+		const needle = w.word.trim().toLowerCase();
+		if (!needle) continue;
+		const at = text.indexOf(needle, cursor);
+		if (at < 0) continue;
+		out.push({ start: at, end: w.end });
+		cursor = at + needle.length;
+	}
+	return out;
+}
+
+/**
+ * Find the moments a speaker points at something on screen, as
+ * {@link DeicticBeat}s in ASSET-RELATIVE seconds.
+ *
+ * TIME RESOLUTION, and its honest limits. With per-word timings (MAI-Transcribe-2
+ * aligns words for real — see `isWordTimed`) the cue resolves to the END of the
+ * matching phrase's last word, which is accurate to a word. WITHOUT them the
+ * only defensible answer is the segment's own start: the cue is somewhere in
+ * that sentence and interpolating a position inside it would be invented
+ * precision of exactly the kind the confabulation fix removed from this pass.
+ * A whole-segment anchor is a worse frame, not a wrong claim.
+ *
+ * Over-cap cues are subsampled EVENLY across the asset rather than truncated,
+ * so a 10-minute talk doesn't spend its whole cue budget in the first minute.
+ */
+export function findTranscriptCues(
+	segments: TranscriptSegmentLite[],
+	opts?: TranscriptCueOptions,
+): DeicticBeat[] {
+	const lead = opts?.leadSec ?? CUE_LEAD_SEC;
+	const minGap = opts?.minGapSec ?? CUE_MIN_GAP_SEC;
+	const maxCues = Math.max(0, opts?.maxCues ?? MAX_TRANSCRIPT_CUES);
+	const duration = opts?.durationSec;
+	if (maxCues === 0 || segments.length === 0) return [];
+
+	const re = new RegExp(`\\b(?:${DEICTIC_CUE_SOURCES.join("|")})`, "g");
+	const found: DeicticBeat[] = [];
+
+	for (const seg of segments) {
+		const text = (seg.text ?? "").toLowerCase();
+		if (!text) continue;
+		const ranges = seg.words?.length ? mapWordCharStarts(text, seg.words) : [];
+		re.lastIndex = 0;
+		for (const m of text.matchAll(re)) {
+			const matchEnd = (m.index ?? 0) + m[0].length;
+			// Last word that STARTS before the match ends — the phrase's own last word.
+			let wordEnd: number | undefined;
+			for (const r of ranges) {
+				if (r.start < matchEnd) wordEnd = r.end;
+				else break;
+			}
+			const base = wordEnd ?? seg.start;
+			let t = base + lead;
+			if (duration !== undefined && duration > 0)
+				t = Math.min(t, Math.max(0, duration - 0.05));
+			t = Math.max(0, t);
+			found.push({ t: Math.round(t * 100) / 100, phrase: m[0] });
+		}
+	}
+
+	found.sort((a, b) => a.t - b.t);
+
+	const spaced: DeicticBeat[] = [];
+	for (const cue of found) {
+		const prev = spaced[spaced.length - 1];
+		if (prev && cue.t - prev.t < minGap) continue;
+		spaced.push(cue);
+	}
+	if (spaced.length <= maxCues) return spaced;
+
+	const step = spaced.length / maxCues;
+	const picked: DeicticBeat[] = [];
+	for (let k = 0; k < maxCues; k++) picked.push(spaced[Math.floor(k * step)]);
+	return picked;
 }
 
 /** dBFS at or above which the measured level reads as `high`. */

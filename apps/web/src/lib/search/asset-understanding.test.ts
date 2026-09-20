@@ -4,7 +4,13 @@ import {
 	ASSET_ROLES,
 	ASSET_UNDERSTANDING_RESPONSE_SCHEMA,
 	ASSET_UNDERSTANDING_SYSTEM_PROMPT,
+	anchorFrameTime,
 	applyRoleSignal,
+	chooseUnderstandingFrames,
+	findTranscriptCues,
+	type FrameCandidate,
+	type FrameReason,
+	summarizeShots,
 	classifyAudioEnergy,
 	buildUnderstandingGeminiParts,
 	buildUnderstandingUserBlocks,
@@ -878,5 +884,246 @@ describe("buildUnderstandingGeminiParts / dataUrlToInlineDataPart", () => {
 		).toBe("image/jpeg");
 		expect(dataUrlToInlineDataPart("data:text/plain;base64,AAAA")).toBeNull();
 		expect(dataUrlToInlineDataPart("https://example.com/a.png")).toBeNull();
+	});
+});
+
+describe("summarizeShots — cuts, not coverage-floor segments", () => {
+	const flat = (luma: number): LumaGrid => new Array(64).fill(luma);
+	const samples = (lumas: number[], intervalSec = 2): MotionSample[] =>
+		lumas.map((luma, i) => ({
+			grid: flat(luma),
+			timestampSec: i * intervalSec,
+		}));
+
+	it("returns null under two samples — a still image has no shot structure", () => {
+		expect(summarizeShots([])).toBeNull();
+		expect(summarizeShots(samples([0.5]))).toBeNull();
+	});
+
+	it("a long locked-off take is ONE shot, however many samples it spans", () => {
+		// THE regression this function exists to prevent: segmentShots advances
+		// its index every SHOT_COVERAGE_FLOOR frames so a static take still gets
+		// re-sampled, so reading a shot count off it would report this 20-sample
+		// interview as six "shots".
+		const s = summarizeShots(samples(new Array(20).fill(0.5)));
+		expect(s?.count).toBe(1);
+		expect(s?.cutsAtSec).toEqual([]);
+		expect(
+			segmentShots(samples(new Array(20).fill(0.5)).map((x) => x.grid)).at(-1),
+		).toBeGreaterThan(0); // the floor DID fire — and summarizeShots ignored it
+	});
+
+	it("counts real cuts and reports when each happened", () => {
+		const step = SHOT_DIFF_THRESHOLD + 0.2;
+		// luma: 0,0,step,step,0 → cuts entering index 2 (t=4) and index 4 (t=8).
+		const s = summarizeShots(samples([0, 0, step, step, 0]));
+		expect(s?.count).toBe(3);
+		expect(s?.cutsAtSec).toEqual([4, 8]);
+	});
+
+	it("mean shot length divides the sampled span by the shot count", () => {
+		const step = SHOT_DIFF_THRESHOLD + 0.2;
+		const s = summarizeShots(samples([0, step], 2)); // span 2 s, 2 shots
+		expect(s?.meanShotSec).toBe(1);
+	});
+
+	it("flags a sparse sampling cadence instead of pretending the count is exact", () => {
+		const step = SHOT_DIFF_THRESHOLD + 0.2;
+		expect(summarizeShots(samples([0, step, 0], 2))?.sparse).toBe(false);
+		expect(summarizeShots(samples([0, step, 0], 12))?.sparse).toBe(true);
+	});
+});
+
+describe("anchorFrameTime — resolving a face's anchor to a real timestamp", () => {
+	const base = (): AssetUnderstanding => ({
+		mediaId: "m1",
+		caption: "c",
+		role: "face-anchor",
+		roleConfidence: 0.8,
+		tags: [],
+		faces: [],
+		modelName: "vlm-v2",
+		createdAt: 1,
+	});
+
+	it("maps the anchor index through framesSeen", () => {
+		const u: AssetUnderstanding = {
+			...base(),
+			framesSeen: [
+				{ t: 1, reason: "shot" },
+				{ t: 4.5, reason: "transcript-cue" },
+				{ t: 9, reason: "shot" },
+			],
+		};
+		expect(
+			anchorFrameTime(u, { score: 0.9, isNew: true, anchorFrame: 1 }),
+		).toBe(4.5);
+	});
+
+	it("returns undefined — never 0 — when the anchor can't be resolved", () => {
+		// 0 is a real timestamp ("the first frame"), so a miss must be distinct
+		// from it or callers will seed a persona lock from the wrong frame.
+		const withFrames: AssetUnderstanding = {
+			...base(),
+			framesSeen: [{ t: 3, reason: "shot" }],
+		};
+		const face = { score: 0.9, isNew: true };
+		expect(anchorFrameTime(withFrames, face)).toBeUndefined(); // no anchor
+		expect(
+			anchorFrameTime(withFrames, { ...face, anchorFrame: 5 }),
+		).toBeUndefined();
+		expect(
+			anchorFrameTime(withFrames, { ...face, anchorFrame: -1 }),
+		).toBeUndefined();
+		// A record written before frame provenance existed.
+		expect(
+			anchorFrameTime(base(), { ...face, anchorFrame: 0 }),
+		).toBeUndefined();
+	});
+});
+
+describe("findTranscriptCues — frames the speaker asks for", () => {
+	const seg = (
+		start: number,
+		end: number,
+		text: string,
+		words?: { word: string; start: number; end: number }[],
+	) => ({ start, end, text, ...(words ? { words } : {}) });
+
+	it("returns nothing for an empty transcript", () => {
+		expect(findTranscriptCues([])).toEqual([]);
+	});
+
+	it("anchors to the END of the cue phrase's last word when words are timed", () => {
+		const words = [
+			{ word: "now", start: 10, end: 10.3 },
+			{ word: "look", start: 10.3, end: 10.6 },
+			{ word: "at", start: 10.6, end: 10.7 },
+			{ word: "this", start: 10.7, end: 11.0 },
+			{ word: "chart", start: 11.0, end: 11.4 },
+		];
+		const cues = findTranscriptCues(
+			[seg(10, 11.4, "now look at this chart", words)],
+			{ leadSec: 0.4 },
+		);
+		// "look at this" ends at 11.0; +0.4 lead lands on the reveal, not the setup.
+		expect(cues).toEqual([{ t: 11.4, phrase: "look at this" }]);
+	});
+
+	it("falls back to the segment start when the engine gave no word timings", () => {
+		// Interpolating a position inside the sentence would be invented
+		// precision; a whole-segment anchor is a worse frame, not a wrong claim.
+		const cues = findTranscriptCues([seg(30, 34, "as you can see the total")], {
+			leadSec: 0.4,
+		});
+		expect(cues).toEqual([{ t: 30.4, phrase: "as you can see" }]);
+	});
+
+	it("ignores rhetorical uses that point at nothing on screen", () => {
+		expect(
+			findTranscriptCues([
+				seg(0, 3, "look, the point is that nobody reads it"),
+				seg(4, 7, "I see what you mean about the pricing"),
+				seg(8, 11, "we should watch the competition closely"),
+			]),
+		).toEqual([]);
+	});
+
+	it("collapses cues that describe one moment", () => {
+		const cues = findTranscriptCues(
+			[seg(0, 2, "look at this"), seg(2, 4, "notice how it moves")],
+			{ minGapSec: 5 },
+		);
+		expect(cues).toHaveLength(1);
+	});
+
+	it("subsamples EVENLY over the asset rather than truncating the first few", () => {
+		const segs = Array.from({ length: 12 }, (_, i) =>
+			seg(i * 10, i * 10 + 3, "look at this"),
+		);
+		const cues = findTranscriptCues(segs, { maxCues: 3 });
+		expect(cues).toHaveLength(3);
+		// Spread across the whole asset, not clustered at the head.
+		expect(cues[2].t).toBeGreaterThan(60);
+	});
+
+	it("clamps a cue that the lead would push past the end of the asset", () => {
+		const cues = findTranscriptCues([seg(9.9, 10, "look at this")], {
+			durationSec: 10,
+			leadSec: 0.4,
+		});
+		expect(cues[0].t).toBeLessThan(10);
+	});
+
+	it("respects a zero budget", () => {
+		expect(
+			findTranscriptCues([seg(0, 2, "look at this")], { maxCues: 0 }),
+		).toEqual([]);
+	});
+});
+
+describe("chooseUnderstandingFrames — cues are pinned, coverage gets the rest", () => {
+	const flat = (luma: number): LumaGrid => new Array(64).fill(luma);
+	const cand = (
+		timestampSec: number,
+		luma: number,
+		reason: FrameReason = "shot",
+	): FrameCandidate => ({ timestampSec, grid: flat(luma), reason });
+
+	it("keeps a cue frame that the visual selector would never pick", () => {
+		// A locked-off talking head: every uniform sample is identical, so shot
+		// selection has no reason to reach frame 5. The cue is why it's there.
+		const candidates = [
+			...[0, 2, 4, 6, 8, 10, 12, 14, 16, 18].map((t) => cand(t, 0.5)),
+			cand(9.3, 0.5, "transcript-cue"),
+		];
+		const picked = chooseUnderstandingFrames(candidates, 8);
+		const times = picked.map((i) => candidates[i].timestampSec);
+		expect(times).toContain(9.3);
+		expect(times).toEqual([...times].sort((a, b) => a - b)); // time order
+	});
+
+	it("never exceeds the budget, and never spends all of it on cues", () => {
+		const candidates = [
+			...[0, 2, 4, 6, 8, 10].map((t) => cand(t, 0.5)),
+			...[1, 3, 5, 7, 9, 11, 13].map((t) => cand(t, 0.5, "transcript-cue")),
+		];
+		const picked = chooseUnderstandingFrames(candidates, 4);
+		expect(picked.length).toBeLessThanOrEqual(4);
+		// At least one non-cue frame survives: the model still has to be able to
+		// say what the asset IS, not just what was pointed at.
+		expect(picked.some((i) => candidates[i].reason !== "transcript-cue")).toBe(
+			true,
+		);
+	});
+
+	it("a cue's off-grid timestamp cannot invent a shot boundary", () => {
+		// Shot structure is read from the uniform candidates only, so adding a cue
+		// must not change which uniform frames are chosen.
+		const step = SHOT_DIFF_THRESHOLD + 0.2;
+		const uniform = [
+			cand(0, 0),
+			cand(2, 0),
+			cand(4, step),
+			cand(6, step),
+			cand(8, 0),
+		];
+		const withoutCue = chooseUnderstandingFrames(uniform, 8).map(
+			(i) => uniform[i].timestampSec,
+		);
+		const withCue = [...uniform, cand(5.1, step, "transcript-cue")];
+		const after = chooseUnderstandingFrames(withCue, 8)
+			.map((i) => withCue[i])
+			.filter((c) => c.reason !== "transcript-cue")
+			.map((c) => c.timestampSec);
+		expect(after).toEqual(withoutCue);
+	});
+
+	it("degenerate inputs stay degenerate", () => {
+		expect(chooseUnderstandingFrames([], 8)).toEqual([]);
+		expect(chooseUnderstandingFrames([cand(0, 0.5)], 8)).toEqual([0]);
+		expect(chooseUnderstandingFrames([cand(0, 0.5), cand(2, 0.5)], 0)).toEqual(
+			[],
+		);
 	});
 });

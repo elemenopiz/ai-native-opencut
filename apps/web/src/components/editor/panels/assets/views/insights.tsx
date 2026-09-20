@@ -54,7 +54,9 @@ import {
 } from "@/components/ui/tooltip";
 import { useEditor } from "@/hooks/use-editor";
 import { cacheUnderstanding } from "@/lib/director/understanding-lookup";
+import { formatTimecode } from "@/lib/engagement-diagnostics";
 import {
+	anchorFrameTime,
 	ASSET_ROLES,
 	type AssetFace,
 	type AssetRole,
@@ -718,6 +720,9 @@ function InsightCard({
 				}
 				if (!face.isNew) return null;
 				const locked = lockedKeys.has(key);
+				// The frame this face reads clearest in — the one you'd seed a lock
+				// from. Absent on records written before frame provenance existed.
+				const anchorSeconds = anchorFrameTime(u, face);
 				return (
 					<div
 						key={key}
@@ -730,6 +735,11 @@ function InsightCard({
 							{face.descriptor && (
 								<p className="text-muted-foreground truncate text-[11px]">
 									{face.descriptor}
+								</p>
+							)}
+							{anchorSeconds !== undefined && (
+								<p className="text-muted-foreground text-[11px]">
+									Clearest at {formatTimecode(anchorSeconds)}
 								</p>
 							)}
 						</div>
