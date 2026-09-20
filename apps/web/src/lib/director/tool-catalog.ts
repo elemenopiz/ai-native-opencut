@@ -2149,6 +2149,19 @@ export function toolCatalog(): ToolDescriptor[] {
 					),
 				}),
 		},
+		// ── engagement score (lib/director/scoring/score-cut.ts) — the
+		// self-graded-edit demo loop: score, recut the weak part, score again.
+		// No external scorer is reachable (see that module's header), so this
+		// is computed locally from the timeline/transcript/beat-grid/mix data
+		// this catalog already exposes reads for — never a network call.
+		{
+			name: "scoreCut",
+			description:
+				'Grade the ASSEMBLED CUT as an "Engagement Score" (0-100, letter grade) — hook strength in the opening seconds, an estimated hold-rate/retention curve with drop-off points, and a per-moment attention heatmap. Computed entirely LOCALLY from the timeline\'s own structure, transcript, and (when analyzed) beat grid / measured mix loudness — no network call, no backend, no external scorer. When the hook or hold-rate reads weak, the result includes suggestedFixes: concrete applyEdit-shaped fixes (a tighten-to-length or cut-on-beat program) — ADVISORY ONLY, never auto-executed; call applyEdit yourself (mode: "dry-run" first) to try one. Also reports unmeasuredSignals in plain language for the one axis (face presence) this repo cannot measure without a vision backend, and any others degraded to a neutral fallback for this call (no beat grid analyzed, no mix decodable). Read-only: measures, changes nothing.',
+			mutating: false,
+			inputSchema: EMPTY,
+			handler: (d) => d.scoreCut(),
+		},
 		// ── program engine (lib/director/program/*) — ONE composition verb over
 		// the primitive editing surface. See `director-api.ts`'s `applyEdit` doc
 		// comment for the atomicity/data-wiring contract this handler relies on.

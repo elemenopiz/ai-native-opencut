@@ -314,6 +314,18 @@ export const PHASE_TOOL_ASSIGNMENTS: Readonly<
 	// detection pass is an async file decode this synchronous-only engine
 	// cannot run.
 	applyEdit: ["polish"],
+	// scoreCut (Wave 2 "scoreCut" — lib/director/scoring/score-cut.ts): polish
+	// ONLY, the same bucket as its two review siblings watchBack/readMix (the
+	// "measure/perceive what you built" reads) — grading the cut is a
+	// judged-and-settled-cut activity, not a briefing-time or mid-generation
+	// concern. It also pairs with applyEdit, which is polish-only too: a weak
+	// hook/hold-rate routes to a suggested tighten-to-length/cut-on-beat
+	// program (`edit-critic.ts`'s `suggestFixesForCutScore`), and bucketing
+	// scoreCut anywhere applyEdit isn't would surface a fix the model cannot
+	// reach the verb to run. The bound moves 32 → 33 for this one addition —
+	// see the count-bounds comment in `phase-scope.test.ts` for the running
+	// history; this is a single READ, no new mutation surface.
+	scoreCut: ["polish"],
 };
 
 /**

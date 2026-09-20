@@ -52,7 +52,10 @@
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
+import type { EngagementDiagnostics } from "@/lib/engagement-diagnostics";
 import type { MixRead } from "./mix-read";
+import { buildCutOnBeatProgram } from "./program/programs/cut-on-beat";
+import { buildTightenToLengthProgram } from "./program/programs/tighten-to-length";
 import { dataUrlToImageBlock } from "./vision-critic";
 
 // ── EditCritique result shape ────────────────────────────────────────────────
@@ -725,4 +728,100 @@ export function parseEditCritique(text: string): EditCritique {
 	}
 
 	return { summary, issues };
+}
+
+// ── weak-cut → craft-program routing (closes the score→fix loop) ───────────
+//
+// `scoreCut` (`lib/director/scoring/score-cut.ts`, wired as `director-api.ts`'s
+// `scoreCut` verb) reports a NUMBER — a hook/hold-rate rating is not, on its
+// own, something a model or user can act on. This section closes that gap:
+// given the `EngagementDiagnostics` `scoreCut` already computed, decide
+// whether the cut is weak enough to route to a concrete REMEDY, and if so,
+// build it from the SAME craft programs `applyEdit` already exposes
+// (`program/programs/tighten-to-length.ts`, `program/programs/cut-on-beat.ts`
+// — the exact two programs that subsumed the old `tightenToLength`/
+// `cutOnBeat` verbs, see `phase-scope.ts`'s deletion history) rather than
+// inventing a third editing mechanism.
+//
+// ADVISORY-ONLY, same ADR-006 contract every other `ProposedFix` in this file
+// uses: a suggestion names an `applyEdit` call with `mode: "dry-run"` (so the
+// caller sees `data.ops` before anything runs) — this module NEVER executes
+// it, and calling code must not either without an explicit later step.
+
+/** Cut left after tightening, as a fraction of the current runtime — a fixed, honest "trim the slack" ratio, not tuned against any real data (there is none to tune against locally). */
+const DEFAULT_TIGHTEN_RATIO = 0.85;
+
+/** One concrete, executable fix a weak `scoreCut` diagnostic routes to. */
+export interface CutScoreFixSuggestion {
+	/** Which diagnostic axis this fix targets. */
+	axis: "hook" | "holdRate";
+	/** Why this fix was suggested, in plain language — surfaced to the user, never auto-run. */
+	reason: string;
+	/** An `applyEdit`-shaped `ProposedFix` — `verb: "applyEdit"`, `args: { program, mode: "dry-run" }`. */
+	fix: ProposedFix;
+}
+
+/**
+ * Route a weak `hook` (and/or weak `holdRate`) diagnostic to a concrete
+ * `applyEdit` fix instead of leaving the caller with only a number:
+ *  - a weak hook OR a weak hold rate ⇒ a `tightenToLength`-shaped program
+ *    targeting {@link DEFAULT_TIGHTEN_RATIO} of the current runtime — trims
+ *    the slack a lingering opening (weak hook) or a mid-cut drop-off (weak
+ *    hold rate) is bleeding attention at. Same program `readMix`'s own
+ *    dead-air coaching note already points the model at.
+ *  - a weak hook, WHEN a beat grid has been analyzed ⇒ ALSO a
+ *    `cutOnBeat`-shaped program, since a hook that doesn't land on the
+ *    music's rhythm is a second, independent fix from "the opening is too
+ *    long" — offered alongside, not instead of, the tighten suggestion.
+ * A strong/ok cut on both axes ⇒ `[]` — same "an empty result is a good,
+ * valid outcome" posture {@link parseEditCritique} uses; this function never
+ * invents a fix to fill the list.
+ */
+export function suggestFixesForCutScore(
+	diagnostics: Pick<EngagementDiagnostics, "hook" | "holdRate">,
+	ctx: {
+		totalDurationSec: number;
+		hasBeatGrid: boolean;
+		tightenRatio?: number;
+	},
+): CutScoreFixSuggestion[] {
+	const suggestions: CutScoreFixSuggestion[] = [];
+	const hookWeak: boolean = diagnostics.hook.rating === "weak";
+	const holdWeak: boolean = diagnostics.holdRate.rating === "weak";
+
+	if ((hookWeak || holdWeak) && ctx.totalDurationSec > 0) {
+		const ratio = ctx.tightenRatio ?? DEFAULT_TIGHTEN_RATIO;
+		const targetDurationSec = Math.max(
+			1,
+			Math.round(ctx.totalDurationSec * ratio * 100) / 100,
+		);
+		const reason = hookWeak
+			? `Hook scored weak (${diagnostics.hook.score}/100) — tightening the cut to ~${targetDurationSec}s trims slack out of the opening shots so the strongest moment lands sooner.`
+			: `Hold rate scored weak (${diagnostics.holdRate.score}/100) with drop-off points on the timeline — tightening the cut to ~${targetDurationSec}s removes the slack those drop-offs are bleeding viewers at.`;
+		suggestions.push({
+			axis: hookWeak ? "hook" : "holdRate",
+			reason,
+			fix: {
+				verb: "applyEdit",
+				args: {
+					program: buildTightenToLengthProgram({ targetDurationSec }),
+					mode: "dry-run",
+				},
+			},
+		});
+	}
+
+	if (hookWeak && ctx.hasBeatGrid) {
+		suggestions.push({
+			axis: "hook",
+			reason:
+				"A beat grid is analyzed and the hook scored weak — snapping cuts to the beat can sharpen the opening's rhythm independently of trimming its length.",
+			fix: {
+				verb: "applyEdit",
+				args: { program: buildCutOnBeatProgram(), mode: "dry-run" },
+			},
+		});
+	}
+
+	return suggestions;
 }
