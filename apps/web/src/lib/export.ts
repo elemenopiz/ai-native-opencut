@@ -69,7 +69,23 @@ export type ExportCommitOutcome =
 			status: Extract<ExportJobStatus, "failed">;
 			jobId: string;
 			reason: "cancelled" | "render-failed" | "empty-buffer";
+			/**
+			 * Always a human-safe sentence — no raw `DOMException` text, codec
+			 * string, provider name, or file path. This is the only field any
+			 * customer-facing surface (Director chat, export UI) should render.
+			 * See the standing "no errors to customers" directive: silent
+			 * retry → friendly line → details collapsed.
+			 */
 			message: string;
+			/**
+			 * The underlying failure exactly as the renderer reported it (e.g.
+			 * a raw `DOMException` message or codec string from
+			 * `result.error`). Populated only for `reason === "render-failed"`
+			 * — `cancelled` and `empty-buffer` never had a raw error to begin
+			 * with. For dev-side logging/telemetry ONLY; never render this to
+			 * an end user.
+			 */
+			detail?: string;
 	  };
 
 /**
@@ -131,11 +147,18 @@ export function commitExport({
 		};
 	}
 	if (!result.success) {
+		// NEVER forward `result.error` verbatim as `message` — it's whatever
+		// the renderer/browser encoder produced (raw `DOMException` text, a
+		// codec string, etc.) and this is the last beat of the export flow,
+		// surfaced straight to chat by the Director's exportReel wrapper with
+		// no sanitisation of its own. The raw text survives on `detail` for
+		// dev-side logging; the customer only ever sees the sentence below.
 		return {
 			status: "failed",
 			jobId,
 			reason: "render-failed",
-			message: result.error ?? "unknown error",
+			message: "We couldn't finish this export. Please try again.",
+			detail: result.error ?? "unknown error",
 		};
 	}
 	if (!result.buffer) {

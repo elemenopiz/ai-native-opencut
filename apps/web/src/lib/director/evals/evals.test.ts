@@ -602,38 +602,29 @@ describe("Director eval harness — deterministic tier", () => {
 		});
 
 		/**
-		 * FINDING (see `generation-ip-detected-scenario.ts`'s header for the
-		 * full writeup): `ip_detected` — one of Higgsfield's two documented
+		 * FIXED (was a `test.failing` FINDING — see
+		 * `generation-ip-detected-scenario.ts`'s header for the original
+		 * writeup): `ip_detected` — one of Higgsfield's two documented
 		 * terminal content-policy statuses, named explicitly in the task brief
 		 * as a "terminal job status, not a retryable error" alongside `nsfw` —
-		 * is NOT recognized by `failure-classification.ts`'s `classifyFailure`.
-		 * It falls through to the `"unknown"` class, which IS retryable, so the
-		 * Director burns 2 extra retries against a request that can never
-		 * succeed instead of taking the one-rephrase-then-escalate path a
-		 * terminal rejection deserves (nsfw gets exactly that path today — see
-		 * the sibling test above, 2 attempts).
-		 *
-		 * `test.failing`: this assertion is CORRECT and will start passing for
-		 * real the moment `classifyFailure` learns to recognize `ip_detected`
-		 * (and kin: "public figure", "trademark", "recognizable likeness") as a
-		 * `class: "safety"` signal alongside `nsfw`. Bun then reports THIS test
-		 * as an unexpected pass, which is the signal to delete `.failing` here.
-		 * `failure-classification.ts` is outside `evals/`'s ownership, so the
-		 * fix belongs to a different session — this pins the bug so it can't
-		 * silently regress further or go unnoticed.
+		 * previously fell through `failure-classification.ts`'s
+		 * `classifyFailure` to the retryable `"unknown"` class, burning 2 extra
+		 * retries against a request that could never succeed. `SAFETY_RE` now
+		 * matches `ip_detected` and its plain-English kin ("public figure",
+		 * "trademark", "branded character", "recognizable likeness"), so this
+		 * takes the same one-rephrase-then-escalate path `nsfw` already gets
+		 * (see the sibling test above, 2 attempts) — this is now a real
+		 * regression guard, not a pinned bug.
 		 */
-		test.failing(
-			"FINDING: ip_detected should be treated like nsfw (2 attempts) but is misclassified as retryable (3 attempts today)",
-			async () => {
-				const run = await runScenario(generationIpDetectedScenario);
-				expect(getIpDetectedAttemptCount()).toBe(
-					IP_DETECTED_SCENARIO_DESIRED_ATTEMPTS,
-				);
-				const [healthySlot, flaggedSlot] = run.reelAfter.slots;
-				expect(healthySlot?.status).toBe("ready");
-				expect(flaggedSlot?.status).toBe("failed");
-			},
-		);
+		test("ip_detected is treated like nsfw: one rephrase, then escalate (2 attempts, not 3)", async () => {
+			const run = await runScenario(generationIpDetectedScenario);
+			expect(getIpDetectedAttemptCount()).toBe(
+				IP_DETECTED_SCENARIO_DESIRED_ATTEMPTS,
+			);
+			const [healthySlot, flaggedSlot] = run.reelAfter.slots;
+			expect(healthySlot?.status).toBe("ready");
+			expect(flaggedSlot?.status).toBe("failed");
+		});
 	});
 
 	describe("stale-reference fixture — moved/removed element the plan still targets", () => {
