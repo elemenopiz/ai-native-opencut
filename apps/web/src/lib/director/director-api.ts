@@ -74,6 +74,10 @@ import {
 	type BackgroundRemovalResult,
 } from "@/lib/studio/background-removal";
 import { addItemsToProjectMedia } from "@/lib/studio/add-to-editor";
+import {
+	read as kernelRead,
+	type ReadResult as KernelReadResult,
+} from "./kernel/read";
 import type {
 	AnimationInterpolation,
 	AnimationPropertyPath,
@@ -7585,7 +7589,34 @@ export function createDirectorApi(
 		return wrapped;
 	}
 
+	/**
+	 * Kernel perception primitive (Director Kernel clean-slate, build step 1 —
+	 * `docs/plans/2026-09-20-director-kernel-clean-slate.md` §3). ADDITIVE
+	 * alongside the 68 verbs below, not a replacement for any of them yet.
+	 *
+	 * `./kernel/read.ts` throws teaching errors (`KernelIdError`/
+	 * `KernelReadError`, the kernel's own style — see `kernel/ids.ts`'s "tolerant
+	 * in, strict out" doc); every OTHER verb in this façade returns a
+	 * `DirectorResult` instead of throwing (this file's own top-of-file design
+	 * rules). This wrapper is the seam that reconciles the two conventions so
+	 * both the agent loop and MCP callers keep reading only `ok`/`message`/
+	 * `data`, exactly as they do for every other verb here.
+	 */
+	function read(input: {
+		at: string;
+		fields?: string[];
+		depth?: "ids" | "expanded";
+	}): Promise<DirectorResult<KernelReadResult>> {
+		return kernelRead(editor, input).then(
+			(result) => ok(result.summary, result),
+			(error: unknown) =>
+				fail(error instanceof Error ? error.message : String(error)),
+		);
+	}
+
 	return wrapVerbs({
+		// kernel (build step 1 — additive, see the `read` doc comment above)
+		read,
 		// read
 		getReel,
 		getTimeline,

@@ -139,6 +139,210 @@ function assertSafeProperty(name: string): void {
 	}
 }
 
+// -- unknown-field reads ------------------------------------------------------
+//
+// A read of a key an object does not own is either a TYPO (the field exists,
+// spelled differently — `clip.start` when the real field is `startSec`) or a
+// genuine OPTIONAL-FIELD PROBE (`if (c.mediaId)` on a clip that has no
+// media). Those need opposite answers: a typo left silent surfaces two frames
+// later as an arithmetic error naming neither the field nor the object (see
+// this package's design doc, §5, row 3) — it must throw, right here, naming
+// the field. A probe must return `undefined`, because `mediaId`/`trimStart`/
+// `trimEnd` are real, sometimes-absent fields and a program that checks for
+// them is doing exactly the right thing; throwing there would make the
+// "optional" in "optional field" a lie.
+//
+// The rule: throw when the attempted key has a near-miss among the object's
+// OWN keys (this object, this read — never a schema kept elsewhere); return
+// `undefined` when it does not. "Near" is intentionally asymmetric, not a
+// flat percentage: `kernel/ids.ts`'s `editDistance` (copied below rather than
+// imported — `program/` stays self-contained, see this package's various
+// module headers on why) with a budget of HALF the longer string's length,
+// and a floor that skips the comparison below three characters altogether.
+//
+// The floor matters first: almost any two 1–2 character strings sit within a
+// couple of edits of each other (`o.b` against a key named `a` is edit
+// distance 1), so treating that as a typo would flag unrelated short names
+// constantly. Below three characters a missing key is always read as a
+// probe.
+//
+// The half-length budget on the edit-distance FALLBACK is tuned against the
+// actual collision this rule has to survive. `startSec`/`endSec`/
+// `durationSec` are the real field names behind the `start`/`end`/`duration`
+// a model reaches for, and the gap is always the same 3-character `"Sec"`
+// suffix — proportionally BIGGER against a short base (`end`, 3 chars,
+// distance 3) than a long one (`duration`, 8 chars, distance 3). A flat
+// edit-distance budget loose enough to catch `end`→`endSec` unassisted (3
+// edits over a 6-char pair — half its length, exactly) is ALSO loose enough
+// to call two honestly different sibling fields a typo for each other
+// (`trimStart` against `trimEnd` sits 5 edits apart over 9 characters;
+// `mediaId` against `trackId` sits 5 over 7) — and, worse, loose enough to
+// prefer an UNRELATED short field over the real one: on a real clip's key
+// set `end` sits distance 2 from `kind` and distance 3 from `endSec` — raw
+// edit distance alone picks `kind`, a real field of the wrong type, and a
+// model that trusts the suggestion writes a string into a numeric edit and
+// gets a WRONG answer with no error at all. That failure is worse than the
+// silent `undefined` this rule exists to replace, which at least surfaces
+// downstream.
+//
+// So edit distance is the LAST tier, not the only one. Three cheaper, more
+// specific shapes are checked first, because each one is a stronger, less
+// coincidental signal than "close in character count":
+//   1. `attempted` is a strict PREFIX of a real key — the dominant real
+//      shape (a model reaches for the bare noun; the field carries a unit
+//      suffix): `end`→`endSec`, `start`→`startSec`, `duration`→
+//      `durationSec`.
+//   2. The reverse — a real key is a strict prefix of `attempted`:
+//      `startSecond`→`startSec`.
+//   3. Case-insensitive equality — same letters, wrong case:
+//      `startsec`→`startSec`.
+//   4. Edit distance, budgeted as above, for everything not shaped like the
+//      first three.
+// A tier that finds anything wins outright over every tier below it,
+// `kind`'s edit-distance-2 head start over `endSec`'s edit-distance-3 never
+// gets a vote once tier 1 has already matched `endSec` as a prefix hit.
+//
+// Ties within a tier, and the object's key ORDER, must never change the
+// answer — a suggestion that depends on `Object.keys` insertion order is not
+// a rule, it's a coin flip that happens to be deterministic per-run. Keys
+// are sorted before any tier is scanned; a tie is broken by shorter
+// candidate length, then alphabetically. When the best two candidates in the
+// end-of-the-line edit-distance tier are within one edit of each other, both
+// are offered — "did you mean X or Y?" is an honest answer when the rule
+// genuinely can't tell, and cheap to compute since the whole candidate list
+// is already scored.
+const MIN_NEAR_MISS_LENGTH = 3;
+
+/** How many suggestions {@link nearestKeys} will ever return — see the section header on why a genuine near-tie is offered as a pair rather than an arbitrary pick. */
+const MAX_SUGGESTIONS = 2;
+
+/** Levenshtein distance. Only ever run over a handful of one object's own key names (see {@link nearestKeys}), so it carries no budget concern of its own. */
+function editDistance(a: string, b: string): number {
+	const rows = a.length + 1;
+	const cols = b.length + 1;
+	let prev = Array.from({ length: cols }, (_, i) => i);
+	for (let i = 1; i < rows; i += 1) {
+		const next = [i];
+		for (let j = 1; j < cols; j += 1) {
+			next[j] = Math.min(
+				prev[j] + 1,
+				next[j - 1] + 1,
+				prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+			);
+		}
+		prev = next;
+	}
+	return prev[cols - 1];
+}
+
+/** Deterministic ordering for candidates tied on whatever score got them into a tier: shorter first (the tighter match), then alphabetical — never insertion order. */
+function byLengthThenAlpha(a: string, b: string): number {
+	return a.length - b.length || (a < b ? -1 : a > b ? 1 : 0);
+}
+
+/** The shortest-and-then-alphabetically-first `count` entries of an already-sorted-by-tier `candidates` list, all tied at the best score in that tier. */
+function bestOf(candidates: string[], count: number): string[] {
+	return [...candidates].sort(byLengthThenAlpha).slice(0, count);
+}
+
+/**
+ * The 1–2 keys closest to `attempted`, in confidence order, or `[]` when
+ * nothing is close enough to call a typo rather than a coincidence — see the
+ * section header above for the tier order and why each one outranks the
+ * next.
+ */
+function nearestKeys(attempted: string, ownKeys: string[]): string[] {
+	if (attempted.length < MIN_NEAR_MISS_LENGTH) return [];
+	// Sorted once, up front — every tier below reads from this, never from
+	// `ownKeys` in its original (insertion) order.
+	const keys = [...ownKeys]
+		.filter((key) => key.length >= MIN_NEAR_MISS_LENGTH)
+		.sort();
+	if (keys.length === 0) return [];
+
+	// Tier 1: attempted is a strict prefix of the candidate.
+	const forwardPrefix = keys.filter(
+		(key) => key.startsWith(attempted) && key.length > attempted.length,
+	);
+	if (forwardPrefix.length > 0) {
+		const shortest = Math.min(...forwardPrefix.map((key) => key.length));
+		return bestOf(
+			forwardPrefix.filter((key) => key.length === shortest),
+			MAX_SUGGESTIONS,
+		);
+	}
+
+	// Tier 2: the candidate is a strict prefix of attempted.
+	const reversePrefix = keys.filter(
+		(key) => attempted.startsWith(key) && attempted.length > key.length,
+	);
+	if (reversePrefix.length > 0) {
+		const longest = Math.max(...reversePrefix.map((key) => key.length));
+		return bestOf(
+			reversePrefix.filter((key) => key.length === longest),
+			MAX_SUGGESTIONS,
+		);
+	}
+
+	// Tier 3: case-insensitive equality.
+	const attemptedLower = attempted.toLowerCase();
+	const caseInsensitive = keys.filter(
+		(key) => key.toLowerCase() === attemptedLower,
+	);
+	if (caseInsensitive.length > 0) {
+		return bestOf(caseInsensitive, MAX_SUGGESTIONS);
+	}
+
+	// Tier 4: edit distance, budgeted at half the longer string's length —
+	// the fallback for everything not shaped like the first three.
+	const scored = keys
+		.map((key) => ({
+			key,
+			distance: editDistance(attempted, key),
+			budget: Math.floor(Math.max(attempted.length, key.length) / 2),
+		}))
+		.filter((entry) => entry.distance <= entry.budget);
+	if (scored.length === 0) return [];
+	scored.sort(
+		(a, b) => a.distance - b.distance || byLengthThenAlpha(a.key, b.key),
+	);
+	const bestDistance = scored[0].distance;
+	// A second candidate is offered only when it is genuinely almost as good
+	// — within one more edit than the best — not just because a slot is
+	// free.
+	return bestOf(
+		scored
+			.filter((entry) => entry.distance <= bestDistance + 1)
+			.map((entry) => entry.key),
+		MAX_SUGGESTIONS,
+	);
+}
+
+/** `"a"` or `"a" or "b"` — how a 1- or 2-item suggestion list reads in the thrown message. */
+function formatSuggestions(suggestions: string[]): string {
+	return suggestions.map((name) => `"${name}"`).join(" or ");
+}
+
+/**
+ * Read `property` off a script object, applying the near-miss rule above.
+ * Shared by member reads (`o.property`) and index reads with a string key
+ * (`o["property"]`) — both hit the identical missing-key question.
+ */
+function readObjectProperty(
+	object: { [key: string]: ProgramValue },
+	property: string,
+): ProgramValue {
+	if (Object.hasOwn(object, property)) return object[property];
+	const keys = Object.keys(object);
+	const suggestions = nearestKeys(property, keys);
+	if (suggestions.length === 0) return undefined;
+	throw new ProgramRuntimeError(
+		`"${property}" is not a field on this object — did you mean ${formatSuggestions(suggestions)}? Actual keys: ${
+			keys.length > 0 ? keys.join(", ") : "(none)"
+		}.`,
+	);
+}
+
 export interface InterpretOptions {
 	globals: Globals;
 	limits: ProgramLimits;
@@ -450,9 +654,9 @@ export class Interpreter {
 			throw new ProgramRuntimeError(`Strings have no "${property}".`);
 		}
 		if (isProgramObject(object)) {
-			// `hasOwn`, never a plain read: an inherited key must never be
-			// visible as data.
-			return Object.hasOwn(object, property) ? object[property] : undefined;
+			// `hasOwn`-gated inside `readObjectProperty`, never a plain read: an
+			// inherited key must never be visible as data.
+			return readObjectProperty(object, property);
 		}
 		throw new ProgramRuntimeError(
 			`Cannot read "${property}" of ${describeProgramValue(object)}.`,
@@ -482,7 +686,7 @@ export class Interpreter {
 			}
 			const key = String(index);
 			assertSafeProperty(key);
-			return Object.hasOwn(object, key) ? object[key] : undefined;
+			return readObjectProperty(object, key);
 		}
 		throw new ProgramRuntimeError(
 			`Cannot index ${describeProgramValue(object)}.`,
@@ -537,8 +741,16 @@ function numericOp(
 	right: ProgramValue,
 ): ProgramValue {
 	if (typeof left !== "number" || typeof right !== "number") {
+		// `undefined` reaching arithmetic is, in practice, almost always a field
+		// read that missed — and by the time it gets here the read itself is a
+		// statement or two back, so the message needs to point somewhere rather
+		// than just restate the symptom.
+		const hint =
+			left === undefined || right === undefined
+				? " A field read that came back undefined usually means a missing or misspelled key — check the object's real keys with keys(obj)."
+				: "";
 		throw new ProgramRuntimeError(
-			`"${op}" needs two numbers, got ${describeProgramValue(left)} and ${describeProgramValue(right)}.`,
+			`"${op}" needs two numbers, got ${describeProgramValue(left)} and ${describeProgramValue(right)}.${hint}`,
 		);
 	}
 	switch (op) {

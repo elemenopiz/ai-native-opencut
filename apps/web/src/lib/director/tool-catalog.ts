@@ -2747,6 +2747,50 @@ export function toolCatalog(): ToolDescriptor[] {
 					} satisfies ToolDescriptor,
 				]
 			: []),
+		// ── kernel (Director Kernel clean-slate, build step 1 — 2026-09-20 design
+		// doc). PURELY ADDITIVE: the 68 verbs above are untouched; this is the
+		// first primitive of the 15-verb kernel surface (docs/plans/2026-09-20-
+		// director-kernel-clean-slate.md §3), landing alongside them rather than
+		// replacing anything yet (build order item 7 is the eventual shim/
+		// deprecation of the legacy verbs, not this pass).
+		{
+			name: "read",
+			description:
+				'Kernel perception primitive: inspect ANY addressable thing by id — "kind:raw", e.g. "element:9f1c…" or "track:t2". Addressable kinds: project, track, element, asset, take, effect, keyframe, marker, scene, selection, playhead, history, budget, brief, bible. The kinds project/selection/playhead/history/budget/brief/bible are singletons — the app only ever has one, so the bare kind name alone (no id) also works, e.g. at: "selection". Every result carries `_writable` — the exact field names, types and units a future update() call will accept on that object — so you never have to guess or remember a field name; just re-read the thing. A writable field that does not apply to THIS specific instance (e.g. a text-only field on a video clip) is never left silently undefined in data — it is removed from `_writable` and named in `_unavailable` with a reason instead. `fields` narrows the returned data/`_unavailable` to just the names you list (aliases accepted). `depth: "expanded"` (default "ids") returns a kind\'s child collections — a track\'s elements, an element\'s takes/effects/keyframes, a scene\'s tracks — as full nested objects instead of bare ids. An id that does not exist names what DOES exist instead of failing silently.',
+			mutating: false,
+			inputSchema: {
+				type: "object",
+				properties: {
+					at: {
+						type: "string",
+						description:
+							'A kernel id ("kind:raw", e.g. "element:9f1c…", "track:t2") or a bare singleton kind name: project, selection, playhead, history, budget, brief, bible.',
+					},
+					fields: {
+						type: "array",
+						items: { type: "string" },
+						description:
+							"Optional — narrow the returned data to just these field names (schema names or their accepted aliases). Omit for everything the kind reports.",
+					},
+					depth: {
+						type: "string",
+						enum: ["ids", "expanded"],
+						description:
+							'"ids" (default): child collections (elements/takes/effects/keyframes/tracks) come back as bare id arrays. "expanded": those collections come back as full objects.',
+					},
+				},
+				required: ["at"],
+				additionalProperties: false,
+			},
+			handler: (d, a) =>
+				d.read({
+					at: str(a.at),
+					fields: Array.isArray(a.fields)
+						? a.fields.map((f) => str(f))
+						: undefined,
+					depth: a.depth === "expanded" ? "expanded" : undefined,
+				}),
+		},
 	];
 }
 

@@ -56,6 +56,15 @@ interface StudioSettingsState {
 	// above (see `lib/director/vision-critic.ts`). Off ⇒ review only when the
 	// user's message asks for quality, or when the model calls `reviewTake` itself.
 	autoReviewEnabled: boolean;
+	// Generation kill switch — the Director spends real money with an external
+	// provider only when it calls generate/reroll/remix/compareTake (see
+	// GENERATION_VERB_NAMES in lib/director/agent.ts); everything else (trims,
+	// captions, effects, reads) is free. Off ⇒ those verbs are removed from the
+	// per-run tool array handed to the brain (see runDirectorAgent's
+	// `generationEnabled` param) so the Director can edit but never spend.
+	// Default true so a user who never touches the toggle sees no behavior
+	// change from before this setting existed.
+	generationEnabled: boolean;
 
 	set: (patch: Partial<Omit<StudioSettingsState, "set">>) => void;
 }
@@ -75,6 +84,7 @@ export const useStudioSettingsStore = create<StudioSettingsState>()(
 			imageKeepFacePose: false,
 			approvalThresholdCredits: DEFAULT_APPROVAL_THRESHOLD_CREDITS,
 			autoReviewEnabled: false,
+			generationEnabled: true,
 			set: (patch) => set(patch),
 		}),
 		{

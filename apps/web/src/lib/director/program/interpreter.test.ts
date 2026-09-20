@@ -122,6 +122,171 @@ log(n, len(xs))`),
 	});
 });
 
+describe("interpreter — unknown-field reads teach, without breaking optional fields", () => {
+	it("returns undefined for a short/unrelated missing key — no near-miss noise below 3 chars", () => {
+		// "b" against "a" is edit-distance 1, which would clear almost any
+		// budget — this is exactly the false-positive the length floor exists
+		// to rule out before distance is even computed.
+		expect(logs("let o = { a: 1 }\nlog(o.b)")).toEqual(["undefined"]);
+	});
+
+	it("returns undefined for a genuinely optional field with no near neighbor", () => {
+		// The `mediaId`-on-a-non-media-element shape from the design doc: the
+		// object's real keys are nothing like the probed name.
+		expect(
+			logs('let c = { id: "t1", type: "text", startSec: 0 }\nlog(c.mediaId)'),
+		).toEqual(["undefined"]);
+	});
+
+	it("throws naming the field and the near neighbor for the canonical start/startSec typo", () => {
+		const failed = failure(
+			'let c = { id: "v1", startSec: 0, endSec: 4 }\nlog(c.start)',
+		);
+		expect(failed.message).toContain('"start"');
+		expect(failed.message).toContain('did you mean "startSec"');
+		expect(failed.message).toContain("startSec");
+		expect(failed.message).toContain("endSec");
+	});
+
+	it("catches the same typo shape on the shorter end/endSec pair", () => {
+		const failed = failure(
+			'let c = { id: "v1", startSec: 0, endSec: 4 }\nlog(c.end)',
+		);
+		expect(failed.message).toContain('did you mean "endSec"');
+	});
+
+	it("catches duration against durationSec", () => {
+		const failed = failure("let c = { durationSec: 4 }\nlog(c.duration)");
+		expect(failed.message).toContain('did you mean "durationSec"');
+	});
+
+	it("does not confuse two honestly different sibling fields for a typo of each other", () => {
+		// trimEnd is set, trimStart genuinely is not (an untrimmed head) — the
+		// probe must read as "not set", not "you meant the other one".
+		expect(
+			logs('let c = { id: "v1", trimEnd: 0.5 }\nlog(c.trimStart)'),
+		).toEqual(["undefined"]);
+	});
+
+	it("does not confuse mediaId with a similarly-shaped sibling id field", () => {
+		expect(
+			logs('let c = { id: "v1", trackId: "t_video" }\nlog(c.mediaId)'),
+		).toEqual(["undefined"]);
+	});
+
+	it("applies the same rule through index reads, not just member reads", () => {
+		const failed = failure('let c = { startSec: 0 }\nlog(c["start"])');
+		expect(failed.message).toContain('did you mean "startSec"');
+	});
+
+	it("never throws on an empty object — there is nothing to be near", () => {
+		// No keys at all means no candidate can ever clear the near-miss
+		// budget, so every probe on `{}` reads as "not set", regardless of
+		// how the attempted name is spelled.
+		expect(logs("let o = {}\nlog(o.mediaIdentifier)")).toEqual(["undefined"]);
+	});
+});
+
+describe("interpreter — near-miss tiers, against the real clip shape", () => {
+	// The exact key set from the replayed prod failure: `id`, `trackId`,
+	// `trackKind`, `kind`, `name`, `startSec`, `durationSec`, `endSec`,
+	// `trimStart`, `trimEnd`, `isSlot`, `mediaId`. `kind` is the trap — it is
+	// a REAL field, edit-distance 2 from `end`, closer by raw distance than
+	// `endSec` (distance 3). Naming it as the suggestion isn't a wrong
+	// guess, it is a wrong guess a program has no way to notice, because
+	// `kind` is a real key that a `.` read will happily hand back a string
+	// from — the exact silent-wrong-answer shape this rule exists to kill.
+	const CLIP =
+		'{ id: "v1", trackId: "t_video", trackKind: "video", kind: "clip", ' +
+		'name: "shot one", startSec: 0, durationSec: 4, endSec: 4, ' +
+		'trimStart: 0, trimEnd: 0, isSlot: false, mediaId: "m1" }';
+
+	it("prefers the prefix match endSec over the closer-by-raw-distance kind", () => {
+		const failed = failure(`let c = ${CLIP}\nlog(c.end)`);
+		expect(failed.message).toContain('did you mean "endSec"');
+		// "kind" legitimately appears later, in the "Actual keys" dump — the
+		// regression is specifically about the SUGGESTION, so assert the
+		// suggestion clause is exactly `"endSec"?`, not `"endSec" or "kind"?`.
+		expect(failed.message).toContain('did you mean "endSec"?');
+	});
+
+	it("start -> startSec", () => {
+		const failed = failure(`let c = ${CLIP}\nlog(c.start)`);
+		expect(failed.message).toContain('did you mean "startSec"');
+	});
+
+	it("duration -> durationSec", () => {
+		const failed = failure(`let c = ${CLIP}\nlog(c.duration)`);
+		expect(failed.message).toContain('did you mean "durationSec"');
+	});
+
+	it("case-only miss: startsec -> startSec", () => {
+		const failed = failure(`let c = ${CLIP}\nlog(c.startsec)`);
+		expect(failed.message).toContain('did you mean "startSec"');
+	});
+
+	it("case-only miss: trackid -> trackId, not the longer trackKind", () => {
+		const failed = failure(`let c = ${CLIP}\nlog(c.trackid)`);
+		// Same "check the suggestion clause, not the whole message" reasoning
+		// as the `end` case above — "trackKind" also appears in the "Actual
+		// keys" dump.
+		expect(failed.message).toContain('did you mean "trackId"?');
+	});
+
+	it("still returns undefined for a genuine optional probe: mediaId absent", () => {
+		const withoutMedia =
+			'{ id: "v1", trackId: "t_video", trackKind: "video", kind: "clip", ' +
+			'name: "shot one", startSec: 0, durationSec: 4, endSec: 4, ' +
+			"trimStart: 0, trimEnd: 0, isSlot: false }";
+		expect(logs(`let c = ${withoutMedia}\nlog(c.mediaId)`)).toEqual([
+			"undefined",
+		]);
+	});
+
+	it("still returns undefined for trimStart absent while only trimEnd is set, against the full key set", () => {
+		const trimEndOnly =
+			'{ id: "v1", trackId: "t_video", trackKind: "video", kind: "clip", ' +
+			'name: "shot one", startSec: 0, durationSec: 4, endSec: 4, ' +
+			'trimEnd: 0, isSlot: false, mediaId: "m1" }';
+		expect(logs(`let c = ${trimEndOnly}\nlog(c.trimStart)`)).toEqual([
+			"undefined",
+		]);
+	});
+
+	it("the suggestion is stable regardless of the object's key insertion order", () => {
+		const forwardOrder = CLIP;
+		const reversedOrder =
+			'{ mediaId: "m1", isSlot: false, trimEnd: 0, trimStart: 0, ' +
+			'endSec: 4, durationSec: 4, startSec: 0, name: "shot one", ' +
+			'kind: "clip", trackKind: "video", trackId: "t_video", id: "v1" }';
+
+		const forward = failure(`let c = ${forwardOrder}\nlog(c.end)`);
+		const reversed = failure(`let c = ${reversedOrder}\nlog(c.end)`);
+		expect(forward.message).toContain('did you mean "endSec"');
+		expect(reversed.message).toContain('did you mean "endSec"');
+	});
+});
+
+describe("interpreter — arithmetic on a missed field read points at keys()", () => {
+	it("hints at keys() when one side of a numeric op is undefined", () => {
+		// `mediaId` is a genuine optional-field probe here (no near neighbor
+		// among startSec/trackId), so the member read returns `undefined`
+		// rather than throwing, and the failure surfaces one statement later,
+		// at the subtraction — exactly the bug-report shape from prod.
+		const failed = failure(
+			'let c = { startSec: 0, trackId: "t1" }\nlog(c.mediaId - 1)',
+		);
+		expect(failed.message).toContain("needs two numbers");
+		expect(failed.message).toContain("keys(obj)");
+	});
+
+	it("does not add the hint when neither side is undefined", () => {
+		const failed = failure("let a = {}\nlog(1 + a)");
+		expect(failed.message).toContain("needs two numbers");
+		expect(failed.message).not.toContain("keys(obj)");
+	});
+});
+
 describe("interpreter — the sandbox's negative space", () => {
 	it("has no ambient globals", () => {
 		for (const name of [

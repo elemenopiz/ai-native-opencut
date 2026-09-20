@@ -6,7 +6,7 @@
  *
  * WRAPPERS, NOT REIMPLEMENTATIONS. Every one of these calls the identically
  * named verb on the live `DirectorApi` (`lib/director/director-api.ts`) and
- * does nothing that verb doesn't already do. This module adds exactly three
+ * does nothing that verb doesn't already do. This module adds exactly four
  * things on top:
  *   1. **Argument typing.** A program's args arrive as an untyped
  *      {@link ProgramValue} object literal. Each verb has a schema here, so a
@@ -19,6 +19,11 @@
  *   3. **The operation cap.** `maxOperations` is metered here because this is
  *      the only place an operation exists (see `interpreter.ts`'s header on
  *      the shared meter).
+ *   4. **A field-name alias layer** (see the ALIASES section below), so the
+ *      spelling gap between `move`'s `newStartTime` and every sibling verb's
+ *      `startTime` — the second link in the 2026-09-20 prod failure chain —
+ *      cannot recur, and `slotId` accepts the other names this repo already
+ *      calls the same id (`clipId`, `elementId`, `id`).
  *
  * `DirectorApi` is NOT imported. {@link ProgramPrimitiveApi} is a structural
  * subset a real `DirectorApi` satisfies, declared with METHOD syntax so
@@ -250,6 +255,140 @@ const VERB_SCHEMAS: Record<PrimitiveVerb, VerbSchema> = {
 	},
 };
 
+// ---- Aliases -----------------------------------------------------------------
+//
+// The 2026-09-20 prod failure (this module's header doesn't carry the story —
+// see `docs/plans/2026-09-20-director-kernel-clean-slate.md` §5) included a
+// model writing `move({ startTime: … })` when the field is `newStartTime`.
+// That was not carelessness: `trim`, `addClip` and `addText` all spell their
+// start-time field `startTime`, and `move` is the one verb that doesn't. A
+// model that has just called three of those four verbs correctly has every
+// reason to expect the fourth to match — the inconsistency lives in this
+// schema, not in the caller.
+//
+// Aliases fix the spelling gap without touching the semantics gap: a
+// verb-boundary error either way costs a full round trip (emit the call, get
+// the refusal, read it, re-emit), and every alias here is one specific,
+// previously-observed round trip made unnecessary. This is not "accept
+// anything" — the schema is still closed, unknown fields still reject by
+// name (see `validateArgs` below) — it is "accept the ONE OTHER spelling a
+// reasonable reader of the rest of this surface would reach for".
+//
+// `slotId` gets the widest alias set of any field because it is the one
+// every mutating verb takes, and "what do I call the id of the thing I'm
+// editing" is the single most repeated question a model asks this API.
+// `clipId`/`elementId` are the two names the surrounding codebase itself uses
+// for the same underlying id (`director-api.ts`'s `findSlot` resolves a
+// generative reel slot, but everything upstream of it — the tool catalog,
+// `TimelineElement` — calls the placed thing an "element"), and `id` is the
+// generic fallback every schema in this repo's growing kernel id space
+// (`kernel/ids.ts`) converges on. Deliberately scoped to verbs whose schema
+// actually HAS a `slotId` field — `animateItem`'s `itemId` and `reorder`'s
+// `slotIds` are different fields with different shapes, not misspellings of
+// this one, and aliasing them here would blur a distinction the schema
+// exists to keep.
+const SLOT_ID_ALIASES = ["clipId", "elementId", "id"] as const;
+
+/** Per-verb field renames beyond the universal `slotId` aliases above — cases where ONE verb's real field name diverges from the pattern its siblings set. */
+const VERB_FIELD_ALIASES: Partial<
+	Record<PrimitiveVerb, Record<string, string>>
+> = {
+	move: { startTime: "newStartTime" },
+};
+
+/**
+ * Rename recognized alias keys to their canonical field name, before
+ * {@link validateArgs} ever sees the bag. Because this only ever RENAMES a
+ * key — it never invents a value or drops one — everything downstream (the
+ * unknown-field check, the type check, the required-field check) keeps
+ * working unmodified against the canonical names it already knows, and a
+ * program that already used the canonical spelling is untouched (its keys
+ * simply don't match any alias).
+ */
+function resolveAliases(verb: PrimitiveVerb, raw: ProgramValue): ProgramValue {
+	if (!isProgramObject(raw)) return raw; // let `validateArgs` report the shape error
+	const schema = VERB_SCHEMAS[verb];
+	const resolved: { [key: string]: ProgramValue } = { ...raw };
+
+	const rename = (aliasKey: string, canonicalKey: string): void => {
+		if (!(aliasKey in resolved) || resolved[aliasKey] === undefined) return;
+		if (canonicalKey in resolved && resolved[canonicalKey] !== undefined) {
+			throw new ProgramRuntimeError(
+				`${verb}() got both "${aliasKey}" and "${canonicalKey}" — they're the same field. Pass only one.`,
+			);
+		}
+		resolved[canonicalKey] = resolved[aliasKey];
+		delete resolved[aliasKey];
+	};
+
+	const verbAliases = VERB_FIELD_ALIASES[verb];
+	if (verbAliases) {
+		for (const [aliasKey, canonicalKey] of Object.entries(verbAliases)) {
+			rename(aliasKey, canonicalKey);
+		}
+	}
+	if (schema.fields.slotId) {
+		for (const aliasKey of SLOT_ID_ALIASES) rename(aliasKey, "slotId");
+	}
+	return resolved;
+}
+
+/** Every alias `field` accepts on `verb`, for the teaching messages below — the universal `slotId` set plus whatever `VERB_FIELD_ALIASES` adds for this verb. */
+function aliasesFor(verb: PrimitiveVerb, field: string): string[] {
+	const aliases: string[] = [];
+	if (field === "slotId" && VERB_SCHEMAS[verb].fields.slotId) {
+		aliases.push(...SLOT_ID_ALIASES);
+	}
+	const verbAliases = VERB_FIELD_ALIASES[verb];
+	if (verbAliases) {
+		for (const [aliasKey, canonicalKey] of Object.entries(verbAliases)) {
+			if (canonicalKey === field) aliases.push(aliasKey);
+		}
+	}
+	return aliases;
+}
+
+/** One line per field: name, `required`, and any accepted alias — the full legal shape of a call to `verb`, for every "you got this wrong" message below. */
+function describeVerbFields(verb: PrimitiveVerb): string {
+	const schema = VERB_SCHEMAS[verb];
+	return Object.keys(schema.fields)
+		.map((field) => {
+			const bits: string[] = [];
+			if (schema.required.includes(field)) bits.push("required");
+			const aliases = aliasesFor(verb, field);
+			if (aliases.length > 0) bits.push(`aka ${aliases.join("/")}`);
+			return bits.length > 0 ? `${field} (${bits.join(", ")})` : field;
+		})
+		.join(", ");
+}
+
+/** A worked example call for `verb` — its required fields (or, for a verb with none required, its first couple) with a placeholder value per type. Used so "you called this wrong" always sits next to "here is a call that wouldn't be". */
+function exampleCall(verb: PrimitiveVerb): string {
+	const schema = VERB_SCHEMAS[verb];
+	const placeholderFor = (field: string): string => {
+		switch (schema.fields[field]) {
+			case "string":
+				return `"…"`;
+			case "number":
+				return "0";
+			case "boolean":
+				return "true";
+			case "array":
+				return "[…]";
+			case "object":
+				return "{…}";
+			default:
+				return "…";
+		}
+	};
+	const shown =
+		schema.required.length > 0
+			? schema.required
+			: Object.keys(schema.fields).slice(0, 2);
+	const pairs = shown.map((field) => `${field}: ${placeholderFor(field)}`);
+	return `${verb}({ ${pairs.join(", ")} })`;
+}
+
 function typeOfValue(value: ProgramValue): FieldType | "null" | "undefined" {
 	if (value === null) return "null";
 	if (value === undefined) return "undefined";
@@ -273,12 +412,12 @@ function validateArgs(
 ): Record<string, ProgramValue> {
 	if (raw === undefined) {
 		throw new ProgramRuntimeError(
-			`${verb}() needs one object argument, e.g. ${verb}({ … }).`,
+			`${verb}() needs one object argument, e.g. ${exampleCall(verb)}.`,
 		);
 	}
 	if (!isProgramObject(raw)) {
 		throw new ProgramRuntimeError(
-			`${verb}() takes a single object argument, got ${describeProgramValue(raw)}.`,
+			`${verb}() takes a single object argument, got ${describeProgramValue(raw)}. Call it like ${exampleCall(verb)}.`,
 		);
 	}
 	const schema = VERB_SCHEMAS[verb];
@@ -293,7 +432,7 @@ function validateArgs(
 		const expected = schema.fields[key];
 		if (!expected) {
 			throw new ProgramRuntimeError(
-				`${verb}() has no argument "${key}". Accepted: ${Object.keys(schema.fields).join(", ")}.`,
+				`${verb}() has no argument "${key}". Fields: ${describeVerbFields(verb)}.`,
 			);
 		}
 		const actual = typeOfValue(value);
@@ -312,7 +451,9 @@ function validateArgs(
 
 	for (const key of schema.required) {
 		if (!(key in out)) {
-			throw new ProgramRuntimeError(`${verb}() requires "${key}".`);
+			throw new ProgramRuntimeError(
+				`${verb}() requires "${key}". Fields: ${describeVerbFields(verb)}. Example: ${exampleCall(verb)}.`,
+			);
 		}
 	}
 	return out;
@@ -345,10 +486,15 @@ export function createPrimitiveFunctions(
 		return (args: ProgramValue[]): ProgramValue => {
 			if (args.length > 1) {
 				throw new ProgramRuntimeError(
-					`${verb}() takes exactly one object argument, got ${args.length}.`,
+					`${verb}() takes exactly one object argument, got ${args.length}. Call it like ${exampleCall(verb)}.`,
 				);
 			}
-			const validated = validateArgs(verb, args[0]);
+			// Aliases resolve BEFORE validation, not instead of it — see the
+			// ALIASES section above. By the time `validateArgs` runs, an alias
+			// key has already become its canonical name or the call has already
+			// thrown on a genuine conflict; validation never has to know an
+			// alias existed.
+			const validated = validateArgs(verb, resolveAliases(verb, args[0]));
 
 			const index = ops.length;
 			const op: ProgramOp = { index, verb, args: validated };

@@ -53,6 +53,7 @@ import {
 	evaluateApprovalGate,
 	evaluateBudgetGate,
 	executeTool,
+	GENERATION_VERB_NAMES,
 	isAbort,
 	MAX_MODEL_CALLS,
 	MAX_TOOL_CALLS,
@@ -296,9 +297,12 @@ async function consumeGeminiStream(
  * "use the function mechanism, don't narrate" guidance where Claude needs none.
  * Tune Gemini-only prosody HERE, not in `buildFrontierSystemPrompt`.
  */
-export function buildGeminiSystemPrompt(director: DirectorApi): string {
+export function buildGeminiSystemPrompt(
+	director: DirectorApi,
+	generationEnabled = true,
+): string {
 	return [
-		buildFrontierSystemPrompt(director),
+		buildFrontierSystemPrompt(director, generationEnabled),
 		"",
 		"FUNCTION CALLING (how to act): every tool above is exposed to you as a native function declaration — invoke functions through the function-calling mechanism ONLY, never by writing JSON or code in your text reply. Issue INDEPENDENT calls in parallel within one turn; put DEPENDENT steps (storyboard, then generate the new slots) in separate turns so you can read the ids from the function responses first. When no editing is needed, reply in plain text with no function call.",
 	].join("\n");
@@ -413,12 +417,28 @@ export async function runDirectorAgentGemini(opts: {
 	onStep?: (step: AgentToolStep) => void;
 	onEvent?: DirectorEventSink;
 	signal?: AbortSignal;
+	/** The generation kill switch — see {@link GENERATION_VERB_NAMES}. Default
+	 *  true (unchanged behavior) so every existing caller keeps working. */
+	generationEnabled?: boolean;
 }): Promise<AgentRunResult> {
-	const { director, userMessage, priorMessages, onStep, onEvent, signal } =
-		opts;
+	const {
+		director,
+		userMessage,
+		priorMessages,
+		onStep,
+		onEvent,
+		signal,
+		generationEnabled = true,
+	} = opts;
 	const steps: AgentToolStep[] = [];
-	const system = buildGeminiSystemPrompt(director);
-	const allDeclarations = toGeminiDeclarations();
+	const system = buildGeminiSystemPrompt(director, generationEnabled);
+	// Same filter as the frontier brain's `anthropicToolDefs` — removed HERE
+	// (before the phase-scope filter below) so a disabled generation verb is
+	// gone from every phase's active bucket, not just the phase it would
+	// normally show up in.
+	const allDeclarations = toGeminiDeclarations().filter(
+		(d) => generationEnabled || !GENERATION_VERB_NAMES.has(d.name),
+	);
 	const contents: GeminiContent[] = [
 		...capHistoryMessages(priorMessages).map(
 			(m): GeminiContent => ({

@@ -394,6 +394,131 @@ describe("primitives — argument validation", () => {
 	});
 });
 
+// ── primitive field aliases ─────────────────────────────────────────────────
+//
+// The 2026-09-20 prod failure chain (`primitives.ts`'s ALIASES section) —
+// `move({ startTime: … })` instead of `newStartTime`, because `trim`/
+// `addClip`/`addText` all spell it `startTime` and only `move` differs.
+// These prove the alias resolves BEFORE validation (the op that lands is
+// canonical either way) and that a genuine conflict still refuses.
+
+describe("primitives — field aliases", () => {
+	it("accepts move's startTime as an alias for newStartTime", () => {
+		const result = runProgram({
+			source: 'move({ slotId: "v1", startTime: 5 })',
+			data: DATA,
+		});
+		expect(result.ok).toBe(true);
+		expect(result.ops[0].args).toEqual({ slotId: "v1", newStartTime: 5 });
+	});
+
+	it("still accepts move's canonical newStartTime unchanged", () => {
+		const result = runProgram({
+			source: 'move({ slotId: "v1", newStartTime: 5 })',
+			data: DATA,
+		});
+		expect(result.ok).toBe(true);
+		expect(result.ops[0].args).toEqual({ slotId: "v1", newStartTime: 5 });
+	});
+
+	it("refuses both spellings of the same field at once", () => {
+		const result = runProgram({
+			source: 'move({ slotId: "v1", startTime: 5, newStartTime: 6 })',
+			data: DATA,
+		});
+		expect(result.ok).toBe(false);
+		expect(result.failure?.message).toContain(
+			'got both "startTime" and "newStartTime"',
+		);
+	});
+
+	it("does not let trim's OWN startTime field get renamed — the alias is scoped to move only", () => {
+		// trim has a genuine `startTime` field with different semantics; the
+		// move-only alias must never touch it.
+		const result = runProgram({
+			source: 'trim({ slotId: "v1", startTime: 2 })',
+			data: DATA,
+		});
+		expect(result.ok).toBe(true);
+		expect(result.ops[0].args).toEqual({ slotId: "v1", startTime: 2 });
+	});
+
+	for (const [alias] of [["clipId"], ["elementId"], ["id"]] as const) {
+		it(`accepts "${alias}" as an alias for slotId on a verb that takes slotId`, () => {
+			const result = runProgram({
+				source: `remove({ ${alias}: "v1" })`,
+				data: DATA,
+			});
+			expect(result.ok).toBe(true);
+			expect(result.ops[0].args).toEqual({ slotId: "v1" });
+		});
+	}
+
+	it("refuses slotId together with one of its aliases", () => {
+		const result = runProgram({
+			source: 'trim({ slotId: "v1", clipId: "v2", duration: 1 })',
+			data: DATA,
+		});
+		expect(result.ok).toBe(false);
+		expect(result.failure?.message).toContain('got both "clipId" and "slotId"');
+	});
+
+	it("does not extend the slotId aliases to a verb with a different id field", () => {
+		// animateItem takes `itemId`, not `slotId` — `clipId` has no home there
+		// and must be refused as an unknown field, not silently accepted.
+		const result = runProgram({
+			source: 'animateItem({ clipId: "v1", property: "opacity" })',
+			data: DATA,
+		});
+		expect(result.ok).toBe(false);
+		expect(result.failure?.message).toContain(
+			'animateItem() has no argument "clipId"',
+		);
+	});
+
+	it("does not extend the slotId aliases to reorder's slotIds array", () => {
+		const result = runProgram({
+			source: 'reorder({ id: ["v1", "v2"] })',
+			data: DATA,
+		});
+		expect(result.ok).toBe(false);
+		expect(result.failure?.message).toContain('reorder() has no argument "id"');
+	});
+});
+
+// ── primitive teaching messages ─────────────────────────────────────────────
+
+describe("primitives — refusals teach the legal shape", () => {
+	it("a missing required field lists the verb's full field set, aliases included", () => {
+		const result = runProgram({ source: "move({})", data: DATA });
+		expect(result.ok).toBe(false);
+		const message = result.failure?.message ?? "";
+		expect(message).toContain('move() requires "slotId"');
+		expect(message).toContain("aka clipId/elementId/id");
+		expect(message).toContain("newStartTime");
+	});
+
+	it("a wrong call arity shows a correct example call", () => {
+		const result = runProgram({
+			source: 'move({ slotId: "v1" }, 2)',
+			data: DATA,
+		});
+		expect(result.ok).toBe(false);
+		expect(result.failure?.message).toContain(
+			'move({ slotId: "…", newStartTime: 0 })',
+		);
+	});
+
+	it("an unknown field lists the accepted fields including aliases", () => {
+		const result = runProgram({
+			source: 'trim({ slotId: "v1", nope: 1 })',
+			data: DATA,
+		});
+		expect(result.ok).toBe(false);
+		expect(result.failure?.message).toContain("aka clipId/elementId/id");
+	});
+});
+
 // ── derived data ─────────────────────────────────────────────────────────────
 
 describe("derived data — accessors", () => {

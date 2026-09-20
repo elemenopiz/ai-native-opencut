@@ -36,6 +36,7 @@ import { formatCostRange } from "@/lib/studio/cost";
 import { useStudioSettingsStore } from "@/stores/studio-settings-store";
 import { CostApprovalDialog } from "@/components/studio/cost-approval-dialog";
 import { EnhancePromptButton } from "@/components/editor/ai/enhance-prompt-button";
+import { GenerationToggleButton } from "@/components/editor/ai/generation-toggle-button";
 import {
 	TypingDots,
 	EditingStatusChip,
@@ -358,6 +359,12 @@ export function DirectorView() {
 		(s) => s.approvalThresholdCredits,
 	);
 	const [chatApproval, setChatApproval] = useState<AgentApproval | null>(null);
+
+	// Generation kill switch (composer footer toggle, beside EnhancePromptButton)
+	// — sticky like the other Studio settings above. Read here so handleSend can
+	// thread it into runDirectorAgent; GenerationToggleButton owns reading AND
+	// writing the flag itself, so this component only needs the read.
+	const generationEnabled = useStudioSettingsStore((s) => s.generationEnabled);
 
 	const [mode, setMode] = useState<StudioMode>("chat");
 	// Chat mode is the cloud-brain path (/api/llm/agent) and needs AI access;
@@ -713,6 +720,7 @@ export function DirectorView() {
 						priorMessages,
 						onEvent,
 						signal: controller.signal,
+						generationEnabled,
 					});
 
 				let result: Awaited<ReturnType<typeof runDirectorAgent>>;
@@ -906,6 +914,7 @@ export function DirectorView() {
 		setInputValue,
 		ensureConversation,
 		projectId,
+		generationEnabled,
 	]);
 
 	const handleKeyDown = useCallback(
@@ -1434,12 +1443,15 @@ export function DirectorView() {
 						</div>
 						<div className="mt-1 flex items-center justify-between">
 							{mode === "chat" ? (
-								<EnhancePromptButton
-									mode="director"
-									getPrompt={() => inputValue}
-									setPrompt={setInputValue}
-									getContext={getDirectorContext}
-								/>
+								<span className="inline-flex items-center gap-0.5">
+									<EnhancePromptButton
+										mode="director"
+										getPrompt={() => inputValue}
+										setPrompt={setInputValue}
+										getContext={getDirectorContext}
+									/>
+									<GenerationToggleButton />
+								</span>
 							) : (
 								<span />
 							)}

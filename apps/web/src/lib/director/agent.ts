@@ -339,17 +339,48 @@ const TOOL_DOCS = [
 ].join("\n");
 
 /**
+ * Verbs that spend real money by calling an external generation backend
+ * directly — the ONLY things the generation kill switch (studio-settings
+ * store's `generationEnabled`) needs to remove from the model's tool array.
+ *
+ * Deliberately EXCLUDES `storyboard`/`proposeReel`/`reviseProposal`/
+ * `acceptProposal`: they only PLAN or materialize empty generative slots —
+ * `acceptProposal` calls `editor.timeline.addGenerativeSlot`, never a
+ * generation backend (verified against `director-api.ts`) — so stripping them
+ * would block free planning work for no spend protection. The actual spend
+ * happens only at the subsequent `generate` call, which this set does cover.
+ * `chainFrom`/`extractFrame` are also excluded: both only read/stamp an
+ * existing frame, they never render one.
+ *
+ * Exported so `agent-gemini.ts`'s sibling loop filters the IDENTICAL set
+ * instead of maintaining a second list that could drift out of sync.
+ */
+export const GENERATION_VERB_NAMES: ReadonlySet<string> = new Set([
+	"generate",
+	"reroll",
+	"remix",
+	"compareTake",
+]);
+
+/**
  * Native Anthropic tool definitions derived from the shared `toolCatalog()`.
  * `strict` is intentionally NOT set: several verbs carry optional fields and
  * open-ended param bags that would 400 under Anthropic strict mode, and every
  * catalog handler already coerces its inputs.
+ *
+ * `generationEnabled` (default true) filters {@link GENERATION_VERB_NAMES} out
+ * of the array the brain sees when the user has generation turned off — the
+ * MCP-facing `toolCatalog()` itself is left untouched (see the file header),
+ * so this filter lives purely at the per-run assembly point.
  */
-function anthropicToolDefs(): Anthropic.Tool[] {
-	return toolCatalog().map((t) => ({
-		name: t.name,
-		description: t.description,
-		input_schema: t.inputSchema as Anthropic.Tool["input_schema"],
-	}));
+function anthropicToolDefs(generationEnabled = true): Anthropic.Tool[] {
+	return toolCatalog()
+		.filter((t) => generationEnabled || !GENERATION_VERB_NAMES.has(t.name))
+		.map((t) => ({
+			name: t.name,
+			description: t.description,
+			input_schema: t.inputSchema as Anthropic.Tool["input_schema"],
+		}));
 }
 
 /**
@@ -371,6 +402,18 @@ export const MODEL_ROUTING_POLICY = [
 export const BUDGET_POLICY = [
 	"BUDGET: when the user gives the WHOLE reel a dollar cap (e.g. 'a 6-shot reel for $2'), pass `budgetUsd` to storyboard and mark each shot's `importance` (hero/support/broll). The plan then allocates the cap across shots — hero shots get a premium tier, b-roll a cheap one — and down-tiers the least-important shots to fit. Every later generate is gated against the REMAINING budget: a shot that would blow it is automatically down-routed to a cheaper backend, or (if nothing fits) pauses for approval. Check getBudgetStatus for what's left; use setBudget to change the cap after shots exist. Do NOT hand-pick premium `backendId`s that would overspend — trust the allocation.",
 ].join("\n");
+
+/**
+ * Told to the model ONLY when the user has turned generation off — the tool
+ * array it sees that turn has already had {@link GENERATION_VERB_NAMES}
+ * removed, so without this line a missing tool invites either a hallucinated
+ * call or an apologetic loop. Kept deliberately plain/user-safe (no provider
+ * names, no internals) since the model's own reply text — not just this
+ * instruction — is what the user reads; the standing rule is that customer
+ * surfaces never show technical detail.
+ */
+const GENERATION_OFF_LINE =
+	"GENERATION IS OFF: the user has turned off AI media generation for this session — you cannot render new video/image takes right now. Work only with what's already in the project: trim, arrange, caption, add text/effects/transitions, and edit existing clips and takes. If what the user wants would require a new generated shot, say so plainly and offer what you CAN do with the existing footage instead — don't apologize repeatedly, don't pretend to generate, and don't offer to turn the setting on for them.";
 
 /** Concise pointer to the UGC prompt playbooks — titles/descriptions only, not the full content. */
 export const PLAYBOOK_POINTER = Object.values(PLAYBOOKS)
@@ -1541,7 +1584,10 @@ export async function callVisionRelay(request: {
  * demonstrably ride in the prompt so a preference stated on an earlier turn
  * influences generation on a later one.
  */
-export function buildFrontierSystemPrompt(director: DirectorApi): string {
+export function buildFrontierSystemPrompt(
+	director: DirectorApi,
+	generationEnabled = true,
+): string {
 	return [
 		"You are the Director — an AI that builds and edits a short video reel by calling tools.",
 		"The REEL is the GENERATIVE LAYER: an ordered list of generative SLOTS, each holding a prompt and one or more generated TAKES. It sits ON TOP of the project's actual TIMELINE, which may ALSO hold uploaded clips, text overlays, and audio that are NOT reel slots — the TIMELINE line below (and the getTimeline verb) is the source of truth for the whole project; an empty REEL does NOT mean an empty project.",
@@ -1561,6 +1607,7 @@ export function buildFrontierSystemPrompt(director: DirectorApi): string {
 		"COST GATE: any paid action — generate/reroll/compareTake, or an audio add (addVoiceover/addMusicBed) — that would spend more than a small amount pauses for the user's approval; the run stops and asks them out-of-band. This is expected, not an error; do NOT retry the same action to force it through. This is the ONE thing that still stops mid-run — it protects real money, not the user's creative sign-off, so don't treat it as license to ask for approval elsewhere.",
 		MODEL_ROUTING_POLICY,
 		BUDGET_POLICY,
+		...(generationEnabled ? [] : [GENERATION_OFF_LINE]),
 		"",
 		"HONOR THE BRIEF: the DIRECTOR BRIEF below is the user's durable creative intent. Let it shape every prompt you write and every take you pick. When the user states a new preference — or a chosen take reveals one — call updateBrief so it persists for later turns.",
 		"CAPTURE, DON'T INTERROGATE: this is about RETAINING facts the user already gave you, not asking for more (the CLARIFY ONCE, THEN BUILD policy above stands — never ask a second round just to fill in the brief). Whenever a brief-relevant fact surfaces naturally in conversation — they name their audience, the platform/format it's for, a tone/vibe, or something that must appear in the cut — call `updateBrief` with it SILENTLY (no tool-call narration, no confirming question) so it rides in every later turn's prompt instead of evaporating after this one.",
@@ -1601,12 +1648,22 @@ async function runDirectorAgentFrontier(opts: {
 	onStep?: (step: AgentToolStep) => void;
 	onEvent?: DirectorEventSink;
 	signal?: AbortSignal;
+	/** The generation kill switch — see {@link GENERATION_VERB_NAMES}. Default
+	 *  true (unchanged behavior) so every existing caller keeps working. */
+	generationEnabled?: boolean;
 }): Promise<AgentRunResult> {
-	const { director, userMessage, priorMessages, onStep, onEvent, signal } =
-		opts;
+	const {
+		director,
+		userMessage,
+		priorMessages,
+		onStep,
+		onEvent,
+		signal,
+		generationEnabled = true,
+	} = opts;
 	const steps: AgentToolStep[] = [];
-	const system = buildFrontierSystemPrompt(director);
-	const tools = anthropicToolDefs();
+	const system = buildFrontierSystemPrompt(director, generationEnabled);
+	const tools = anthropicToolDefs(generationEnabled);
 	const messages: Anthropic.MessageParam[] = [
 		...capHistoryMessages(priorMessages).map(
 			(m): Anthropic.MessageParam => ({ role: m.role, content: m.content }),
@@ -2114,6 +2171,14 @@ export async function runDirectorAgent(opts: {
 	/** Cooperative cancel — checked between model/tool calls and aborts the in-flight relay fetch. */
 	signal?: AbortSignal;
 	brain?: "frontier" | "gemini";
+	/** The generation kill switch (studio-settings store's `generationEnabled`,
+	 *  the composer's toggle beside the enhance-prompt button). Optional and
+	 *  defaults to true — unchanged behavior for the two existing callers
+	 *  (director.tsx's handleSend, the evals harness) that don't pass it yet.
+	 *  When false, generate/reroll/remix/compareTake (see
+	 *  {@link GENERATION_VERB_NAMES}) are removed from the tool array handed to
+	 *  whichever brain runs, and the system prompt tells the model plainly. */
+	generationEnabled?: boolean;
 }): Promise<AgentRunResult> {
 	const brain = opts.brain ?? "frontier";
 	if (brain === "gemini") return runDirectorAgentGemini(opts);
