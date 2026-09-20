@@ -14,7 +14,7 @@ const SCORE_BAR_LABELS: Record<string, string> = {
 	hook: "hook",
 	curiosity: "curiosity",
 	energy: "energy",
-	virality: "reach",
+	reach: "reach",
 };
 
 const GRADE_COLORS: Record<string, string> = {
@@ -106,7 +106,7 @@ export function ClipCard({
 			{/* Score bars */}
 			{clip.engagement && (
 				<div className="grid grid-cols-4 gap-1">
-					{(["hook", "curiosity", "energy", "virality"] as const).map((key) => {
+					{(["hook", "curiosity", "energy", "reach"] as const).map((key) => {
 						const eng = clip.engagement!;
 						const sub = eng[key];
 						const val = sub?.composite ?? 0;

@@ -22,7 +22,10 @@
  * backend-free function: `@/lib/engagement-diagnostics`'s `deriveDiagnostics`.
  * It just needs an `EngagementScoreResult`-shaped input (the seven
  * `hook`/`curiosity`/`energy`/`audio_sync`/`face_presence`/`emotional_arc`/
- * `virality` composites the backend used to compute from video+audio ML).
+ * `reach` composites the backend used to compute from video+audio ML — that
+ * backend called this last one `virality`; `EngagementScoreResult` renamed
+ * it to `reach` when "Virality Score" was retired as a product name, see
+ * that field's own doc comment in `lib/ai-client.ts`).
  *
  * This module supplies that input WITHOUT a backend, by deriving each
  * composite from data the Director already has and already exposes as
@@ -383,16 +386,18 @@ function computeEmotionalArcSignal(
 	};
 }
 
-// ── virality (only `hook_strength` is read downstream) ──────────────────────
+// ── reach (only `hook_strength` is read downstream) ──────────────────────
 
 /**
- * `deriveDiagnostics`'s `deriveHook` reads exactly ONE field off `virality`:
+ * `deriveDiagnostics`'s `deriveHook` reads exactly ONE field off `reach`
+ * (the retired backend's `virality` composite, renamed — see
+ * `EngagementScoreResult.reach`'s doc comment in `lib/ai-client.ts`):
  * `hook_strength` (a 0-25 sub-signal, scaled ×4 back to 0-100 — see that
  * module's `deriveHook`). Deriving it from the SAME hook signal this module
  * already computed keeps the two numbers consistent instead of guessing a
  * second, independent "viral hook" figure this repo has no data for.
  */
-function computeViralitySignal(hookScore: number): {
+function computeReachSignal(hookScore: number): {
 	composite: number;
 	hook_strength: number;
 } {
@@ -417,7 +422,7 @@ const COMPOSITE_WEIGHTS: Record<string, number> = {
 	audio_sync: 0.15,
 	face_presence: 0.05,
 	emotional_arc: 0.15,
-	virality: 0.1,
+	reach: 0.1,
 };
 
 function overallComposite(subs: Record<string, EngagementSubScore>): number {
@@ -467,7 +472,7 @@ export function scoreCut(input: ScoreCutInput): ScoreCutResult {
 	);
 	const audioSyncScore = computeAudioSyncSignal(input.clips, input.beats);
 	const arc = computeEmotionalArcSignal(input.clips, input.loudnessCurveDb);
-	const virality = computeViralitySignal(hookScore);
+	const reach = computeReachSignal(hookScore);
 
 	const hook: EngagementSubScore = { composite: hookScore };
 	const curiosity: EngagementSubScore = { composite: curiosityScore };
@@ -487,9 +492,9 @@ export function scoreCut(input: ScoreCutInput): ScoreCutResult {
 			? { peak_timestamp: arc.peak_timestamp }
 			: {}),
 	};
-	const viralitySub: EngagementSubScore = {
-		composite: virality.composite,
-		hook_strength: virality.hook_strength,
+	const reachSub: EngagementSubScore = {
+		composite: reach.composite,
+		hook_strength: reach.hook_strength,
 	};
 
 	const subs: Record<string, EngagementSubScore> = {
@@ -499,7 +504,7 @@ export function scoreCut(input: ScoreCutInput): ScoreCutResult {
 		audio_sync,
 		face_presence,
 		emotional_arc,
-		virality: viralitySub,
+		reach: reachSub,
 	};
 	const composite = overallComposite(subs);
 	const { grade, gradeLabel } = gradeFor(composite);
@@ -511,7 +516,7 @@ export function scoreCut(input: ScoreCutInput): ScoreCutResult {
 		audio_sync,
 		face_presence,
 		emotional_arc,
-		virality: viralitySub,
+		reach: reachSub,
 		// Grounded, actionable remedies belong to `edit-critic.ts`'s
 		// `suggestFixesForCutScore` (routes a weak hook/hold-rate to a real
 		// `applyEdit`-shaped fix) — kept out of this raw result so there is
