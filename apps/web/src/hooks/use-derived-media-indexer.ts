@@ -6,13 +6,8 @@
  * (the beat grid's old "manual toggle only" path — see
  * `hooks/timeline/use-audio-tools.ts`'s `useBeatAnalysis`).
  *
- * NOT YET MOUNTED: this hook needs to be mounted once at the editor level,
- * the same way `useEmbeddingIndexer()` is (see wherever that call lives,
- * e.g. the editor provider/bootstrap). That file sits outside this task's
- * owned paths (`lib/media/**`, media-asset store/types, beat-grid store,
- * silence/loudness modules), so mounting is left as an integration step for
- * whoever owns editor bootstrap wiring, to avoid colliding with concurrent
- * work there.
+ * Mounted once at the editor level in `components/providers/editor-provider.tsx`,
+ * alongside `useEmbeddingIndexer()`.
  *
  * Runs off the render path (deferred via `setTimeout`, exactly like the
  * embedding indexer) and is fire-and-forget per asset — failures are

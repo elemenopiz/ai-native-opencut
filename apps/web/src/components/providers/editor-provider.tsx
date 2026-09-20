@@ -10,6 +10,7 @@ import {
 	useKeybindingDisabler,
 } from "@/hooks/use-keybindings";
 import { useEditorActions } from "@/hooks/actions/use-editor-actions";
+import { useDerivedMediaIndexer } from "@/hooks/use-derived-media-indexer";
 import { useEmbeddingIndexer } from "@/hooks/use-embedding-indexer";
 import { useStudioHandoff } from "@/hooks/use-studio-handoff";
 import { useMcpBridge } from "@/hooks/use-mcp-bridge";
@@ -233,6 +234,7 @@ function EditorRuntimeBindings({ projectId }: { projectId: string }) {
 	useEditorActions();
 	useKeybindingsListener();
 	useEmbeddingIndexer();
+	useDerivedMediaIndexer();
 	useStudioHandoff();
 	// Register this tab as the live MCP executor for the open project (the
 	// server-side /api/mcp relay drives the editor through this channel).
