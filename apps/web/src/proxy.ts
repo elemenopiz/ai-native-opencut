@@ -1,5 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getSessionCookie } from "better-auth/cookies";
+import {
+	isPrivateAccessEnabled,
+	isPrivateAccessPublicPath,
+} from "@/lib/private-access";
 
 /**
  * Byorn is a public app. There is no access code and no forced sign-up wall:
@@ -34,6 +38,23 @@ export async function proxy(request: NextRequest) {
 	if (E2E_BUILD) return NextResponse.next();
 
 	const { pathname } = request.nextUrl;
+
+	// Private-testing lock (`PRIVATE_ACCESS_ALLOWLIST`). Unset → this block is
+	// inert and the app stays public, exactly as documented above. Set → every
+	// page except the auth screens needs a session, or nobody locked out could
+	// ever sign in as someone who is allowed. This is the OPTIMISTIC half: the
+	// edge has no session to read an email from, so the authoritative email
+	// check lives in the root layout. See `lib/private-access.ts`.
+	if (
+		isPrivateAccessEnabled() &&
+		!isPrivateAccessPublicPath(pathname) &&
+		!getSessionCookie(request)
+	) {
+		const login = new URL("/login", request.url);
+		const returnTo = `${pathname}${request.nextUrl.search}`;
+		if (returnTo !== "/") login.searchParams.set("redirect", returnTo);
+		return NextResponse.redirect(login);
+	}
 
 	const accountOnly = ACCOUNT_ONLY_PREFIXES.some(
 		(p) => pathname === p || pathname.startsWith(`${p}/`),
