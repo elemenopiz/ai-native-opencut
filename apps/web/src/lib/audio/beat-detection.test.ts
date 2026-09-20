@@ -153,8 +153,7 @@ describe("detectBeatGrid — synthetic click tracks", () => {
 			bpm: 60,
 		});
 		expect(detectBeatGrid(dense.samples, SAMPLE_RATE).energyClass).toBe("high");
-		expect(["low", "medium"]).toContain(
-			detectBeatGrid(sparse.samples, SAMPLE_RATE).energyClass,
-		);
+		const sparseClass = detectBeatGrid(sparse.samples, SAMPLE_RATE).energyClass;
+		expect(sparseClass === "low" || sparseClass === "medium").toBe(true);
 	});
 });

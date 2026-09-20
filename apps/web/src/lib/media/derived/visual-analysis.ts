@@ -36,7 +36,11 @@ export async function analyzeVisualDerivations(
 	if (frames.length === 0) {
 		return {
 			shots: [],
-			motionEnergy: { startSec: 0, stepSec: SAMPLE_INTERVAL_SEC, values: [] },
+			motionEnergy: {
+				startSec: 0,
+				stepSec: SAMPLE_INTERVAL_SEC,
+				values: new Uint8Array(0),
+			},
 			headTail: { head: null, tail: null },
 			sampleCount: 0,
 		};

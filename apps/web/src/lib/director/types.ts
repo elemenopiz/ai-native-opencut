@@ -327,7 +327,7 @@ export interface TimelineElementSnapshot {
 	/** Full element id (same id space as `SlotSnapshot.id`/`getReel().slots[].id`). */
 	id: string;
 	/** Timeline element kind — mirrors `TimelineElement["type"]` (`@/types/timeline`). */
-	kind: "video" | "image" | "text" | "audio" | "sticker" | "effect";
+	kind: "video" | "image" | "text" | "audio" | "sticker" | "shape" | "effect";
 	/** Timeline start time in seconds. */
 	startSec: number;
 	/** Duration in seconds. */
@@ -359,7 +359,7 @@ export interface TimelineElementSnapshot {
 export interface TimelineTrackSnapshot {
 	id: string;
 	/** Track kind — mirrors `TrackType` (`@/types/timeline`). */
-	kind: "video" | "text" | "audio" | "sticker" | "effect";
+	kind: "video" | "text" | "audio" | "sticker" | "shape" | "effect";
 	/** Total elements on this track (may exceed `elements.length` — see `overflowCount`). */
 	elementCount: number;
 	/** Elements in start-time order, capped for prompt/token economy. */

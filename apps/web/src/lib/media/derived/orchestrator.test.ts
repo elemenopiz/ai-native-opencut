@@ -294,7 +294,6 @@ describe("runDerivedAnalysis — orchestration", () => {
 
 	it("marks shots failed (not thrown) when the asset has no source URL", async () => {
 		const asset = videoAsset("orc-v2");
-		// @ts-expect-error — deliberately testing the no-url guard.
 		asset.url = undefined;
 		const derived = await runDerivedAnalysis(asset);
 		expect(derived.shots.state).toBe("failed");

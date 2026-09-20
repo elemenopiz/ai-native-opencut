@@ -5,14 +5,12 @@ import type {
 	VideoTrack,
 	AudioTrack,
 	StickerTrack,
+	ShapeTrack,
 	TextTrack,
 	EffectTrack,
 	TimelineElement,
 } from "@/types/timeline";
-import {
-	TRACK_CONFIG,
-	TRACK_GAP,
-} from "@/constants/timeline-constants";
+import { TRACK_CONFIG, TRACK_GAP } from "@/constants/timeline-constants";
 import { generateUUID } from "@/utils/id";
 
 export function canTracktHaveAudio(
@@ -23,7 +21,7 @@ export function canTracktHaveAudio(
 
 export function canTrackBeHidden(
 	track: TimelineTrack,
-): track is VideoTrack | TextTrack | StickerTrack | EffectTrack {
+): track is VideoTrack | TextTrack | StickerTrack | ShapeTrack | EffectTrack {
 	return track.type !== "audio";
 }
 
@@ -102,6 +100,14 @@ export function buildEmptyTrack({
 				id,
 				name: trackName,
 				type: "sticker",
+				elements: [],
+				hidden: false,
+			};
+		case "shape":
+			return {
+				id,
+				name: trackName,
+				type: "shape",
 				elements: [],
 				hidden: false,
 			};
@@ -217,6 +223,7 @@ export function canElementGoOnTrack({
 	if (elementType === "text") return trackType === "text";
 	if (elementType === "audio") return trackType === "audio";
 	if (elementType === "sticker") return trackType === "sticker";
+	if (elementType === "shape") return trackType === "shape";
 	if (elementType === "effect") return trackType === "effect";
 	if (elementType === "video" || elementType === "image") {
 		return trackType === "video";

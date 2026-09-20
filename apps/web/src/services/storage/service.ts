@@ -85,6 +85,7 @@ const KNOWN_TRACK_TYPES: ReadonlySet<TrackType> = new Set([
 	"text",
 	"audio",
 	"sticker",
+	"shape",
 	"effect",
 ]);
 

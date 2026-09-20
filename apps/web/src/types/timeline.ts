@@ -44,7 +44,13 @@ export interface TScene {
 	updatedAt: Date;
 }
 
-export type TrackType = "video" | "text" | "audio" | "sticker" | "effect";
+export type TrackType =
+	| "video"
+	| "text"
+	| "audio"
+	| "sticker"
+	| "shape"
+	| "effect";
 
 export type TrackColor =
 	| "default"
@@ -94,6 +100,12 @@ export interface StickerTrack extends BaseTrack {
 	hidden: boolean;
 }
 
+export interface ShapeTrack extends BaseTrack {
+	type: "shape";
+	elements: ShapeElement[];
+	hidden: boolean;
+}
+
 export interface EffectTrack extends BaseTrack {
 	type: "effect";
 	elements: EffectElement[];
@@ -105,6 +117,7 @@ export type TimelineTrack =
 	| TextTrack
 	| AudioTrack
 	| StickerTrack
+	| ShapeTrack
 	| EffectTrack;
 
 export type { Transform } from "./rendering";
@@ -399,6 +412,72 @@ export interface StickerElement extends BaseTimelineElement {
 	mask?: MaskShape;
 }
 
+// ── Parametric shapes ───────────────────────────────────────────────────────
+// The primitive that makes lower-third scrims, dividers, and badge backgrounds
+// expressible without a media asset — pure vector geometry, not an Iconify
+// glyph (see the "shapes" sticker category, which is unrelated). Deliberately
+// scoped to three analytic kinds; arbitrary SVG paths are out of scope.
+
+export type ShapeKind = "rect" | "ellipse" | "line";
+
+export interface ShapeGradientStop {
+	/** Position along the gradient, 0–1. */
+	offset: number;
+	color: string;
+}
+
+export interface ShapeSolidFill {
+	type: "solid";
+	color: string;
+}
+
+export interface ShapeLinearGradientFill {
+	type: "linear-gradient";
+	/** CSS-style gradient angle in degrees (0 = to top, 180 = to bottom — same convention as `lib/gradients`). */
+	angle: number;
+	stops: ShapeGradientStop[];
+}
+
+/** A shape's fill: a flat color, or a linear gradient (what makes scrims possible). */
+export type ShapeFill = ShapeSolidFill | ShapeLinearGradientFill;
+
+export interface ShapeStroke {
+	color: string;
+	width: number;
+}
+
+export interface ShapeElement extends BaseTimelineElement {
+	type: "shape";
+	shapeKind: ShapeKind;
+	/**
+	 * Base bounding-box size in canvas pixels at `transform.scale === 1` — a
+	 * shape has no intrinsic source size the way video/image/sticker elements
+	 * do, so this is the analog of a sticker's fixed 200×200 source canvas.
+	 * For `"line"`, the box's diagonal (top-left → bottom-right) is the drawn
+	 * segment, so both dimensions stay meaningful (set `height: 0` for a
+	 * straight horizontal line).
+	 */
+	width: number;
+	height: number;
+	fill: ShapeFill;
+	/** Omitted/zero-width ⇒ no outline drawn. Required (with fill absent/transparent) for `"line"` to be visible at all. */
+	stroke?: ShapeStroke;
+	/** Rect only — corner radius in pixels, clamped to half the shorter side at render time. Ignored for ellipse/line. */
+	cornerRadius?: number;
+	hidden?: boolean;
+	transform: Transform;
+	opacity: number;
+	blendMode?: BlendMode;
+	effects?: Effect[];
+	transitionOut?: TransitionData;
+	// Modeled on the type for parity with every other visual element, but not
+	// yet consumed by the renderer — same acknowledged gap as `crop` on
+	// video/image/sticker (see scene-builder.ts's `elementSamplesAboveOutputDensity`)
+	// and `mask` on TextNode. Add support here if/when a caller needs it.
+	crop?: CropRect;
+	mask?: MaskShape;
+}
+
 export interface EffectElement extends BaseTimelineElement {
 	type: "effect";
 	effectType: string;
@@ -409,7 +488,8 @@ export type VisualElement =
 	| VideoElement
 	| ImageElement
 	| TextElement
-	| StickerElement;
+	| StickerElement
+	| ShapeElement;
 
 export type ElementUpdatePatch =
 	| { transform: Transform }
@@ -422,6 +502,7 @@ export type TimelineElement =
 	| ImageElement
 	| TextElement
 	| StickerElement
+	| ShapeElement
 	| EffectElement;
 
 export type ElementType = TimelineElement["type"];
@@ -435,6 +516,7 @@ export type CreateVideoElement = Omit<VideoElement, "id">;
 export type CreateImageElement = Omit<ImageElement, "id">;
 export type CreateTextElement = Omit<TextElement, "id">;
 export type CreateStickerElement = Omit<StickerElement, "id">;
+export type CreateShapeElement = Omit<ShapeElement, "id">;
 export type CreateEffectElement = Omit<EffectElement, "id">;
 export type CreateTimelineElement =
 	| CreateAudioElement
@@ -442,6 +524,7 @@ export type CreateTimelineElement =
 	| CreateImageElement
 	| CreateTextElement
 	| CreateStickerElement
+	| CreateShapeElement
 	| CreateEffectElement;
 
 export interface ElementDragState {

@@ -5,6 +5,7 @@ import {
 	Happy01Icon,
 	MagicWand05Icon,
 	MusicNote03Icon,
+	Shapes01Icon,
 	TextIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -64,6 +65,17 @@ export const TRACK_CONFIG: Record<
 		icon: (
 			<HugeiconsIcon
 				icon={Happy01Icon}
+				className="text-muted-foreground size-4 shrink-0"
+			/>
+		),
+	},
+	shape: {
+		background: "bg-[#BA9A5D]",
+		height: 50,
+		defaultName: "Shape track",
+		icon: (
+			<HugeiconsIcon
+				icon={Shapes01Icon}
 				className="text-muted-foreground size-4 shrink-0"
 			/>
 		),

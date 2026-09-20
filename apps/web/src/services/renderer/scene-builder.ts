@@ -5,6 +5,7 @@ import { VideoNode } from "./nodes/video-node";
 import { ImageNode } from "./nodes/image-node";
 import { TextNode } from "./nodes/text-node";
 import { StickerNode } from "./nodes/sticker-node";
+import { ShapeNode } from "./nodes/shape-node";
 import { ColorNode } from "./nodes/color-node";
 import { CompositeEffectNode } from "./nodes/composite-effect-node";
 import { EffectLayerNode } from "./nodes/effect-layer-node";
@@ -280,6 +281,15 @@ function buildTrackNodes({
 						blendMode: element.blendMode,
 						effects: element.effects,
 						mask: element.mask,
+					}),
+				);
+			}
+
+			if (element.type === "shape") {
+				nodes.push(
+					new ShapeNode({
+						...element,
+						canvasCenter: { x: canvasSize.width / 2, y: canvasSize.height / 2 },
 					}),
 				);
 			}
