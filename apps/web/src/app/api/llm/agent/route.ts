@@ -13,9 +13,19 @@
  *
  * Config (see `.env.example`):
  *  - `ANTHROPIC_API_KEY` (server-only, required) — when unset we return a 503
- *    with `error: "anthropic_not_configured"`, which the client agent detects
- *    and uses to fall back to the local Ollama brain (privacy mode).
+ *    with `error: "anthropic_not_configured"`. The Director has no other brain
+ *    (see BRAIN POLICY below), so the client surfaces this as a configuration
+ *    error rather than degrading to a different provider.
  *  - `DIRECTOR_MODEL` (optional) — model override; defaults to claude-opus-5.
+ *    Must be a Claude (`claude-*`) model id; anything else is ignored and the
+ *    default is used, so a stray value cannot silently repoint the brain.
+ *
+ * BRAIN POLICY — Anthropic is the ONLY Director brain. The Kimi (Moonshot)
+ * provider swap that used to live here was removed deliberately: it keyed off
+ * `MOONSHOT_API_KEY` and SILENTLY won over Anthropic, so an operator with both
+ * keys set believed they were running Claude while actually running Kimi.
+ * `MOONSHOT_API_KEY` is now inert for the Director. Do not reintroduce a
+ * provider fallback here without an explicit, logged, operator-visible switch.
  */
 
 import { NextResponse } from "next/server";
@@ -39,15 +49,24 @@ export const maxDuration = 120;
 const DEFAULT_MODEL = "claude-opus-5";
 
 /**
- * Kimi (Moonshot) as the Director brain — used when `MOONSHOT_API_KEY` is set.
- * Moonshot exposes an Anthropic-compatible endpoint, so the same
- * `@anthropic-ai/sdk` client drives it with only a `baseURL` swap; native
- * tool-calling works identically (verified: returns `stop_reason: "tool_use"`).
- * This is the zero-setup brain — no Anthropic key, MCP, or Claude Desktop.
- * Override the model with `DIRECTOR_MODEL` (e.g. `kimi-k2.7-code`).
+ * Anthropic is the only permitted Director brain, so a requested model id has
+ * to be a Claude one. A non-Claude id (a leftover `DIRECTOR_MODEL=kimi-k2.6`,
+ * say) is NOT forwarded: it would either be rejected by the Anthropic API with
+ * an opaque error, or — worse, if a provider swap is ever reintroduced above —
+ * quietly route the Director somewhere else. Ignore it and use the default.
  */
-const KIMI_BASE_URL = "https://api.moonshot.ai/anthropic";
-const DEFAULT_KIMI_MODEL = "kimi-k2.6";
+function resolveDirectorModel(requested: string | undefined): string {
+	const candidate = requested?.trim();
+	if (!candidate) return DEFAULT_MODEL;
+	if (!candidate.startsWith("claude-")) {
+		logger.warn("llm/agent: ignoring non-Claude director model", {
+			requested: candidate,
+			using: DEFAULT_MODEL,
+		});
+		return DEFAULT_MODEL;
+	}
+	return candidate;
+}
 
 /** Non-streaming per-turn output budget (thinking + text + tool calls). */
 const DEFAULT_MAX_TOKENS = 16000;
@@ -81,24 +100,19 @@ interface AgentRelayRequest {
 }
 
 export async function POST(req: Request) {
-	// Provider selection: prefer Kimi (Moonshot) when its key is present — the
-	// zero-setup Director brain — otherwise fall back to Anthropic.
-	const moonshotKey = webEnv.MOONSHOT_API_KEY;
-	const anthropicKey = webEnv.ANTHROPIC_API_KEY;
-	const useKimi = Boolean(moonshotKey);
-	const apiKey = useKimi ? moonshotKey : anthropicKey;
+	// Anthropic is the only Director brain — see BRAIN POLICY in the file header.
+	// There is deliberately no provider selection here.
+	const apiKey = webEnv.ANTHROPIC_API_KEY;
 
-	// Visibility only — does NOT change the precedence above. MOONSHOT_API_KEY
-	// silently wins when both keys are set, so an operator with both configured
-	// would otherwise believe they're running Claude while actually on Kimi.
-	// This line makes the actual selection (and whether it was contested by a
-	// second configured key) show up in the server log, without ever surfacing
-	// provider/env names on any customer-facing response.
-	if (moonshotKey || anthropicKey) {
+	// Visibility only. `MOONSHOT_API_KEY` used to silently win over Anthropic
+	// here; it is now ignored for the Director, so log when one is still
+	// configured — an operator who set it may otherwise assume it is in play.
+	// Never surfaces provider/env names on a customer-facing response.
+	if (apiKey) {
 		logger.info("llm/agent: director brain selected", {
-			brain: useKimi ? "kimi" : "anthropic",
-			moonshotKeyConfigured: Boolean(moonshotKey),
-			anthropicKeyConfigured: Boolean(anthropicKey),
+			brain: "anthropic",
+			anthropicKeyConfigured: true,
+			moonshotKeyIgnored: Boolean(webEnv.MOONSHOT_API_KEY),
 		});
 	}
 
@@ -109,7 +123,7 @@ export async function POST(req: Request) {
 			{
 				error: "anthropic_not_configured",
 				message:
-					"No Director brain key configured. Set MOONSHOT_API_KEY (Kimi) or ANTHROPIC_API_KEY in apps/web/.env.local.",
+					"No Director brain key configured. Set ANTHROPIC_API_KEY in apps/web/.env.local.",
 			},
 			{ status: 503 },
 		);
@@ -158,19 +172,13 @@ export async function POST(req: Request) {
 		);
 	}
 
-	const client = new Anthropic({
-		apiKey,
-		...(useKimi ? { baseURL: KIMI_BASE_URL } : {}),
-	});
+	const client = new Anthropic({ apiKey });
 
 	// The create params are identical for streaming and non-streaming — only the
 	// transport differs — so build them once and feed both `messages.create` and
 	// `messages.stream`.
 	const createParams: Anthropic.MessageCreateParamsNonStreaming = {
-		model:
-			body.model?.trim() ||
-			webEnv.DIRECTOR_MODEL.trim() ||
-			(useKimi ? DEFAULT_KIMI_MODEL : DEFAULT_MODEL),
+		model: resolveDirectorModel(body.model || webEnv.DIRECTOR_MODEL),
 		max_tokens: Math.min(
 			// Treat 0/negative/NaN as "unset" so a bad caller value can't be sent
 			// straight through to the provider as an invalid max_tokens.
@@ -179,16 +187,11 @@ export async function POST(req: Request) {
 				: DEFAULT_MAX_TOKENS,
 			MAX_OUTPUT_TOKENS,
 		),
-		// Adaptive thinking + high effort are Opus-4.8 knobs (budget_tokens /
-		// temperature / top_p / top_k all 400 there). Kimi's Anthropic-compatible
-		// endpoint is cleanest WITHOUT them — no thinking blocks to echo back
-		// through the multi-turn tool loop — so send them only for Anthropic.
-		...(useKimi
-			? {}
-			: {
-					thinking: body.thinking ?? { type: "adaptive" },
-					output_config: { effort: "high" },
-				}),
+		// Adaptive thinking + high effort are Claude knobs. These used to be sent
+		// only when the provider was Anthropic; Anthropic is now the only
+		// provider, so they are unconditional.
+		thinking: body.thinking ?? { type: "adaptive" },
+		output_config: { effort: "high" },
 		...(body.system ? { system: body.system } : {}),
 		messages: body.messages,
 		...(body.tools?.length ? { tools: body.tools } : {}),

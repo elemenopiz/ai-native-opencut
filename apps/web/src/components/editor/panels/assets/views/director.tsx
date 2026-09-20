@@ -227,7 +227,7 @@ export function classifyAgentError(detail: string): string {
  *  primary copy, and never at all in production. */
 function relayDevHint(): string {
 	return process.env.NODE_ENV !== "production"
-		? " Check ANTHROPIC_API_KEY / GEMINI_API_KEY / DIRECTOR_MODEL in apps/web/.env.local."
+		? " Check ANTHROPIC_API_KEY / DIRECTOR_MODEL in apps/web/.env.local."
 		: "";
 }
 
@@ -528,9 +528,10 @@ export function DirectorView() {
 		const trimmed = inputValue.trim();
 		if (!trimmed || isThinking) return;
 
-		// Chat mode defaults to the frontier brain (server-side Claude via
-		// /api/llm/agent), so it works without the local AI backend; the local
-		// Ollama loop is the automatic fallback when no ANTHROPIC_API_KEY is set.
+		// Chat mode runs the frontier brain (server-side Claude via
+		// /api/llm/agent), so it works without the local AI backend. Claude is
+		// the ONLY Director brain — no Kimi/Gemini/Ollama fallback — so a missing
+		// ANTHROPIC_API_KEY surfaces as a config error rather than a downgrade.
 		// Every other mode still needs the local backend.
 		if (!isConnected && mode !== "chat") {
 			toast.error("AI backend is not connected", {
@@ -572,9 +573,8 @@ export function DirectorView() {
 		// ── Agent mode: drive the reel through director-api tool calls ──
 		// Chat is now agentic — the model can storyboard, generate, re-roll, and
 		// pick takes via the same DirectorApi the manual UI uses, or just answer.
-		// Brain: frontier Claude (native tool-calling via /api/llm/agent) by
-		// default, with automatic fallback to the local Ollama text loop when no
-		// ANTHROPIC_API_KEY is configured server-side.
+		// Brain: frontier Claude (native tool-calling via /api/llm/agent) —
+		// the only brain the Director routes to.
 		if (mode === "chat") {
 			// Live run: stream the agent's reasoning + per-tool progress into the
 			// transcript as it happens, and expose a cooperative cancel via the Stop

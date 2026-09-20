@@ -22,8 +22,19 @@ interface State {
 	streamSignal: AbortSignal | null;
 	/** Resolvers so a test can complete a stream deliberately (unused here). */
 	streamCreated: number;
+	/** Options the route handed `new Anthropic(...)` — carries `apiKey` and,
+	 *  historically, a `baseURL` swap when the brain was repointed at Moonshot.
+	 *  The brain-policy tests assert no such swap can happen any more. */
+	ctorOpts: { apiKey?: string; baseURL?: string } | null;
+	/** Params of the last `messages.create` — used to assert the resolved model. */
+	createParams: { model?: string } | null;
 }
-const state: State = { streamSignal: null, streamCreated: 0 };
+const state: State = {
+	streamSignal: null,
+	streamCreated: 0,
+	ctorOpts: null,
+	createParams: null,
+};
 
 class FakeAPIError extends Error {}
 
@@ -52,14 +63,19 @@ class FakeAnthropic {
 	messages = {
 		stream: (_params: unknown, options?: { signal?: AbortSignal }) =>
 			fakeStream(options?.signal),
-		create: async () => ({
-			content: [],
-			stop_reason: "end_turn",
-			model: "x",
-			usage: {},
-		}),
+		create: async (params: { model?: string }) => {
+			state.createParams = params;
+			return {
+				content: [],
+				stop_reason: "end_turn",
+				model: "x",
+				usage: {},
+			};
+		},
 	};
-	constructor(_opts: unknown) {}
+	constructor(opts: { apiKey?: string; baseURL?: string }) {
+		state.ctorOpts = opts;
+	}
 }
 
 /** Mutable session the auth mock returns — tests flip it per case. */
@@ -132,10 +148,13 @@ async function drain(res: Response): Promise<string> {
 // than `process.env` (which is only parsed once, at env-module import).
 const savedAnthropicKey = webEnv.ANTHROPIC_API_KEY;
 const savedMoonshotKey = webEnv.MOONSHOT_API_KEY;
+const savedDirectorModel = webEnv.DIRECTOR_MODEL;
 
 beforeEach(() => {
 	state.streamSignal = null;
 	state.streamCreated = 0;
+	state.ctorOpts = null;
+	state.createParams = null;
 	currentSession = {
 		user: {
 			id: "u1",
@@ -146,11 +165,82 @@ beforeEach(() => {
 	enforceRateLimitCalls = 0;
 	webEnv.ANTHROPIC_API_KEY = "test-key";
 	webEnv.MOONSHOT_API_KEY = "";
+	webEnv.DIRECTOR_MODEL = "";
 });
 
 afterEach(() => {
 	webEnv.ANTHROPIC_API_KEY = savedAnthropicKey;
 	webEnv.MOONSHOT_API_KEY = savedMoonshotKey;
+	webEnv.DIRECTOR_MODEL = savedDirectorModel;
+});
+
+// ── Brain policy: Anthropic is the ONLY Director brain ──────────────────────
+// This relay used to prefer Kimi whenever MOONSHOT_API_KEY was set, silently
+// beating a configured ANTHROPIC_API_KEY — an operator with both keys believed
+// they were running Claude while actually running Kimi. These are the
+// regression guards on that behaviour being gone for good.
+
+test("brain policy: a configured MOONSHOT_API_KEY no longer hijacks the brain", async () => {
+	webEnv.ANTHROPIC_API_KEY = "anthropic-key";
+	webEnv.MOONSHOT_API_KEY = "moonshot-key";
+
+	const res = await POST(
+		makeReq(
+			{ messages: [{ role: "user", content: "hi" }] },
+			new AbortController().signal,
+		),
+	);
+
+	expect(res.status).toBe(200);
+	// The Anthropic key was used, and no Moonshot baseURL swap happened.
+	expect(state.ctorOpts?.apiKey).toBe("anthropic-key");
+	expect(state.ctorOpts?.baseURL).toBeUndefined();
+	expect(state.createParams?.model).toBe("claude-opus-5");
+});
+
+test("brain policy: MOONSHOT_API_KEY alone is not a brain — 503, no Kimi run", async () => {
+	webEnv.ANTHROPIC_API_KEY = "";
+	webEnv.MOONSHOT_API_KEY = "moonshot-key";
+
+	const res = await POST(
+		makeReq(
+			{ messages: [{ role: "user", content: "hi" }] },
+			new AbortController().signal,
+		),
+	);
+
+	expect(res.status).toBe(503);
+	expect(await res.json()).toMatchObject({ error: "anthropic_not_configured" });
+	// No provider client was ever constructed — nothing ran on Moonshot.
+	expect(state.ctorOpts).toBeNull();
+});
+
+test("brain policy: a non-Claude DIRECTOR_MODEL is ignored, not forwarded", async () => {
+	webEnv.DIRECTOR_MODEL = "kimi-k2.6";
+
+	const res = await POST(
+		makeReq(
+			{ messages: [{ role: "user", content: "hi" }] },
+			new AbortController().signal,
+		),
+	);
+
+	expect(res.status).toBe(200);
+	expect(state.createParams?.model).toBe("claude-opus-5");
+});
+
+test("brain policy: a claude-* DIRECTOR_MODEL override is honoured", async () => {
+	webEnv.DIRECTOR_MODEL = "claude-sonnet-5";
+
+	const res = await POST(
+		makeReq(
+			{ messages: [{ role: "user", content: "hi" }] },
+			new AbortController().signal,
+		),
+	);
+
+	expect(res.status).toBe(200);
+	expect(state.createParams?.model).toBe("claude-sonnet-5");
 });
 
 test("aborting the client request aborts the upstream stream and tears it down", async () => {

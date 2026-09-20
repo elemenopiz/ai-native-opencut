@@ -80,7 +80,7 @@ import {
 } from "./vision-critic";
 // Native Gemini sibling brain (`runDirectorAgent` routes to it; it imports this
 // module's shared gates/prompt blocks — a deliberate, call-time-only cycle).
-import { GeminiKeyMissingError, runDirectorAgentGemini } from "./agent-gemini";
+import { runDirectorAgentGemini } from "./agent-gemini";
 
 /** Single-shot, non-streaming chat call: (message, system) → assistant text. Local (Ollama) transport. */
 export type AgentChatFn = (message: string, system: string) => Promise<string>;
@@ -2082,16 +2082,23 @@ export async function runDirectorAgentLocal(opts: {
  * Run one user turn through the agent. `onStep` fires after each executed tool
  * so the UI can stream progress.
  *
- * Brain selection:
- *  - `"auto"` (default): frontier Claude via `/api/llm/agent`; if the relay
- *    reports no `ANTHROPIC_API_KEY`, tries the native Gemini brain
- *    (`/api/llm/gemini` — see `agent-gemini.ts`). Each fallback decision
- *    happens on the brain's FIRST relay call, before any tool has run, so no
- *    work is repeated. If BOTH relays report no key, the run fails with a
- *    clear configuration error — the local Ollama fallback is retired for now
- *    (`runDirectorAgentLocal` is kept intact but unrouted).
- *  - `"frontier"`: Claude only — a missing key surfaces as an error.
- *  - `"gemini"`: Gemini only — a missing key surfaces as an error.
+ * Brain selection — Anthropic (Claude) is the ONLY brain the Director routes to.
+ *  - `"frontier"` (default): Claude via `/api/llm/agent`. A missing
+ *    `ANTHROPIC_API_KEY` surfaces as a configuration error.
+ *  - `"gemini"`: Gemini via `/api/llm/gemini` — NOT reachable from the Director
+ *    panel. `runDirectorAgentGemini` is kept intact and callable so the podcast
+ *    and enhance-prompt paths (and tests) keep working, but nothing routes the
+ *    Director to it.
+ *
+ * There is deliberately no automatic fallback. The previous `"auto"` mode fell
+ * through to Gemini on a missing Anthropic key, and before that to a local
+ * Ollama loop; both meant a misconfigured deploy silently ran the Director on a
+ * different, weaker model instead of telling anyone. Fail loud instead.
+ *
+ * NOTE: this governs the Director's REASONING brain only. The Understanding
+ * Pass (`lib/search/asset-understanding.ts`) still uses a Gemini vision model
+ * to actually look at footage — Claude has no native video input, so that is a
+ * perception preprocessor, not a Director brain, and is out of scope here.
  */
 export async function runDirectorAgent(opts: {
 	director: DirectorApi;
@@ -2106,26 +2113,19 @@ export async function runDirectorAgent(opts: {
 	onEvent?: DirectorEventSink;
 	/** Cooperative cancel — checked between model/tool calls and aborts the in-flight relay fetch. */
 	signal?: AbortSignal;
-	brain?: "auto" | "frontier" | "gemini";
+	brain?: "frontier" | "gemini";
 }): Promise<AgentRunResult> {
-	const brain = opts.brain ?? "auto";
+	const brain = opts.brain ?? "frontier";
 	if (brain === "gemini") return runDirectorAgentGemini(opts);
 	try {
 		return await runDirectorAgentFrontier(opts);
 	} catch (error) {
-		if (brain === "auto" && error instanceof AnthropicKeyMissingError) {
-			try {
-				return await runDirectorAgentGemini(opts);
-			} catch (geminiError) {
-				if (geminiError instanceof GeminiKeyMissingError) {
-					// Local Ollama fallback retired for now — fail loud and
-					// actionable rather than degrading to a weak local brain.
-					throw new Error(
-						"No Director brain is configured. Set ANTHROPIC_API_KEY (Claude) or GEMINI_API_KEY (Gemini) in apps/web/.env.local.",
-					);
-				}
-				throw geminiError;
-			}
+		if (error instanceof AnthropicKeyMissingError) {
+			// Anthropic is the only Director brain — no silent downgrade to a
+			// second provider. Surface the misconfiguration instead.
+			throw new Error(
+				"No Director brain is configured. Set ANTHROPIC_API_KEY in apps/web/.env.local.",
+			);
 		}
 		throw error;
 	}
