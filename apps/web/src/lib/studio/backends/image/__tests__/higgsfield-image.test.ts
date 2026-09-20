@@ -471,7 +471,11 @@ describe("higgsfield-nano-banana — submit body", () => {
 });
 
 describe("higgsfield-soul — submit body", () => {
-	it("sends the 1.5k/2k quality tier (a resolution enum, not low/medium/high)", async () => {
+	// Field names below are VERIFIED against a live probe response, not
+	// guessed from the CLI flag table — see the adapter's header and
+	// apps/web/docs/higgsfield/REST-CATALOG.md §1.
+
+	it("sends the 720p/1080p resolution enum, never the old 1.5k/2k quality tier", async () => {
 		expect(
 			(
 				await capturedBody(higgsfieldSoulBackend, {
@@ -479,8 +483,8 @@ describe("higgsfield-soul — submit body", () => {
 					prompt: "x",
 					quality: "high",
 				})
-			).quality,
-		).toBe("2k");
+			).resolution,
+		).toBe("1080p");
 		expect(
 			(
 				await capturedBody(higgsfieldSoulBackend, {
@@ -488,11 +492,20 @@ describe("higgsfield-soul — submit body", () => {
 					prompt: "x",
 					quality: "medium",
 				})
-			).quality,
-		).toBe("1.5k");
+			).resolution,
+		).toBe("720p");
 	});
 
-	it("sends AT MOST ONE image reference — the documented constraint", async () => {
+	it("never sends quality — confirmed absent from the real schema", async () => {
+		const body = await capturedBody(higgsfieldSoulBackend, {
+			modality: "image",
+			prompt: "x",
+			quality: "high",
+		});
+		expect(body.quality).toBeUndefined();
+	});
+
+	it("never sends image_references — confirmed absent from the real schema, silently dropped by the server if sent", async () => {
 		const body = await capturedBody(higgsfieldSoulBackend, {
 			modality: "image",
 			prompt: "x",
@@ -502,27 +515,33 @@ describe("higgsfield-soul — submit body", () => {
 				"https://example.com/c.png",
 			],
 		});
-		expect(body.image_references).toEqual(["https://example.com/anchor.png"]);
+		expect(body.image_references).toBeUndefined();
 	});
 
-	it("falls back to the first referenceImages entry when there is no anchor", async () => {
+	it("passes seed through when present — a real, verified field", async () => {
 		const body = await capturedBody(higgsfieldSoulBackend, {
 			modality: "image",
 			prompt: "x",
-			referenceImages: [
-				"https://example.com/b.png",
-				"https://example.com/c.png",
-			],
+			seed: 42,
 		});
-		expect(body.image_references).toEqual(["https://example.com/b.png"]);
+		expect(body.seed).toBe(42);
 	});
 
-	it("never sends soul_id (no BackendRequest field carries a persona id yet)", async () => {
+	it("omits seed when absent rather than sending undefined", async () => {
+		const body = await capturedBody(higgsfieldSoulBackend, {
+			modality: "image",
+			prompt: "x",
+		});
+		expect("seed" in body).toBe(false);
+	});
+
+	it("never sends soul_id/custom_reference_id (no BackendRequest field carries a persona id yet)", async () => {
 		const body = await capturedBody(higgsfieldSoulBackend, {
 			modality: "image",
 			prompt: "x",
 		});
 		expect(body.soul_id).toBeUndefined();
+		expect(body.custom_reference_id).toBeUndefined();
 	});
 });
 
