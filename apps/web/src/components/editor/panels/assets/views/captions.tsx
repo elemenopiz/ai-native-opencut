@@ -204,21 +204,30 @@ export function Captions() {
 				sources.sort((a, b) => a.offsetSeconds - b.offsetSeconds);
 			} else {
 				let foundMediaId: string | null = null;
+				// Keep the ELEMENT, not just its mediaId: transcription returns
+				// asset-relative times, so the caption times are only correct once
+				// shifted by where this asset's local time 0 sits on the timeline.
+				// Same reconstruction as the whole-video branch above — a trimmed or
+				// repositioned clip is the common case, and assuming 0 here silently
+				// slid every caption by `startTime - trimStart`.
+				let foundElement: (TimelineElement & { mediaId: string }) | null = null;
 				for (const track of tracks) {
 					for (const element of track.elements) {
 						if (
 							(track.type === "video" || track.type === "audio") &&
 							hasMediaId(element as TimelineElement)
 						) {
-							foundMediaId = (element as TimelineElement & { mediaId: string })
-								.mediaId;
+							foundElement = element as TimelineElement & {
+								mediaId: string;
+							};
+							foundMediaId = foundElement.mediaId;
 							break;
 						}
 					}
 					if (foundMediaId) break;
 				}
 
-				if (foundMediaId) {
+				if (foundMediaId && foundElement) {
 					const asset = editor.media
 						.getAssets()
 						.find((a) => a.id === foundMediaId);
@@ -226,7 +235,10 @@ export function Captions() {
 						sources.push({
 							file: asset.file,
 							label: asset.name,
-							offsetSeconds: 0,
+							offsetSeconds: Math.max(
+								0,
+								foundElement.startTime - foundElement.trimStart,
+							),
 						});
 					}
 				}

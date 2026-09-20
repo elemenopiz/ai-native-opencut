@@ -45,7 +45,7 @@ import {
 	higgsfieldReady,
 	pollHiggsfieldJob,
 	submitHiggsfieldJob,
-} from "@/lib/studio/backends/image/higgsfield-client";
+} from "@/lib/studio/backends/higgsfield-client";
 import type {
 	BackendRequest,
 	CostEstimate,
@@ -58,15 +58,35 @@ const LABEL = "Higgsfield Seed Audio";
 const ENDPOINT_ENV = "HIGGSFIELD_SEED_AUDIO_ENDPOINT";
 
 /**
- * UNVERIFIED — best construction of the REST path, documentation only; it does
- * NOT satisfy `isAvailable()`. Seed Audio is ByteDance's model (same house as
- * Seedance, which the video adapter reaches at
- * `bytedance/seedance-2.5/text-to-video`), so `bytedance/seed-audio/…` is the
- * expected vendor+model shape. The TASK segment is the weakest guess in the
- * whole set: `text-to-speech` is the honest description of what the model does,
- * but Higgsfield may well call it `text-to-audio`. See
- * `higgsfield-client.ts`'s header for why none of this is confirmable from the
- * public CLI repos.
+ * MEASURED 404 — this path does not exist, and neither does its sibling
+ * guess. A live probe on 2026-09-19 against `https://api.higgsfield.ai` with
+ * an unfunded API key hit BOTH `bytedance/seed-audio/text-to-speech` (this
+ * exact constant) and `bytedance/seed-audio/text-to-audio` and got back HTTP
+ * 404 `model_not_found` for both — not a validation error, meaning the path
+ * itself does not resolve. (For contrast, a path that exists but has an
+ * unmet body requirement answers 422 — see `higgsfield-soul.ts`.)
+ *
+ * The confirmed REST path shape is `/{vendor}/{model}/{tier}/{task?}` — a
+ * TIER segment (`standard`, `pro`, `v2/standard`, …), not a task verb — so
+ * this constant's `text-to-speech` guess was wrong on shape grounds
+ * independent of the model existing at all.
+ *
+ * Conclusion: Higgsfield's OPEN REST API exposes a SUBSET of the CLI catalog
+ * documented in Higgsfield's `MODELS.md`. `seed_audio` appears to be
+ * CLI/console-only, with no open REST endpoint. This adapter is kept (not
+ * deleted — that is the user's call, tracked as an open decision) purely as a
+ * record of what was tried; it stays inert (gated behind {@link ENDPOINT_ENV},
+ * unset by default) until Higgsfield adds a REST route for this model or
+ * someone confirms a working path by other means.
+ *
+ * DOUBLY UNREACHABLE even if the endpoint existed: this backend declares
+ * `intents: []` (see the file header above), and the one route that could
+ * dispatch to it — `POST /api/studio/audio`
+ * (`src/app/api/studio/audio/route.ts`) — only accepts
+ * `action: "score" | "music"` (verified by reading that route's `AudioAction`
+ * union and its `action !== "score" && action !== "music"` 400 check). There
+ * is no `"speech"` action, so nothing in the app can currently route a request
+ * to this adapter even with a correct endpoint and a pinned backend id.
  */
 const ASSUMED_ENDPOINT = "bytedance/seed-audio/text-to-speech";
 

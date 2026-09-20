@@ -271,15 +271,6 @@ export const PHASE_TOOL_ASSIGNMENTS: Readonly<
 	addClip: ["polish"],
 	export: ["polish"],
 	approveFinalCut: ["polish"],
-	// cutOnBeat/tightenToLength/duckMusicUnderSpeech (P5 craft macros): polish
-	// — same "editing on an already-cut reel" bucket as trim/removeSilence.
-	// Each needs a REAL cut-together sequence (and, for duckMusicUnderSpeech,
-	// a music bed) already on the timeline to do anything useful, which only
-	// exists once footage has been assembled — the same precondition
-	// trim/removeSilence share.
-	cutOnBeat: ["polish"],
-	tightenToLength: ["polish"],
-	duckMusicUnderSpeech: ["polish"],
 	// readMix (the AUDIO half of "give it eyes" — docs/plans/2026-09-18-
 	// director-autonomy-architecture.md §4): polish ONLY, for two reasons that
 	// point the same way.
@@ -287,15 +278,15 @@ export const PHASE_TOOL_ASSIGNMENTS: Readonly<
 	//    where music is competing with speech. That only means something once
 	//    footage, voiceover and a music bed are actually assembled together,
 	//    the same "needs a real cut-together sequence" precondition
-	//    trim/removeSilence/the craft trio share. Reading the mix of a
+	//    trim/removeSilence/applyEdit share. Reading the mix of a
 	//    half-generated reel measures nothing but the gaps.
-	//  - REMEDY ADJACENCY. Every fix it can point at — duckMusicUnderSpeech
-	//    (competing music), removeSilence/tightenToLength (dead air) — is
-	//    polish-only. Diagnosis and remedy have to be reachable in the same
-	//    bucket or the read is a dead end. This pairing is not incidental:
-	//    readMix merges its overlap windows with duckMusicUnderSpeech's own
-	//    DEFAULT_MERGE_GAP_SEC so a `competingDb` figure describes exactly the
-	//    window that verb would duck.
+	//  - REMEDY ADJACENCY. Every fix it can point at — a duck-style applyEdit
+	//    program (competing music), removeSilence/a tighten-style applyEdit
+	//    program (dead air) — is polish-only. Diagnosis and remedy have to be
+	//    reachable in the same bucket or the read is a dead end. This pairing
+	//    is not incidental: readMix merges its overlap windows with the
+	//    duck-music program's own DEFAULT_MERGE_GAP_SEC so a `competingDb`
+	//    figure describes exactly the window that program would duck.
 	// Deliberately NOT in production, even though addVoiceover/addMusicBed are
 	// (audio is part of BUILDING the reel): during production the mix is still
 	// being assembled, and none of the verbs that would act on a bad reading
@@ -307,13 +298,21 @@ export const PHASE_TOOL_ASSIGNMENTS: Readonly<
 	// applyEffect/animateItem) all live there — a program can only ever call
 	// primitives this bucket already grants one at a time, so bucketing it
 	// anywhere else would let it reach ops its OWN phase can't reach
-	// individually. See `phase-scope.test.ts`'s count-bounds comment for why
-	// this pushed the shared ceiling 34 → 35, and for the macro-verb
-	// deletion-candidate list that is this increment's written justification
-	// (cutOnBeat proven, tightenToLength/duckMusicUnderSpeech plausible) —
-	// applyEdit is explicitly a COMPOSITION verb that SUBSUMES those macros,
-	// so the honest expectation is that a LATER pass deletes them and this
-	// bucket eventually SHRINKS below 34, not that it keeps growing.
+	// individually.
+	//
+	// HISTORY: this pushed the shared ceiling 34 → 35 when `applyEdit` first
+	// landed alongside the three P5 craft macros it was built to subsume
+	// (`cutOnBeat`/`tightenToLength`/`duckMusicUnderSpeech`), on the explicit,
+	// written promise that "the honest expectation is that a LATER pass
+	// deletes them". That pass is this one: all three are proven op-for-op
+	// equivalent to a program over the primitive surface
+	// (`program/programs/*.program.test.ts`) and DELETED — from this table,
+	// the tool catalog, and `director-api.ts`. The ceiling is 35 → 32.
+	// `removeSilence` was investigated for the same treatment and STAYS (see
+	// its own entry above): it plans through a whole-track
+	// `TracksSnapshotCommand`, not a `CraftOp[]`/primitive sequence, and its
+	// detection pass is an async file decode this synchronous-only engine
+	// cannot run.
 	applyEdit: ["polish"],
 };
 

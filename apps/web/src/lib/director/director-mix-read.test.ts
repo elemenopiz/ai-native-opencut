@@ -264,7 +264,7 @@ describe("readMix verb", () => {
 		expect(res.message).toContain("removeSilence");
 	});
 
-	it("flags a music bed competing with speech and points at duckMusicUnderSpeech", async () => {
+	it("flags a music bed competing with speech and points at an applyEdit duck remedy", async () => {
 		const fake = makeFakeEditor();
 		addAudio(fake, "Background Music", 0, 10);
 		addAudio(fake, "Voiceover", 4, 3); // name matches the voiceover heuristic
@@ -284,7 +284,7 @@ describe("readMix verb", () => {
 		expect(data.overlaps[0].startSec).toBeCloseTo(4, 1);
 		expect(data.overlaps[0].endSec).toBeCloseTo(7, 1);
 		expect(data.competingOverlapCount).toBe(1);
-		expect(res.message).toContain("duckMusicUnderSpeech");
+		expect(res.message).toContain("applyEdit with a duck-style program");
 	});
 
 	it("does NOT flag a bed that is already ducked under the speech", async () => {

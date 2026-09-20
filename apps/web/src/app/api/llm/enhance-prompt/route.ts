@@ -36,14 +36,14 @@ import { webEnv } from "@byorn/env/web";
 import { auth } from "@/lib/auth/server";
 import { aiAccessDeniedResponse, hasAiAccess } from "@/lib/ai-access";
 import { enforceRateLimit } from "@/lib/rate-limit";
-import { reportError } from "@/lib/observability/logger";
+import { logger, reportError } from "@/lib/observability/logger";
 import { PROMPT_CRAFT_QUICKREF } from "@/lib/studio/playbooks";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 /** Default models — mirror the agent/gemini relays' provider defaults. */
-const DEFAULT_MODEL = "claude-opus-4-8";
+const DEFAULT_MODEL = "claude-opus-5";
 const KIMI_BASE_URL = "https://api.moonshot.ai/anthropic";
 const DEFAULT_KIMI_MODEL = "kimi-k2.6";
 const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
@@ -288,6 +288,23 @@ export async function POST(req: Request) {
 	const useGemini = Boolean(geminiKey);
 	const useKimi = !useGemini && Boolean(moonshotKey);
 	const apiKey = useGemini ? geminiKey : useKimi ? moonshotKey : anthropicKey;
+
+	// Visibility only — does NOT change the precedence above. Whichever key
+	// wins is silent by construction (first non-empty key in priority order),
+	// so an operator with more than one key configured would otherwise have no
+	// way to tell which brain is actually answering. This line makes the real
+	// selection (and any lower-priority keys that lost) show up in the server
+	// log, without ever surfacing provider/env names on any customer-facing
+	// response.
+	if (geminiKey || moonshotKey || anthropicKey) {
+		logger.info("llm/enhance-prompt: brain selected", {
+			brain: useGemini ? "gemini" : useKimi ? "kimi" : "anthropic",
+			geminiKeyConfigured: Boolean(geminiKey),
+			moonshotKeyConfigured: Boolean(moonshotKey),
+			anthropicKeyConfigured: Boolean(anthropicKey),
+		});
+	}
+
 	if (!apiKey) {
 		// Machine-readable "no key" signal — the client hides the Enhance button on
 		// this exact code (there is no local fallback for this feature).

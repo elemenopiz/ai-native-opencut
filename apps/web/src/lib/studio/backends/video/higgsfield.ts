@@ -8,12 +8,13 @@
  * key); poll is `GET /requests/{request_id}/status`. Both return the same shape:
  * `{ status, request_id, status_url, cancel_url, images?: [{url}], video?: {url} }`.
  * Verified by reading the official SDK source (`@higgsfield/client` v0.2.6,
- * `/home/user/higgsfield-ai/higgsfield-js`) — `api.higgsfield.ai` and
- * `docs.higgsfield.ai` are both blocked by this environment's egress proxy, so
- * none of this has been exercised against a live key. The input body's field
- * names (`prompt`/`duration`/`resolution`/`aspect_ratio`/`generate_audio`) are
- * additionally cross-checked against Higgsfield's own CLI repo
- * (github.com/higgsfield-ai/cli, MODELS.md) for the closely-related
+ * `/home/user/higgsfield-ai/higgsfield-js`), and — for the `resolution` enum
+ * and the two HTTP validation-error shapes — by a later live probe against
+ * `https://api.higgsfield.ai` with an unfunded API key (2026-09-19), cross-
+ * checked against the official reference at open.higgsfield.ai. The input
+ * body's field names (`prompt`/`duration`/`resolution`/`aspect_ratio`/
+ * `generate_audio`) are additionally cross-checked against Higgsfield's own
+ * CLI repo (github.com/higgsfield-ai/cli, MODELS.md) for the closely-related
  * `seedance_2_0` model — 2.5 itself predates that doc by two days, so those
  * names are ASSUMED STABLE across the version bump, not independently
  * verified for 2.5. `mode` is deliberately omitted (see `buildSubmitBody`)
@@ -27,45 +28,33 @@
  * wait-for-terminal-state as one call), which doesn't fit our `submit()` /
  * `poll()` split — the router needs to return a `jobId` immediately and let the
  * caller poll on its own cadence. So this file talks to the same raw HTTP
- * endpoints the SDK wraps, via `fetchWithTimeout`, exactly like every other
- * adapter in this directory.
+ * endpoints the SDK wraps, via the shared `higgsfieldRequest` in
+ * `../higgsfield-client.ts` (auth header, base URL, and the two known
+ * validation-error shapes live there — one copy for every Higgsfield
+ * modality, video included — rather than a second copy in this file).
  */
 
 import { webEnv } from "@byorn/env/web";
 import { costFor } from "@/lib/credits/cost-table";
-import { fetchWithTimeout } from "@/lib/studio/fetch-timeout";
+import {
+	higgsfieldCredentialParts,
+	higgsfieldMediaUrl,
+	higgsfieldRequest,
+	mapHiggsfieldStatus,
+} from "@/lib/studio/backends/higgsfield-client";
 import type {
 	BackendRequest,
 	CostEstimate,
 	GenerationBackend,
-	JobStatus,
 	PollResult,
 	SubmitResult,
 } from "@/lib/studio/backends/types";
 import type { VideoOrientation } from "@/lib/studio/provider-adapter";
 
-const DEFAULT_BASE = "https://api.higgsfield.ai";
 const DEFAULT_MODEL = "bytedance/seedance-2.5/text-to-video";
-
-function higgsfieldBase(): string {
-	return webEnv.HIGGSFIELD_BASE_URL || DEFAULT_BASE;
-}
 
 function higgsfieldModel(): string {
 	return webEnv.HIGGSFIELD_MODEL || DEFAULT_MODEL;
-}
-
-/** `HIGGSFIELD_CREDENTIALS` is the single "key-id:key-secret" string, split on
- *  the first `:`. `undefined` when unset or malformed (not exactly 2 parts) —
- *  callers treat that as "not configured" and stay inert. */
-function credentialParts(): { keyId: string; keySecret: string } | undefined {
-	const raw = webEnv.HIGGSFIELD_CREDENTIALS;
-	if (!raw) return undefined;
-	const parts = raw.split(":");
-	if (parts.length !== 2) return undefined;
-	const [keyId, keySecret] = parts;
-	if (!keyId || !keySecret) return undefined;
-	return { keyId, keySecret };
 }
 
 // ─── Aspect ratio ───────────────────────────────────────────────────────────
@@ -76,12 +65,24 @@ const RATIO_BY_ORIENTATION: Record<VideoOrientation, string> = {
 	square: "1:1",
 };
 
-// Confirmed against MODELS.md (seedance_2_0): plain "480p" | "720p" | "1080p"
-// | "4k" strings, default "720p". "4k" is deliberately withheld from our
-// `capabilities.resolutions` (same cost-control precedent as Veo's withheld
-// 4k and Seedance 2.0's own withheld 2k tier — see byteplus-seedance.ts).
+// VERIFIED against a live probe of `bytedance/seedance-2.5/text-to-video`
+// (cross-checked against the official reference,
+// https://open.higgsfield.ai/models/bytedance/seedance-2.5/text-to-video/api-reference):
+// `resolution` accepts ONLY "480p" | "720p" (default "720p") — "1080p" comes
+// back HTTP 400. The earlier version of this comment extrapolated "480p" |
+// "720p" | "1080p" | "4k" from the CLI's `seedance_2_0` doc; that
+// extrapolation is measurably wrong for the 2.5 REST endpoint. There is no 4k
+// tier to withhold here for cost control (unlike Veo/Seedance 2.0 elsewhere in
+// this directory) — 2.5 simply doesn't offer one over this endpoint.
+//
+// `VideoResolution` (provider-adapter.ts, outside this file's scope) still
+// types `resolution` as "480p" | "720p" | "1080p" — it's a shared cross-vendor
+// union, not Higgsfield-specific. So a caller CAN still hand this adapter
+// "1080p" (e.g. a backend explicitly pinned by id). Rather than forward a
+// request we know will 400, fall back to the safe default.
 function resolutionValue(resolution: string | undefined): string {
-	return resolution ?? "720p";
+	if (resolution === "480p" || resolution === "720p") return resolution;
+	return "720p";
 }
 
 // Seedance 2.5 renders the requested duration verbatim within [4, 30]s rather
@@ -109,15 +110,21 @@ function clampDurationSec(sec: number | undefined): number {
  * /home/user/higgsfield-ai/cli) documents these exact field names for
  * `seedance_2_0`. Seedance 2.5 itself isn't in that doc (dated Sep 14; 2.5
  * shipped Sep 16), so these are ASSUMED STABLE across the 2.0→2.5 bump, not
- * independently verified for 2.5.
+ * independently verified for 2.5. `prompt`/`duration`/`resolution`/
+ * `aspect_ratio` are, however, independently CONFIRMED by the 2026-09-19 live
+ * probe's validation responses (see `../higgsfield-client.ts`'s header) —
+ * only `generate_audio` and the media-role fields below remain unconfirmed by
+ * a live account.
  *
  * `mode` is DELIBERATELY OMITTED — it's a conflict between two first-party
  * sources with no way to resolve which applies to 2.5 (console is blocked):
  * MODELS.md says Seedance 2.0's `mode` is a speed tier (`std` | `fast`); the
  * skills repo says Seedance 2.5's modes are `t2v` | `omni_reference` |
  * `video_edit` | `video_extension` (a generation-kind switch, not a speed
- * tier). Sending the wrong reading risks a 422 or a silently wrong render, so
- * we omit the field entirely and let the server-side default apply.
+ * tier). The 2026-09-19 probe independently confirmed `mode` isn't even a
+ * parameter on this endpoint at all — a bogus value passed validation and was
+ * silently ignored — so omitting it was the right call regardless of which
+ * first-party source was "right".
  *
  * Media-role fields (`start_image`, `end_image`, `image_references`,
  * `video_references`, `audio_references`) are still UNVERIFIED — named per
@@ -151,80 +158,6 @@ function buildSubmitBody(req: BackendRequest): Record<string, unknown> {
 	return body;
 }
 
-// ─── Status mapping ─────────────────────────────────────────────────────────
-// SDK's status union is 'queued' | 'in_progress' | 'completed' | 'failed' |
-// 'nsfw'. `canceled`/`cancelled` are handled defensively even though the SDK's
-// type union omits them — the live API may still send one.
-function mapHiggsfieldStatus(s: string | undefined): JobStatus {
-	switch (s) {
-		case "completed":
-			return "completed";
-		case "in_progress":
-			return "processing";
-		case "queued":
-			return "pending";
-		case "failed":
-		case "nsfw":
-		case "canceled":
-		case "cancelled":
-			return "failed";
-		default:
-			return "pending";
-	}
-}
-
-interface HiggsfieldResponse {
-	status?: string;
-	request_id?: string;
-	status_url?: string;
-	cancel_url?: string;
-	images?: { url: string }[];
-	video?: { url: string };
-	error?: string;
-	message?: string;
-}
-
-/** HTTP status → a human-readable reason, per the task's documented ground
- *  truth: 401 auth, 403 not-enough-credits, 422 validation, 400 bad input. */
-function httpErrorMessage(status: number, body: HiggsfieldResponse): string {
-	const detail = body.error ?? body.message;
-	switch (status) {
-		case 401:
-			return `Higgsfield auth failed (401)${detail ? `: ${detail}` : ""}`;
-		case 403:
-			return `Higgsfield: not enough credits (403)${detail ? `: ${detail}` : ""}`;
-		case 422:
-			return `Higgsfield validation error (422)${detail ? `: ${detail}` : ""}`;
-		case 400:
-			return `Higgsfield bad input (400)${detail ? `: ${detail}` : ""}`;
-		default:
-			return `Higgsfield request failed (${status})${detail ? `: ${detail}` : ""}`;
-	}
-}
-
-async function higgsfieldRequest(
-	path: string,
-	init: RequestInit,
-): Promise<HiggsfieldResponse> {
-	const creds = credentialParts();
-	if (!creds) {
-		throw new Error("HIGGSFIELD_CREDENTIALS is not configured");
-	}
-	const res = await fetchWithTimeout(`${higgsfieldBase()}${path}`, {
-		...init,
-		headers: {
-			...init.headers,
-			Authorization: `Key ${creds.keyId}:${creds.keySecret}`,
-			"Content-Type": "application/json",
-		},
-	});
-	const data = (await res.json()) as HiggsfieldResponse;
-	if (!res.ok) {
-		throw new Error(httpErrorMessage(res.status, data));
-	}
-	return data;
-}
-
 export const higgsfieldBackend: GenerationBackend = {
 	id: "higgsfield",
 	label: "Higgsfield",
@@ -233,7 +166,8 @@ export const higgsfieldBackend: GenerationBackend = {
 	safetyTier: "partner",
 	requiredEnv: ["HIGGSFIELD_CREDENTIALS"],
 	capabilities: {
-		resolutions: ["480p", "720p", "1080p"],
+		// VERIFIED: only 480p/720p are accepted — see `resolutionValue` above.
+		resolutions: ["480p", "720p"],
 		orientations: ["landscape", "portrait", "square"],
 		durationRangeSec: { min: MIN_DURATION_SEC, max: MAX_DURATION_SEC },
 		supportsSeedLock: true,
@@ -245,7 +179,7 @@ export const higgsfieldBackend: GenerationBackend = {
 	},
 
 	isAvailable() {
-		return Boolean(credentialParts());
+		return Boolean(higgsfieldCredentialParts());
 	},
 
 	estimateCost(req: BackendRequest): CostEstimate {
@@ -256,7 +190,10 @@ export const higgsfieldBackend: GenerationBackend = {
 		});
 		return {
 			credits,
-			basis: `Higgsfield Seedance 2.5 ${req.resolution ?? "720p"} × ${seconds}s`,
+			// Same clamp `submit()` applies — an unsupported resolution (e.g. a
+			// caller-pinned "1080p") must not be quoted in the displayed basis when
+			// the actual submitted request will fall back to 720p.
+			basis: `Higgsfield Seedance 2.5 ${resolutionValue(req.resolution)} × ${seconds}s`,
 		};
 	},
 
@@ -288,7 +225,7 @@ export const higgsfieldBackend: GenerationBackend = {
 			return {
 				jobId: requestId,
 				status: mapHiggsfieldStatus(data.status),
-				mediaUrl: data.video?.url ?? data.images?.[0]?.url,
+				mediaUrl: higgsfieldMediaUrl(data),
 			};
 		} catch (err) {
 			return {
@@ -307,7 +244,7 @@ export const higgsfieldBackend: GenerationBackend = {
 			return {
 				jobId,
 				status: mapHiggsfieldStatus(data.status),
-				mediaUrl: data.video?.url ?? data.images?.[0]?.url,
+				mediaUrl: higgsfieldMediaUrl(data),
 				error: data.error ?? data.message,
 			};
 		} catch (err) {

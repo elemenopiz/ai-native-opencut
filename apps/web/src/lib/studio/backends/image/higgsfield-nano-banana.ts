@@ -34,7 +34,7 @@ import {
 	higgsfieldReady,
 	pollHiggsfieldJob,
 	submitHiggsfieldJob,
-} from "@/lib/studio/backends/image/higgsfield-client";
+} from "@/lib/studio/backends/higgsfield-client";
 import type {
 	BackendRequest,
 	CostEstimate,
@@ -49,11 +49,30 @@ const LABEL = "Higgsfield Nano Banana 2";
 const ENDPOINT_ENV = "HIGGSFIELD_NANO_BANANA_ENDPOINT";
 
 /**
- * UNVERIFIED — best construction of the REST path, documentation only; it does
- * NOT satisfy `isAvailable()`. Same reasoning as `higgsfield-gpt-image.ts`:
- * Higgsfield REST paths are `<vendor>/<model>/<task>` and Nano Banana is
- * Google's model, so `google/nano-banana-2/text-to-image` is the expected
- * shape. The slug spelling and task segment are unconfirmed.
+ * MEASURED 404 — this path does not exist, and neither does the more likely
+ * shape it was guessing at. A live probe on 2026-09-19 against
+ * `https://api.higgsfield.ai` with an unfunded API key hit
+ * `google/nano-banana-2/standard` and `google/nano-banana/standard` and got
+ * back HTTP 404 `model_not_found` for both — not a validation error, meaning
+ * the path itself does not resolve. (For contrast, a path that exists but has
+ * an unmet body requirement answers 422 — see `higgsfield-soul.ts`.)
+ *
+ * The confirmed REST path shape is `/{vendor}/{model}/{tier}/{task?}` — a
+ * TIER segment (`standard`, `pro`, `v2/standard`, …), not a task verb — so
+ * this constant's own `.../text-to-image` guess was wrong on shape grounds
+ * even before the 404s came back for the `/standard` tier variants.
+ *
+ * Conclusion: Higgsfield's OPEN REST API exposes a SUBSET of the CLI catalog
+ * documented in Higgsfield's `MODELS.md`. `nano_banana_2` appears to be
+ * CLI/console-only, with no open REST endpoint — note that
+ * `image/google-nano-banana.ts` already reaches the same underlying model
+ * through Google's own Gemini API directly, so this Higgsfield route was
+ * always a second door to a model Byorn can already generate with; its
+ * absence from the open REST surface costs nothing today. This adapter is
+ * kept (not deleted — that is the user's call, tracked as an open decision)
+ * purely as a record of what was tried; it stays inert (gated behind
+ * {@link ENDPOINT_ENV}, unset by default) until Higgsfield adds a REST route
+ * for this model or someone confirms a working path by other means.
  */
 const ASSUMED_ENDPOINT = "google/nano-banana-2/text-to-image";
 

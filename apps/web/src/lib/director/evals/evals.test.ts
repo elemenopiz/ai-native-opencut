@@ -246,14 +246,14 @@ describe("Director eval harness — deterministic tier", () => {
 		expect(activeToolNamesForPhase("production")).toContain("generate");
 
 		// Well past the "just rendered" window, the same state reads as
-		// "polish" — export/trim/cutOnBeat become reachable, storyboard/
+		// "polish" — export/trim/applyEdit become reachable, storyboard/
 		// proposeReel (re-deciding scope) do not.
 		const wellAfter = newestTakeAt + RECENT_TAKE_WINDOW_MS + 1_000;
 		expect(deriveDirectorPhase(run.director, wellAfter)).toBe("polish");
 		const polishTools = activeToolNamesForPhase("polish");
 		expect(polishTools).toContain("export");
 		expect(polishTools).toContain("trim");
-		expect(polishTools).toContain("cutOnBeat");
+		expect(polishTools).toContain("applyEdit");
 		expect(polishTools).not.toContain("storyboard");
 		expect(polishTools).not.toContain("proposeReel");
 	});

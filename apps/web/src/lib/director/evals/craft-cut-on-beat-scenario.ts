@@ -1,36 +1,38 @@
 /**
- * `cutOnBeat` (P5 craft macro) end to end through the real agent loop —
+ * `cutOnBeat` end to end through the real agent loop, run as an `applyEdit`
+ * PROGRAM rather than the old frozen macro verb.
  * `docs/plans/2026-09-18-director-autonomy-architecture.md` §6 names exactly
- * this pillar as the one the eval harness has to cover BEFORE it can be
- * migrated from a frozen macro verb to a composable program (§2 "Layer 2 —
- * Programs, not macros"): "The agent can invoke the opinion but cannot vary
- * it... those are the interesting choices, and the macro is exactly what
- * forbids them." When `cutOnBeat` becomes a program the model writes over
- * beat/clip data instead of a verb it calls, THIS scenario must still pass
- * unmodified — which is only true if its assertions never mention the verb.
+ * this pillar as the one the eval harness has to cover BEFORE the macro
+ * could be retired in favor of a composable program (§2 "Layer 2 — Programs,
+ * not macros"): "The agent can invoke the opinion but cannot vary it... those
+ * are the interesting choices, and the macro is exactly what forbids them."
+ * `cutOnBeat` was proven op-for-op equivalent to `CUT_ON_BEAT_PROGRAM` over
+ * the primitive surface (`program/programs/cut-on-beat.ts`, `cut-on-beat.
+ * program.test.ts`) and the verb was deleted; THIS scenario is that eval
+ * "moved" rather than deleted, per the rule that an eval asserting a deleted
+ * verb by name must move to asserting the program produces the same result.
  *
  * THE ASSERTION RULE, applied: every assertion below reads the RESULTING
  * TIMELINE STATE (cut positions, durations) off `getTimeline`/direct element
- * lookups — never "was `cutOnBeat` called." `mustCallVerbs` in `expect` is
- * the one necessary exception, and it's there for a DIFFERENT reason than
- * timeline correctness: it's what proves the scripted turn actually ran
- * (a silently-skipped tool call would otherwise leave the timeline
- * unchanged and this scenario would falsely read as "nothing to snap,
- * already passing"). See the craft-macro scenarios' shared header note in
- * `evals/README.md`-style commentary repeated in the sibling
- * tighten/duck-music scenario files.
+ * lookups — never "was `cutOnBeat` called" (there is no such verb anymore).
+ * `mustCallVerbs` in `expect` is the one necessary exception, and it's there
+ * for a DIFFERENT reason than timeline correctness: it's what proves the
+ * scripted turn actually ran (a silently-skipped tool call would otherwise
+ * leave the timeline unchanged and this scenario would falsely read as
+ * "nothing to snap, already passing").
  *
  * FIXTURE: a beat-analyzed music clip (the "beat source" — its own timeline
  * position is irrelevant to `cutOnBeat`, only the `useBeatGridStore` entry
  * it seeded matters — see `stores/beat-grid-store.ts`) plus two video clips
  * cut together with their join intentionally 0.1s off the nearest beat, the
  * exact "editor already cut this on their own footage, now wants it to feel
- * musical" scenario `cutOnBeat`'s own doc comment describes.
+ * musical" scenario the retired macro's own doc comment described.
  */
 
 import { createDirectorApi } from "../director-api";
 import { makeFakeEditor, type FakeEditor } from "../fake-editor";
 import { useBeatGridStore, type BeatGrid } from "@/stores/beat-grid-store";
+import { CUT_ON_BEAT_PROGRAM } from "../program/programs/cut-on-beat";
 import {
 	closeTurn,
 	insertClip,
@@ -118,18 +120,22 @@ export const cutOnBeatScenario: EvalScenario = {
 	id: "cut-on-beat-snaps-join-to-analyzed-beat",
 	description:
 		'Two hand-cut clips joined 0.1s off an analyzed beat + "snap this to the ' +
-		'beat": cutOnBeat must pull the join exactly onto the beat as ONE undo ' +
-		"step, asserted on the resulting clip boundaries — not on the verb name.",
+		'beat": the CUT_ON_BEAT_PROGRAM (applyEdit) must pull the join exactly ' +
+		"onto the beat as ONE undo step, asserted on the resulting clip " +
+		"boundaries — not on the verb name.",
 	userMessage: "snap this cut onto the beat, it feels a hair off",
 	setup: setupCutOnBeatProject,
 	turns: () => [
-		toolTurn("Snapping the join onto the nearest beat.", "t1", "cutOnBeat", {}),
+		toolTurn("Snapping the join onto the nearest beat.", "t1", "applyEdit", {
+			program: CUT_ON_BEAT_PROGRAM,
+			mode: "apply",
+		}),
 		closeTurn(
 			"Snapped the cut right onto the beat — should read as musical now.",
 		),
 	],
 	expect: {
-		mustCallVerbs: ["cutOnBeat"],
+		mustCallVerbs: ["applyEdit"],
 		mustNotAwaitApproval: true,
 		mustNotGenerate: true,
 	},

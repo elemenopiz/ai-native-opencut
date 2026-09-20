@@ -35,7 +35,7 @@ import {
 	higgsfieldReady,
 	pollHiggsfieldJob,
 	submitHiggsfieldJob,
-} from "@/lib/studio/backends/image/higgsfield-client";
+} from "@/lib/studio/backends/higgsfield-client";
 import type {
 	BackendRequest,
 	CostEstimate,
@@ -50,16 +50,29 @@ const LABEL = "Higgsfield GPT Image 2.5";
 const ENDPOINT_ENV = "HIGGSFIELD_GPT_IMAGE_ENDPOINT";
 
 /**
- * UNVERIFIED — our best construction of the REST path, kept as documentation
- * and NOT used to satisfy `isAvailable()`. Higgsfield's REST endpoints are
- * `<vendor>/<model>/<task>` (the video adapter posts to
- * `bytedance/seedance-2.5/text-to-video`), and `gpt_image_2_5` is OpenAI's
- * model hosted by Higgsfield, so `openai/gpt-image-2.5/text-to-image` is the
- * shape this should take. Nothing first-party confirms the slug spelling
- * (`gpt-image-2.5` vs `gpt-image-2-5`), the vendor segment, or the task
- * segment — the public Higgsfield repos document the CLI surface, where the
- * model is the flat id `gpt_image_2_5`, which is a different surface. An
- * operator pastes the confirmed path into {@link ENDPOINT_ENV}.
+ * MEASURED 404 — this path does not exist. A live probe on 2026-09-19 against
+ * `https://api.higgsfield.ai` with an unfunded API key hit both
+ * `openai/gpt-image-2.5/standard` and `openai/gpt-image-2.5/text-to-image`
+ * and got back HTTP 404 `model_not_found` for both — not a validation error,
+ * meaning the path itself does not resolve (contrast a 422, which means the
+ * path exists and request validation ran, as `higgsfield-ai/soul/v2/standard`
+ * returned — see `higgsfield-soul.ts`).
+ *
+ * The general REST path shape, confirmed live elsewhere in this probe, is
+ * `/{vendor}/{model}/{tier}/{task?}` — a TIER segment (`standard`, `pro`,
+ * `v2/standard`, …), not a task verb. Every `.../text-to-image` guess in this
+ * file's history was wrong on shape grounds alone, independent of whether the
+ * model exists at all.
+ *
+ * Conclusion: Higgsfield's OPEN REST API exposes a SUBSET of the CLI catalog
+ * documented in Higgsfield's `MODELS.md`. `gpt_image_2_5` appears to be
+ * CLI/console-only, with no open REST endpoint at all — not a slug-spelling
+ * problem this adapter can fix by guessing harder. This constant is kept, and
+ * this adapter is kept (not deleted — that is the user's call, tracked as an
+ * open decision), purely as a record of what was tried; it stays inert
+ * (gated behind {@link ENDPOINT_ENV}, unset by default) until Higgsfield adds
+ * a REST route for this model or someone confirms a working path by other
+ * means (support, console network inspection, etc).
  */
 const ASSUMED_ENDPOINT = "openai/gpt-image-2.5/text-to-image";
 

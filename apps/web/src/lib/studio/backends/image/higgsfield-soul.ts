@@ -40,7 +40,7 @@ import {
 	higgsfieldReady,
 	pollHiggsfieldJob,
 	submitHiggsfieldJob,
-} from "@/lib/studio/backends/image/higgsfield-client";
+} from "@/lib/studio/backends/higgsfield-client";
 import type {
 	BackendRequest,
 	CostEstimate,
@@ -55,13 +55,30 @@ const LABEL = "Higgsfield Soul Cinematic";
 const ENDPOINT_ENV = "HIGGSFIELD_SOUL_ENDPOINT";
 
 /**
- * UNVERIFIED — best construction of the REST path, documentation only; it does
- * NOT satisfy `isAvailable()`. Soul is Higgsfield's own model family, so the
- * vendor segment should be `higgsfield` itself:
- * `higgsfield/soul-cinematic/text-to-image`. Slug spelling and task segment
- * unconfirmed. See `higgsfield-client.ts`'s header.
+ * VERIFIED TO EXIST — a live probe against `https://api.higgsfield.ai` with an
+ * unfunded API key hit `higgsfield-ai/soul/v2/standard` and got back HTTP 422
+ * (FastAPI-style `[{type:"missing",loc:["body","prompt"]}]`), which means the
+ * path resolves and request validation ran — a 404 `model_not_found` would
+ * mean the path doesn't exist. The plain (non-v2) tier,
+ * `higgsfield-ai/soul/standard`, ALSO returned 422/EXISTS and is a known-good
+ * fallback if v2 turns out to be the wrong tier for this account. `v2` is
+ * preferred here since it's the newer, presumably current Soul release.
+ *
+ * The earlier constant here (`ASSUMED_ENDPOINT`,
+ * `higgsfield/soul-cinematic/text-to-image`) was a guess built from the CLI's
+ * flat model id (`soul_cinematic`) and the wrong vendor segment — it 404s.
+ * The REST path shape is `/{vendor}/{model}/{tier}/{task?}` (a TIER segment,
+ * not a task verb — see e.g. `kling-video/v2.5-turbo/pro/image-to-video`),
+ * which is why every `.../text-to-image` guess for Soul was wrong.
+ *
+ * STILL UNVERIFIED: the REQUEST BODY beyond `prompt` being required — nothing
+ * first-party confirms `aspect_ratio` / `quality` / `image_references` /
+ * `soul-id` as REST body keys for this endpoint specifically (they're carried
+ * over from the CLI flag table for `soul_cinematic`, a different model). See
+ * `requiredEnv` below for why that gap still gates this adapter off even
+ * though the path itself is now confirmed live.
  */
-const ASSUMED_ENDPOINT = "higgsfield/soul-cinematic/text-to-image";
+const VERIFIED_ENDPOINT = "higgsfield-ai/soul/v2/standard";
 
 function configuredEndpoint(): string {
 	return webEnv.HIGGSFIELD_SOUL_ENDPOINT;
@@ -117,6 +134,20 @@ export const higgsfieldSoulBackend: GenerationBackend = {
 	vendor: "Higgsfield AI",
 	modality: "image",
 	safetyTier: "partner",
+	// JUDGMENT CALL: the endpoint path is now VERIFIED to exist (422, not 404 —
+	// see VERIFIED_ENDPOINT above), which could argue for dropping ENDPOINT_ENV
+	// from the gate and defaulting straight to it. Deliberately NOT doing that.
+	// A confirmed path with an UNCONFIRMED body schema is still a live endpoint
+	// we'd be POSTing guessed field names to — if Higgsfield's validation is
+	// lenient (extra/misnamed keys silently ignored rather than 422'd), that
+	// guess could be accepted and BILL A REAL CREDIT for a render built from the
+	// wrong parameters (wrong aspect ratio, wrong quality tier, dropped
+	// reference image). A 404 fails safe with no charge; a 200 on a wrong body
+	// does not. So the gate stays: an operator must still confirm the body shape
+	// (e.g. via the console or a support answer) and paste the endpoint into
+	// HIGGSFIELD_SOUL_ENDPOINT themselves before this adapter goes live. Revisit
+	// once the body schema is confirmed — at that point defaulting to
+	// VERIFIED_ENDPOINT and dropping this gate becomes the reasonable move.
 	requiredEnv: ["HIGGSFIELD_CREDENTIALS", ENDPOINT_ENV],
 	capabilities: {
 		sizes: ["1024x1024", "1536x1024", "1024x1536"],
@@ -146,7 +177,7 @@ export const higgsfieldSoulBackend: GenerationBackend = {
 		return submitHiggsfieldJob({
 			configuredEndpoint: configuredEndpoint(),
 			endpointEnvVar: ENDPOINT_ENV,
-			assumedEndpoint: ASSUMED_ENDPOINT,
+			assumedEndpoint: VERIFIED_ENDPOINT,
 			body: buildSubmitBody(req),
 			label: LABEL,
 		});

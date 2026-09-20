@@ -101,7 +101,7 @@ const webEnvSchema = z.object({
 	ANTHROPIC_API_KEY: z.string().default(""),
 	MOONSHOT_API_KEY: z.string().default(""),
 	// Model override for whichever Director brain is active. Empty = the
-	// route's built-in default (claude-opus-4-8 / kimi-k2.6).
+	// route's built-in default (claude-opus-5 / kimi-k2.6).
 	DIRECTOR_MODEL: z.string().default(""),
 
 	// Pexels stock-photo search (/api/images/search). Optional — callers may
@@ -145,13 +145,24 @@ const webEnvSchema = z.object({
 	//
 	// Higgsfield's public repos document the CLI surface (flat model ids like
 	// `gpt_image_2_5`); the adapters post to REST endpoint paths shaped
-	// `<vendor>/<model>/<task>`. Nothing first-party maps one to the other, so
-	// each adapter carries an UNVERIFIED best guess as documentation only. If
-	// the shared credential alone switched them on, configuring Higgsfield VIDEO
-	// would silently enlist three image backends with guessed URLs into the
-	// router — 404s in front of a customer. So an operator pastes the path they
-	// confirmed in the Higgsfield console into the matching var below, and the
-	// adapter stays inert until they do. Blank (the default) = that model off.
+	// `<vendor>/<model>/<tier>/<task?>` — a TIER segment (`standard`, `pro`,
+	// `v2/standard`), NOT a task verb. That shape was measured against the live
+	// API on 2026-09-19, which also settled which models the open REST API
+	// actually serves: it is a SUBSET of the CLI catalog. `higgsfield-ai/soul/
+	// v2/standard` EXISTS (422 = path resolved, validation ran), while every
+	// probed GPT Image, Nano Banana and Seed Audio path returned 404
+	// `model_not_found` — those appear to be CLI/console-only models with no
+	// open REST endpoint. Each adapter's own header comment carries its probe
+	// evidence. Soul's path is verified but its BODY schema is not, which is
+	// why the gate below still applies to it.
+	//
+	// If the shared credential alone switched them on, configuring Higgsfield
+	// VIDEO would silently enlist three image/audio backends into the router —
+	// and for GPT Image, Nano Banana and Seed Audio that is now a MEASURED 404,
+	// not a hypothetical one. The gate is what has kept those failures off
+	// customer surfaces. So an operator pastes a path they have confirmed into
+	// the matching var below, and the adapter stays inert until they do. Blank
+	// (the default) = that model off.
 	//
 	// Expected shapes (UNCONFIRMED — confirm in the console before setting):
 	//   openai/gpt-image-2.5/text-to-image

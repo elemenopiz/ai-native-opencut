@@ -1980,115 +1980,22 @@ export function toolCatalog(): ToolDescriptor[] {
 					minCut: numOrUndefined(a.minCut),
 				}),
 		},
-		// ── craft (P5 macros — free, instant edits on your OWN footage; no
-		// generation, no model call) ─────────────────────────────────────────
-		{
-			name: "cutOnBeat",
-			description:
-				"snap every cut point on a video track onto the nearest analyzed beat — free, instant, works on your own footage (no generation, no model call). Needs a beat grid already analyzed (the timeline's beat-snap toggle) and at least two cut-together clips on the target track to have a join to snap. Prefer this over manually nudging trim/move when the user wants cuts to feel musical.",
-			mutating: true,
-			inputSchema: {
-				type: "object",
-				properties: {
-					trackId: {
-						type: "string",
-						description:
-							"FULL track id to snap cuts on. Omit to use the main video track.",
-					},
-					toleranceSec: secs(
-						"a cut within this many seconds of a beat gets pulled onto it (default 0.15).",
-					),
-					minClipDurationSec: secs(
-						"never snap a cut if it would shrink either side below this duration (default 0.5).",
-					),
-				},
-				additionalProperties: false,
-			},
-			handler: (d, a) =>
-				d.cutOnBeat({
-					trackId: strOrUndefined(a.trackId),
-					toleranceSec: numOrUndefined(a.toleranceSec),
-					minClipDurationSec: numOrUndefined(a.minClipDurationSec),
-				}),
-		},
-		{
-			name: "tightenToLength",
-			description:
-				"shrink a cut-together sequence down to a target runtime — free, instant, works on your own footage (no generation, no model call). Shaves dead air / low-interest material first, then proportionally trims what's left; never trims into protected speech (protectSpeech, default true). If the target can't be fully reached, applies the best partial tighten and reports the shortfall instead of silently missing it.",
-			mutating: true,
-			inputSchema: {
-				type: "object",
-				properties: {
-					targetSec: secs(
-						"desired total runtime of the target track, in SECONDS.",
-					),
-					trackId: {
-						type: "string",
-						description:
-							"FULL track id to tighten. Omit to use the main video track.",
-					},
-					protectSpeech: {
-						type: "boolean",
-						description:
-							"never trim into detected speech (voiceover elements + transcribed dialogue). Default true.",
-					},
-					minClipDurationSec: secs(
-						"never trim an element below this duration (default 0.5).",
-					),
-					convergenceToleranceSec: secs(
-						'how close to targetSec counts as "reached" (default 0.25).',
-					),
-				},
-				required: ["targetSec"],
-			},
-			handler: (d, a) =>
-				d.tightenToLength({
-					targetSec: numOrZeroTime(a.targetSec),
-					trackId: strOrUndefined(a.trackId),
-					protectSpeech: boolOrUndefined(a.protectSpeech),
-					minClipDurationSec: numOrUndefined(a.minClipDurationSec),
-					convergenceToleranceSec: numOrUndefined(a.convergenceToleranceSec),
-				}),
-		},
-		{
-			name: "duckMusicUnderSpeech",
-			description:
-				"duck a music bed's volume under speech — free, instant, works on your own footage (no generation, no model call). Finds speech from voiceover clips and/or transcribed dialogue, then keyframes the music-bed element(s) down during it and back up cleanly after, with a built-in flutter guard between close-together lines. Needs at least one detectable speech source and one music-bed element already on the timeline (addMusicBed).",
-			mutating: true,
-			inputSchema: {
-				type: "object",
-				properties: {
-					duckDb: {
-						type: "number",
-						description:
-							"how far to duck, in dB relative to normal (default -12).",
-					},
-					attackSec: secs("ramp-down time once speech starts (default 0.15)."),
-					releaseSec: secs("ramp-back-up time once speech ends (default 0.4)."),
-					mergeGapSec: secs(
-						"speech gaps shorter than this are treated as one continuous interval (default 0.3).",
-					),
-					trackId: {
-						type: "string",
-						description:
-							"FULL audio track id to scope ducking to. Omit to duck every music-bed element on the timeline.",
-					},
-				},
-				additionalProperties: false,
-			},
-			handler: (d, a) =>
-				d.duckMusicUnderSpeech({
-					duckDb: numOrUndefined(a.duckDb),
-					attackSec: numOrUndefined(a.attackSec),
-					releaseSec: numOrUndefined(a.releaseSec),
-					mergeGapSec: numOrUndefined(a.mergeGapSec),
-					trackId: strOrUndefined(a.trackId),
-				}),
-		},
+		// ── mix perception (free, instant, no generation, no model call) ────
+		//
+		// `cutOnBeat`/`tightenToLength`/`duckMusicUnderSpeech` used to be
+		// catalog verbs here (the "P5 macros"). All three are RETIRED: each was
+		// proven op-for-op equivalent to a program over the ten primitives
+		// (`program/programs/*.program.test.ts`), so `applyEdit` now covers what
+		// they covered — e.g. `applyEdit({ program: "<a duck/tighten/beat-cut
+		// program>", mode: "apply" })` — with no separate verb to keep in sync.
+		// `removeSilence` (below) was investigated too and stays: it applies a
+		// whole-track rewrite (`TracksSnapshotCommand`) from an async file-decode
+		// analysis pass, neither of which this synchronous, primitive-composing
+		// engine can express.
 		{
 			name: "readMix",
 			description:
-				"HEAR the mix — MEASURE the assembled audio instead of guessing at it: overall loudness (LUFS + true peak), a sampled loudness curve, every stretch of dead air, and every window where a music bed is playing LOUDER than a proper duck under speech. Free, instant, no generation and no model call. The audio counterpart of watchBack (which shows you the picture). Use it before reaching for an audio verb — duckMusicUnderSpeech when overlaps are competing, removeSilence/tightenToLength when dead air is eating the runtime — and again after, to confirm the fix landed. Read-only: it measures, it never changes the timeline.",
+				"HEAR the mix — MEASURE the assembled audio instead of guessing at it: overall loudness (LUFS + true peak), a sampled loudness curve, every stretch of dead air, and every window where a music bed is playing LOUDER than a proper duck under speech. Free, instant, no generation and no model call. The audio counterpart of watchBack (which shows you the picture). Use it before reaching for an audio fix — applyEdit with a duck-style program when overlaps are competing, removeSilence or applyEdit with a tighten-style program when dead air is eating the runtime — and again after, to confirm the fix landed. Read-only: it measures, it never changes the timeline.",
 			// Read-only: decodes + measures, changes nothing on the reel → reel:read.
 			mutating: false,
 			inputSchema: {

@@ -1,6 +1,7 @@
 /**
  * Higgsfield IMAGE adapter tests — the three models plus the shared transport
- * in `higgsfield-client.ts`.
+ * in `../../higgsfield-client.ts` (hoisted out of this directory so the VIDEO
+ * adapter can use the same copy — see that file's header).
  *
  * Same idiom as `video/__tests__/higgsfield.test.ts`: mock `global.fetch` only
  * (restored in `afterEach`, since `mock.restore()` does NOT undo a direct
@@ -12,7 +13,7 @@
  * The availability tests are the load-bearing ones: these adapters share
  * `HIGGSFIELD_CREDENTIALS` with the already-shipping VIDEO backend, so "a
  * credential alone must NOT switch them on" is a real regression guard, not a
- * formality. See `higgsfield-client.ts` for why.
+ * formality. See `../../higgsfield-client.ts` for why.
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { webEnv } from "@byorn/env/web";
@@ -235,6 +236,35 @@ describe("higgsfield image adapters — transport", () => {
 		});
 		expect(result.status).toBe("failed");
 		expect(result.error).toMatch(/401/);
+	});
+
+	// VERIFIED shape: `higgsfield-ai/soul/v2/standard` answers 422 with a BARE
+	// ARRAY at the response root (FastAPI style), e.g.
+	// `[{"type":"missing","loc":["body","prompt"]}]` — not `{error}`/`{message}`
+	// and not even wrapped in an object. Before the shared client's error
+	// handling learned this shape, a Soul validation failure surfaced as a bare
+	// "Higgsfield validation error (422)" with no indication of what was wrong.
+	it("surfaces a helpful message for Soul's 422 FastAPI-array validation shape instead of a bare '(422)'", async () => {
+		configureAll();
+		stubFetch([{ type: "missing", loc: ["body", "prompt"] }], 422);
+		const result = await higgsfieldSoulBackend.submit({
+			modality: "image",
+			prompt: "x",
+		});
+		expect(result.status).toBe("failed");
+		expect(result.error).toMatch(/422/);
+		expect(result.error).toMatch(/prompt/);
+	});
+
+	it("never leaks the raw loc/type validation JSON into the returned error string", async () => {
+		configureAll();
+		stubFetch([{ type: "missing", loc: ["body", "prompt"] }], 422);
+		const result = await higgsfieldSoulBackend.submit({
+			modality: "image",
+			prompt: "x",
+		});
+		expect(result.error).not.toMatch(/"loc"/);
+		expect(result.error).not.toMatch(/"type"/);
 	});
 
 	it("reports a missing request_id as a failure rather than an empty pending job", async () => {

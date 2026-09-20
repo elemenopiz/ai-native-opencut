@@ -6,11 +6,14 @@
  * the undo/atomicity contract and the known gaps. Everything else in this
  * package is reachable from `runProgram`.
  *
- * NOT REGISTERED ANYWHERE ON PURPOSE. This package is importable and tested
- * but no tool catalog, phase scope or MCP surface references it yet — the
- * `applyEdit(program)` verb wiring is a separate, later change (same
- * "library-only until its own pass" discipline `craft/index.ts` and
- * `mix-read.ts` follow).
+ * REGISTERED as `applyEdit` (`director-api.ts`'s `applyEdit` function,
+ * `tool-catalog.ts`'s `applyEdit` entry, polish-phase in `phase-scope.ts`) —
+ * this package's own `runProgram` is that verb's entire implementation.
+ * `cutOnBeat`/`tightenToLength`/`duckMusicUnderSpeech` used to sit alongside
+ * `applyEdit` as their own frozen-macro verbs; each was proven op-for-op
+ * equivalent to a program over this package's primitive surface
+ * (`programs/*.program.test.ts`) and the three verbs were deleted, leaving
+ * `applyEdit` as the one composition verb that covers what they covered.
  */
 
 export type { Expr, PathStep, Program, Statement } from "./ast";

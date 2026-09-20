@@ -149,12 +149,31 @@ function requireSource<T>(
 
 // ---- projections ------------------------------------------------------------
 
+/**
+ * Own local mirror of `director-api.ts`'s `isLikelyVoiceoverElement` — same
+ * "own copy, not import" discipline that function's own docblock states
+ * (`director-api.ts` and this module are both pure-logic files that
+ * deliberately don't import from each other). Kept byte-identical on
+ * purpose: `speech()` below and `gatherSpeechIntervals`/`gatherMusicElements`
+ * must classify a voiceover element the SAME way, or a program's idea of
+ * "where the talking is" silently diverges from the verbs it is meant to
+ * have parity with.
+ */
+const VOICEOVER_NAME_PATTERN = /voiceover|voice[\s-]over|\bvoice\b|\bvo\b/i;
+
+function isLikelyVoiceoverElement(element: TimelineElement): boolean {
+	const generation = (element as { generation?: { kind?: string } }).generation;
+	if (generation) return generation.kind === "voiceover";
+	return VOICEOVER_NAME_PATTERN.test(element.name);
+}
+
 /** One timeline element, flattened into the closed value domain. Mirrors the fields `craft/cut-on-beat.ts`'s `CraftClip` needs, plus the identity/kind fields a program needs to pick targets. */
 function toClipValue(
 	track: TimelineTrack,
 	element: TimelineElement,
 ): ProgramValue {
 	const mediaId = (element as { mediaId?: string }).mediaId;
+	const isAudio = element.type === "audio";
 	return {
 		id: element.id,
 		trackId: track.id,
@@ -171,6 +190,18 @@ function toClipValue(
 		// slot-only targeting (see `primitives.ts`'s TARGETING CAVEAT) makes it
 		// the difference between a trim that lands and one that fails.
 		isSlot: Boolean((element as { generation?: unknown }).generation),
+		// Audio-only role flags, same classification `director-api.ts`'s
+		// `isLikelyVoiceoverElement`/`isMusicElement` use for
+		// `duckMusicUnderSpeech`'s ducking targets and `gatherSpeechIntervals`'s
+		// voiceover branch — surfaced so a program can pick music-bed elements
+		// (`isMusic`) the same way that verb does, without a regex the program
+		// language has no way to express.
+		...(isAudio
+			? {
+					isVoiceover: isLikelyVoiceoverElement(element),
+					isMusic: !isLikelyVoiceoverElement(element),
+				}
+			: {}),
 		...(mediaId ? { mediaId } : {}),
 	};
 }
@@ -194,7 +225,9 @@ export function listAvailableDerivedAccessors(
 	const available: string[] = [];
 	if (hasTracks) available.push("clips", "scenes", "tracks");
 	if (hasTracks && sources.beatGrid) available.push("beats");
-	if (hasTracks && sources.transcripts) available.push("speech");
+	// `speech()` answers with tracks alone (voiceover-element spans need no
+	// transcript); `sources.transcripts` only adds the transcript-derived half.
+	if (hasTracks) available.push("speech");
 	if (sources.words) available.push("words");
 	if (sources.pcm) available.push("loudness");
 	return available.sort();
@@ -293,24 +326,38 @@ export function createDerivedDataFunctions(
 		},
 
 		/**
-		 * Speech spans in TIMELINE time, projected from each clip's transcript
-		 * through its trim window — the same projection `gatherSpeechIntervals`
-		 * performs for `duckMusicUnderSpeech`/`tightenToLength`, so a program's
-		 * idea of "where the talking is" matches those verbs' exactly.
+		 * Speech spans in TIMELINE time, gathered the same TWO ways
+		 * `director-api.ts`'s `gatherSpeechIntervals` does, so a program's idea
+		 * of "where the talking is" matches that verb (and `duckMusicUnderSpeech`
+		 * / `tightenToLength`, which both plan against it) exactly:
+		 *  1. A voiceover-shaped audio element's own span IS speech, no
+		 *     transcript needed — `text`/`clipId` on that entry are omitted
+		 *     (there is no transcript segment backing it), only `mediaId` when
+		 *     the element has one.
+		 *  2. Transcript-derived spans, for any element with a resolvable
+		 *     `mediaId` + a cached transcript — requires `sources.transcripts`;
+		 *     silently contributes nothing when that source isn't wired, same
+		 *     as `gatherSpeechIntervals`'s own `options.transcripts` being
+		 *     optional.
 		 */
 		speech: (args) => {
 			const bag = optionsArg("speech", args);
 			const trackId = stringField("speech", bag, "trackId", false);
-			const lookup = requireSource(
-				sources.transcripts,
-				"speech",
-				"no transcript pass is wired into this program run.",
-			);
+			const lookup = sources.transcripts;
 			const out: ProgramValue[] = [];
 			for (const track of scopedTracks("speech", trackId)) {
 				for (const element of track.elements) {
 					const mediaId = (element as { mediaId?: string }).mediaId;
-					if (!mediaId) continue;
+					if (element.type === "audio" && isLikelyVoiceoverElement(element)) {
+						out.push({
+							startSec: element.startTime,
+							endSec: roundSec(element.startTime + element.duration),
+							clipId: element.id,
+							...(mediaId ? { mediaId } : {}),
+						});
+						continue;
+					}
+					if (!mediaId || !lookup) continue;
 					const transcript = lookup(mediaId);
 					if (!transcript) continue;
 					for (const segment of transcript.segments) {

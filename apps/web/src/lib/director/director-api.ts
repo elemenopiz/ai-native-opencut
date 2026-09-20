@@ -49,17 +49,11 @@ import {
 	canElementHaveAudio,
 	isVisualElement,
 } from "@/lib/timeline/element-utils";
-import { getMainTrack } from "@/lib/timeline/track-utils";
 import { sourceRangeToTimelineRange } from "@/lib/timeline/audio-sync-utils";
 import {
-	cutOnBeat as planCutOnBeat,
-	duckMusicUnderSpeech as planDuckMusicUnderSpeech,
-	tightenToLength as planTightenToLength,
 	type CraftBeatMarker,
-	type CraftClip,
 	type CraftOp,
 	type DuckMusicElement,
-	type TightenElementInput,
 	type TimeRangeSec,
 } from "./craft";
 import {
@@ -865,9 +859,10 @@ const fail = <T = undefined>(message: string): DirectorResult<T> => ({
  * over nothing but its own arguments — pure, and directly unit-testable
  * without constructing a full `DirectorApi`/editor (see
  * `director-draft-cut.test.ts`). Every PRE-EXISTING `executeCraftPlan` caller
- * (`cutOnBeat`/`tightenToLength`/`duckMusicUnderSpeech`) addresses only real,
- * already-placed element ids and never emits a pending-ref token, so this
- * resolution pass is a no-op for them — purely additive.
+ * (`cutOnBeat`/`tightenToLength`/`duckMusicUnderSpeech`, back when those were
+ * their own verbs, and `story/assembly.ts`'s `planAssembly` today) addresses
+ * only real, already-placed element ids and never emits a pending-ref token,
+ * so this resolution pass is a no-op for them — purely additive.
  */
 export function resolvePendingRefsInArgs(
 	args: Record<string, unknown>,
@@ -2536,10 +2531,10 @@ export function createDirectorApi(
 	 * op `runStoryEngine`'s assembly stage produces is applied through
 	 * `executeCraftPlan` (pending-ref-aware — see its own doc comment), the
 	 * SAME transaction primitive `cutOnBeat`/`tightenToLength`/
-	 * `duckMusicUnderSpeech` use, so it inherits that function's rollback
-	 * semantics verbatim (a partial-apply failure leaves already-applied ops on
-	 * the live timeline, un-recorded as one undo step — call `getTimeline` to
-	 * check).
+	 * `duckMusicUnderSpeech` used back when those were their own verbs, so it
+	 * inherits that function's rollback semantics verbatim (a partial-apply
+	 * failure leaves already-applied ops on the live timeline, un-recorded as
+	 * one undo step — call `getTimeline` to check).
 	 *
 	 * Deps wired here: the standing `DirectorBrief` + the P1 preference-
 	 * defaults read for brief resolution; the real media library plus
@@ -5998,14 +5993,20 @@ export function createDirectorApi(
 		return isSlotElement(located.element) ? withDelta(before, result) : result;
 	}
 
-	// ---- CRAFT (P5 macros — lib/director/craft/*) --------------------------
+	// ---- CRAFT (lib/director/craft/* — the CraftOp EXECUTOR) ---------------
 	//
-	// Wires the pure, deterministic "craft" planners (cutOnBeat/tightenToLength/
-	// duckMusicUnderSpeech — `lib/director/craft/index.ts`) into agent-reachable
-	// verbs. Each macro is a PLANNER ONLY (see `craft/types.ts`'s `CraftOp` doc
-	// comment) — it never touches the editor. This section is the EXECUTOR
-	// half: gather a read-only digest off the live timeline, call the macro,
-	// then apply the returned `CraftOp[]` plan through `executeCraftPlan`.
+	// `cutOnBeat`/`tightenToLength`/`duckMusicUnderSpeech` used to be wired here
+	// as their own agent-reachable verbs, gathering a read-only digest off the
+	// live timeline, calling their pure "craft" planner, then applying the
+	// returned `CraftOp[]` plan through `executeCraftPlan` below. All three were
+	// retired (see the comment just above `gatherMusicElements`'s neighbor
+	// below): each is now proven op-for-op equivalent to a program over the ten
+	// primitives, reachable through `applyEdit`. This section's EXECUTOR half —
+	// `executeCraftPlan`/`executeCraftOp` and friends — stays: the Story
+	// Engine's `planAssembly` (`story/assembly.ts`) still calls `cutOnBeat`
+	// (the pure planner, `lib/director/craft/cut-on-beat.ts` — unaffected, only
+	// the VERB was retired) directly and hands `draftCut` its `CraftOp[]` plan
+	// to apply through the same `executeCraftPlan`.
 	//
 	// TARGETING: `trim`/`move` above resolve their target via `findSlot` — REEL
 	// SLOTS ONLY (a generative image/video element). A craft plan's `CraftOp`s
@@ -6233,7 +6234,7 @@ export function createDirectorApi(
 		});
 	}
 
-	// ── shared digest gatherers (cutOnBeat / tightenToLength / duckMusicUnderSpeech) ──
+	// ── shared digest gatherers (readMix; formerly also cutOnBeat/tightenToLength/duckMusicUnderSpeech, now retired) ──
 
 	/**
 	 * Own local mirror of `hooks/use-auto-duck.ts`'s `isVoiceoverElement` — same
@@ -6317,262 +6318,16 @@ export function createDirectorApi(
 		return out;
 	}
 
-	/** Resolve the target track for `cutOnBeat`/`tightenToLength`: an explicit
-	 *  `trackId`, else the main video track, else the first video track. */
-	function resolveCraftTrack(trackId?: string): TimelineTrack | undefined {
-		const tracks = editor.timeline.getTracks();
-		if (trackId) return tracks.find((t) => t.id === trackId);
-		return getMainTrack({ tracks }) ?? tracks.find((t) => t.type === "video");
-	}
-
-	/**
-	 * Snap every cut-together join on a video track onto the nearest analyzed
-	 * beat (`lib/director/craft/cut-on-beat.ts`) — free, instant, editing on
-	 * your own footage (no generation, no model call). Needs a beat grid
-	 * already analyzed and at least two clips on the target track to have a
-	 * join to snap. `trackId` defaults to the main video track. Executes the
-	 * whole plan as ONE undo step.
-	 */
-	function cutOnBeat(input: {
-		trackId?: string;
-		toleranceSec?: number;
-		minClipDurationSec?: number;
-	}): DirectorResult<{
-		opsApplied: number;
-		snappedCount: number;
-		skippedCount: number;
-	}> {
-		const grid = useBeatGridStore.getState().grid;
-		if (!grid) {
-			return fail(
-				"cutOnBeat needs an analyzed beat grid to snap cuts to — analyze a music/audio clip's beats first (the timeline's beat-snap toggle), then retry.",
-			);
-		}
-
-		const tracks = editor.timeline.getTracks();
-		const track = resolveCraftTrack(input.trackId);
-		if (!track) {
-			return fail(
-				input.trackId
-					? `No track with id "${input.trackId}".`
-					: "No video track on the timeline to cut on beat.",
-			);
-		}
-		if (track.elements.length < 2) {
-			return fail(
-				`Track "${track.id}" has fewer than two clips — cutOnBeat needs at least two cut-together clips to have a join to snap.`,
-			);
-		}
-
-		const before = captureReel();
-		const sorted = [...track.elements].sort(
-			(a, b) => a.startTime - b.startTime,
-		);
-		const clips: CraftClip[] = sorted.map((el) => ({
-			elementId: el.id,
-			startSec: el.startTime,
-			durationSec: el.duration,
-			trimStart: el.trimStart,
-		}));
-		const beats: CraftBeatMarker[] = getTimelineBeatMarkers({ tracks, grid });
-
-		const plan = planCutOnBeat(clips, beats, {
-			toleranceSec: input.toleranceSec,
-			minClipDurationSec: input.minClipDurationSec,
-		});
-		if (plan.reason) {
-			return fail(`cutOnBeat: ${plan.reason}.`);
-		}
-		if (plan.ops.length === 0) {
-			return ok(
-				"No cuts needed snapping — every join is already on the beat (within tolerance).",
-				{ opsApplied: 0, snappedCount: 0, skippedCount: plan.skipped.length },
-			);
-		}
-
-		const exec = executeCraftPlan(plan.ops);
-		if (!exec.ok) return fail(exec.message);
-
-		return withDelta(
-			before,
-			ok(
-				`Snapped ${plan.ops.length} cut(s) onto the beat grid.` +
-					(plan.skipped.length > 0
-						? ` ${plan.skipped.length} join(s) left alone (already on beat or out of tolerance).`
-						: ""),
-				{
-					opsApplied: exec.data?.opsApplied ?? plan.ops.length,
-					snappedCount: plan.ops.length,
-					skippedCount: plan.skipped.length,
-				},
-			),
-		);
-	}
-
-	/**
-	 * Shrink a cut-together sequence down to a target runtime
-	 * (`lib/director/craft/tighten-to-length.ts`) — free, instant, editing on
-	 * your own footage. Shaves low-interest material first, then
-	 * proportionally trims what's left; never trims into protected speech
-	 * (`protectSpeech`, default true). `trackId` defaults to the main video
-	 * track. If the target can't be fully reached, still applies the best
-	 * partial tighten and reports the shortfall — never silently misses the
-	 * target. Executes the whole plan as ONE undo step.
-	 */
-	function tightenToLength(input: {
-		targetSec: number;
-		trackId?: string;
-		protectSpeech?: boolean;
-		minClipDurationSec?: number;
-		convergenceToleranceSec?: number;
-	}): DirectorResult<{
-		opsApplied: number;
-		projectedDurationSec: number;
-		shortfallSec?: number;
-	}> {
-		if (!Number.isFinite(input.targetSec) || input.targetSec < 0) {
-			return fail("tightenToLength requires a non-negative `targetSec`.");
-		}
-
-		const track = resolveCraftTrack(input.trackId);
-		if (!track) {
-			return fail(
-				input.trackId
-					? `No track with id "${input.trackId}".`
-					: "No video track on the timeline to tighten.",
-			);
-		}
-		if (track.elements.length === 0) {
-			return fail(`Track "${track.id}" has no clips to tighten.`);
-		}
-
-		const before = captureReel();
-		const sorted = [...track.elements].sort(
-			(a, b) => a.startTime - b.startTime,
-		);
-		const elements: TightenElementInput[] = sorted.map((el) => ({
-			elementId: el.id,
-			startSec: el.startTime,
-			durationSec: el.duration,
-		}));
-
-		const protectSpeech = input.protectSpeech ?? true;
-		const protectedRanges = protectSpeech ? gatherSpeechIntervals() : [];
-
-		const plan = planTightenToLength({
-			elements,
-			targetDurationSec: input.targetSec,
-			protectedRanges,
-			minClipDurationSec: input.minClipDurationSec,
-			convergenceToleranceSec: input.convergenceToleranceSec,
-		});
-
-		const targetLabel = input.targetSec.toFixed(1);
-
-		if (plan.ops.length === 0) {
-			if (plan.shortfall) {
-				return ok(
-					`Nothing to trim — ${plan.shortfall.reason}. Currently ${plan.projectedDurationSec.toFixed(1)}s, target ${targetLabel}s.`,
-					{
-						opsApplied: 0,
-						projectedDurationSec: plan.projectedDurationSec,
-						shortfallSec: plan.shortfall.deltaSec,
-					},
-				);
-			}
-			return ok(
-				`Already at or under the ${targetLabel}s target — nothing to trim.`,
-				{ opsApplied: 0, projectedDurationSec: plan.projectedDurationSec },
-			);
-		}
-
-		const exec = executeCraftPlan(plan.ops);
-		if (!exec.ok) return fail(exec.message);
-
-		const shortfallNote = plan.shortfall
-			? ` Reached ${plan.projectedDurationSec.toFixed(1)}s — ${plan.shortfall.deltaSec.toFixed(1)}s short of the ${targetLabel}s target (${plan.shortfall.reason}).`
-			: ` Now ${plan.projectedDurationSec.toFixed(1)}s.`;
-
-		return withDelta(
-			before,
-			ok(`Tightened with ${plan.ops.length} operation(s).${shortfallNote}`, {
-				opsApplied: exec.data?.opsApplied ?? plan.ops.length,
-				projectedDurationSec: plan.projectedDurationSec,
-				shortfallSec: plan.shortfall?.deltaSec,
-			}),
-		);
-	}
-
-	/**
-	 * Duck a music bed's volume under speech
-	 * (`lib/director/craft/duck-music-under-speech.ts`) — free, instant,
-	 * editing on your own footage. Finds speech from voiceover clips and/or
-	 * transcribed dialogue (`gatherSpeechIntervals`), then keyframes the
-	 * music-bed element(s) down during it and back up cleanly after, with a
-	 * built-in flutter guard between close-together lines. Executes via the
-	 * widened `animateItem` volume path, as ONE undo step.
-	 */
-	function duckMusicUnderSpeech(input: {
-		duckDb?: number;
-		attackSec?: number;
-		releaseSec?: number;
-		mergeGapSec?: number;
-		trackId?: string;
-	}): DirectorResult<{
-		opsApplied: number;
-		elementsAffected: number;
-		mergedIntervalCount: number;
-	}> {
-		const speechIntervals = gatherSpeechIntervals();
-		if (speechIntervals.length === 0) {
-			return fail(
-				"duckMusicUnderSpeech needs speech to duck under — add a voiceover clip or transcribe your footage first.",
-			);
-		}
-
-		const musicElements = gatherMusicElements(input.trackId);
-		if (musicElements.length === 0) {
-			return fail(
-				input.trackId
-					? `No music-bed elements on track "${input.trackId}" to duck.`
-					: "No music bed on the timeline to duck — add one with addMusicBed first.",
-			);
-		}
-
-		const before = captureReel();
-		const plan = planDuckMusicUnderSpeech(speechIntervals, musicElements, {
-			duckAmountDb: input.duckDb,
-			attackSec: input.attackSec,
-			releaseSec: input.releaseSec,
-			mergeGapSec: input.mergeGapSec,
-		});
-
-		if (plan.ops.length === 0) {
-			return ok(
-				"No overlap between the music bed(s) and any speech — nothing to duck.",
-				{
-					opsApplied: 0,
-					elementsAffected: 0,
-					mergedIntervalCount: plan.mergedIntervalCount,
-				},
-			);
-		}
-
-		const exec = executeCraftPlan(plan.ops);
-		if (!exec.ok) return fail(exec.message);
-
-		return withDelta(
-			before,
-			ok(
-				`Ducked ${plan.ops.length} music element(s) under ${plan.mergedIntervalCount} speech interval(s).`,
-				{
-					opsApplied: exec.data?.opsApplied ?? plan.ops.length,
-					elementsAffected: plan.ops.length,
-					mergedIntervalCount: plan.mergedIntervalCount,
-				},
-			),
-		);
-	}
+	// cutOnBeat/tightenToLength/duckMusicUnderSpeech (P5 craft macro verbs) were
+	// retired here: each was proven op-for-op equivalent to a program over the
+	// ten primitives (program/programs/cut-on-beat.ts,
+	// program/programs/tighten-to-length.ts,
+	// program/programs/duck-music-under-speech.ts — see their parity test
+	// files), so `applyEdit` now covers what they covered with no separate
+	// verb. `executeCraftPlan`/`executeCraftOp` and the gatherers above stay:
+	// the Story Engine's `planAssembly` (story/assembly.ts) still emits
+	// `CraftOp[]` plans through the same executor, and `readMix` still reads
+	// `gatherSpeechIntervals`/`gatherMusicElements`.
 
 	// ---- READ MIX (audio perception) ---------------------------------------
 	//
@@ -6822,7 +6577,7 @@ export function createDirectorApi(
 		notes.push(
 			analysis.deadAir.length === 0
 				? "no dead air"
-				: `${analysis.deadAir.length} dead-air stretch(es) totalling ${deadAirTotalSec}s (removeSilence / tightenToLength)`,
+				: `${analysis.deadAir.length} dead-air stretch(es) totalling ${deadAirTotalSec}s (removeSilence, or applyEdit with a tighten-style program)`,
 		);
 		if (analysis.overlaps.length === 0) {
 			notes.push("no music playing under speech");
@@ -6832,7 +6587,7 @@ export function createDirectorApi(
 			);
 		} else {
 			notes.push(
-				`${competing.length} of ${analysis.overlaps.length} music/speech overlap(s) measure louder than a proper duck (duckMusicUnderSpeech)`,
+				`${competing.length} of ${analysis.overlaps.length} music/speech overlap(s) measure louder than a proper duck (applyEdit with a duck-style program)`,
 			);
 		}
 
@@ -7388,17 +7143,19 @@ export function createDirectorApi(
 		updateText,
 		// motion
 		animateItem,
-		// craft (P5 macros — lib/director/craft/*)
-		cutOnBeat,
-		tightenToLength,
-		duckMusicUnderSpeech,
-		// audio perception (lib/director/mix-read.ts) — the read the craft
-		// macros above should be chosen from, rather than guessed at.
+		// audio perception (lib/director/mix-read.ts) — the read to plan an
+		// applyEdit program from, rather than guessing.
 		readMix,
 		// program engine (lib/director/program/*) — the composition verb that
-		// subsumes cutOnBeat and the rest of the craft trio (see phase-scope.ts's
-		// PHASE_TOOL_ASSIGNMENTS comment on applyEdit for the deletion-candidate
-		// reasoning).
+		// SUBSUMED cutOnBeat/tightenToLength/duckMusicUnderSpeech (each proven
+		// op-for-op equivalent to a program over the ten primitives — see
+		// program/programs/*.program.test.ts) and REPLACED them; those three
+		// verbs are deleted (see phase-scope.ts's PHASE_TOOL_ASSIGNMENTS history
+		// for the deletion record). removeSilence was investigated too and left
+		// in place: it plans through `TracksSnapshotCommand`, not a `CraftOp[]`
+		// sequence, and its detection pass (`analyzeMediaSilence`) is an async
+		// file decode this SYNCHRONOUS-only engine cannot run — not expressible
+		// without inventing new async + whole-track-rewrite capability.
 		applyEdit,
 		// AI cleanup
 		removeBackground,

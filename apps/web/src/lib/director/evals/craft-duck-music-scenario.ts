@@ -1,20 +1,26 @@
 /**
- * `duckMusicUnderSpeech` (P5 craft macro) end to end through the real agent
- * loop — same "this must survive becoming a program" rationale as
- * `craft-cut-on-beat-scenario.ts`'s header (read that file's header for the
- * full architecture-doc citation; not repeated verbatim here).
+ * `duckMusicUnderSpeech` end to end through the real agent loop, run as an
+ * `applyEdit` PROGRAM rather than the old frozen macro verb — same "this must
+ * survive becoming a program" rationale as `craft-cut-on-beat-scenario.ts`'s
+ * header (read that file's header for the full architecture-doc citation;
+ * not repeated verbatim here). `duckMusicUnderSpeech` was proven equivalent
+ * to a program over the primitive surface (`program/programs/duck-music-
+ * under-speech.ts`, `duck-music-under-speech.program.test.ts`) and the verb
+ * was deleted; THIS scenario is that eval "moved" rather than deleted.
  *
  * THE ASSERTION RULE, applied: every correctness assertion reads the
  * RESULTING volume-keyframe curve on the music element — never "was
- * `duckMusicUnderSpeech` called." `mustCallVerbs` in `expect` is the one
- * necessary exception, for the same "prove the scripted call actually ran"
- * reason the sibling craft scenarios document.
+ * `duckMusicUnderSpeech` called" (there is no such verb anymore).
+ * `mustCallVerbs` in `expect` is the one necessary exception, for the same
+ * "prove the scripted call actually ran" reason the sibling craft scenarios
+ * document.
  *
  * FIXTURE: a voiceover-shaped audio clip spanning [2s, 5s] (detected as
  * speech via `isLikelyVoiceoverElement`'s name pattern — no transcript
- * needed, see `director-api.ts`'s `gatherSpeechIntervals`) plus a 10s music
- * bed spanning the whole timeline. Default duck options (-12dB, 0.15s
- * attack, 0.4s release) give an EXACT, hand-computable keyframe curve:
+ * needed, see `director-api.ts`'s `gatherSpeechIntervals` and the same
+ * classification `program/derived-data.ts`'s `speech()` now mirrors) plus a
+ * 10s music bed spanning the whole timeline. Default duck options (-12dB,
+ * 0.15s attack, 0.4s release) give an EXACT, hand-computable keyframe curve:
  *   1.85s → 1.0   (fade-in start:  2.0 - 0.15 attack)
  *   2.00s → duck   (speech starts)
  *   5.00s → duck   (still ducked: speech ends exactly at 5.0)
@@ -24,6 +30,7 @@
 
 import { createDirectorApi } from "../director-api";
 import { makeFakeEditor } from "../fake-editor";
+import { DUCK_MUSIC_UNDER_SPEECH_PROGRAM } from "../program/programs/duck-music-under-speech";
 import {
 	closeTurn,
 	insertClip,
@@ -99,25 +106,23 @@ export const duckMusicScenario: EvalScenario = {
 	id: "duck-music-under-voiceover",
 	description:
 		'A voiceover clip + a full-length music bed + "duck the music under the ' +
-		'voiceover": duckMusicUnderSpeech must keyframe the music bed down for ' +
-		"exactly the speech span (with attack/release ramps) and leave the " +
-		"voiceover clip itself untouched — asserted on the resulting keyframe " +
-		"curve, not on the verb name.",
+		'voiceover": the duck-music-under-speech program (applyEdit) must ' +
+		"keyframe the music bed down for exactly the speech span (with " +
+		"attack/release ramps) and leave the voiceover clip itself untouched — " +
+		"asserted on the resulting keyframe curve, not on the verb name.",
 	userMessage: "duck the music under my voiceover",
 	setup: setupDuckMusicProject,
 	turns: () => [
-		toolTurn(
-			"Ducking the music bed under the voiceover.",
-			"t1",
-			"duckMusicUnderSpeech",
-			{},
-		),
+		toolTurn("Ducking the music bed under the voiceover.", "t1", "applyEdit", {
+			program: DUCK_MUSIC_UNDER_SPEECH_PROGRAM,
+			mode: "apply",
+		}),
 		closeTurn(
 			"Ducked the music under your voiceover — should sit cleanly now.",
 		),
 	],
 	expect: {
-		mustCallVerbs: ["duckMusicUnderSpeech"],
+		mustCallVerbs: ["applyEdit"],
 		// The music/voiceover clips' own spans (10s bed, speech ending at 5s)
 		// bound the timeline — ducking never changes any element's timing.
 		durationBoundsSec: [MUSIC_DURATION_SEC, MUSIC_DURATION_SEC],

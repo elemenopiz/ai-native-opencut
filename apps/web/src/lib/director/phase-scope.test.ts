@@ -204,7 +204,7 @@ test("every phase includes the always-on core", () => {
 	}
 });
 
-test("per-phase active counts stay generous but bounded (15–35)", () => {
+test("per-phase active counts stay generous but bounded (15–32)", () => {
 	// Target is 15–22 (Google's 10–20 guidance, buckets deliberately generous).
 	// Polish is REQUIRED to carry the full timeline/text/audio surface plus
 	// export/approveFinalCut/voice verbs plus generate+reroll on top of the
@@ -237,50 +237,45 @@ test("per-phase active counts stay generous but bounded (15–35)", () => {
 	//  - 33 → 34, readMix. Same argument on the audio half (§4 of that doc):
 	//    polish owns duckMusicUnderSpeech/removeSilence/tightenToLength/
 	//    addMusicBed, and readMix is the only verb that MEASURES the mix those
-	//    act on (its overlap windows are merged with duckMusicUnderSpeech's own
-	//    DEFAULT_MERGE_GAP_SEC precisely so a read lines up with what a duck
-	//    would produce). A remedy on the menu with no way to diagnose what it
-	//    should remedy is the same gap as an edit with no way to see it.
-	// Both are READS: they add no new mutation surface, only sight. Polish is
-	// now clearly past Google's 10–20 guidance and should be REBALANCED (some
-	// rarely-used polish verbs moved or consolidated) rather than nudged again
-	// — treat the next +1 as a prompt to do that work, not to edit this number.
+	//    act on. A remedy on the menu with no way to diagnose what it should
+	//    remedy is the same gap as an edit with no way to see it.
+	// Both are READS: they add no new mutation surface, only sight.
 	//
-	// It got nudged anyway, once — 34 → 35, for `applyEdit` (Wave 2A, the
-	// program-engine composition verb, `lib/director/program/*`). Read this as
-	// the promised rebalance's PRECONDITION landing, not a reneg on the warning
-	// above: `applyEdit` is a MUTATION verb (the case the warning specifically
-	// called out), but it is not a NEW mutation SURFACE — every op it can
-	// perform is one of the ten primitives (trim/move/split/reorder/remove/
-	// addClip/addText/applyTransition/applyEffect/animateItem) already in this
-	// exact bucket, individually. It has to sit alongside them (a program can
-	// only reach what its own phase already grants one call at a time) or it
-	// would be reachable from a phase that couldn't otherwise touch those
-	// primitives — worse than the count going up by one.
+	// It got nudged once more — 34 → 35, for `applyEdit` (Wave 2A, the
+	// program-engine composition verb, `lib/director/program/*`) — landing
+	// TEMPORARILY alongside the three P5 craft macros it was designed to
+	// subsume, on the explicit written promise that "the honest expectation is
+	// that a LATER pass deletes them". `applyEdit` itself added no new
+	// mutation SURFACE — every op it can perform is one of the ten primitives
+	// already in this bucket, individually — but sitting next to the macros it
+	// subsumed was never the end state.
 	//
-	// The honest fix — the one this comment keeps deferring — is DELETION, not
-	// rebalancing: `applyEdit` is a COMPOSITION verb that SUBSUMES macro verbs,
-	// so it should eventually SHRINK this bucket below 34, not sit next to
-	// what it subsumes. `cutOnBeat` is PROVEN equivalent to a program already
-	// (`program/programs/cut-on-beat.ts`, op-for-op identical on 10 fixtures —
-	// `cut-on-beat.program.test.ts`) — a clean deletion candidate once its own
-	// evals are re-pointed at the program form. `tightenToLength` and
-	// `duckMusicUnderSpeech` are PLAUSIBLE candidates (both compose only from
-	// primitives already in this closed surface — trim/move for the former,
-	// animateItem keyframes for the latter — over the same `speech()`/
-	// `loudness()` derived-data reads their macros already consume) but are
-	// NOT proven equivalent the way cutOnBeat is, so they are not deleted here
-	// either. Parity first, deletion later: this pass adds `applyEdit`
-	// alongside all three macros, deletes nothing, and leaves that
-	// consolidation — which would take the bucket back under 34 — as the
-	// concrete next step this ceiling is still waiting on.
+	// That later pass is THIS one. `cutOnBeat`, `tightenToLength` and
+	// `duckMusicUnderSpeech` are each now proven op-for-op equivalent to a
+	// program over the primitive surface (`program/programs/
+	// {cut-on-beat,tighten-to-length,duck-music-under-speech}.ts`, each with
+	// its own `*.program.test.ts` parity suite) and are DELETED — from this
+	// table, `tool-catalog.ts`, and `director-api.ts`. The bound drops
+	// 35 → 32 (the craft trio's own +3 from above, undone); `applyEdit` stays
+	// (it is the replacement, not one of the deleted three).
+	// `removeSilence` was investigated for the same treatment and STAYS
+	// undeleted: it plans through a whole-track `TracksSnapshotCommand` (not a
+	// `CraftOp[]`/primitive sequence) built from an async file-decode analysis
+	// pass this synchronous-only program engine cannot run — not expressible
+	// without inventing new capability the brief for this pass explicitly said
+	// not to force.
+	//
+	// Polish is still past Google's 10–20 guidance (32, vs. briefing/
+	// production's high-20s) — the still-open REBALANCE this comment has
+	// flagged since the ceiling first crossed 30 remains the honest next step
+	// if it grows again, not another nudge.
 	for (const phase of PHASES) {
 		const count = activeToolNamesForPhase(phase).length;
 		expect(
 			count,
 			`${phase} bucket too small (${count})`,
 		).toBeGreaterThanOrEqual(15);
-		expect(count, `${phase} bucket too fat (${count})`).toBeLessThanOrEqual(35);
+		expect(count, `${phase} bucket too fat (${count})`).toBeLessThanOrEqual(32);
 	}
 });
 

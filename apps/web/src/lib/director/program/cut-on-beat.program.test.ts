@@ -15,10 +15,16 @@
  *     matching it. Several fixtures, each exercising a different branch the
  *     macro has an opinion about (tie-breaking, the min-duration floor, the
  *     two-joins-one-clip merge, gaps, already-on-beat no-ops).
- *  2. APPLIED PARITY (real `DirectorApi`, real `CommandManager`). The verb
- *     and the program are each run against an identical live timeline and the
- *     resulting element geometry is compared, plus the claim that a whole
- *     program run collapses to ONE undo entry.
+ *  2. APPLIED PARITY (real `DirectorApi`, real `CommandManager`). The program
+ *     is run against a live timeline and the resulting element geometry is
+ *     pinned against literal expectations, plus the claim that a whole
+ *     program run collapses to ONE undo entry. This used to diff the
+ *     program's result against the live `cutOnBeat` VERB's result on an
+ *     identical fixture — the strongest form of the claim — until PLAN
+ *     PARITY above was accepted as proof enough to delete that verb
+ *     (`director-api.ts`'s CRAFT section header has the deletion note); the
+ *     pinned expectations below are the geometry that verb-vs-program diff
+ *     last confirmed.
  *
  * The applied half uses GENERATIVE slots deliberately: `director-api.ts`'s
  * public `trim` resolves through `findSlot`, so plain placed footage is not
@@ -470,25 +476,19 @@ function geometryOf(
 	});
 }
 
-describe("cutOnBeat as a program — applied parity against the live verb", () => {
-	it("the verb and the program leave an identical timeline, each as ONE undo entry", () => {
-		// -- the verb --
-		const viaVerb = seedAppliedFixture();
-		const verbApi = createDirectorApi(viaVerb.fake.editor);
-		const historyBeforeVerb = viaVerb.fake.editor.command.getHistoryLength();
-		const verbResult = verbApi.cutOnBeat({});
-		expect(verbResult.ok).toBe(true);
-		expect(viaVerb.fake.editor.command.getHistoryLength()).toBe(
-			historyBeforeVerb + 1,
-		);
-		const verbGeometry = geometryOf(viaVerb.fake, [
-			viaVerb.left,
-			viaVerb.right,
-		]);
-		restoreGetInstance?.();
-		restoreGetInstance = undefined;
-
-		// -- the program --
+describe("cutOnBeat as a program — applied, against a live editor", () => {
+	it("the program leaves the exact timeline the (now-retired) verb used to, as ONE undo entry", () => {
+		// This test used to run BOTH the live `cutOnBeat` verb and the program
+		// against identical fixtures and diff their resulting geometry — the
+		// strongest form of the parity claim. The verb is now deleted (see
+		// `director-api.ts`'s CRAFT section header): it was proven op-for-op
+		// equivalent to this program (the PLAN PARITY suite above) and the
+		// deletion followed. Per the brief's own rule for evals asserting a
+		// deleted verb ("move to asserting the program produces the same
+		// result, not simply be deleted"), the comparison below is now against
+		// the exact geometry the verb produced when this test last ran with it
+		// — pinned as literal expectations, not a live diff against code that
+		// no longer exists.
 		const viaProgram = seedAppliedFixture();
 		const programApi = createDirectorApi(viaProgram.fake.editor);
 		const historyBeforeProgram =
@@ -517,8 +517,8 @@ describe("cutOnBeat as a program — applied parity against the live verb", () =
 			viaProgram.left,
 			viaProgram.right,
 		]);
-		expect(programGeometry).toEqual(verbGeometry);
-		// …and it is the geometry the macro's own wiring test pins.
+		// The geometry the macro's own wiring test (and the deleted verb, before
+		// it) pins.
 		expect(programGeometry[0].duration).toBeCloseTo(4.0, 5);
 		expect(programGeometry[1].startTime).toBeCloseTo(4.0, 5);
 		expect(programGeometry[1].trimStart).toBeCloseTo(0.1, 5);
